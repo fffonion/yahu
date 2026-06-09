@@ -107,12 +107,18 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.theme-card{display:none');
   });
 
-  test('mobile title bars stay compact to reserve vertical chat space', () => {
+  test('mobile title bars stay compact and no-drawer pages align titles with drawer pages', () => {
+    const source = app();
     const styles = css();
-    expect(styles).toContain('.chat-header,.image-toolbar{min-height:48px;padding:6px 10px;display:flex');
-    expect(styles).toContain('.chat-header h1,.image-toolbar h1{font-size:17px}');
-    expect(styles).toContain('.mobile-header-drawer{display:inline-grid;width:34px;height:34px;min-width:34px;border-radius:12px;flex:0 0 34px}');
-    expect(styles).toContain('.chat-header .header-theme-control>button,.image-toolbar .header-theme-control>button{height:34px;min-width:34px');
+    expect(source).toContain('chat-header header-no-drawer');
+    expect(source).toContain('image-toolbar header-no-drawer');
+    expect(styles).toContain('.chat-header,.image-toolbar{min-height:44px;padding:4px 9px;display:flex');
+    expect(styles).toContain('.chat-header h1,.image-toolbar h1{font-size:16px;line-height:1.15}');
+    expect(styles).toContain('.chat-header span,.image-toolbar span{font-size:11px;line-height:1.1}');
+    expect(styles).toContain('.image-actions>button{width:30px;height:30px}');
+    expect(styles).toContain('.mobile-header-drawer{display:inline-grid;width:30px;height:30px;min-width:30px;border-radius:10px;flex:0 0 30px}');
+    expect(styles).toContain('.chat-header .header-theme-control>button,.image-toolbar .header-theme-control>button{height:30px;min-width:30px');
+    expect(styles).toContain('.chat-header.header-no-drawer>div:first-of-type,.image-toolbar.header-no-drawer>div:first-of-type{margin-left:36px}');
   });
 
   test('mobile long press opens the session menu as right-click replacement', () => {
