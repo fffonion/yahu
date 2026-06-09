@@ -793,6 +793,7 @@ export default function App() {
 
   const sendMessage = async () => {
     if ((!input.trim() && attachments.length === 0) || busy) return;
+    setBusy(true); setStatus('Running');
     let sessionId = activeSessionId;
     let createdSession: Session | null = null;
     try {
@@ -807,13 +808,14 @@ export default function App() {
         setHasOlder(false);
         setHasNewer(false);
       }
-    } catch (err: any) { setStatus(`Cannot create session: ${err.message}`); return; }
+    } catch (err: any) { setStatus(`Cannot create session: ${err.message}`); setBusy(false); return; }
     const stick = isNearBottom(chatScrollRef.current, 180);
     let payloadAttachments: Attachment[] = attachments;
     try {
       payloadAttachments = await uploadAttachments(attachments);
     } catch (err: any) {
       setStatus(`Cannot upload attachments: ${err.message || err}`);
+      setBusy(false);
       return;
     }
     const userText = input.trim() || payloadAttachments.map((a) => a.name).join(', ');
@@ -826,7 +828,7 @@ export default function App() {
     setHasNewer(false);
     const sessionModel = createdSession?.model || activeSession?.model || activeSessionDetail?.model || model;
     const sessionProvider = createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || (selectedModelProvider && sessionModel === model ? selectedModelProvider : '');
-    setInput(''); setAttachments([]); setBusy(true); setStatus('Running');
+    setInput(''); setAttachments([]); setStatus('Running');
     if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
     try {
       const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)) });
