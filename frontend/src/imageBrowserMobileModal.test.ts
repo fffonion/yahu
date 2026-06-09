@@ -24,4 +24,17 @@ describe('mobile image modal metadata controls', () => {
     expect(styles).toContain('justify-content:center');
     expect(styles).toContain('bottom:calc(env(safe-area-inset-bottom, 0px) + 72px)');
   });
+
+  test('app confirmation dialogs render above the mobile image preview overlay', () => {
+    const styles = css();
+    const dialogZ = Number(styles.match(/\.dialog-backdrop\{[^}]*z-index:(\d+)/)?.[1]);
+    const mobileModalZ = Number(styles.match(/\.image-modal\{z-index:(\d+)\}/)?.[1]);
+    const mobileModalBarZ = Number(styles.match(/\.image-modal \.modalbar\{z-index:(\d+)\}/)?.[1]);
+
+    expect(Number.isFinite(dialogZ)).toBe(true);
+    expect(Number.isFinite(mobileModalZ)).toBe(true);
+    expect(Number.isFinite(mobileModalBarZ)).toBe(true);
+    expect(dialogZ).toBeGreaterThan(mobileModalZ);
+    expect(dialogZ).toBeGreaterThan(mobileModalBarZ);
+  });
 });
