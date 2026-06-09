@@ -9,6 +9,12 @@ describe('sidebar session list css', () => {
     expect(css).toContain('.left-body{min-height:0;min-width:0;overflow:hidden');
   });
 
+  test('insights period switches keep a reserved scroll gutter', () => {
+    const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+    expect(css).toContain('.insights-content{min-height:0;overflow-x:hidden;overflow-y:scroll;scrollbar-gutter:stable;');
+    expect(css).toContain('.insights-content{padding:10px 10px calc(86px + env(safe-area-inset-bottom,0px));gap:10px;grid-template-rows:auto auto auto auto;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;');
+  });
+
   test('desktop composer uses a flat input bar without the old inner card frame', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     expect(css).toContain('.composer-wrap{position:relative;z-index:150;padding:0;background:var(--surface);box-shadow:0 -8px 22px rgba(0,0,0,.08)}');
