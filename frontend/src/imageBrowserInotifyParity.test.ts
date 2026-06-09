@@ -16,14 +16,13 @@ const headless = () => [
   .map((file) => readFileSync(new URL(`../../src/backend/${file}`, import.meta.url), 'utf8'))
   .join('\n');
 const siblingStandalone = new URL('../../../hermes-image-browser/src/main.rs', import.meta.url).pathname;
-const STANDALONE_PATH = process.env.HERMES_IMAGE_BROWSER_SRC || (existsSync(siblingStandalone) ? siblingStandalone : '/dev/null');
-const standalone = () => {
-  const path = STANDALONE_PATH;
-  if (path === '/dev/null') {
-    throw new Error('Set HERMES_IMAGE_BROWSER_SRC env var to path of hermes-image-browser/src/main.rs');
-  }
-  return readFileSync(path, 'utf8');
+const bundledStandaloneReference = new URL('./fixtures/hermesImageBrowserInotifyReference.rs', import.meta.url).pathname;
+const standalonePath = () => {
+  if (process.env.HERMES_IMAGE_BROWSER_SRC) return process.env.HERMES_IMAGE_BROWSER_SRC;
+  if (existsSync(siblingStandalone)) return siblingStandalone;
+  return bundledStandaloneReference;
 };
+const standalone = () => readFileSync(standalonePath(), 'utf8');
 
 function extractFunction(source: string, name: string) {
   const marker = `fn ${name}(`;

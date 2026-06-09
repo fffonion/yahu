@@ -55,7 +55,7 @@ describe('workspace page file tree layout', () => {
 
   test('mobile drawer remains enabled on the workspace route so the file tree is reachable', () => {
     const source = app();
-    expect(source).toContain("if (mode !== 'chat' && mode !== 'cron' && mode !== 'workspace') return;");
-    expect(source).toContain("disabled={mode !== 'chat' && mode !== 'cron' && mode !== 'workspace'}");
+    expect(source).toContain("const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';");
+    expect(source).toContain('MobileHeaderDrawerButton');
   });
 });

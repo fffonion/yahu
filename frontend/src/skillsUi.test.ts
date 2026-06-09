@@ -8,17 +8,17 @@ const server = () => ['mod.rs', 'skills.rs']
   .map((file) => readFileSync(new URL(`../../src/backend/${file}`, import.meta.url), 'utf8'))
   .join('\n');
 
-describe('skills desktop UI', () => {
-  test('skills mode is a desktop-only rail entry and is omitted from mobile nav', () => {
+describe('skills UI', () => {
+  test('skills mode is available from desktop rail and mobile bottom nav', () => {
     const source = app();
     const styles = css();
     expect(source).toContain("type Mode = 'chat' | 'cron' | 'memory' | 'images' | 'workspace' | 'skills' | 'settings'");
     expect(source).toContain('rail-btn nav-skills');
     expect(source).toContain("setNavMode('skills')");
-    expect(source).not.toContain("aria-label=\"Skills\"><Star");
+    expect(source).toContain("aria-label=\"Skills\"><Star");
     expect(styles).toContain('.rail-btn.nav-skills.active');
     expect(styles).toContain('@media (max-width: 760px)');
-    expect(styles).toContain('.skills-main{display:none!important}');
+    expect(styles).not.toContain('.skills-main{display:none!important}');
   });
 
   test('skills mode lists skills, toggles enablement, and opens SKILL.md by default', () => {
