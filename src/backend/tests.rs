@@ -220,6 +220,38 @@ mod tests {
         assert_eq!(rows[0]["preview"], "token cache math");
     }
 
+    #[test]
+    fn session_watch_reads_api_server_data_and_legacy_messages_shapes() {
+        let data_body = serde_json::json!({
+            "object": "list",
+            "data": [{"id": 1, "role": "user", "content": "hi"}],
+        });
+        let legacy_body = serde_json::json!({
+            "session_id": "s1",
+            "messages": [{"id": 2, "role": "assistant", "content": "hello"}],
+        });
+
+        assert_eq!(session_message_items(&data_body).len(), 1);
+        assert_eq!(session_message_items(&legacy_body).len(), 1);
+        assert_eq!(session_message_items(&legacy_body)[0]["id"], 2);
+    }
+
+    #[test]
+    fn session_watch_emits_all_new_messages_in_id_order() {
+        let items = vec![
+            serde_json::json!({"id": 12, "role": "assistant", "content": "second"}),
+            serde_json::json!({"id": 10, "role": "user", "content": "old"}),
+            serde_json::json!({"id": 11, "role": "user", "content": "first"}),
+        ];
+
+        let (new_items, last_id) = unseen_session_messages(&items, 10);
+
+        assert_eq!(last_id, 12);
+        assert_eq!(new_items.len(), 2);
+        assert_eq!(new_items[0]["id"], 11);
+        assert_eq!(new_items[1]["id"], 12);
+    }
+
     #[tokio::test]
     async fn session_search_uses_api_server_messages_when_list_preview_does_not_match() {
         use std::collections::HashMap;

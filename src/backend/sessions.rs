@@ -259,6 +259,72 @@ async fn chat_messages_page(
     }))
     .into_response()
 }
+fn session_message_items(body: &serde_json::Value) -> Vec<serde_json::Value> {
+    body.get("data")
+        .or_else(|| body.get("messages"))
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn session_message_id(message: &serde_json::Value) -> Option<i64> {
+    message.get("id").and_then(|id| id.as_i64()).or_else(|| {
+        message
+            .get("id")
+            .and_then(|id| id.as_str())
+            .and_then(|id| id.parse::<i64>().ok())
+    })
+}
+
+fn latest_session_message_id(items: &[serde_json::Value]) -> i64 {
+    items.iter().filter_map(session_message_id).max().unwrap_or(0)
+}
+
+fn unseen_session_messages(
+    items: &[serde_json::Value],
+    last_id: i64,
+) -> (Vec<serde_json::Value>, i64) {
+    let mut pairs: Vec<(i64, serde_json::Value)> = items
+        .iter()
+        .filter_map(|message| session_message_id(message).map(|id| (id, message.clone())))
+        .filter(|(id, _)| *id > last_id)
+        .collect();
+    pairs.sort_by_key(|(id, _)| *id);
+    let next_last_id = pairs
+        .iter()
+        .map(|(id, _)| *id)
+        .max()
+        .unwrap_or(last_id);
+    (
+        pairs.into_iter().map(|(_, message)| message).collect(),
+        next_last_id,
+    )
+}
+
+async fn fetch_session_messages_for_watch(
+    client: &reqwest::Client,
+    api_url: &str,
+    api_key: &Option<String>,
+    session_id: &str,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let mut req = client.get(format!(
+        "{}/api/sessions/{}/messages?limit=24",
+        api_url.trim_end_matches('/'),
+        path_segment(session_id)
+    ));
+    if let Some(key) = api_key
+        && !key.is_empty()
+    {
+        req = req.bearer_auth(key);
+    }
+    let resp = req.send().await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("message watch request failed: {}", resp.status());
+    }
+    let body = resp.json::<serde_json::Value>().await?;
+    Ok(session_message_items(&body))
+}
+
 async fn chat_watch(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
@@ -267,26 +333,18 @@ async fn chat_watch(
     let api_url = state.api_url.clone();
     let api_key = state.api_key.clone();
     let stream = async_stream::stream! {
-        let mut last_id: i64 = 0;
+        let mut last_id: i64 = match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
+            Ok(items) => latest_session_message_id(&items),
+            Err(_) => 0,
+        };
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                    let mut req = client.get(format!("{}/api/sessions/{}/messages?limit=8", api_url, path_segment(&session_id)));
-                    if let Some(key) = &api_key {
-                        if !key.is_empty() { req = req.bearer_auth(key); }
-                    }
-                    if let Ok(resp) = req.send().await {
-                        if let Ok(body) = resp.json::<serde_json::Value>().await {
-                            if let Some(items) = body.get("data").and_then(|v| v.as_array()) {
-                                for msg in items.iter().rev() {
-                                    if let Some(id) = msg.get("id").and_then(|id| id.as_i64()) {
-                                        if id > last_id {
-                                            last_id = id;
-                                            yield Ok(SseEvent::default().data(msg.to_string()));
-                                        }
-                                    }
-                                }
-                            }
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    if let Ok(items) = fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
+                        let (new_items, next_last_id) = unseen_session_messages(&items, last_id);
+                        last_id = next_last_id;
+                        for msg in new_items {
+                            yield Ok(SseEvent::default().data(msg.to_string()));
                         }
                     }
                 }

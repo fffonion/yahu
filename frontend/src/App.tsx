@@ -55,6 +55,7 @@ const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';
 const MESSAGE_PAGE = 24;
 const MESSAGE_WINDOW = 120;
+const OTHER_PLATFORM_PENDING_ID = 'other-platform-pending';
 const initialRoute = getCurrentHashRoute();
 
 const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
@@ -206,6 +207,17 @@ function normalizeMessage(raw: any): ChatMessage {
     content: normalizeContent(raw.content),
     timestamp: raw.timestamp,
   };
+}
+function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  if (prev.some((m) => m.id === msg.id)) return prev;
+  const withoutStalePending = msg.role === 'assistant'
+    ? prev.filter((m) => !(m.pending && m.id === OTHER_PLATFORM_PENDING_ID))
+    : prev;
+  const next = [...withoutStalePending, msg];
+  if (msg.role === 'user' && !next.some((m) => m.pending && m.id === OTHER_PLATFORM_PENDING_ID)) {
+    next.push({ id: OTHER_PLATFORM_PENDING_ID, role: 'assistant', content: '', pending: true });
+  }
+  return next.slice(-MESSAGE_WINDOW);
 }
 function isNearBottom(el: HTMLElement | null, px = 120) {
   if (!el) return true;
@@ -708,10 +720,7 @@ export default function App() {
       try {
         const raw = JSON.parse(ev.data);
         const msg = normalizeMessage(raw);
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, msg];
-        });
+        setMessages((prev) => mergeWatchedMessage(prev, msg));
         scrollToBottom();
         setStatus(t('chat.streamingOther'));
       } catch { /* ignore */ }
