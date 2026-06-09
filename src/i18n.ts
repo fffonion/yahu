@@ -176,6 +176,16 @@ const LANG_KEY = 'lang';
 
 let currentLang: Lang = 'en';
 
+function detectBrowserLang(): Lang {
+  try {
+    const nav = (typeof navigator !== 'undefined' && navigator.language) || '';
+    if (nav.startsWith('zh-TW') || nav.startsWith('zh-HK')) return 'zh-TW';
+    if (nav.startsWith('zh')) return 'zh-CN';
+    if (nav.startsWith('ja')) return 'ja';
+    return 'en';
+  } catch { return 'en'; }
+}
+
 export function initLang(): Lang {
   try {
     const stored = localStorage.getItem(LANG_KEY);
@@ -183,8 +193,12 @@ export function initLang(): Lang {
       currentLang = stored;
       return stored;
     }
-  } catch {}
-  return currentLang;
+    // First visit: detect from browser, persist once
+    const detected = detectBrowserLang();
+    currentLang = detected;
+    try { localStorage.setItem(LANG_KEY, detected); } catch {}
+    return detected;
+  } catch { return currentLang; }
 }
 
 export function setLang(lang: Lang) {
