@@ -23,6 +23,9 @@ describe('composer model selector', () => {
     expect(source).toContain('{ ...old, model: resolvedModel, provider }');
     expect(source).toContain('{ ...s, model: resolvedModel, provider }');
     expect(source).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
+    expect(source).toContain('setModelState((current) => activeModel !== current ? activeModel : current)');
+    expect(source).toContain('}, [activeSession?.model]);');
+    expect(source).not.toContain('if (activeModel && activeModel !== model) setModelState(activeModel);');
     expect(source).not.toContain('body: JSON.stringify({ model: resolvedModel })');
     expect(source).toContain('setModel={changeSessionModel}');
   });
@@ -48,8 +51,18 @@ describe('composer model selector', () => {
     const zIndexes = dropdownMenuRules
       .map((rule) => Number(rule.match(/z-index:(\d+)/)?.[1] || 0))
       .filter(Boolean);
-    expect(composerBoxRules.join('\n')).not.toContain('overflow:hidden');
     expect(composerBoxRules.join('\n')).toContain('overflow:visible');
     expect(Math.max(...zIndexes)).toBeGreaterThanOrEqual(120);
+  });
+
+  test('mobile dropdowns escape the composer overflow and sit above bottom navigation', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("${open ? 'open' : ''}");
+    expect(styles).toContain('.composer-wrap{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:160}');
+    expect(styles).toContain('.composer-box,.composer-footer{overflow:visible}');
+    expect(styles).toContain('.dropdown-control.open{z-index:170}');
+    expect(styles).toContain('.dropdown-control.open .dropdown-menu{z-index:180}');
+    expect(styles).not.toContain('.main-panel,.chat-header,.chat-scroll,.composer-wrap{min-width:0;width:100%;max-width:100vw;overflow-x:hidden}');
   });
 });

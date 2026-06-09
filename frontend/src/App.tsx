@@ -403,8 +403,8 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId) || (activeSessionDetail?.id === activeSessionId ? activeSessionDetail : undefined);
   useEffect(() => {
     const activeModel = realModelOrEmpty(activeSession?.model);
-    if (activeModel && activeModel !== model) setModelState(activeModel);
-  }, [activeSession?.model, model]);
+    if (activeModel) setModelState((current) => activeModel !== current ? activeModel : current);
+  }, [activeSession?.model]);
 
   const filteredSessions = useMemo(() => {
     const pinned = sessions.filter((s) => pinnedIds.has(s.id));
@@ -1184,7 +1184,7 @@ function DropdownControl({ icon, ariaLabel, label = '', value, options, onChange
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [open]);
-  return <div ref={rootRef} className={`dropdown-control ${wide ? 'wide' : ''}`}>
+  return <div ref={rootRef} className={`dropdown-control ${wide ? 'wide' : ''} ${open ? 'open' : ''}`}>
     <button type="button" className="dropdown-trigger" aria-label={ariaLabel} aria-expanded={open} onClick={() => { setOpen((v) => !v); setQuery(''); }}>
       <span className="dropdown-icon">{icon}</span>
       <span className="dropdown-copy">{!hideLabel && <span className="dropdown-label">{label || ariaLabel}</span>}<span className="dropdown-value">{current.label}</span></span>
