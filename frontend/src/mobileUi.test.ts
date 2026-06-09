@@ -123,14 +123,18 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.send-btn,.files-chip,.image-actions button,.modalbar button,.cron-detail-actions button,.settings-content button');
   });
 
-  test('mobile agent replies adapt to the viewport while tool rows keep their icon', () => {
+  test('mobile agent replies adapt to the viewport while tool icons live inside full-width cards', () => {
+    const source = app();
     const styles = css();
+    expect(source).toContain('<span className="tool-inline-icon">{getToolIcon(toolName)}</span>');
     expect(styles).toContain('.msg-row.assistant,.msg-row.system{grid-template-columns:minmax(0,1fr);width:100%;max-width:none}');
     expect(styles).toContain('.msg-row.assistant .avatar,.msg-row.system .avatar{display:none}');
     expect(styles).toContain('.msg-row.assistant .msg-content,.msg-row.system .msg-content{grid-column:1;min-width:0;max-width:100%}');
-    expect(styles).toContain('.msg-row.tool{grid-template-columns:32px minmax(0,1fr);width:100%;max-width:100%;align-items:start}');
-    expect(styles).toContain('.msg-row.tool .avatar{display:grid;width:32px;height:32px}');
-    expect(styles).toContain('.msg-row.tool .msg-content{grid-column:2;min-width:0;max-width:100%}');
+    expect(styles).toContain('.tool-inline-icon{display:none;color:var(--accent);place-items:center}');
+    expect(styles).toContain('.msg-row.tool{grid-template-columns:minmax(0,1fr);width:100%;max-width:100%;align-items:start}');
+    expect(styles).toContain('.msg-row.tool .avatar{display:none}');
+    expect(styles).toContain('.msg-row.tool .msg-content{grid-column:1;min-width:0;max-width:100%}');
+    expect(styles).toContain('.msg-row.tool .tool-inline-icon{display:grid;grid-column:1;grid-row:1 / 3}');
     expect(styles).toContain('.msg-row.assistant .msg-body pre,.msg-row.system .msg-body pre,.msg-row.tool .msg-body pre{white-space:pre-wrap;overflow-wrap:anywhere}');
   });
 
@@ -145,7 +149,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.msg-row.user .msg-content{grid-column:1;justify-self:end;max-width:92%}');
     expect(styles).toContain('.msg-body pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:hidden}');
     expect(styles).toContain('.msg-body pre code{white-space:inherit;overflow-wrap:anywhere;word-break:break-word}');
-    expect(styles).toContain('.tool-summary{grid-template-columns:minmax(0,1fr) 20px;padding:10px 12px;gap:6px}');
+    expect(styles).toContain('.tool-summary{grid-template-columns:24px minmax(0,1fr) 20px;padding:10px 12px;gap:6px}');
     expect(styles).toContain('.tool-title,.tool-subtitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}');
     expect(styles).toContain('.session-header-times{display:none}');
   });

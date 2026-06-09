@@ -1147,6 +1147,7 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
     <div className="avatar">{getToolIcon(toolName)}</div>
     <div className="msg-content tool-card">
       <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+        <span className="tool-inline-icon">{getToolIcon(toolName)}</span>
         <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>
         <span className="tool-subtitle">{summary.subtitle}</span>
         <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
