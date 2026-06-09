@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Circle as SelectionMark, CircleHelp, Code, Download, Eye, FileText, Folder, Globe, History, Home, Image as ImageIcon, Info, Layout, LineChart, List, MessageSquare, Network, Palette, Paperclip, Pencil, Pin, PinOff, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Circle as SelectionMark, CircleHelp, Code, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layout, LineChart, List, MessageSquare, Network, Palette, Paperclip, Pencil, Pin, PinOff, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
@@ -15,8 +15,10 @@ import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n'
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
 type Role = 'user' | 'assistant' | 'system' | 'tool';
+type FollowUpBehaviour = 'queue' | 'steer';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
 type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string };
+type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
@@ -34,6 +36,8 @@ type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: 
 
 const DEFAULT_API_BASE = '/hermes';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
+const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
+const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
 const THEME_OPTIONS: Array<{ id: Theme; label: string }> = [
   { id: 'hermes-light', label: 'Hermes Light' },
   { id: 'hermes-dark', label: 'Hermes Dark' },
@@ -54,6 +58,15 @@ const normalizeTheme = (value: string | null): Theme => {
 };
 const isDarkTheme = (value: Theme) => DARK_THEMES.has(value);
 const themeLabel = (value: Theme) => THEME_OPTIONS.find((item) => item.id === value)?.label || value;
+const normalizeFollowUpBehaviour = (value: string | null): FollowUpBehaviour => value === 'steer' ? 'steer' : 'queue';
+const readFollowUpQueues = (): Record<string, FollowUpQueueItem[]> => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FOLLOW_UP_QUEUES_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, Array.isArray(value) ? value.filter((item: any) => item && typeof item.text === 'string').map((item: any) => ({ id: String(item.id || uid('fu')), text: item.text, createdAt: Number(item.createdAt || Date.now()) })) : []]));
+  } catch { return {}; }
+};
+const followUpQueueKey = (sessionId: string) => sessionId || DRAFT_SESSION_ID;
 const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';
 const MESSAGE_PAGE = 24;
@@ -321,6 +334,8 @@ export default function App() {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [model, setModelState] = useState(readStoredModel);
   const [selectedModelProvider, setSelectedModelProvider] = useState('');
+  const [followUpBehaviour, setFollowUpBehaviour] = useState<FollowUpBehaviour>(() => normalizeFollowUpBehaviour(localStorage.getItem(FOLLOW_UP_BEHAVIOUR_KEY)));
+  const [followUpQueues, setFollowUpQueues] = useState<Record<string, FollowUpQueueItem[]>>(readFollowUpQueues);
   const [effort, setEffort] = useState<(typeof EFFORTS)[number]>(() => (localStorage.getItem('effort') as (typeof EFFORTS)[number]) || 'medium');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || '' : '');
@@ -424,6 +439,7 @@ export default function App() {
   useEffect(() => localStorage.setItem('apiBase', apiBase), [apiBase]);
   useEffect(() => localStorage.setItem('apiKey', apiKey), [apiKey]);
   useEffect(() => { const next = realModelOrEmpty(model); if (next) localStorage.setItem('model', next); }, [model]);
+  useEffect(() => localStorage.setItem(FOLLOW_UP_BEHAVIOUR_KEY, followUpBehaviour), [followUpBehaviour]);
   useEffect(() => localStorage.setItem('effort', effort), [effort]);
   useEffect(() => localStorage.setItem('showReasoning', showReasoning ? '1' : '0'), [showReasoning]);
   useEffect(() => localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds))), [pinnedIds]);
@@ -813,12 +829,66 @@ export default function App() {
     const saved = Array.isArray(body?.files) ? body.files : [];
     return items.map((att, index) => ({ ...att, uploadedPath: saved[index]?.path || att.uploadedPath }));
   };
-  const buildPayload = (items: Attachment[]) => buildChatInputWithAttachments(input, items);
+  const buildPayload = (text: string, items: Attachment[]) => buildChatInputWithAttachments(text, items);
+  const followUpQueue = followUpQueues[followUpQueueKey(activeSessionId)] || [];
+  const persistFollowUpQueues = (queues: Record<string, FollowUpQueueItem[]>) => {
+    const next = Object.fromEntries(Object.entries(queues).filter(([, items]) => items.length > 0));
+    localStorage.setItem(FOLLOW_UP_QUEUES_KEY, JSON.stringify(next));
+    return next;
+  };
+  const updateFollowUpQueue = (sessionId: string, updater: (items: FollowUpQueueItem[]) => FollowUpQueueItem[]) => {
+    const key = followUpQueueKey(sessionId);
+    setFollowUpQueues((old) => {
+      const next = { ...old, [key]: updater(old[key] || []) };
+      return persistFollowUpQueues(next);
+    });
+  };
+  const enqueueFollowUp = (text: string, sessionId = activeSessionId) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    updateFollowUpQueue(sessionId, (items) => [...items, { id: uid('fu'), text: trimmed, createdAt: Date.now() }]);
+    setStatus(`Queued follow-up: ${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`);
+  };
+  const removeQueuedFollowUp = (sessionId: string, itemId: string) => updateFollowUpQueue(sessionId, (items) => items.filter((item) => item.id !== itemId));
+  const moveQueuedItem = (itemId: string, direction: -1 | 1) => updateFollowUpQueue(activeSessionId, (items) => {
+    const index = items.findIndex((item) => item.id === itemId);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= items.length) return items;
+    const next = [...items];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    return next;
+  });
+  const shiftNextFollowUp = (sessionId: string) => {
+    const key = followUpQueueKey(sessionId);
+    const current = readFollowUpQueues();
+    const [nextItem, ...rest] = current[key] || [];
+    if (!nextItem) return null;
+    const next = persistFollowUpQueues({ ...current, [key]: rest });
+    setFollowUpQueues(next);
+    return nextItem;
+  };
+  const steerFollowUp = async (text: string) => {
+    const trimmed = text.trim();
+    const sessionId = activeSessionId;
+    if (!trimmed) return;
+    if (!sessionId || sessionId === DRAFT_SESSION_ID) { enqueueFollowUp(trimmed, sessionId); return; }
+    try {
+      const sessionModel = activeSession?.model || activeSessionDetail?.model || model;
+      const sessionProvider = activeSession?.provider || activeSessionDetail?.provider || (selectedModelProvider && sessionModel === model ? selectedModelProvider : '');
+      const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(sessionId)}/chat`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(`/steer ${text}`, sessionModel, effort, sessionProvider)) });
+      if (!res.ok) throw new Error(await res.text());
+      setStatus(`Steered: ${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`);
+    } catch (err: any) {
+      setStatus(`Steer failed: ${err.message || err}`);
+      enqueueFollowUp(trimmed, sessionId);
+    }
+  };
 
-  const sendMessage = async () => {
-    if ((!input.trim() && attachments.length === 0) || busy) return;
+  const runChatTurn = async (turnText: string, turnAttachments: Attachment[], initialSessionId = activeSessionId, clearComposer = true) => {
+    const text = turnText.trim();
+    if (!text && turnAttachments.length === 0) return;
     setBusy(true); setStatus('Running');
-    let sessionId = activeSessionId;
+    let sessionId = initialSessionId;
     let createdSession: Session | null = null;
     try {
       if (!sessionId || sessionId === DRAFT_SESSION_ID) {
@@ -834,25 +904,26 @@ export default function App() {
       }
     } catch (err: any) { setStatus(`Cannot create session: ${err.message}`); setBusy(false); return; }
     const stick = isNearBottom(chatScrollRef.current, 180);
-    let payloadAttachments: Attachment[] = attachments;
+    let payloadAttachments: Attachment[] = turnAttachments;
     try {
-      payloadAttachments = await uploadAttachments(attachments);
+      payloadAttachments = await uploadAttachments(turnAttachments);
     } catch (err: any) {
       setStatus(`Cannot upload attachments: ${err.message || err}`);
       setBusy(false);
       return;
     }
-    const userText = input.trim() || payloadAttachments.map((a) => a.name).join(', ');
+    const userText = text || payloadAttachments.map((a) => a.name).join(', ');
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
     const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true };
-    const payloadInput = buildPayload(payloadAttachments);
+    const payloadInput = buildPayload(text, payloadAttachments);
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
     setHasNewer(false);
     const sessionModel = createdSession?.model || activeSession?.model || activeSessionDetail?.model || model;
     const sessionProvider = createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || (selectedModelProvider && sessionModel === model ? selectedModelProvider : '');
-    setInput(''); setAttachments([]); setStatus('Running');
+    if (clearComposer) { setInput(''); setAttachments([]); }
+    setStatus('Running');
     if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
     try {
       const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)) });
@@ -922,7 +993,32 @@ export default function App() {
     } catch (err: any) {
       setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: `Request failed: ${err.message}` } : m));
       setStatus(`Error: ${err.message}`);
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+      const nextQueued = shiftNextFollowUp(sessionId);
+      if (nextQueued) window.setTimeout(() => runChatTurn(nextQueued.text, [], sessionId, false), 0);
+    }
+  };
+
+  const sendMessage = async () => {
+    const text = input.trim();
+    if (!text && attachments.length === 0) return;
+    if (busy) {
+      if (!text) return;
+      if (followUpBehaviour === 'steer') await steerFollowUp(text);
+      else enqueueFollowUp(text);
+      setInput('');
+      return;
+    }
+    await runChatTurn(text, attachments);
+  };
+  const steerQueuedItem = async (item: FollowUpQueueItem) => {
+    removeQueuedFollowUp(activeSessionId, item.id);
+    await steerFollowUp(item.text);
+  };
+  const editQueuedItem = (item: FollowUpQueueItem) => {
+    removeQueuedFollowUp(activeSessionId, item.id);
+    setInput(item.text);
   };
 
   const downloadEntry = useCallback((entry: WorkspaceEntry) => { const a = document.createElement('a'); a.href = `/workspace/file?path=${encodeURIComponent(entry.path)}&download=1`; a.download = entry.name; a.click(); }, []);
@@ -1073,7 +1169,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onMoveQueuedItem={moveQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
         <WorkspaceAside workspacePath={workspacePath} workspaceEntries={workspaceEntries} parentPath={parentPath} preview={preview} loadWorkspace={loadWorkspace} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} />}
@@ -1085,7 +1181,7 @@ export default function App() {
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} />}
-      {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} />}
+      {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} aria-label="Chat"><MessageSquare /></button>
@@ -1402,6 +1498,7 @@ function ChatMain(props: any) {
       {props.messages.map((m: ChatMessage) => <MessageView key={m.id} message={m} showReasoning={props.showReasoning} />)}
     </section>
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
+      <FollowUpQueueView items={props.followUpQueue || []} onSteer={props.onSteerQueuedItem} onEdit={props.onEditQueuedItem} onMove={props.onMoveQueuedItem} />
       <div className="attachments">{props.attachments.map((a: Attachment) => <span className={`att ${a.kind}`} key={a.id}>{a.kind === 'image' ? <ImageIcon /> : <FileText />} {a.name} <button onClick={() => props.setAttachments((old: Attachment[]) => old.filter((x) => x.id !== a.id))}><X /></button></span>)}</div>
       <div className="composer-box" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); props.onFiles(e.dataTransfer.files); }}>
         <textarea value={props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) props.sendMessage(); }} />
@@ -1411,11 +1508,26 @@ function ChatMain(props: any) {
           <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
           <button type="button" className={`icon-btn reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={() => props.setShowReasoning(!props.showReasoning)}><Eye /></button>
-          <button className="send-btn mobile-icon-only" disabled={props.busy} onClick={props.sendMessage} aria-label={props.busy ? 'Running' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Running' : 'Send'}</span></button>
+          <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? 'Queue follow-up' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Queue' : 'Send'}</span></button>
         </div>
       </div>
     </footer>
   </main>;
+}
+
+function FollowUpQueueView({ items, onSteer, onEdit, onMove }: { items: FollowUpQueueItem[]; onSteer: (item: FollowUpQueueItem) => void; onEdit: (item: FollowUpQueueItem) => void; onMove: (id: string, direction: -1 | 1) => void }) {
+  if (!items.length) return null;
+  return <div className="followup-queue" aria-label="Queued follow-ups">
+    {items.map((item, index) => <div className="followup-item" key={item.id} title={item.text}>
+      <span className="followup-text">{item.text}</span>
+      <button type="button" className="followup-action" onClick={() => onSteer(item)} title="Steer now">Steer</button>
+      <button type="button" className="followup-action" onClick={() => onEdit(item)} title="Edit queued follow-up"><Pencil /></button>
+      <span className="followup-sort" aria-label="Sort queued follow-up">
+        <button type="button" disabled={index === 0} onClick={() => onMove(item.id, -1)} title="Move up"><GripVertical /></button>
+        <button type="button" disabled={index === items.length - 1} onClick={() => onMove(item.id, 1)} title="Move down"><GripVertical /></button>
+      </span>
+    </div>)}
+  </div>;
 }
 
 function WorkspaceAside(props: any) {
@@ -1520,14 +1632,14 @@ function MemoryPanel({ setStatus }: { setStatus: (v: string) => void }) {
   const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); setStatus(res.ok ? t('memory.saved') : await res.text()); };
   return <section className="admin-content memory-grid"><label><span>MEMORY.md</span><textarea value={doc.memory} onChange={(e) => setDoc({ ...doc, memory: e.target.value })}/></label><label><span>USER.md</span><textarea value={doc.user} onChange={(e) => setDoc({ ...doc, user: e.target.value })}/></label><button className="save-memory" onClick={save}>{t('memory.save')}</button></section>;
 }
-function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void; apiKey: string; setApiKey: (v: string) => void; loadModels: () => void; loadSessions: () => void; theme: Theme; setTheme: (v: Theme) => void; lang: Lang; setLang: (v: Lang) => void }) {
+function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void; apiKey: string; setApiKey: (v: string) => void; loadModels: () => void; loadSessions: () => void; theme: Theme; setTheme: (v: Theme) => void; lang: Lang; setLang: (v: Lang) => void; followUpBehaviour: FollowUpBehaviour; setFollowUpBehaviour: (v: FollowUpBehaviour) => void }) {
   const LANG_OPTIONS: Array<{ id: Lang; label: string }> = [
     { id: 'en', label: 'English' },
     { id: 'zh-CN', label: '简体中文' },
     { id: 'zh-TW', label: '繁體中文' },
     { id: 'ja', label: '日本語' },
   ];
-  return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>API, language, and theme</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button></section></main>;
+  return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>API, language, theme, and follow-ups</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">Queue</option><option value="steer">Steer</option></select></label><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button></section></main>;
 }
 
 function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void }) {

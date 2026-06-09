@@ -134,6 +134,7 @@ const translations: Record<string, Record<string, string>> = {
   'settings.apiKey': { en: 'External API key', 'zh-CN': '外部 API key', 'zh-TW': '外部 API key', ja: '外部APIキー' },
   'settings.language': { en: 'Language', 'zh-CN': '语言', 'zh-TW': '語言', ja: '言語' },
   'settings.theme': { en: 'Theme', 'zh-CN': '主题', 'zh-TW': '主題', ja: 'テーマ' },
+  'settings.followUpBehaviour': { en: 'Follow-up behaviour', 'zh-CN': '追问行为', 'zh-TW': '追問行為', ja: 'フォローアップ動作' },
   'settings.refreshConn': { en: 'Refresh connection', 'zh-CN': '刷新连接', 'zh-TW': '重新整理連線', ja: '接続を更新' },
 
   // Navigation
