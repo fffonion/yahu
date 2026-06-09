@@ -280,7 +280,7 @@ function flattenModelOptions(body: any): ModelOption[] {
 export default function App() {
   const [mode, setMode] = useState<Mode>(initialRoute.mode || 'chat');
   const [lang, setLangState] = useState<Lang>(initLang);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialRoute.mode === 'images');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'settings');
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => normalizeTheme(localStorage.getItem('theme')));
@@ -299,7 +299,7 @@ export default function App() {
   const [input, setInput] = useState('');
   const [filter, setFilter] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [status, setStatus] = useState('Disconnected');
+  const [status, setStatus] = useState(t('chat.disconnected'));
   const [busy, setBusy] = useState(false);
   const [workspacePath, setWorkspacePath] = useState('');
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
@@ -324,6 +324,7 @@ export default function App() {
   const [cronDeliver, setCronDeliver] = useState('');
   const [cronEditingId, setCronEditingId] = useState(initialRoute.mode === 'cron' ? initialRoute.jobId || '' : '');
   const [skillFilter, setSkillFilter] = useState('');
+  const [expandedSkillCats, setExpandedSkillCats] = useState<Set<string>>(new Set());
   const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
   const chatScrollRef = useRef<HTMLElement | null>(null);
@@ -401,7 +402,7 @@ export default function App() {
         setModels(list);
         if (!current) setModelState(list[0].id);
       }
-      setStatus('Connected');
+      setStatus(t('chat.connected'));
     } catch (err: any) { setStatus(`Models unavailable: ${err.message}`); }
   }, [activeSession?.model, model]);
 
@@ -417,7 +418,7 @@ export default function App() {
       const list: Session[] = body.data || [];
       setSessions(list);
       if (!activeSessionId && list.length) setActiveSessionId(list[0].id);
-      setStatus('Connected');
+      setStatus(t('chat.connected'));
     } catch (err: any) { setStatus(`Sessions unavailable: ${err.message}`); }
   }, [activeSessionId, filter, headers]);
 
@@ -591,8 +592,7 @@ export default function App() {
       setSkillList(list);
       const current = list.find((skill) => skill.name === selectedSkillName) || list[0];
       if (current && !selectedSkillName) await selectSkill(current);
-      setStatus('Skills loaded');
-    } catch (err: any) { setStatus(`Skills unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(`Skills: ${err.message}`); }
   }, [selectSkill, selectedSkillName]);
   const toggleSkillEnabled = useCallback(async (skill: Skill, enabled: boolean) => {
     const res = await fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
@@ -698,7 +698,7 @@ export default function App() {
           return [...prev, msg];
         });
         scrollToBottom();
-        setStatus('Streaming from other platform');
+        setStatus(t('chat.streamingOther'));
       } catch { /* ignore */ }
     };
     es.onerror = () => { es.close(); watchSourceRef.current = null; };
@@ -819,7 +819,7 @@ export default function App() {
       // before flipping `pending: false`, so the caret / shimmer / glow run for the full duration.
       await animator.finish(finalText);
       setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content } : m));
-      setStatus('Connected');
+      setStatus(t('chat.connected'));
       await refreshSessionTitleOnce(sessionId);
       await loadWorkspace(workspacePath);
     } catch (err: any) {
@@ -880,7 +880,7 @@ export default function App() {
   };
   const renameSession = async (session: Session) => {
     setSessionMenu(null);
-    const nextTitle = await requestPrompt('Rename session', 'Choose a new title for this session.', sessionDisplayTitle(session));
+    const nextTitle = await requestPrompt(t('chat.renameTitle'), t('chat.renameTitle'), sessionDisplayTitle(session));
     if (nextTitle === null) return;
     const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(session.id)}`), { method: 'PATCH', headers: headers(), body: JSON.stringify({ title: nextTitle }) });
     if (!res.ok) { setStatus(`Rename failed: ${await res.text()}`); return; }
@@ -893,7 +893,7 @@ export default function App() {
   };
   const deleteSession = async (session: Session) => {
     setSessionMenu(null);
-    if (!await requestConfirm('Delete session', `Delete session “${sessionDisplayTitle(session)}”?`, true)) return;
+    if (!await requestConfirm(t('chat.deleteTitle'), t('chat.deleteConfirm'), true)) return;
     const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(session.id)}`), { method: 'DELETE', headers: headers(false) });
     if (!res.ok) { setStatus(`Delete failed: ${await res.text()}`); return; }
     setPinnedIds((old) => { const next = new Set(old); next.delete(session.id); return next; });
@@ -941,7 +941,7 @@ export default function App() {
   const setNavMode = (next: Mode, collapse = false) => {
     if (next === 'skills' && window.innerWidth <= 760) return;
     setMode(next);
-    setSidebarCollapsed(collapse);
+    setSidebarCollapsed(collapse || next === 'memory' || next === 'settings');
     if (next !== 'chat' && next !== 'cron') setMobileSidebarOpen(false);
     const route: HashRoute = { mode: next } as HashRoute;
     writeHashRoute(route);
@@ -952,28 +952,28 @@ export default function App() {
     <div className={`app-shell ${wideMode ? 'wide-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''}`}>
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="rail">
-          <button className="rail-btn muted" onClick={() => setSidebarCollapsed((v) => !v)} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{sidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}</button>
-          <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} title="Chat"><MessageSquare /></button>
-          <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} title="Cron"><CalendarClock /></button>
-          <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} title="Memory"><Brain /></button>
-          <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} title="Skills"><Star /></button>
-          <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} title="Images"><ImageIcon /></button>
-          <button className={`rail-btn nav-workspace ${mode === 'workspace' ? 'active' : ''}`} onClick={() => { setNavMode('workspace'); loadWorkspace(workspacePath); }} title="Workspace"><Folder /></button>
-          <button className={`rail-btn nav-settings ${mode === 'settings' ? 'active' : ''}`} onClick={() => setNavMode('settings')} title="Settings"><Settings /></button>
+          <button className="rail-btn muted" onClick={() => setSidebarCollapsed((v) => !v)} title={sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>{sidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}</button>
+          <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} title={t('nav.chat')}><MessageSquare /></button>
+          <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} title={t('nav.cron')}><CalendarClock /></button>
+          <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} title={t('nav.memory')}><Brain /></button>
+          <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} title={t('nav.skills')}><Star /></button>
+          <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} title={t('nav.images')}><ImageIcon /></button>
+          <button className={`rail-btn nav-workspace ${mode === 'workspace' ? 'active' : ''}`} onClick={() => { setNavMode('workspace'); loadWorkspace(workspacePath); }} title={t('nav.workspace')}><Folder /></button>
+          <button className={`rail-btn nav-settings ${mode === 'settings' ? 'active' : ''}`} onClick={() => setNavMode('settings')} title={t('nav.settings')}><Settings /></button>
         </div>
         {!sidebarCollapsed && <div className="left-body">
-          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} startDraftSession={startDraftSession} setStatus={setStatus} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={setActiveSessionId} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} filter={skillFilter} setFilter={setSkillFilter} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
+          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} startDraftSession={startDraftSession} setStatus={setStatus} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={setActiveSessionId} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
         </div>}
         {!sidebarCollapsed && <ThemeCard theme={theme} setTheme={setTheme} />}
       </aside>
       {mobileSidebarOpen && <button type="button" className="mobile-sidebar-backdrop" aria-label="Close list" onClick={closeMobileSidebar} />}
       {sessionMenu && <div className="session-context-menu" role="menu" style={{ left: sessionMenu.x, top: sessionMenu.y }} onContextMenu={(event) => event.preventDefault()}>
-        <button type="button" role="menuitem" onClick={() => renameSession(sessionMenu.session)}><Pencil /> Rename session</button>
-        <button type="button" role="menuitem" className="danger" onClick={() => deleteSession(sessionMenu.session)}><Trash2 /> Delete session</button>
+        <button type="button" role="menuitem" onClick={() => renameSession(sessionMenu.session)}><Pencil /> {t('chat.rename')}</button>
+        <button type="button" role="menuitem" className="danger" onClick={() => deleteSession(sessionMenu.session)}><Trash2 /> {t('chat.delete')}</button>
       </div>}
       {workspaceMenu && <div className="workspace-context-menu" role="menu" style={{ left: workspaceMenu.x, top: workspaceMenu.y }} onContextMenu={(event) => event.preventDefault()}>
-        <button type="button" role="menuitem" onClick={() => renameWorkspaceEntry(workspaceMenu.entry)}><Pencil /> Rename item</button>
-        <button type="button" role="menuitem" className="danger" onClick={() => deleteWorkspaceEntry(workspaceMenu.entry)}><Trash2 /> Delete item</button>
+        <button type="button" role="menuitem" onClick={() => renameWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.renameItem')}</button>
+        <button type="button" role="menuitem" className="danger" onClick={() => deleteWorkspaceEntry(workspaceMenu.entry)}><Trash2 /> {t('workspace.deleteItem')}</button>
       </div>}
 
       {mode === 'chat' && <>
@@ -1046,12 +1046,12 @@ function ModeSidebar({ mode }: { mode: Mode }) {
 }
 function ChatSidebar(props: { filter: string; setFilter: (v: string) => void; startDraftSession: () => void; setStatus: (v: string) => void; pinnedSessions: Session[]; normalSessions: Session[]; activeSessionId: string; setActiveSessionId: (v: string) => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void; pinnedIds: Set<string>; togglePin: (id: string) => void; openSessionMenu: (session: Session, event: React.MouseEvent) => void; openSessionMenuAt: (session: Session, x: number, y: number) => void }) {
   const activateSession = (id: string) => { props.setActiveSessionId(id); props.writeHashRoute({ mode: 'chat', sessionId: id }); buildHashRoute({ mode: 'chat', sessionId: id }); props.closeMobileSidebar(); };
-  return <><div className="session-searchbar"><button className="new-chat-btn" aria-label="New conversation" title="New conversation" onClick={() => { props.startDraftSession(); props.closeMobileSidebar(); }}><Plus /></button><input className="filter" placeholder="Search conversations..." value={props.filter} onChange={(e) => props.setFilter(e.target.value)} /></div><div className="sessions">{props.pinnedSessions.length > 0 && <div className="section-label"><ChevronRight /> PINNED</div>}{props.pinnedSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}<div className="section-label"><ChevronRight /> RECENT</div>{props.normalSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}</div></>;
+  return <><div className="session-searchbar"><button className="new-chat-btn" aria-label={t('chat.new')} title={t('chat.new')} onClick={() => { props.startDraftSession(); props.closeMobileSidebar(); }}><Plus /></button><input className="filter" placeholder={t('chat.search')} value={props.filter} onChange={(e) => props.setFilter(e.target.value)} /></div><div className="sessions">{props.pinnedSessions.length > 0 && <div className="section-label"><ChevronRight /> {t('chat.pinned')}</div>}{props.pinnedSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}<div className="section-label"><ChevronRight /> {t('chat.recent')}</div>{props.normalSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}</div></>;
 }
 function SessionRow({ session, active, pinned, onClick, onTogglePin, onContextMenu, onLongPress }: { session: Session; active: boolean; pinned: boolean; onClick: () => void; onTogglePin: () => void; onContextMenu: (event: React.MouseEvent) => void; onLongPress: (x: number, y: number) => void }) {
   const longPress = useLongPressContextMenu(onLongPress);
   const leadingIcon = session.source === 'cron' ? <CalendarClock /> : pinned ? <Star /> : null;
-  return <div className={`session-item ${active ? 'active' : ''} ${pinned ? 'pinned' : ''} ${leadingIcon ? 'has-leading-icon' : ''}`} role="button" tabIndex={0} onClick={onClick} onContextMenu={onContextMenu} onPointerDown={longPress.onPointerDown} onPointerMove={longPress.onPointerMove} onPointerUp={longPress.onPointerUp} onPointerCancel={longPress.onPointerCancel} onKeyDown={(e) => { if (e.key === 'Enter') onClick(); }}>{leadingIcon && <span className="session-icon">{leadingIcon}</span>}<span className="session-text"><span className="session-title">{sessionDisplayTitle(session)}</span><span className="session-preview">{session.preview || `${session.message_count || 0} messages`}</span></span><button type="button" className="pin-hit" onClick={(e) => { e.stopPropagation(); onTogglePin(); }} title={pinned ? 'Unpin' : 'Pin'}>{pinned ? <PinOff /> : <Pin />}</button></div>;
+  return <div className={`session-item ${active ? 'active' : ''} ${pinned ? 'pinned' : ''} ${leadingIcon ? 'has-leading-icon' : ''}`} role="button" tabIndex={0} onClick={onClick} onContextMenu={onContextMenu} onPointerDown={longPress.onPointerDown} onPointerMove={longPress.onPointerMove} onPointerUp={longPress.onPointerUp} onPointerCancel={longPress.onPointerCancel} onKeyDown={(e) => { if (e.key === 'Enter') onClick(); }}>{leadingIcon && <span className="session-icon">{leadingIcon}</span>}<span className="session-text"><span className="session-title">{sessionDisplayTitle(session)}</span><span className="session-preview">{session.preview || `${session.message_count || 0} messages`}</span></span><button type="button" className="pin-hit" onClick={(e) => { e.stopPropagation(); onTogglePin(); }} title={pinned ? t('chat.unpin') : t('chat.pin')}>{pinned ? <PinOff /> : <Pin />}</button></div>;
 }
 function StructuredValue({ value }: { value: unknown }) {
   if (value === null || value === undefined) return <span className="tool-empty">null</span>;
@@ -1166,9 +1166,9 @@ function DropdownControl({ icon, ariaLabel, label = '', value, options, onChange
       <ChevronRight className="dropdown-caret" />
     </button>
     {open && <div className="dropdown-menu" role="listbox">
-      {searchable && <input className="dropdown-search" autoFocus placeholder="Search models..." value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.stopPropagation()} />}
+      {searchable && <input className="dropdown-search" autoFocus placeholder={t('chat.searchModels')} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.stopPropagation()} />}
       {filteredOptions.map((item) => <button type="button" role="option" aria-selected={item.id === value} className={item.id === value ? 'selected' : ''} key={item.id} onClick={() => { onChange(item.id, item); setOpen(false); }}>{item.label}</button>)}
-      {filteredOptions.length === 0 && <span className="dropdown-empty">No models</span>}
+      {filteredOptions.length === 0 && <span className="dropdown-empty">{t('chat.noModels')}</span>}
     </div>}
   </div>;
 }
@@ -1191,16 +1191,16 @@ function ChatMain(props: any) {
     <header className="chat-header"><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div></header>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
-      {props.messages.length === 0 && <div className="empty-state"><Bot className="big-mark" /><h2>Message Hermes Agent</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
+      {props.messages.length === 0 && <div className="empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {props.messages.map((m: ChatMessage) => <MessageView key={m.id} message={m} />)}
     </section>
     <footer className="composer-wrap">
       <div className="attachments">{props.attachments.map((a: Attachment) => <span className={`att ${a.kind}`} key={a.id}>{a.kind === 'image' ? <ImageIcon /> : <FileText />} {a.name} <button onClick={() => props.setAttachments((old: Attachment[]) => old.filter((x) => x.id !== a.id))}><X /></button></span>)}</div>
       <div className="composer-box" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); props.onFiles(e.dataTransfer.files); }}>
-        <textarea value={props.input} onChange={(e) => props.setInput(e.target.value)} placeholder="Message Hermes Agent..." onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) props.sendMessage(); }} />
+        <textarea value={props.input} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) props.sendMessage(); }} />
         <div className="composer-footer">
           <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
-          <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title="Attach files"><Paperclip /></button>
+          <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
           <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
           <span className="status-chip">{props.status}</span>
@@ -1212,11 +1212,11 @@ function ChatMain(props: any) {
 }
 
 function WorkspaceAside(props: any) {
-  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title="Expand workspace" aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title="Open workspace page" aria-label="Open workspace page" onClick={() => props.loadWorkspace(props.workspacePath)}><Folder /></button></div></aside>;
+  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label={t('workspace.expand')} onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title={t('workspace.openPage')} aria-label={t('workspace.openPage')} onClick={() => props.loadWorkspace(props.workspacePath)}><Folder /></button></div></aside>;
   return <aside className="workspace"><WorkspaceBrowser {...props} compact /></aside>;
 }
 function WorkspaceMain({ preview, setPreview, theme, setTheme }: any) {
-  return <main className="main-panel workspace-main"><header className="chat-header"><div><h1>Workspace</h1><span>Editor / preview</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
+  return <main className="main-panel workspace-main"><header className="chat-header"><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
 function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu }: any) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
@@ -1231,19 +1231,20 @@ function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, 
   });
   return <><div className="workspace-sidebar-head"><div><h2>Workspace</h2><p>File tree</p></div></div><div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div></>;
 }
-function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, filter, setFilter }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; filter: string; setFilter: (v: string) => void }) {
-  const grouped = skills.reduce<Record<string, Skill[]>>((acc, skill) => { const cat = skill.category || 'uncategorized'; (acc[cat] ||= []).push(skill); return acc; }, {});
+function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, filter, setFilter, expandedCats, setExpandedCats }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; filter: string; setFilter: (v: string) => void; expandedCats: Set<string>; setExpandedCats: (v: Set<string>) => void }) {
+  const grouped = skills.reduce<Record<string, Skill[]>>((acc, skill) => { const cat = skill.category || 'uncategorized'; if (cat === '.archive') return acc; (acc[cat] ||= []).push(skill); return acc; }, {});
   const cats = Object.keys(grouped).sort();
   const query = filter.trim().toLowerCase();
   const filteredCats = query ? cats.filter((cat) => grouped[cat].some((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query))) : cats;
   const filteredSkills = (cat: string) => query ? grouped[cat].filter((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query)) : grouped[cat];
-  return <><div className="cron-sidebar-head"><div><h2>Skills</h2><p>{skills.length} installed skills</p></div></div><div className="session-searchbar"><input className="filter" placeholder="Search skills..." value={filter} onChange={(e) => setFilter(e.target.value)} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label"><ChevronRight /> {cat}</div>{filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => selectSkill(skill)}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || 'No description'}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
+  const toggleCat = (cat: string) => setExpandedCats(new Set(expandedCats.has(cat) ? [...expandedCats].filter((c) => c !== cat) : [...expandedCats, cat]));
+  return <><div className="cron-sidebar-head"><div><h2>Skills</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => selectSkill(skill)}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
 function SkillMain({ skill, preview, setPreview, status, theme, setTheme }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; status: string; theme: Theme; setTheme: (v: Theme) => void }) {
   return <main className="main-panel skills-main"><header className="chat-header"><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || status}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
 function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void }) {
-  const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
+  const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.filter((e) => e.name !== '.archive').map((entry) => {
     const expanded = entry.kind === 'dir' && expandedSkillPaths.has(entry.path);
     const children = expanded ? (skillFileTree[entry.path] || []) : [];
     return <React.Fragment key={entry.path}>
@@ -1253,10 +1254,10 @@ function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleS
       {expanded && renderRows(children, depth + 1)}
     </React.Fragment>;
   });
-  return <aside className="skill-workspace workspace"><div className="workspace-sidebar-head"><div><h2>Skill files</h2><p>{skill?.category || 'Select a skill'}</p></div></div><div className="workspace-tree file-list">{renderRows(skillFileTree[''] || [])}</div></aside>;
+  return <aside className="skill-workspace workspace"><div className="workspace-sidebar-head"><div><h2>{t('skills.skillFiles')}</h2><p>{skill?.category || t('skills.select')}</p></div></div><div className="workspace-tree file-list">{renderRows(skillFileTree[''] || [])}</div></aside>;
 }
 function WorkspaceEditorPreview({ preview, setPreview }: any) {
-  if (preview.kind === 'none') return <section className="workspace-editor-preview empty"><div className="empty-state"><Folder className="big-mark" /><h2>Select a file</h2><p>Folders expand in the left tree. Files open here.</p></div></section>;
+  if (preview.kind === 'none') return <section className="workspace-editor-preview empty"><div className="empty-state"><Folder className="big-mark" /><h2>{t('workspace.selectFile')}</h2><p>{t('workspace.selectFileDesc')}</p></div></section>;
   return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><button onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : <div className="workspace-text-preview"><pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} /></div>}</section>;
 }
 function WorkspaceBrowser({ workspacePath, workspaceEntries, parentPath, preview, loadWorkspace, openWorkspaceEntry, downloadEntry, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
@@ -1266,7 +1267,7 @@ function WorkspaceBrowser({ workspacePath, workspaceEntries, parentPath, preview
   };
   return <>
     <header className="workspace-head"><span className="panel-title">WORKSPACE</span><span>{compact ? 'MAIN' : 'FULL'}</span><button onClick={() => loadWorkspace(parentPath)}><ChevronLeft /></button><button onClick={() => loadWorkspace(workspacePath)}><RefreshCw /></button><button onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></header>
-    {compact && <button className="workspace-collapse-btn" title="Collapse workspace" aria-label="Collapse workspace" onClick={() => setCollapsed(true)}><ChevronRight /></button>}
+    {compact && <button className="workspace-collapse-btn" title={t('workspace.collapse')} aria-label={t('workspace.collapse')} onClick={() => setCollapsed(true)}><ChevronRight /></button>}
     <div className="pathbar">/{workspacePath || 'Home'}</div>
     <div className="file-list">{workspaceEntries.map((e: WorkspaceEntry) => <div className="file-row" key={e.path} role="button" tabIndex={0} onDoubleClick={() => openEntry(e)} onClick={() => openEntry(e)} onContextMenu={(ev) => openWorkspaceMenu?.(e, ev)} onKeyDown={(ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && e.kind === 'file') { ev.preventDefault(); openEntry(e); } }}>
       <span className="caret">{e.kind === 'dir' ? <ChevronRight /> : null}</span>{e.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{e.name}</span><span className="file-size">{e.kind === 'file' ? fmtSize(e.size) : ''}</span><button title={e.kind === 'file' ? 'download' : 'expand folder'} onClick={(ev) => { ev.stopPropagation(); e.kind === 'file' ? downloadEntry(e) : openWorkspaceEntry(e); }}>{e.kind === 'file' ? <Download /> : <ChevronRight />}</button>
@@ -1275,10 +1276,10 @@ function WorkspaceBrowser({ workspacePath, workspaceEntries, parentPath, preview
   </>;
 }
 function AdminMain({ mode, setStatus, theme, setTheme }: { mode: Extract<Mode, 'memory'>; apiBase: string; headers: (json?: boolean) => Record<string, string>; setStatus: (v: string) => void; theme: Theme; setTheme: (v: Theme) => void }) {
-  return <main className={`main-panel admin-main ${mode === 'memory' ? 'memory-main' : ''}`}><header className="chat-header"><div><h1>Memory manager</h1><span>Local Hermes memory files</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><MemoryPanel setStatus={setStatus} /></main>;
+  return <main className={`main-panel admin-main ${mode === 'memory' ? 'memory-main' : ''}`}><header className="chat-header"><div><h1>{t('memory.title')}</h1><span>{t('memory.subtitle')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><MemoryPanel setStatus={setStatus} /></main>;
 }
 function CronSidebar({ jobs, editingId, beginCronEdit, resetCronForm, writeHashRoute, closeMobileSidebar }: { jobs: Job[]; editingId: string; beginCronEdit: (job: Job) => void; resetCronForm: () => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void }) {
-  return <><div className="cron-sidebar-head"><div><h2>Cron jobs</h2><p>{jobs.length} scheduled jobs</p></div><button className="new-chat-btn" aria-label="new cron job" title="New job" onClick={() => { resetCronForm(); writeHashRoute({ mode: 'cron' }); closeMobileSidebar(); }}><Plus /></button></div><div className="cron-sidebar-list">{jobs.map((j) => <button type="button" data-route={buildHashRoute({ mode: 'cron', jobId: jobId(j) })} className={`cron-sidebar-row ${jobId(j) === editingId ? 'active' : ''}`} key={jobId(j)} onClick={() => { beginCronEdit(j); closeMobileSidebar(); }}>
+  return <><div className="cron-sidebar-head"><div><h2>Cron jobs</h2><p>{jobs.length} scheduled jobs</p></div><button className="new-chat-btn" aria-label={t('cron.newJob')} title={t('cron.newJob')} onClick={() => { resetCronForm(); writeHashRoute({ mode: 'cron' }); closeMobileSidebar(); }}><Plus /></button></div><div className="cron-sidebar-list">{jobs.map((j) => <button type="button" data-route={buildHashRoute({ mode: 'cron', jobId: jobId(j) })} className={`cron-sidebar-row ${jobId(j) === editingId ? 'active' : ''}`} key={jobId(j)} onClick={() => { beginCronEdit(j); closeMobileSidebar(); }}>
     <span className="session-icon"><CalendarClock /></span><span className="session-text"><span className="session-title">{j.name || jobId(j)}</span><span className="session-preview">{jobSchedule(j.schedule)} · {jobState(j)}{j.script ? ` · ${j.script}` : ''}</span></span>
   </button>)}</div></>;
 }
@@ -1291,7 +1292,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
     return d;
   };
   return <main className="main-panel cron-main">
-    <header className="chat-header"><div><h1>{props.editingId ? 'Edit cron job' : 'New cron job'}</h1><span>{props.status}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header>
+    <header className="chat-header"><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{props.status}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header>
     <section className="cron-detail-wrap"><div className="cron-detail">
       <label className="cron-field"><span>Name</span><input value={props.name} onChange={(e) => props.setName(e.target.value)} placeholder="Job name" /></label>
       <label className="cron-field"><span>Schedule</span><input value={props.schedule} onChange={(e) => props.setSchedule(e.target.value)} placeholder="Schedule, e.g. 0 9 * * *" /></label>
@@ -1310,8 +1311,8 @@ function MemoryPanel({ setStatus }: { setStatus: (v: string) => void }) {
   const [doc, setDoc] = useState<MemoryDoc>({ memory: '', user: '' });
   const load = useCallback(async () => { try { const res = await fetch('/memory'); if (!res.ok) throw new Error(await res.text()); setDoc(await res.json()); } catch (err: any) { setStatus(`Memory unavailable: ${err.message}`); } }, [setStatus]);
   useEffect(() => { load(); }, [load]);
-  const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); setStatus(res.ok ? 'Memory saved' : await res.text()); };
-  return <section className="admin-content memory-grid"><label><span>MEMORY.md</span><textarea value={doc.memory} onChange={(e) => setDoc({ ...doc, memory: e.target.value })}/></label><label><span>USER.md</span><textarea value={doc.user} onChange={(e) => setDoc({ ...doc, user: e.target.value })}/></label><button className="save-memory" onClick={save}>Save memory files</button></section>;
+  const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); setStatus(res.ok ? t('memory.saved') : await res.text()); };
+  return <section className="admin-content memory-grid"><label><span>MEMORY.md</span><textarea value={doc.memory} onChange={(e) => setDoc({ ...doc, memory: e.target.value })}/></label><label><span>USER.md</span><textarea value={doc.user} onChange={(e) => setDoc({ ...doc, user: e.target.value })}/></label><button className="save-memory" onClick={save}>{t('memory.save')}</button></section>;
 }
 function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void; apiKey: string; setApiKey: (v: string) => void; loadModels: () => void; loadSessions: () => void; status: string; theme: Theme; setTheme: (v: Theme) => void; lang: Lang; setLang: (v: Lang) => void }) {
   const LANG_OPTIONS: Array<{ id: Lang; label: string }> = [
@@ -1320,7 +1321,7 @@ function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void;
     { id: 'zh-TW', label: '繁體中文' },
     { id: 'ja', label: '日本語' },
   ];
-  return <main className="main-panel settings-main"><header className="chat-header"><div><h1>{t('settings.title')}</h1><span>{props.status}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Theme</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button className="mobile-icon-only" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">Refresh connection</span></button></section></main>;
+  return <main className="main-panel settings-main"><header className="chat-header"><div><h1>{t('settings.title')}</h1><span>{props.status}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button className="mobile-icon-only" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button></section></main>;
 }
 
 function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void }) {
