@@ -23,7 +23,10 @@ use axum::{
     },
     routing::{any, get, patch, post},
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use clap::Parser;
 use filetime::FileTime;
 use hmac::{Hmac, Mac};
@@ -244,6 +247,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
         .route("/chat/messages/{session_id}", get(chat_messages_page))
+        .route("/chat/attachments", post(chat_upload_attachments))
         .route("/chat/watch/{session_id}", get(chat_watch))
         .route("/image-api/images", get(list_images))
         .route("/image-api/images/refresh", get(refresh_images))
@@ -284,5 +288,6 @@ include!("sessions.rs");
 include!("workspace.rs");
 include!("skills.rs");
 include!("memory.rs");
+include!("chat_uploads.rs");
 include!("images.rs");
 include!("tests.rs");

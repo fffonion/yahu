@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Circle as SelectionMark, CircleHelp, Code, Download, Eye, FileText, Folder, Globe, History, Home, Image as ImageIcon, Info, Layout, List, MessageSquare, Network, Palette, Paperclip, Pencil, Pin, PinOff, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
 import { createStreamAnimator } from './streamAnimator';
@@ -15,7 +16,7 @@ type Role = 'user' | 'assistant' | 'system' | 'tool';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
 type ChatMessage = { id: string; role: Role; content: string; timestamp?: string | number; pending?: boolean; toolName?: string };
 type ModelOption = { id: string; label: string; provider?: string };
-type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string };
+type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
 type Skill = { name: string; description?: string; category?: string; enabled?: boolean };
@@ -76,18 +77,18 @@ const workspaceRouteParents = (path: string) => {
 
 async function readFileAttachment(file: File): Promise<Attachment> {
   const id = uid('att');
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
   if (file.type.startsWith('image/')) {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
     return { id, name: file.name, kind: 'image', mime: file.type, size: file.size, dataUrl };
   }
   const isText = file.type.startsWith('text/') || /\.(md|txt|json|ya?ml|toml|csv|ts|tsx|js|jsx|py|rs|go|sh|css|html)$/i.test(file.name);
-  if (isText && file.size <= 256 * 1024) return { id, name: file.name, kind: 'text', mime: file.type || 'text/plain', size: file.size, text: await file.text() };
-  return { id, name: file.name, kind: 'binary', mime: file.type || 'application/octet-stream', size: file.size };
+  if (isText && file.size <= 256 * 1024) return { id, name: file.name, kind: 'text', mime: file.type || 'text/plain', size: file.size, dataUrl, text: await file.text() };
+  return { id, name: file.name, kind: 'binary', mime: file.type || 'application/octet-stream', size: file.size, dataUrl };
 }
 function parseSseBlock(block: string) {
   let event = 'message';
@@ -769,16 +770,26 @@ export default function App() {
     const next = await Promise.all(Array.from(files).map(readFileAttachment));
     setAttachments((old) => [...old, ...next]);
   };
-  const buildPayload = () => {
-    const textParts = [input.trim()];
-    for (const att of attachments) {
-      if (att.kind === 'text') textParts.push(`\n\nAttached text file: ${att.name}\n\n\`\`\`\n${att.text}\n\`\`\``);
-      if (att.kind === 'binary') textParts.push(`\n\nAttached binary file not sent through Hermes API Server: ${att.name} (${fmtSize(att.size)}, ${att.mime}).`);
-    }
-    const text = textParts.join('\n').trim();
-    const images = attachments.filter((a) => a.kind === 'image' && a.dataUrl);
-    return images.length ? [{ type: 'text', text }, ...images.map((a) => ({ type: 'image_url', image_url: { url: a.dataUrl, detail: 'high' } }))] : text;
+  const uploadAttachments = async (items: Attachment[]) => {
+    if (!items.length) return items;
+    const res = await fetch('/chat/attachments', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({
+        files: items.map((att) => ({
+          name: att.name,
+          mime: att.mime,
+          kind: att.kind,
+          data_url: att.dataUrl,
+        })),
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const body = await res.json();
+    const saved = Array.isArray(body?.files) ? body.files : [];
+    return items.map((att, index) => ({ ...att, uploadedPath: saved[index]?.path || att.uploadedPath }));
   };
+  const buildPayload = (items: Attachment[]) => buildChatInputWithAttachments(input, items);
 
   const sendMessage = async () => {
     if ((!input.trim() && attachments.length === 0) || busy) return;
@@ -798,11 +809,18 @@ export default function App() {
       }
     } catch (err: any) { setStatus(`Cannot create session: ${err.message}`); return; }
     const stick = isNearBottom(chatScrollRef.current, 180);
-    const userText = input.trim() || attachments.map((a) => a.name).join(', ');
+    let payloadAttachments: Attachment[] = attachments;
+    try {
+      payloadAttachments = await uploadAttachments(attachments);
+    } catch (err: any) {
+      setStatus(`Cannot upload attachments: ${err.message || err}`);
+      return;
+    }
+    const userText = input.trim() || payloadAttachments.map((a) => a.name).join(', ');
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
     const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true };
-    const payloadInput = buildPayload();
+    const payloadInput = buildPayload(payloadAttachments);
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
     setHasNewer(false);

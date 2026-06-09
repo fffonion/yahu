@@ -160,6 +160,22 @@ mod tests {
         std::fs::remove_dir_all(root).ok();
     }
 
+    #[test]
+    fn chat_upload_data_url_decodes_base64_payload() {
+        let bytes = decode_chat_upload_data_url("data:application/octet-stream;base64,AAFiYw==").unwrap();
+
+        assert_eq!(bytes, b"\0\x01bc");
+    }
+
+    #[test]
+    fn chat_upload_filename_sanitizer_keeps_saved_file_inside_cache() {
+        let name = sanitize_chat_upload_filename("../bad/name with 控制?.pdf");
+
+        assert_eq!(name, "name with ___.pdf");
+        assert!(!name.contains('/'));
+        assert!(!name.contains(".."));
+    }
+
     fn test_app_state(api_url: String, root: &Path) -> AppState {
         let (updates, _) = broadcast::channel::<String>(1);
         let (deletes, _) = broadcast::channel::<String>(1);
