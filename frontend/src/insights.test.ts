@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { areaPath, emptyTotals, finalizeTotals, fmtPercent, fmtTokens, linePath, modelPeriodTotals, type UsageModel } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtPercent, fmtTokens, linePath, modelPeriodTotals, type UsageModel } from './insights';
 
 describe('insights helpers', () => {
   test('formats token and percent metrics compactly', () => {
@@ -13,6 +13,23 @@ describe('insights helpers', () => {
     const area = areaPath([0, 50, 100], 300, 120);
     expect(area.endsWith('Z')).toBe(true);
     expect(area).toContain('L 288.00 108.00');
+  });
+
+  test('uses left-side axis padding and common max for chart coordinates', () => {
+    const point = chartPoint(1, 50, 3, 300, 120, { top: 10, right: 20, bottom: 30, left: 60 }, 100);
+    expect(point.x).toBeCloseTo(170, 2);
+    expect(point.y).toBeCloseTo(50, 2);
+    expect(linePath([0, 50, 100], 300, 120, { top: 10, right: 20, bottom: 30, left: 60 }, 200)).toContain('L 170.00 70.00');
+  });
+
+  test('creates readable y-axis ticks and point tooltip labels', () => {
+    const ticks = chartYAxisTicks([0, 1200, 2400], 3);
+    expect(ticks).toEqual([
+      { value: 2400, label: '2.4K', pct: 0 },
+      { value: 1200, label: '1.2K', pct: 50 },
+      { value: 0, label: '0', pct: 100 },
+    ]);
+    expect(chartTooltipLabel('minimax-m3', '06/09', 1532, 'Input')).toBe('minimax-m3 · 06/09 · Input 1.5K');
   });
 
   test('summarizes a model over the selected period and recomputes derived metrics', () => {

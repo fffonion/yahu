@@ -102,23 +102,52 @@ export function metricValue(day: UsageDay, metric: UsageMetric): number {
   return Number(day?.totals?.[metric] || 0);
 }
 
-export function linePath(values: number[], width: number, height: number, pad = 12): string {
+export type ChartPadding = number | { top: number; right: number; bottom: number; left: number };
+
+function normalizeChartPadding(pad: ChartPadding) {
+  return typeof pad === 'number' ? { top: pad, right: pad, bottom: pad, left: pad } : pad;
+}
+
+function chartMax(values: number[], maxValue?: number): number {
+  return Math.max(1, Number(maxValue || 0), ...values.map((value) => Number(value || 0)));
+}
+
+export function chartPoint(index: number, value: number, count: number, width: number, height: number, pad: ChartPadding = 12, maxValue?: number) {
+  const p = normalizeChartPadding(pad);
+  const max = chartMax([value], maxValue);
+  const innerW = Math.max(1, width - p.left - p.right);
+  const innerH = Math.max(1, height - p.top - p.bottom);
+  const x = p.left + (count <= 1 ? innerW / 2 : (innerW * index) / (count - 1));
+  const y = p.top + innerH - (Math.max(0, value) / max) * innerH;
+  return { x, y };
+}
+
+export function chartYAxisTicks(values: number[], count = 4) {
+  const max = chartMax(values);
+  const steps = Math.max(2, count) - 1;
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const value = max - (max * index) / steps;
+    return { value, label: fmtTokens(value), pct: (index / steps) * 100 };
+  });
+}
+
+export function chartTooltipLabel(model: string, dayLabel: string, value: number, metricLabel: string): string {
+  return `${model} · ${dayLabel} · ${metricLabel} ${fmtTokens(value)}`;
+}
+
+export function linePath(values: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
   if (!values.length) return '';
-  const max = Math.max(1, ...values);
-  const innerW = Math.max(1, width - pad * 2);
-  const innerH = Math.max(1, height - pad * 2);
   return values.map((value, index) => {
-    const x = pad + (values.length === 1 ? innerW : (innerW * index) / (values.length - 1));
-    const y = pad + innerH - (value / max) * innerH;
+    const { x, y } = chartPoint(index, value, values.length, width, height, pad, maxValue || chartMax(values));
     return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
   }).join(' ');
 }
 
-export function areaPath(values: number[], width: number, height: number, pad = 12): string {
-  const path = linePath(values, width, height, pad);
+export function areaPath(values: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
+  const p = normalizeChartPadding(pad);
+  const path = linePath(values, width, height, pad, maxValue);
   if (!path) return '';
-  const innerW = Math.max(1, width - pad * 2);
-  const baseY = height - pad;
-  const lastX = pad + innerW;
-  return `${path} L ${lastX.toFixed(2)} ${baseY.toFixed(2)} L ${pad.toFixed(2)} ${baseY.toFixed(2)} Z`;
+  const baseY = height - p.bottom;
+  const lastX = width - p.right;
+  return `${path} L ${lastX.toFixed(2)} ${baseY.toFixed(2)} L ${p.left.toFixed(2)} ${baseY.toFixed(2)} Z`;
 }

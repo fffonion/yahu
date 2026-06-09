@@ -8,7 +8,7 @@ import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
-import { areaPath, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageTotals } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
 
@@ -1198,17 +1198,25 @@ function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: Us
 function UsageAreaChart({ days, models, metric }: { days: UsageDay[]; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
   const width = 720;
   const height = 260;
+  const pad = { top: 14, right: 18, bottom: 28, left: 58 };
   const series = models.slice(0, 4).map((model, index) => ({ model: model.model, index, values: days.map((day) => metricValue(model.daily.find((item) => item.date === day.date) || day, metric)) }));
   const totalValues = days.map((day) => metricValue(day, metric));
+  const allValues = [...totalValues, ...series.flatMap((item) => item.values)];
+  const maxValue = Math.max(1, ...allValues);
+  const yTicks = chartYAxisTicks(allValues, 4);
   return <div className="usage-chart" data-series-count={series.length}>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Usage trend chart" preserveAspectRatio="none">
       <defs>{series.map((item) => <linearGradient key={item.model} id={`insight-grad-${item.index}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={`var(--chart-${item.index})`} stopOpacity=".52" /><stop offset="100%" stopColor={`var(--chart-${item.index})`} stopOpacity=".03" /></linearGradient>)}</defs>
-      <path className="usage-total-area" d={areaPath(totalValues, width, height)} />
+      <g className="chart-grid" aria-hidden="true">{yTicks.map((tick, tickIndex) => { const y = chartPoint(0, tick.value, 1, width, height, pad, maxValue).y; return <line key={`${tickIndex}-${tick.label}`} x1={pad.left} x2={width - pad.right} y1={y} y2={y} />; })}</g>
+      <path className="usage-total-area" d={areaPath(totalValues, width, height, pad, maxValue)} />
       {series.map((item) => <g key={item.model} className={`usage-series usage-series-${item.index}`}>
-        <path className="usage-area" d={areaPath(item.values, width, height)} fill={`url(#insight-grad-${item.index})`} />
-        <path className="usage-line" d={linePath(item.values, width, height)} />
+        <path className="usage-area" d={areaPath(item.values, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />
+        <path className="usage-line" d={linePath(item.values, width, height, pad, maxValue)} />
+        {item.values.map((value, pointIndex) => { const point = chartPoint(pointIndex, value, item.values.length, width, height, pad, maxValue); return <circle key={`${item.model}-${days[pointIndex]?.date || pointIndex}`} className="usage-dot" cx={point.x} cy={point.y} r="3.8" />; })}
       </g>)}
     </svg>
+    <div className="chart-y-axis" aria-hidden="true">{yTicks.map((tick, tickIndex) => <span key={`${tickIndex}-${tick.label}`} style={{ top: `${tick.pct}%` }}>{tick.label}</span>)}</div>
+    <div className="chart-points">{series.map((item) => item.values.map((value, pointIndex) => { const day = days[pointIndex]; const point = chartPoint(pointIndex, value, item.values.length, width, height, pad, maxValue); return <span key={`${item.model}-${day?.date || pointIndex}`} className="chart-point-hit" tabIndex={0} aria-label={chartTooltipLabel(item.model, day?.label || '', value, metricLabels[metric])} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{chartTooltipLabel(item.model, day?.label || '', value, metricLabels[metric])}</span></span>; }))}</div>
     <div className="chart-axis">{days.map((day, index) => <span key={day.date} style={{ left: `${days.length === 1 ? 50 : (index / (days.length - 1)) * 100}%` }}>{index === 0 || index === days.length - 1 || days.length <= 7 ? day.label : ''}</span>)}</div>
     <div className="chart-legend">{series.map((item) => <span key={item.model}><i style={{ background: `var(--chart-${item.index})` }} />{item.model}</span>)}</div>
   </div>;
