@@ -57,6 +57,13 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px))');
   });
 
+  test('mobile memory editor keeps both textareas internally scrollable', () => {
+    const styles = css();
+    expect(styles).toContain('.memory-main .admin-content{min-height:0;overflow:hidden;padding:12px 12px calc(96px + env(safe-area-inset-bottom,0px))}');
+    expect(styles).toContain('.memory-grid{min-height:0;height:100%;grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr) auto;overflow:hidden}');
+    expect(styles).toContain('.memory-grid textarea{min-height:0;overflow:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}');
+  });
+
   test('mobile composer bottom padding matches the rendered bottom nav height without an extra gap', () => {
     const styles = css();
     const navHeight = Number(styles.match(/--mobile-bottom-nav-height:(\d+)px/)?.[1]);
