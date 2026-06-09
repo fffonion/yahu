@@ -90,6 +90,12 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(menuZ).toBeGreaterThan(navZ);
   });
 
+  test('mobile bottom nav active item uses color only without a pill background or frame', () => {
+    const styles = css();
+    expect(styles).toContain('.mobile-bottom-nav .rail-btn.active,.mobile-bottom-nav .rail-btn.active:hover{background:transparent;box-shadow:none;color:var(--rail-accent);border-color:transparent}');
+    expect(styles).toContain('.mobile-bottom-nav .rail-btn.nav-skills.active{background:transparent;color:var(--rail-accent);box-shadow:none}');
+  });
+
   test('mobile moves theme controls to the top right title bar', () => {
     const source = app();
     const styles = css();
