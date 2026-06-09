@@ -1157,9 +1157,10 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   const topModel = models[0];
   const activeDays = periodSlice(props.insights?.daily || [], props.period);
   const periodLabel = `${props.period}d`;
-  return <main className="main-panel insights-main">
+  const showSkeleton = props.loading;
+  return <main className={`main-panel insights-main ${showSkeleton ? 'insights-loading' : ''}`}>
     <header className="chat-header header-no-drawer insights-header">
-      <div><h1>Insights</h1><span>{props.loading ? 'Loading usage…' : props.error || `Last ${periodLabel} · ${fmtTokens(totals.total_tokens)} tokens`}</span></div>
+      <div><h1>Insights</h1><span>{showSkeleton ? 'Loading usage…' : props.error || `Last ${periodLabel} · ${fmtTokens(totals.total_tokens)} tokens`}</span></div>
       <div className="header-actions"><button className="icon-btn insights-refresh" onClick={props.refresh} disabled={props.loading} title="Refresh usage"><RefreshCw /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div>
     </header>
     <section className="insights-content">
@@ -1168,24 +1169,43 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         <select aria-label="Usage metric" value={props.metric} onChange={(event) => props.setMetric(event.target.value as UsageMetric)}>{(Object.keys(metricLabels) as UsageMetric[]).map((metric) => <option key={metric} value={metric}>{metricLabels[metric]}</option>)}</select>
       </div>
       <div className="insights-cards">
-        <InsightCard label="Tokens" value={fmtTokens(totals.total_tokens)} detail={`${fmtTokens(totals.input)} in · ${fmtTokens(totals.output)} out`} />
-        <InsightCard label="Cache hit" value={fmtPercent(totals.cache_hit_rate)} detail={`${fmtTokens(totals.cache_read)} read · ${fmtTokens(totals.cache_write)} write`} />
-        <InsightCard label="Cost" value={fmtMoney(totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd)} detail={totals.unpriced_tokens ? `${fmtTokens(totals.unpriced_tokens)} unpriced · ${totals.api_calls || 0} API calls` : `${totals.sessions || 0} sessions · ${totals.api_calls || 0} API calls`} />
-        <InsightCard label="Top model" value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || 'No usage'} />
+        {showSkeleton ? <>
+          <InsightCardSkeleton label="Tokens" />
+          <InsightCardSkeleton label="Cache hit" />
+          <InsightCardSkeleton label="Cost" />
+          <InsightCardSkeleton label="Top model" />
+        </> : <>
+          <InsightCard label="Tokens" value={fmtTokens(totals.total_tokens)} detail={`${fmtTokens(totals.input)} in · ${fmtTokens(totals.output)} out`} />
+          <InsightCard label="Cache hit" value={fmtPercent(totals.cache_hit_rate)} detail={`${fmtTokens(totals.cache_read)} read · ${fmtTokens(totals.cache_write)} write`} />
+          <InsightCard label="Cost" value={fmtMoney(totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd)} detail={totals.unpriced_tokens ? `${fmtTokens(totals.unpriced_tokens)} unpriced · ${totals.api_calls || 0} API calls` : `${totals.sessions || 0} sessions · ${totals.api_calls || 0} API calls`} />
+          <InsightCard label="Top model" value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || 'No usage'} />
+        </>}
       </div>
       <section className="insights-chart-card">
         <div className="insights-card-head"><div><h2>{metricLabels[props.metric]} by model</h2><p>Recent {periodLabel} trend with cache/input/output usage</p></div><LineChart /></div>
-        <UsageAreaChart days={activeDays} models={models} metric={props.metric} />
+        {showSkeleton ? <UsageChartSkeleton /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} />}
       </section>
       <div className="insights-grid">
-        <section className="insights-panel"><h2>Models</h2>{models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
-        <section className="insights-panel"><h2>Other signals</h2><SignalRow name="Reasoning" value={fmtTokens(totals.reasoning)} /><SignalRow name="Tools" value={`${totals.tool_calls || 0}`} /><SignalRow name="Avg/session" value={fmtTokens(totals.avg_tokens_per_session)} /><SignalRow name="Sources" value={(props.insights?.sources || []).slice(0, 3).map((item) => `${item.source} ${fmtTokens(item.totals.total_tokens)}`).join(' · ') || '—'} /></section>
+        <section className="insights-panel"><h2>Models</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
+        <section className="insights-panel"><h2>Other signals</h2>{showSkeleton ? <SignalSkeletonList /> : <><SignalRow name="Reasoning" value={fmtTokens(totals.reasoning)} /><SignalRow name="Tools" value={`${totals.tool_calls || 0}`} /><SignalRow name="Avg/session" value={fmtTokens(totals.avg_tokens_per_session)} /><SignalRow name="Sources" value={(props.insights?.sources || []).slice(0, 3).map((item) => `${item.source} ${fmtTokens(item.totals.total_tokens)}`).join(' · ') || '—'} /></>}</section>
       </div>
     </section>
   </main>;
 }
 function InsightCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return <article className="insight-card"><span>{label}</span><strong>{value}</strong><p>{detail}</p></article>;
+}
+function InsightCardSkeleton({ label }: { label: string }) {
+  return <article className="insight-card insight-card-skeleton" aria-busy="true" aria-label={`${label} loading`}><span>{label}</span><strong><i className="skeleton-block skeleton-number" /></strong><p><i className="skeleton-block skeleton-detail" /></p></article>;
+}
+function UsageChartSkeleton() {
+  return <div className="usage-chart usage-chart-loading" aria-busy="true" aria-label="Loading chart"><div className="chart-loading-grid" aria-hidden="true">{[0, 1, 2, 3].map((item) => <span key={item} />)}</div><div className="chart-loading-line" aria-hidden="true" /><div className="chart-loading-line secondary" aria-hidden="true" /><div className="chart-loading-badge">Loading</div></div>;
+}
+function ModelUsageSkeletonList() {
+  return <div className="model-skeleton-list" aria-busy="true">{[0, 1, 2, 3, 4].map((item) => <article className="model-usage-row model-usage-skeleton" key={item}><div><b><i className="skeleton-block skeleton-rank" /></b><span><i className="skeleton-block skeleton-title" /></span></div><strong><i className="skeleton-block skeleton-value" /></strong><p><i className="skeleton-block skeleton-detail" /></p><div className="model-bar skeleton-bar"><i /></div></article>)}</div>;
+}
+function SignalSkeletonList() {
+  return <>{[0, 1, 2, 3].map((item) => <div className="signal-row signal-skeleton" key={item}><span><i className="skeleton-block skeleton-label" /></span><strong><i className="skeleton-block skeleton-value" /></strong></div>)}</>;
 }
 function SignalRow({ name, value }: { name: string; value: string }) {
   return <div className="signal-row"><span>{name}</span><strong>{value}</strong></div>;

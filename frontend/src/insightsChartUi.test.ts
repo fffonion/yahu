@@ -19,4 +19,16 @@ describe('insights chart UI', () => {
     expect(css).toContain('.chart-point-hit:hover .chart-tooltip,.chart-point-hit:focus .chart-tooltip,.chart-point-hit:focus-visible .chart-tooltip{opacity:1;transform:translate(-50%,-8px);pointer-events:auto}');
     expect(css).toContain('.usage-chart svg{width:100%;height:260px;display:block;overflow:visible;position:relative;z-index:1}');
   });
+
+  test('renders dedicated loading placeholders for cards chart and model rows', () => {
+    const app = appSource();
+    const css = cssSource();
+    expect(app).toContain('const showSkeleton = props.loading');
+    expect(app).toContain('<InsightCardSkeleton label="Tokens" />');
+    expect(app).toContain('<UsageChartSkeleton />');
+    expect(app).toContain('<ModelUsageSkeletonList />');
+    expect(css).toContain('.skeleton-number{width:min(78%,190px);height:31px}');
+    expect(css).toContain('.usage-chart-loading{min-height:260px;display:grid;place-items:center;');
+    expect(css).toContain('.model-skeleton-list{display:grid;gap:10px}');
+  });
 });
