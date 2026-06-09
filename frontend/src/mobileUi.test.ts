@@ -133,8 +133,12 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('HeaderThemeControl');
     expect(source).toContain('header-theme-control');
     expect(source).toContain('theme-menu');
+    expect(source).toContain('role="menuitemradio"');
+    expect(source).toContain('aria-checked={theme === item.id}');
+    expect(source).not.toContain('<label><span>Theme</span><select value={theme} onChange={(event) => setTheme(event.target.value as Theme)}');
     expect(styles).toContain('.header-theme-control');
     expect(styles).toContain('.chat-header .header-theme-control');
+    expect(styles).toContain('.theme-menu button:hover,.theme-menu button.active');
     expect(styles).toContain('.theme-card{display:none');
   });
 

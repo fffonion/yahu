@@ -1136,7 +1136,7 @@ function HeaderThemeControl({ theme, setTheme }: { theme: Theme; setTheme: (v: T
   return <div className="header-theme-control" ref={rootRef}>
     <button type="button" className="mobile-icon-only palette-btn" aria-label="Theme" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Palette /></button>
     {open && <div className="theme-menu" role="menu">
-      <label><span>Theme</span><select value={theme} onChange={(event) => setTheme(event.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+      {THEME_OPTIONS.map((item) => <button key={item.id} type="button" role="menuitemradio" aria-checked={theme === item.id} className={theme === item.id ? 'active' : ''} onClick={() => { setTheme(item.id); setOpen(false); }}><span>{item.label}</span></button>)}
     </div>}
   </div>;
 }
