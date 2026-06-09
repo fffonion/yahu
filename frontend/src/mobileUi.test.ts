@@ -54,7 +54,33 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('-webkit-overflow-scrolling:touch');
     expect(styles).toContain('touch-action:pan-y');
     expect(styles).toContain('padding-bottom:12px');
-    expect(styles).toContain('calc(68px + env(safe-area-inset-bottom, 0px))');
+    expect(styles).toContain('calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px))');
+  });
+
+  test('mobile composer bottom padding matches the rendered bottom nav height without an extra gap', () => {
+    const styles = css();
+    const navHeight = Number(styles.match(/--mobile-bottom-nav-height:(\d+)px/)?.[1]);
+    const railHeight = Number(styles.match(/\.mobile-bottom-nav \.rail-btn\{width:48px;height:(\d+)px\}/)?.[1]);
+    const padding = styles.match(/\.mobile-bottom-nav\{[^}]*padding:(\d+)px [^}]+ calc\((\d+)px \+ env\(safe-area-inset-bottom,0px\)\)/);
+
+    expect(styles).toContain('.composer-wrap{padding:10px 10px calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px))}');
+    expect(Number.isFinite(navHeight)).toBe(true);
+    expect(Number.isFinite(railHeight)).toBe(true);
+    expect(padding).not.toBeNull();
+    expect(navHeight).toBe(railHeight + Number(padding?.[1]) + Number(padding?.[2]) + 1);
+  });
+
+  test('mobile bottom nav paints above the composer reserved area but below open dropdown menus', () => {
+    const styles = css();
+    const composerZ = Number(styles.match(/\.composer-wrap\{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:(\d+)\}/)?.[1]);
+    const navZ = Number(styles.match(/\.mobile-bottom-nav\{[^}]*z-index:(\d+)/)?.[1]);
+    const menuZ = Number(styles.match(/\.dropdown-control\.open \.dropdown-menu\{z-index:(\d+)\}/)?.[1]);
+
+    expect(Number.isFinite(composerZ)).toBe(true);
+    expect(Number.isFinite(navZ)).toBe(true);
+    expect(Number.isFinite(menuZ)).toBe(true);
+    expect(navZ).toBeGreaterThan(composerZ);
+    expect(menuZ).toBeGreaterThan(navZ);
   });
 
   test('mobile moves theme controls to the top right title bar', () => {
