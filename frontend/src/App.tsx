@@ -13,7 +13,7 @@ type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark
 type Mode = 'chat' | 'cron' | 'memory' | 'images' | 'workspace' | 'skills' | 'settings';
 type Role = 'user' | 'assistant' | 'system' | 'tool';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
-type ChatMessage = { id: string; role: Role; content: string; timestamp?: string | number; pending?: boolean };
+type ChatMessage = { id: string; role: Role; content: string; timestamp?: string | number; pending?: boolean; toolName?: string };
 type ModelOption = { id: string; label: string; provider?: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
@@ -200,12 +200,29 @@ function normalizeContent(value: unknown) {
   if (value === null || value === undefined) return '';
   return String(value);
 }
+function rawToolName(raw: any) {
+  const candidates = [raw.toolName, raw.tool_name, raw.name, raw.tool, raw.recipient_name, raw.function, raw.source];
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  const content = asRecordish(raw.content);
+  for (const key of ['source', 'tool_name', 'name', 'tool', 'recipient_name', 'function']) {
+    const value = content?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+function asRecordish(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
 function normalizeMessage(raw: any): ChatMessage {
   return {
     id: String(raw.id || uid('m')),
     role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',
     content: normalizeContent(raw.content),
     timestamp: raw.timestamp,
+    toolName: rawToolName(raw),
   };
 }
 function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
@@ -1123,7 +1140,7 @@ function getToolIcon(toolName: string): React.ReactNode {
 
 function ToolMessageView({ message }: { message: ChatMessage }) {
   const [expanded, setExpanded] = useState(false);
-  const summary = useMemo(() => summarizeToolMessage(message.content), [message.content]);
+  const summary = useMemo(() => summarizeToolMessage(message.content, message.toolName), [message.content, message.toolName]);
   const toolName = summary.toolName;
   const isError = summary.status !== 'ok';
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`}>

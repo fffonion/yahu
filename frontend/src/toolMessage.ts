@@ -34,11 +34,16 @@ export function toolDisplayName(name: string): string {
   return name.replace(/^functions\./, '').replace(/_/g, ' ');
 }
 
-export function summarizeToolMessage(content: string): ToolSummary {
+function cleanToolName(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+export function summarizeToolMessage(content: string, fallbackToolName = ''): ToolSummary {
   const parsed = parseUntrustedToolResult(content) ?? tryParseJson(content);
   const root = asRecord(parsed);
-  const usesSourceName = typeof root?.source === 'string' && root.source;
-  const toolName = String(root?.source || root?.tool_name || root?.name || root?.tool || root?.recipient_name || root?.function || 'tool');
+  const contentToolName = cleanToolName(root?.source) || cleanToolName(root?.tool_name) || cleanToolName(root?.name) || cleanToolName(root?.tool) || cleanToolName(root?.recipient_name) || cleanToolName(root?.function);
+  const toolName = contentToolName || cleanToolName(fallbackToolName) || 'tool';
+  const usesSourceName = !!cleanToolName(root?.source);
   const rawStatus = root?.status;
   const status = (() => {
     if (root?.success === false) return 'error';

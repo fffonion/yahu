@@ -30,4 +30,11 @@ describe('summarizeToolMessage', () => {
     expect(summary.toolName).toBe('tool');
     expect(summary.fields).toEqual([{ key: 'output', value: 'plain output' }]);
   });
+
+  test('uses the API-provided tool name when tool content is plain output', () => {
+    const summary = summarizeToolMessage('plain terminal output', 'functions.terminal');
+    expect(summary.title).toBe('terminal');
+    expect(summary.toolName).toBe('functions.terminal');
+    expect(summary.fields).toEqual([{ key: 'output', value: 'plain terminal output' }]);
+  });
 });
