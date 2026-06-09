@@ -39,9 +39,11 @@ describe('composer model selector', () => {
     expect(source).not.toContain('label="Model"');
     expect(source).not.toContain('label="Reasoning"');
     expect(source).toContain('className="dropdown-search"');
+    expect(source).toContain("${searchable ? 'searchable' : ''}");
     expect(styles).toContain('.dropdown-menu{position:absolute;bottom:calc(100% + 8px);');
     expect(styles).toContain('max-height:320px;overflow:auto');
-    expect(styles).toContain('.dropdown-search');
+    expect(styles).toContain('.dropdown-control.searchable .dropdown-menu{width:min(640px,calc(100vw - 48px));max-height:min(420px,calc(100vh - 180px));padding:10px;gap:6px;grid-template-rows:auto}');
+    expect(styles).toContain('.dropdown-control.searchable .dropdown-search{height:42px;margin:0 0 8px;padding:0 13px;border-radius:12px;background:var(--bg);box-shadow:none}');
   });
 
   test('bottom dropdown menu renders above the composer box instead of being clipped by it', () => {
@@ -63,6 +65,7 @@ describe('composer model selector', () => {
     expect(styles).toContain('.composer-box,.composer-footer{overflow:visible}');
     expect(styles).toContain('.dropdown-control.open{z-index:170}');
     expect(styles).toContain('.dropdown-control.open .dropdown-menu{z-index:180}');
+    expect(styles).toContain('.dropdown-control.searchable.open .dropdown-menu{position:fixed;left:12px;right:12px;bottom:calc(210px + env(safe-area-inset-bottom,0px));width:auto;min-width:0;max-width:none;max-height:min(48vh,380px);border-radius:18px;padding:12px}');
     expect(styles).not.toContain('.main-panel,.chat-header,.chat-scroll,.composer-wrap{min-width:0;width:100%;max-width:100vw;overflow-x:hidden}');
   });
 });
