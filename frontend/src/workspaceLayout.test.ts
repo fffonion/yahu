@@ -43,6 +43,16 @@ describe('workspace page file tree layout', () => {
     expect(styles).toContain('.workspace-rail-btn');
   });
 
+  test('expanded session workspace uses the header X as its only collapse control', () => {
+    const source = app();
+    const styles = css();
+    const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));
+    expect(browser).toContain("aria-label={compact ? t('workspace.collapse') : undefined}");
+    expect(browser).toContain('onClick={() => compact ? setCollapsed(true) : setPreview');
+    expect(browser).not.toContain('workspace-collapse-btn');
+    expect(styles).not.toContain('workspace-collapse-btn');
+  });
+
   test('mobile drawer remains enabled on the workspace route so the file tree is reachable', () => {
     const source = app();
     expect(source).toContain("if (mode !== 'chat' && mode !== 'cron' && mode !== 'workspace') return;");
