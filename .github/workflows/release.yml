@@ -2,7 +2,11 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - '**'
+
+permissions:
+  contents: read
 
 jobs:
   build-linux:
@@ -43,6 +47,9 @@ jobs:
           bun run build
 
       - name: Cargo build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package (linux)

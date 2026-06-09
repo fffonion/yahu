@@ -33,7 +33,7 @@ describe('draft session lifecycle', () => {
   test('draft sessions are not fetched as backend sessions or auto-replaced by list refresh', () => {
     const source = app();
     expect(source).toContain("if (sessionId === DRAFT_SESSION_ID) return");
-    expect(source).toContain("if (sessionId === DRAFT_SESSION_ID || loadingMessages) return");
+    expect(source).toContain("if (loadingMessages && direction !== 'latest') return;");
     expect(source).toContain('if (!activeSessionId && list.length) setActiveSessionId(list[0].id)');
     const start = source.indexOf('const loadSessions = useCallback');
     const end = source.indexOf('const loadSessionDetail = useCallback', start);

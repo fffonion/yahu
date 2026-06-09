@@ -52,6 +52,7 @@ const normalizeTheme = (value: string | null): Theme => {
 const isDarkTheme = (value: Theme) => DARK_THEMES.has(value);
 const themeLabel = (value: Theme) => THEME_OPTIONS.find((item) => item.id === value)?.label || value;
 const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';
 const MESSAGE_PAGE = 24;
 const MESSAGE_WINDOW = 120;
 const initialRoute = getCurrentHashRoute();
@@ -358,7 +359,6 @@ export default function App() {
     setMode(route.mode);
     setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'settings');
     if (route.mode !== 'chat' && route.mode !== 'cron') setMobileSidebarOpen(false);
-    if (route.mode === 'skills' && window.innerWidth <= 760) { setMode('chat'); return; }
     if (route.mode === 'chat' && route.sessionId) setActiveSessionId(route.sessionId);
     if (route.mode === 'cron' && route.jobId) setCronEditingId(route.jobId);
     if (route.mode === 'images') setInitialImageFilename(route.imageFilename || '');
@@ -482,8 +482,9 @@ export default function App() {
   }, [model, models, selectedModelProvider, writeHashRoute]);
 
   const loadMessageWindow = useCallback(async (sessionId: string, direction: 'latest' | 'older' | 'newer' = 'latest') => {
-    if (sessionId === DRAFT_SESSION_ID || loadingMessages) return;
+    if (sessionId === DRAFT_SESSION_ID) return;
     if (!sessionId) return;
+    if (loadingMessages && direction !== 'latest') return;
     const scroller = chatScrollRef.current;
     const oldHeight = scroller?.scrollHeight || 0;
     const req = ++messageRequestRef.current;
@@ -933,15 +934,14 @@ export default function App() {
   };
   const closeMobileSidebar = () => setMobileSidebarOpen(false);
   const toggleMobileSidebar = () => {
-    if (mode !== 'chat' && mode !== 'cron' && mode !== 'workspace') return;
+    if (!hasMobileDrawer(mode)) return;
     setSidebarCollapsed(false);
     setMobileSidebarOpen((value) => !value);
   };
   const setNavMode = (next: Mode, collapse = false) => {
-    if (next === 'skills' && window.innerWidth <= 760) return;
     setMode(next);
     setSidebarCollapsed(collapse || next === 'memory' || next === 'settings');
-    if (next !== 'chat' && next !== 'cron') setMobileSidebarOpen(false);
+    setMobileSidebarOpen(false);
     const route: HashRoute = { mode: next } as HashRoute;
     writeHashRoute(route);
   };
@@ -976,23 +976,23 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} status={status} busy={busy} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} theme={theme} setTheme={setTheme} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} status={status} busy={busy} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
         <WorkspaceAside workspacePath={workspacePath} workspaceEntries={workspaceEntries} parentPath={parentPath} preview={preview} loadWorkspace={loadWorkspace} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} />}
-      {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} />}
+      {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />}
       {mode === 'skills' && <>
-        <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} status={status} theme={theme} setTheme={setTheme} />
+        <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} status={status} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
         <SkillWorkspaceAside skill={selectedSkill} skillFileTree={skillFileTree} expandedSkillPaths={expandedSkillPaths} toggleSkillFolder={toggleSkillFolder} openSkillFile={openSkillFile} />
       </>}
-      {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} status={status} theme={theme} setTheme={setTheme} />}
+      {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} status={status} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} />}
       {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} status={status} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
-        <button className="rail-btn nav-drawer" onClick={toggleMobileSidebar} aria-label="Open list" aria-expanded={mobileSidebarOpen} disabled={mode !== 'chat' && mode !== 'cron' && mode !== 'workspace'}><List /></button>
-        <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => { setNavMode('chat'); setMobileSidebarOpen(true); }} aria-label="Chat"><MessageSquare /></button>
-        <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => { setNavMode('cron'); setMobileSidebarOpen(true); }} aria-label="Cron"><CalendarClock /></button>
+        <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} aria-label="Chat"><MessageSquare /></button>
+        <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label="Cron"><CalendarClock /></button>
+        <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label="Skills"><Star /></button>
         <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label="Images"><ImageIcon /></button>
         <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} aria-label="Memory"><Brain /></button>
       </nav>
@@ -1019,6 +1019,9 @@ function CustomDialog({ dialog, setDialog }: { dialog: DialogState; setDialog: (
 }
 function ThemeCard({ theme, setTheme }: { theme: Theme; setTheme: (v: Theme) => void }) {
   return <div className="theme-card"><div className="theme-title"><span>Appearance</span><span>{themeLabel(theme)}</span></div><label><span>Theme</span><select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label></div>;
+}
+function MobileHeaderDrawerButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return <button type="button" className="mobile-header-drawer rail-btn" aria-label="Open list" aria-expanded={open} onClick={onClick}><List /></button>;
 }
 function HeaderThemeControl({ theme, setTheme }: { theme: Theme; setTheme: (v: Theme) => void }) {
   const [open, setOpen] = useState(false);
@@ -1187,7 +1190,7 @@ function ChatMain(props: any) {
   const modelOptions = currentOption ? [currentOption, ...props.models.filter((m: ModelOption) => m.id !== currentModel)] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   return <main className="main-panel">
-    <header className="chat-header"><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div></header>
+    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div></header>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {props.messages.length === 0 && <div className="empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
@@ -1214,8 +1217,8 @@ function WorkspaceAside(props: any) {
   if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title={t('workspace.openPage')} aria-label="Open workspace page" onClick={() => props.loadWorkspace(props.workspacePath)}><Folder /></button></div></aside>;
   return <aside className="workspace"><WorkspaceBrowser {...props} compact /></aside>;
 }
-function WorkspaceMain({ preview, setPreview, theme, setTheme }: any) {
-  return <main className="main-panel workspace-main"><header className="chat-header"><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
+function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar }: any) {
+  return <main className="main-panel workspace-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
 function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu }: any) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
@@ -1239,8 +1242,8 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
   const toggleCat = (cat: string) => setExpandedCats(new Set(expandedCats.has(cat) ? [...expandedCats].filter((c) => c !== cat) : [...expandedCats, cat]));
   return <><div className="cron-sidebar-head"><div><h2>Skills</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => selectSkill(skill)}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
-function SkillMain({ skill, preview, setPreview, status, theme, setTheme }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; status: string; theme: Theme; setTheme: (v: Theme) => void }) {
-  return <main className="main-panel skills-main"><header className="chat-header"><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || status}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
+function SkillMain({ skill, preview, setPreview, status, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; status: string; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void }) {
+  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || status}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
 function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void }) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.filter((e) => e.name !== '.archive').map((entry) => {
@@ -1281,7 +1284,7 @@ function CronSidebar({ jobs, editingId, beginCronEdit, resetCronForm, writeHashR
     <span className="session-icon"><CalendarClock /></span><span className="session-text"><span className="session-title">{j.name || jobId(j)}</span><span className="session-preview">{jobSchedule(j.schedule)} · {jobState(j)}{j.script ? ` · ${j.script}` : ''}</span></span>
   </button>)}</div></>;
 }
-function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; status: string; theme: Theme; setTheme: (v: Theme) => void }) {
+function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; status: string; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void }) {
   const deliverDisplay = (d: string) => {
     if (!d) return '—';
     if (d === 'origin') return 'origin (reply to chat)';
@@ -1290,7 +1293,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
     return d;
   };
   return <main className="main-panel cron-main">
-    <header className="chat-header"><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{props.status}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header>
+    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{props.status}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header>
     <section className="cron-detail-wrap"><div className="cron-detail">
       <label className="cron-field"><span>Name</span><input value={props.name} onChange={(e) => props.setName(e.target.value)} placeholder="Job name" /></label>
       <label className="cron-field"><span>Schedule</span><input value={props.schedule} onChange={(e) => props.setSchedule(e.target.value)} placeholder="Schedule, e.g. 0 9 * * *" /></label>
