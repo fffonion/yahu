@@ -1124,7 +1124,7 @@ function getToolIcon(toolName: string): React.ReactNode {
 function ToolMessageView({ message }: { message: ChatMessage }) {
   const [expanded, setExpanded] = useState(false);
   const summary = useMemo(() => summarizeToolMessage(message.content), [message.content]);
-  const toolName = (summary.title.split(' · ')[0] || summary.title).replace(/^functions\./, '').trim();
+  const toolName = summary.toolName;
   const isError = summary.status !== 'ok';
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`}>
     <div className="avatar">{getToolIcon(toolName)}</div>

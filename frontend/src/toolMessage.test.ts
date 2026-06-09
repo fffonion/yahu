@@ -12,14 +12,22 @@ describe('summarizeToolMessage', () => {
   test('uses untrusted tool result source as the displayed tool name', () => {
     const summary = summarizeToolMessage('<untrusted_tool_result source="browser_navigate">navigated</untrusted_tool_result>');
     expect(summary.title).toBe('browser_navigate');
+    expect(summary.toolName).toBe('browser_navigate');
     expect(summary.subtitle).toBe('navigated');
     expect(summary.fields).toContainEqual({ key: 'source', value: 'browser_navigate' });
     expect(summary.fields).toContainEqual({ key: 'result', value: 'navigated' });
   });
 
+  test('keeps the canonical tool name separate from the human display title for icon mapping', () => {
+    const summary = summarizeToolMessage(JSON.stringify({ tool_name: 'read_file', status: 'ok', path: '/tmp/a.txt', result: 'read 10 lines' }));
+    expect(summary.title).toBe('read file');
+    expect(summary.toolName).toBe('read_file');
+  });
+
   test('falls back to structured output for non-json tool content', () => {
     const summary = summarizeToolMessage('plain output');
     expect(summary.title).toBe('tool');
+    expect(summary.toolName).toBe('tool');
     expect(summary.fields).toEqual([{ key: 'output', value: 'plain output' }]);
   });
 });

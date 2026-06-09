@@ -1,5 +1,5 @@
 export type ToolField = { key: string; value: string };
-export type ToolSummary = { title: string; subtitle: string; fields: ToolField[]; raw: unknown; status: string };
+export type ToolSummary = { title: string; toolName: string; subtitle: string; fields: ToolField[]; raw: unknown; status: string };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -75,5 +75,5 @@ export function summarizeToolMessage(content: string): ToolSummary {
     || fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value
     || (root ? `${Object.keys(root).length} fields` : content);
 
-  return { title: fullTitle, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, status };
+  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, status };
 }
