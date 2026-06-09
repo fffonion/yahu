@@ -191,6 +191,8 @@ mod tests {
             updates,
             deletes,
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
+            model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
+            models_dev_url: "https://models.dev/api.json".to_string(),
         }
     }
 
@@ -344,7 +346,7 @@ mod tests {
             serde_json::json!({"id":"s2","source":"api_server","model":"gpt-5.5","last_active":ts - 86400.0,"input_tokens":50,"output_tokens":10,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"api_call_count":1,"tool_call_count":0,"estimated_cost_usd":0.02}),
         ];
 
-        let body = aggregate_usage_insights(&rows, ts);
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &ModelPriceCatalog::new());
 
         assert_eq!(body["totals"]["input"], 150);
         assert_eq!(body["totals"]["output"], 30);
@@ -357,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn insights_estimates_minimax_cost_when_api_rows_have_no_cost() {
+    fn insights_estimates_cost_from_models_dev_catalog_when_api_rows_have_no_cost() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()
             .and_hms_opt(12, 0, 0)
@@ -365,20 +367,89 @@ mod tests {
             .and_utc()
             .timestamp() as f64;
         let rows = vec![
-            serde_json::json!({"id":"m3","source":"telegram","model":"minimax-m3","last_active":ts,"input_tokens":1_000_000,"output_tokens":100_000,"cache_read_tokens":9_000_000,"cache_write_tokens":0,"reasoning_tokens":0}),
-            serde_json::json!({"id":"m27","source":"telegram","model":"minimax/m2.7","last_active":ts,"input_tokens":100_000,"output_tokens":10_000,"cache_read_tokens":900_000,"cache_write_tokens":20_000,"reasoning_tokens":0}),
+            serde_json::json!({"id":"m3","source":"telegram","model":"minimax/m3","last_active":ts,"input_tokens":1_000_000,"output_tokens":100_000,"cache_read_tokens":9_000_000,"cache_write_tokens":0,"reasoning_tokens":0}),
             serde_json::json!({"id":"unknown","source":"telegram","model":"unknown-model","last_active":ts,"input_tokens":500,"output_tokens":100,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0}),
-            serde_json::json!({"id":"actual","source":"telegram","model":"minimax-m3","last_active":ts,"input_tokens":1_000_000,"output_tokens":100_000,"cache_read_tokens":9_000_000,"actual_cost_usd":42.0}),
+            serde_json::json!({"id":"actual","source":"telegram","model":"minimax/m3","last_active":ts,"input_tokens":1_000_000,"output_tokens":100_000,"cache_read_tokens":9_000_000,"actual_cost_usd":42.0}),
         ];
+        let models_dev = serde_json::json!({
+            "minimax": {
+                "id": "minimax",
+                "models": {
+                    "MiniMax-M3": {
+                        "id": "MiniMax-M3",
+                        "cost": {"input": 0.6, "output": 2.4, "cache_read": 0.12}
+                    }
+                }
+            }
+        });
+        let catalog = model_price_catalog_from_models_dev(&models_dev);
 
-        let body = aggregate_usage_insights(&rows, ts);
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog);
         let totals = &body["totals"];
 
-        assert!((totals["estimated_cost_usd"].as_f64().unwrap() - 2.0235).abs() < 0.000001);
-        assert!((totals["cost_usd"].as_f64().unwrap() - 43.0635).abs() < 0.000001);
+        assert!((totals["estimated_cost_usd"].as_f64().unwrap() - 3.84).abs() < 0.000001);
+        assert!((totals["cost_usd"].as_f64().unwrap() - 43.92).abs() < 0.000001);
         assert_eq!(totals["actual_cost_usd"], 42.0);
         assert_eq!(totals["unpriced_tokens"], 600);
         let one_day = body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 1).unwrap();
-        assert!((one_day["totals"]["cost_usd"].as_f64().unwrap() - 43.0635).abs() < 0.000001);
+        assert!((one_day["totals"]["cost_usd"].as_f64().unwrap() - 43.92).abs() < 0.000001);
+    }
+
+    #[test]
+    fn insights_leaves_tokens_unpriced_without_models_dev_price() {
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![
+            serde_json::json!({"id":"m3","source":"telegram","model":"minimax/m3","last_active":ts,"input_tokens":10,"output_tokens":20,"cache_read_tokens":30,"cache_write_tokens":0,"reasoning_tokens":0}),
+        ];
+        let catalog = model_price_catalog_from_models_dev(&serde_json::json!({}));
+
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog);
+
+        assert_eq!(body["totals"]["cost_usd"], 0.0);
+        assert_eq!(body["totals"]["unpriced_tokens"], 60);
+    }
+
+    #[tokio::test]
+    async fn insights_fetches_models_dev_price_catalog_from_configured_backend_url() {
+        async fn models_dev(headers: HeaderMap) -> Json<serde_json::Value> {
+            assert!(
+                headers
+                    .get(header::USER_AGENT)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("")
+                    .starts_with("yahu/")
+            );
+            Json(serde_json::json!({
+                "minimax": {
+                    "id": "minimax",
+                    "models": {
+                        "MiniMax-M3": {
+                            "id": "MiniMax-M3",
+                            "cost": {"input": 0.6, "output": 2.4, "cache_read": 0.12}
+                        }
+                    }
+                }
+            }))
+        }
+
+        let app = Router::new().route("/api.json", get(models_dev));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        state.models_dev_url = format!("http://{addr}/api.json");
+
+        let catalog = fetch_models_dev_price_catalog(&state).await.unwrap();
+        let price = model_price_for_model(&catalog, "minimax/m3").unwrap();
+
+        assert!((price.estimate(1_000_000, 100_000, 9_000_000, 0) - 1.92).abs() < 0.000001);
     }
 }

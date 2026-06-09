@@ -2,6 +2,9 @@ const INSIGHTS_DAYS: usize = 30;
 const INSIGHTS_PAGE_SIZE: usize = 200;
 const INSIGHTS_SCAN_LIMIT: usize = 5_000;
 const INSIGHTS_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
+type ModelPriceCatalog = HashMap<String, ModelPrice>;
 
 #[derive(Clone, Default)]
 struct UsageTotals {
@@ -35,10 +38,17 @@ impl ModelPrice {
             + (cache_write.max(0) as f64 * self.cache_write_per_million))
             / 1_000_000.0
     }
+
+    fn has_billable_price(&self) -> bool {
+        self.input_per_million > 0.0
+            || self.output_per_million > 0.0
+            || self.cache_read_per_million > 0.0
+            || self.cache_write_per_million > 0.0
+    }
 }
 
 impl UsageTotals {
-    fn add_row(&mut self, row: &serde_json::Value) {
+    fn add_row(&mut self, row: &serde_json::Value, prices: &ModelPriceCatalog) {
         let input = json_i64(row, "input_tokens");
         let output = json_i64(row, "output_tokens");
         let cache_read = json_i64(row, "cache_read_tokens");
@@ -46,19 +56,18 @@ impl UsageTotals {
         let reasoning = json_i64(row, "reasoning_tokens");
         let actual_cost = json_f64(row, "actual_cost_usd");
         let api_estimated_cost = json_f64(row, "estimated_cost_usd");
-        let fallback_estimated_cost = row
+        let catalog_estimated_cost = row
             .get("model")
             .and_then(|value| value.as_str())
-            .and_then(insights_price_for_model)
-            .map(|price| price.estimate(input, output, cache_read, cache_write))
-            .unwrap_or(0.0);
+            .and_then(|model| model_price_for_model(prices, model))
+            .map(|price| price.estimate(input, output, cache_read, cache_write));
         let estimated_cost = if api_estimated_cost > 0.0 {
-            api_estimated_cost
+            Some(api_estimated_cost)
         } else {
-            fallback_estimated_cost
+            catalog_estimated_cost
         };
         let row_cost = if actual_cost > 0.0 {
-            actual_cost
+            Some(actual_cost)
         } else {
             estimated_cost
         };
@@ -70,10 +79,10 @@ impl UsageTotals {
         self.reasoning += reasoning;
         self.api_calls += json_i64(row, "api_call_count");
         self.tool_calls += json_i64(row, "tool_call_count");
-        self.estimated_cost += estimated_cost;
+        self.estimated_cost += estimated_cost.unwrap_or(0.0);
         self.actual_cost += actual_cost;
-        self.cost += row_cost;
-        if row_cost <= 0.0 && input + output + cache_read + cache_write + reasoning > 0 {
+        self.cost += row_cost.unwrap_or(0.0);
+        if row_cost.is_none() && input + output + cache_read + cache_write + reasoning > 0 {
             self.unpriced_tokens += input + output + cache_read + cache_write + reasoning;
         }
     }
@@ -135,35 +144,77 @@ impl UsageTotals {
     }
 }
 
-fn insights_price_for_model(model: &str) -> Option<ModelPrice> {
-    let normalized = model
+fn normalize_model_price_key(model: &str) -> String {
+    model
         .trim()
         .to_ascii_lowercase()
         .replace('_', "-")
-        .replace('/', "-");
-    match normalized.as_str() {
-        // MiniMax official Pay-as-you-go Standard tier, permanent 50% discount, <=512k input.
-        // Source: https://platform.minimax.io/docs/guides/pricing-paygo
-        "minimax-m3" | "minimax-minimax-m3" | "minimax-m03" => Some(ModelPrice {
-            input_per_million: 0.30,
-            output_per_million: 1.20,
-            cache_read_per_million: 0.06,
-            cache_write_per_million: 0.0,
-        }),
-        "minimax-m2.7" | "minimax-m27" | "minimax-m2-7" => Some(ModelPrice {
-            input_per_million: 0.30,
-            output_per_million: 1.20,
-            cache_read_per_million: 0.06,
-            cache_write_per_million: 0.375,
-        }),
-        "minimax-m2.7-highspeed" | "minimax-m27-highspeed" | "minimax-m2-7-highspeed" => Some(ModelPrice {
-            input_per_million: 0.60,
-            output_per_million: 2.40,
-            cache_read_per_million: 0.06,
-            cache_write_per_million: 0.375,
-        }),
-        _ => None,
+        .replace('/', "-")
+}
+
+fn insert_model_price(catalog: &mut ModelPriceCatalog, key: &str, price: ModelPrice) {
+    let normalized = normalize_model_price_key(key);
+    if normalized.is_empty() {
+        return;
     }
+    if let Some(existing) = catalog.get(&normalized)
+        && existing.has_billable_price()
+        && !price.has_billable_price()
+    {
+        return;
+    }
+    catalog.insert(normalized, price);
+}
+
+fn model_price_for_model(catalog: &ModelPriceCatalog, model: &str) -> Option<ModelPrice> {
+    catalog.get(&normalize_model_price_key(model)).copied()
+}
+
+fn model_price_catalog_from_models_dev(body: &serde_json::Value) -> ModelPriceCatalog {
+    let mut catalog = ModelPriceCatalog::new();
+    let Some(providers) = body.as_object() else { return catalog };
+    for (provider_id, provider) in providers {
+        let Some(models) = provider.get("models").and_then(|value| value.as_object()) else {
+            continue;
+        };
+        for (model_key, model) in models {
+            let Some(price) = model_price_from_models_dev_model(model) else {
+                continue;
+            };
+            insert_model_price(&mut catalog, model_key, price);
+            if let Some(model_id) = model.get("id").and_then(|value| value.as_str()) {
+                insert_model_price(&mut catalog, model_id, price);
+                insert_model_price(&mut catalog, &format!("{provider_id}/{model_id}"), price);
+                insert_model_price(&mut catalog, &format!("{provider_id}-{model_id}"), price);
+            }
+            if let Some(model_name) = model.get("name").and_then(|value| value.as_str()) {
+                insert_model_price(&mut catalog, model_name, price);
+            }
+        }
+    }
+    catalog
+}
+
+fn model_price_from_models_dev_model(model: &serde_json::Value) -> Option<ModelPrice> {
+    let cost = model.get("cost")?;
+    Some(ModelPrice {
+        input_per_million: json_cost_f64(cost, "input"),
+        output_per_million: json_cost_f64(cost, "output"),
+        cache_read_per_million: json_cost_f64(cost, "cache_read"),
+        cache_write_per_million: json_cost_f64(cost, "cache_write"),
+    })
+}
+
+fn json_cost_f64(row: &serde_json::Value, key: &str) -> f64 {
+    match row.get(key) {
+        Some(value) => value.as_f64().or_else(|| {
+            value
+                .as_str()
+                .and_then(|text| text.trim().trim_start_matches('$').parse::<f64>().ok())
+        }),
+        None => None,
+    }
+    .unwrap_or(0.0)
 }
 
 #[derive(Clone)]
@@ -182,12 +233,47 @@ struct ModelUsage {
 async fn insights_usage(State(state): State<Arc<AppState>>) -> Response<Body> {
     let now = unix_now_seconds();
     match fetch_recent_sessions_for_insights(&state, now).await {
-        Ok(rows) => Json(aggregate_usage_insights(&rows, now)).into_response(),
+        Ok(rows) => {
+            let prices = match fetch_models_dev_price_catalog(&state).await {
+                Ok(prices) => prices,
+                Err(err) => {
+                    warn!("models.dev price fetch failed: {err}");
+                    ModelPriceCatalog::new()
+                }
+            };
+            Json(aggregate_usage_insights_with_prices(&rows, now, &prices)).into_response()
+        }
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
             &format!("insights API request failed: {err}"),
         ),
     }
+}
+
+async fn fetch_models_dev_price_catalog(state: &AppState) -> anyhow::Result<ModelPriceCatalog> {
+    {
+        let cache = state.model_price_cache.read().await;
+        if let Some(body) = fresh_model_cache_body(&cache, MODEL_PRICE_CACHE_TTL) {
+            return Ok(model_price_catalog_from_models_dev(&body));
+        }
+    }
+    let resp = timeout(
+        INSIGHTS_REQUEST_TIMEOUT,
+        state
+            .client
+            .get(state.models_dev_url.as_str())
+            .header(header::USER_AGENT, concat!("yahu/", env!("CARGO_PKG_VERSION")))
+            .send(),
+    )
+    .await??;
+    if !resp.status().is_success() {
+        anyhow::bail!("models.dev price request failed: {}", resp.status());
+    }
+    let body = resp.json::<serde_json::Value>().await?;
+    let mut cache = state.model_price_cache.write().await;
+    cache.fetched_at = Some(std::time::Instant::now());
+    cache.body = Some(body.clone());
+    Ok(model_price_catalog_from_models_dev(&body))
 }
 
 async fn fetch_recent_sessions_for_insights(
@@ -242,7 +328,11 @@ async fn fetch_recent_sessions_for_insights(
     }
 }
 
-fn aggregate_usage_insights(rows: &[serde_json::Value], now: f64) -> serde_json::Value {
+fn aggregate_usage_insights_with_prices(
+    rows: &[serde_json::Value],
+    now: f64,
+    prices: &ModelPriceCatalog,
+) -> serde_json::Value {
     let days = insight_days(now);
     let mut totals = UsageTotals::default();
     let mut models: HashMap<String, ModelUsage> = HashMap::new();
@@ -254,7 +344,7 @@ fn aggregate_usage_insights(rows: &[serde_json::Value], now: f64) -> serde_json:
         if !days.iter().any(|item| item.date == day) {
             continue;
         }
-        totals.add_row(row);
+        totals.add_row(row, prices);
         let model_name = row
             .get("model")
             .and_then(|value| value.as_str())
@@ -277,9 +367,9 @@ fn aggregate_usage_insights(rows: &[serde_json::Value], now: f64) -> serde_json:
                 .map(|item| (item.date.clone(), UsageTotals::default()))
                 .collect(),
         });
-        model.totals.add_row(row);
-        model.daily.entry(day.clone()).or_default().add_row(row);
-        sources.entry(source_name).or_default().add_row(row);
+        model.totals.add_row(row, prices);
+        model.daily.entry(day.clone()).or_default().add_row(row, prices);
+        sources.entry(source_name).or_default().add_row(row, prices);
     }
 
     let mut model_rows: Vec<_> = models.into_values().collect();

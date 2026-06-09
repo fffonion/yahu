@@ -95,6 +95,13 @@ struct Args {
 
     #[arg(long, env = "HERMES_WEBUI_IMAGE_DIR")]
     image_dir: Option<PathBuf>,
+
+    #[arg(
+        long,
+        env = "HERMES_WEBUI_MODELS_DEV_URL",
+        default_value = "https://models.dev/api.json"
+    )]
+    models_dev_url: String,
 }
 
 #[derive(Clone)]
@@ -110,6 +117,8 @@ struct AppState {
     updates: broadcast::Sender<String>,
     deletes: broadcast::Sender<String>,
     model_cache: Arc<RwLock<ModelCache>>,
+    model_price_cache: Arc<RwLock<ModelCache>>,
+    models_dev_url: String,
 }
 
 #[derive(Deserialize)]
@@ -225,6 +234,8 @@ pub async fn run() -> anyhow::Result<()> {
         updates,
         deletes,
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
+        model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
+        models_dev_url: args.models_dev_url,
     });
 
     let app = Router::new()
