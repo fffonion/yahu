@@ -9,8 +9,8 @@ describe('session right-click context menu', () => {
     const source = app();
     expect(source).toContain('onContextMenu');
     expect(source).toContain('session-context-menu');
-    expect(source).toContain('Rename session');
-    expect(source).toContain('Delete session');
+    expect(source).toContain("t('chat.rename')");
+    expect(source).toContain("t('chat.delete')");
     expect(source).toContain('renameSession');
     expect(source).toContain('deleteSession');
   });
@@ -27,5 +27,14 @@ describe('session right-click context menu', () => {
     const styles = css();
     expect(styles).toContain('.session-context-menu{position:fixed');
     expect(styles).toContain('.session-context-menu button.danger');
+  });
+
+  test('right-clicking a session opens the menu without switching the active chat', () => {
+    const source = app();
+    const start = source.indexOf('const openSessionMenuAt = (session: Session');
+    const end = source.indexOf('const openSessionMenu =', start);
+    const fn = source.slice(start, end);
+    expect(fn).toContain('setSessionMenu({ session');
+    expect(fn).not.toContain('setActiveSessionId(session.id)');
   });
 });

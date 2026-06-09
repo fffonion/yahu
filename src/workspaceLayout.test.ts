@@ -42,4 +42,10 @@ describe('workspace page file tree layout', () => {
     expect(styles).toContain('.workspace-collapsed-actions');
     expect(styles).toContain('.workspace-rail-btn');
   });
+
+  test('mobile drawer remains enabled on the workspace route so the file tree is reachable', () => {
+    const source = app();
+    expect(source).toContain("if (mode !== 'chat' && mode !== 'cron' && mode !== 'workspace') return;");
+    expect(source).toContain("disabled={mode !== 'chat' && mode !== 'cron' && mode !== 'workspace'}");
+  });
 });

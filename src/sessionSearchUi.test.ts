@@ -16,7 +16,7 @@ describe('session search and composer session model UI', () => {
     const app = source();
     const css = styles();
     expect(app).toContain('className="session-searchbar"');
-    expect(app).toContain('aria-label="New conversation"');
+    expect(app).toContain('aria-label={t(\'chat.new\')}');
     expect(app).not.toContain('<span>New conversation</span>');
     expect(css).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr)');
     expect(css).toContain('.filter{height:44px');

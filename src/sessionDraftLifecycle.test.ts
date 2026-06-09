@@ -35,7 +35,10 @@ describe('draft session lifecycle', () => {
     expect(source).toContain("if (sessionId === DRAFT_SESSION_ID) return");
     expect(source).toContain("if (sessionId === DRAFT_SESSION_ID || loadingMessages) return");
     expect(source).toContain('if (!activeSessionId && list.length) setActiveSessionId(list[0].id)');
-    expect(source).not.toContain('!activeSessionId || activeSessionId === DRAFT_SESSION_ID');
+    const start = source.indexOf('const loadSessions = useCallback');
+    const end = source.indexOf('const loadSessionDetail = useCallback', start);
+    const loadSessionsBlock = source.slice(start, end);
+    expect(loadSessionsBlock).not.toContain('!activeSessionId || activeSessionId === DRAFT_SESSION_ID');
   });
 
   test('session title refresh happens once after the first successful assistant reply', () => {

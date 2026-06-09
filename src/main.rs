@@ -53,6 +53,15 @@ const SESSION_COOKIE: &str = "hermes_webui_session";
 const MAX_PROXY_BODY: usize = 32 * 1024 * 1024;
 const SESSION_TTL: u64 = 7 * 24 * 60 * 60;
 
+fn path_segment(value: &str) -> String {
+    utf8_percent_encode(value, NON_ALPHANUMERIC)
+        .to_string()
+        .replace("%2D", "-")
+        .replace("%2E", ".")
+        .replace("%5F", "_")
+        .replace("%7E", "~")
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Yet Another Hermes UI — single-binary web interface for Hermes Agent")]
 struct Args {
@@ -720,7 +729,8 @@ async fn chat_messages_page(
     let limit = query.limit.unwrap_or(24).clamp(1, 80);
     let mut req = state.client.get(format!(
         "{}/api/sessions/{}/messages",
-        state.api_url, session_id
+        state.api_url,
+        path_segment(&session_id)
     ));
     if let Some(key) = &state.api_key
         && !key.is_empty()
@@ -1794,10 +1804,11 @@ fn file_metadata(dir: &Path, filename: &str, download: bool) -> Option<FileMetad
         return None;
     }
     let modified_at = system_time_to_millis(metadata.modified().unwrap_or(UNIX_EPOCH));
+    let segment = path_segment(filename);
     let url = if download {
-        format!("/image-download/{}?v={}", filename, file_version(&metadata))
+        format!("/image-download/{}?v={}", segment, file_version(&metadata))
     } else {
-        format!("/image-files/{}?v={}", filename, file_version(&metadata))
+        format!("/image-files/{}?v={}", segment, file_version(&metadata))
     };
     Some(FileMetadata {
         filename: filename.to_string(),
@@ -1828,10 +1839,10 @@ fn heic_status_for_source(path: &Path, source_size: u64, has_heic: bool) -> &'st
 fn source_download_label(filename: &str) -> &'static str {
     match Path::new(filename).extension().and_then(OsStr::to_str) {
         Some(ext) if ext.eq_ignore_ascii_case("jpg") || ext.eq_ignore_ascii_case("jpeg") => {
-            "下载 JPEG"
+            "Download JPEG"
         }
-        Some(ext) if ext.eq_ignore_ascii_case("webp") => "下载 WebP",
-        _ => "下载 PNG",
+        Some(ext) if ext.eq_ignore_ascii_case("webp") => "Download WebP",
+        _ => "Download PNG",
     }
 }
 
@@ -2076,7 +2087,7 @@ async fn chat_watch(
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                    let mut req = client.get(format!("{}/api/sessions/{}/messages?limit=8", api_url, session_id));
+                    let mut req = client.get(format!("{}/api/sessions/{}/messages?limit=8", api_url, path_segment(&session_id)));
                     if let Some(key) = &api_key {
                         if !key.is_empty() { req = req.bearer_auth(key); }
                     }
@@ -2184,16 +2195,16 @@ async fn image_entry_for_png(dir: &Path, png_path: &Path) -> Option<ImageEntry> 
             .ok()
             .map(|m| file_version(&m))
             .unwrap_or_else(|| png_version.clone());
-        Some(format!("/image-download/{}?v={}", name, version))
+        Some(format!("/image-download/{}?v={}", path_segment(name), version))
     } else {
         None
     };
-    let png_url = format!("/image-files/{}?v={}", filename, png_version);
+    let png_url = format!("/image-files/{}?v={}", path_segment(&filename), png_version);
     let heic_status =
         heic_status_for_source(png_path, metadata.len(), heic_url.is_some()).to_string();
     let (download_filename, download_url, download_label) =
         if let (Some(name), Some(url)) = (heic_filename.as_ref(), heic_url.as_ref()) {
-            (name.clone(), url.clone(), "下载 HEIC".to_string())
+            (name.clone(), url.clone(), "Download HEIC".to_string())
         } else if heic_status == "not_applicable" {
             (
                 filename.clone(),
@@ -2201,10 +2212,10 @@ async fn image_entry_for_png(dir: &Path, png_path: &Path) -> Option<ImageEntry> 
                 source_download_label(&filename).to_string(),
             )
         } else {
-            (filename.clone(), png_url.clone(), "生成 HEIC".to_string())
+            (filename.clone(), png_url.clone(), "Generate HEIC".to_string())
         };
     Some(ImageEntry {
-        image_url: format!("/image-files/{}?v={}", display_filename, display_version),
+        image_url: format!("/image-files/{}?v={}", path_segment(&display_filename), display_version),
         png_url,
         heic_url,
         heic_status,
@@ -2419,10 +2430,9 @@ async fn serve_local_file(path: PathBuf, attachment: bool) -> axum::response::Re
         HeaderValue::from_str(&content_type).unwrap(),
     );
     if attachment {
-        headers.insert(
-            header::CONTENT_DISPOSITION,
-            HeaderValue::from_str(&format!("attachment; filename=\"{}\"", display_name)).unwrap(),
-        );
+        if let Ok(value) = HeaderValue::from_str(&content_disposition_attachment(&display_name)) {
+            headers.insert(header::CONTENT_DISPOSITION, value);
+        }
     } else {
         headers.insert(
             header::CACHE_CONTROL,
@@ -2430,6 +2440,17 @@ async fn serve_local_file(path: PathBuf, attachment: bool) -> axum::response::Re
         );
     }
     (headers, bytes).into_response()
+}
+
+
+fn content_disposition_attachment(display_name: &str) -> String {
+    let fallback: String = display_name
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ' '))
+        .collect();
+    let fallback = if fallback.trim().is_empty() { "image" } else { fallback.trim() };
+    let encoded = utf8_percent_encode(display_name, NON_ALPHANUMERIC).to_string();
+    format!("attachment; filename=\"{}\"; filename*=UTF-8''{}", fallback.replace('"', ""), encoded)
 }
 
 fn file_version(metadata: &std::fs::Metadata) -> String {
@@ -2479,6 +2500,9 @@ fn is_safe_filename(name: &str) -> bool {
         && name != "."
         && name != ".."
         && !name.contains('\0')
+        && !name.chars().any(|ch| {
+            ch.is_control() || matches!(ch, '?' | '#' | '%' | '"' | ';' | ':' | '*' | '<' | '>' | '|')
+        })
 }
 
 fn decode_filename(input: &str) -> Result<String, StatusCode> {
@@ -3178,6 +3202,40 @@ mod tests {
                 .any(|w| w == b"sample.png")
         );
         assert!(bytes.ends_with(&[0, 0]));
+    }
+
+    #[test]
+    fn image_filename_rejects_url_and_header_control_characters() {
+        for name in [
+            "bad?name.png",
+            "bad#name.png",
+            "bad%name.png",
+            "bad\rname.png",
+            "bad\nname.png",
+            "bad\tname.png",
+        ] {
+            assert!(!is_safe_filename(name), "{name} should be rejected");
+        }
+        assert!(is_safe_filename("sample-image_01.png"));
+    }
+
+    #[test]
+    fn image_file_urls_percent_encode_filename_segments() {
+        let root = std::env::temp_dir().join(format!(
+            "hermes-webui-image-url-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let filename = "sample image.png";
+        std::fs::write(root.join(filename), b"image-bytes").unwrap();
+
+        let metadata = file_metadata(&root, filename, false).unwrap();
+
+        assert!(metadata.url.starts_with("/image-files/sample%20image.png?v="));
+        std::fs::remove_dir_all(root).ok();
     }
 
     fn test_app_state(api_url: String, root: &Path) -> AppState {

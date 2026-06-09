@@ -20,6 +20,8 @@ describe('composer model selector', () => {
     expect(source).toContain('const changeSessionModel = useCallback((nextModel: string, option?: ModelOption) =>');
     expect(source).toContain('const resolvedModel = realModelOrEmpty(nextModel)');
     expect(source).toContain('setSelectedModelProvider(provider)');
+    expect(source).toContain('{ ...old, model: resolvedModel, provider }');
+    expect(source).toContain('{ ...s, model: resolvedModel, provider }');
     expect(source).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
     expect(source).not.toContain('body: JSON.stringify({ model: resolvedModel })');
     expect(source).toContain('setModel={changeSessionModel}');

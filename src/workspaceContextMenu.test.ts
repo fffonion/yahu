@@ -12,7 +12,7 @@ describe('workspace collapse and context menu', () => {
     expect(source).toContain('useState(true)');
     expect(source).toContain('workspace-collapsed');
     expect(source).toContain('Expand workspace');
-    expect(source).toContain('Collapse workspace');
+    expect(source).toContain("t('workspace.collapse')");
   });
 
   test('workspace rows expose a right-click rename/delete menu', () => {
@@ -20,8 +20,8 @@ describe('workspace collapse and context menu', () => {
     expect(source).toContain('WorkspaceContextMenu');
     expect(source).toContain('openWorkspaceMenu');
     expect(source).toContain('workspace-context-menu');
-    expect(source).toContain('Rename item');
-    expect(source).toContain('Delete item');
+    expect(source).toContain("t('workspace.renameItem')");
+    expect(source).toContain("t('workspace.deleteItem')");
     expect(source).toContain("method: 'PATCH'");
     expect(source).toContain("method: 'DELETE'");
   });

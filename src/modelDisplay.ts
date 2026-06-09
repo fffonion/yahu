@@ -22,9 +22,7 @@ export function providerDisplayName(provider: string) {
 
 export function currentModelDisplayOption(modelId: string, options: ModelOption[], apiProvider?: string): ModelOption {
   const id = modelId.trim();
-  const match = options.find((item) => item.id === id);
-  const provider = (apiProvider || match?.provider || '').trim();
-  const providerLabel = providerDisplayName(provider);
-  const label = providerLabel ? `${providerLabel} · ${id}` : (match?.label || id);
-  return { id, label, provider: provider || undefined };
+  void options;
+  void apiProvider;
+  return { id, label: id };
 }

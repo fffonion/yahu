@@ -442,10 +442,10 @@ export default function App() {
     const provider = String(option?.provider || '').trim();
     setModelState(resolvedModel);
     setSelectedModelProvider(provider);
-    if (activeSessionId === DRAFT_SESSION_ID) setActiveSessionDetail((old) => old ? { ...old, model: resolvedModel } : old);
+    if (activeSessionId === DRAFT_SESSION_ID) setActiveSessionDetail((old) => old ? { ...old, model: resolvedModel, provider } : old);
     if (activeSessionId && activeSessionId !== DRAFT_SESSION_ID) {
-      setActiveSessionDetail((old) => old?.id === activeSessionId ? { ...old, model: resolvedModel } : old);
-      setSessions((old) => old.map((s) => s.id === activeSessionId ? { ...s, model: resolvedModel } : s));
+      setActiveSessionDetail((old) => old?.id === activeSessionId ? { ...old, model: resolvedModel, provider } : old);
+      setSessions((old) => old.map((s) => s.id === activeSessionId ? { ...s, model: resolvedModel, provider } : s));
     }
     setStatus('Session model selected');
   }, [activeSessionId]);
@@ -470,7 +470,7 @@ export default function App() {
     const sessionModel = realModelOrEmpty(model) || models[0]?.id || '';
     messageRequestRef.current += 1;
     setActiveSessionId(DRAFT_SESSION_ID);
-    setActiveSessionDetail({ id: DRAFT_SESSION_ID, model: sessionModel });
+    setActiveSessionDetail({ id: DRAFT_SESSION_ID, model: sessionModel, provider: selectedModelProvider });
     setMessages([]);
     setHasOlder(false);
     setHasNewer(false);
@@ -479,7 +479,7 @@ export default function App() {
     setStatus('Draft conversation');
     setSessionMenu(null);
     writeHashRoute({ mode: 'chat' });
-  }, [model, models, writeHashRoute]);
+  }, [model, models, selectedModelProvider, writeHashRoute]);
 
   const loadMessageWindow = useCallback(async (sessionId: string, direction: 'latest' | 'older' | 'newer' = 'latest') => {
     if (sessionId === DRAFT_SESSION_ID || loadingMessages) return;
@@ -764,7 +764,7 @@ export default function App() {
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
     setHasNewer(false);
     const sessionModel = createdSession?.model || activeSession?.model || activeSessionDetail?.model || model;
-    const sessionProvider = selectedModelProvider && sessionModel === model ? selectedModelProvider : (models.find((m) => m.id === sessionModel)?.provider || '');
+    const sessionProvider = createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || (selectedModelProvider && sessionModel === model ? selectedModelProvider : '');
     setInput(''); setAttachments([]); setBusy(true); setStatus('Running');
     if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
     try {
@@ -868,7 +868,6 @@ export default function App() {
   const parentPath = workspacePath.split('/').filter(Boolean).slice(0, -1).join('/');
   const togglePin = (sessionId: string) => setPinnedIds((old) => { const next = new Set(old); next.has(sessionId) ? next.delete(sessionId) : next.add(sessionId); return next; });
   const openSessionMenuAt = (session: Session, clientX: number, clientY: number) => {
-    setActiveSessionId(session.id);
     const x = Math.min(clientX, window.innerWidth - 210);
     const y = Math.min(clientY, window.innerHeight - 112);
     setSessionMenu({ session, x: Math.max(8, x), y: Math.max(8, y) });
@@ -934,7 +933,7 @@ export default function App() {
   };
   const closeMobileSidebar = () => setMobileSidebarOpen(false);
   const toggleMobileSidebar = () => {
-    if (mode !== 'chat' && mode !== 'cron') return;
+    if (mode !== 'chat' && mode !== 'cron' && mode !== 'workspace') return;
     setSidebarCollapsed(false);
     setMobileSidebarOpen((value) => !value);
   };
@@ -991,7 +990,7 @@ export default function App() {
       {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} status={status} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
-        <button className="rail-btn nav-drawer" onClick={toggleMobileSidebar} aria-label="Open list" aria-expanded={mobileSidebarOpen} disabled={mode !== 'chat' && mode !== 'cron'}><List /></button>
+        <button className="rail-btn nav-drawer" onClick={toggleMobileSidebar} aria-label="Open list" aria-expanded={mobileSidebarOpen} disabled={mode !== 'chat' && mode !== 'cron' && mode !== 'workspace'}><List /></button>
         <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => { setNavMode('chat'); setMobileSidebarOpen(true); }} aria-label="Chat"><MessageSquare /></button>
         <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => { setNavMode('cron'); setMobileSidebarOpen(true); }} aria-label="Cron"><CalendarClock /></button>
         <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label="Images"><ImageIcon /></button>
@@ -1184,7 +1183,7 @@ function ChatMain(props: any) {
   const currentModel = sessionModel;
   const activeTitle = active?.id === DRAFT_SESSION_ID ? 'New conversation' : active ? sessionDisplayTitle(active) : 'Hermes Agent';
   const headerTimes = sessionHeaderTimes(active, props.messages);
-  const currentOption = currentModel ? currentModelDisplayOption(currentModel, props.models, active?.provider || props.selectedProvider) : undefined;
+  const currentOption = currentModel ? currentModelDisplayOption(currentModel, props.models) : undefined;
   const modelOptions = currentOption ? [currentOption, ...props.models.filter((m: ModelOption) => m.id !== currentModel)] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   return <main className="main-panel">
@@ -1212,7 +1211,7 @@ function ChatMain(props: any) {
 }
 
 function WorkspaceAside(props: any) {
-  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label={t('workspace.expand')} onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title={t('workspace.openPage')} aria-label={t('workspace.openPage')} onClick={() => props.loadWorkspace(props.workspacePath)}><Folder /></button></div></aside>;
+  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title={t('workspace.openPage')} aria-label="Open workspace page" onClick={() => props.loadWorkspace(props.workspacePath)}><Folder /></button></div></aside>;
   return <aside className="workspace"><WorkspaceBrowser {...props} compact /></aside>;
 }
 function WorkspaceMain({ preview, setPreview, theme, setTheme }: any) {
@@ -1321,7 +1320,7 @@ function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void;
     { id: 'zh-TW', label: '繁體中文' },
     { id: 'ja', label: '日本語' },
   ];
-  return <main className="main-panel settings-main"><header className="chat-header"><div><h1>{t('settings.title')}</h1><span>{props.status}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button className="mobile-icon-only" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button></section></main>;
+  return <main className="main-panel settings-main"><header className="chat-header"><div><h1>{t('settings.title')}</h1><span>{props.status}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button></section></main>;
 }
 
 function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void }) {
@@ -1522,7 +1521,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
         mergeImage(entry);
         setModal(entry);
       })
-      .catch(() => setNotice(`图片不存在：${initialImageFilename}`));
+      .catch(() => setNotice(`Image not found: ${initialImageFilename}`));
   }, [initialImageFilename]);
   const loadStats = useCallback(async () => {
     try { const res = await fetch('/image-api/stats', { cache: 'no-store' }); if (res.ok) setStats(await res.json()); }
@@ -1560,7 +1559,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const refreshIncremental = useCallback(async () => {
     if (refreshBusyRef.current) return;
     refreshBusyRef.current = true;
-    setNotice('刷新中…');
+    setNotice('Refreshing…');
     try {
       const oldMap = new Map(imagesRef.current.map((item) => [item.filename, item]));
       const after = imagesRef.current.reduce((max, item) => Math.max(max, Number(item.modified_at || 0)), 0);
@@ -1580,9 +1579,9 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
         mergeImage(item);
       }
       if ((payload.new_items || []).length >= MAX_PAGE_SIZE) { hasMoreRef.current = true; setHasMore(true); }
-      setNotice(added || updated ? `刷新完成：新增 ${added}，更新 ${updated}` : '刷新完成：没有新图');
+      setNotice(added || updated ? `Refresh complete: added ${added}, updated ${updated}` : 'Refresh complete: no new images');
       await loadStats();
-    } catch (err: any) { setNotice(`刷新失败: ${err.message || err}`); }
+    } catch (err: any) { setNotice(`Refresh failed: ${err.message || err}`); }
     finally { refreshBusyRef.current = false; }
   }, [loadStats]);
   const refresh = refreshIncremental;

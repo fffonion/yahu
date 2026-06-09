@@ -11,7 +11,7 @@ fn model_inventory_payload_flattens_hermes_picker_providers_without_api_server_p
         "model": "MiniMax-M3"
     });
 
-    let flattened = hermes_headless_webui::flatten_model_options(&payload);
+    let flattened = yet_another_hermes_ui::flatten_model_options(&payload);
 
     assert_eq!(flattened[0]["id"], "MiniMax-M3");
     assert_eq!(flattened[0]["provider"], "minimax-cn");
@@ -30,7 +30,7 @@ fn api_server_model_fallback_is_flattened_and_filters_hermes_agent_placeholder()
         ]
     });
 
-    let cached = hermes_headless_webui::model_cache_payload_from_source(&payload, "api_server");
+    let cached = yet_another_hermes_ui::model_cache_payload_from_source(&payload, "api_server");
     let data = cached["data"].as_array().unwrap();
 
     assert_eq!(cached["source"], "api_server");
@@ -41,11 +41,11 @@ fn api_server_model_fallback_is_flattened_and_filters_hermes_agent_placeholder()
 
 #[test]
 fn model_cache_returns_fresh_cached_body() {
-    let mut cache = hermes_headless_webui::ModelCache::default();
+    let mut cache = yet_another_hermes_ui::ModelCache::default();
     cache.fetched_at = Some(Instant::now());
     cache.body = Some(json!({"object": "list", "data": [{"id": "MiniMax-M3"}]}));
 
-    let cached = hermes_headless_webui::fresh_model_cache_body(&cache, Duration::from_secs(300));
+    let cached = yet_another_hermes_ui::fresh_model_cache_body(&cache, Duration::from_secs(300));
 
     assert_eq!(cached.unwrap()["data"][0]["id"], "MiniMax-M3");
 }

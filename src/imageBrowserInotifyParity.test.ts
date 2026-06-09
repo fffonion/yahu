@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const headless = () => readFileSync(new URL('./main.rs', import.meta.url), 'utf8');
-const STANDALONE_PATH = process.env.HERMES_IMAGE_BROWSER_SRC || '/dev/null';
+const siblingStandalone = new URL('../../hermes-image-browser/src/main.rs', import.meta.url).pathname;
+const STANDALONE_PATH = process.env.HERMES_IMAGE_BROWSER_SRC || (existsSync(siblingStandalone) ? siblingStandalone : '/dev/null');
 const standalone = () => {
   const path = STANDALONE_PATH;
   if (path === '/dev/null') {
