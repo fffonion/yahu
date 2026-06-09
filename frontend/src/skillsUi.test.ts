@@ -4,7 +4,9 @@ import { readFileSync } from 'fs';
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 const routes = () => readFileSync(new URL('./hashRoute.ts', import.meta.url), 'utf8');
-const server = () => readFileSync(new URL('./main.rs', import.meta.url), 'utf8');
+const server = () => ['mod.rs', 'skills.rs']
+  .map((file) => readFileSync(new URL(`../../src/backend/${file}`, import.meta.url), 'utf8'))
+  .join('\n');
 
 describe('skills desktop UI', () => {
   test('skills mode is a desktop-only rail entry and is omitted from mobile nav', () => {

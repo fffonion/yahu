@@ -1,8 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 
-const headless = () => readFileSync(new URL('./main.rs', import.meta.url), 'utf8');
-const siblingStandalone = new URL('../../hermes-image-browser/src/main.rs', import.meta.url).pathname;
+const headless = () => [
+  'mod.rs',
+  'images.rs',
+  'images/types.rs',
+  'images/watcher.rs',
+  'images/api.rs',
+  'images/metadata.rs',
+  'images/events_entries.rs',
+  'images/serve_generate.rs',
+  'images/files.rs',
+  'images/batch.rs',
+]
+  .map((file) => readFileSync(new URL(`../../src/backend/${file}`, import.meta.url), 'utf8'))
+  .join('\n');
+const siblingStandalone = new URL('../../../hermes-image-browser/src/main.rs', import.meta.url).pathname;
 const STANDALONE_PATH = process.env.HERMES_IMAGE_BROWSER_SRC || (existsSync(siblingStandalone) ? siblingStandalone : '/dev/null');
 const standalone = () => {
   const path = STANDALONE_PATH;

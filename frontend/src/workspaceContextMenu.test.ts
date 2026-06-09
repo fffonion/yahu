@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-const server = () => readFileSync(new URL('./main.rs', import.meta.url), 'utf8');
+const server = () => ['mod.rs', 'workspace.rs']
+  .map((file) => readFileSync(new URL(`../../src/backend/${file}`, import.meta.url), 'utf8'))
+  .join('\n');
 
 describe('workspace collapse and context menu', () => {
   test('right workspace starts collapsed and can be toggled open', () => {

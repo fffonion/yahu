@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
-const server = () => readFileSync(new URL('./main.rs', import.meta.url), 'utf8');
+const server = () => readFileSync(new URL('../../src/backend/mod.rs', import.meta.url), 'utf8');
 
 describe('hash route integration', () => {
   test('App imports hash route helpers and listens for hashchange', () => {

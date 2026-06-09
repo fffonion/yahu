@@ -20,6 +20,13 @@ bun run build
 cargo build --release
 ```
 
+## Source layout
+
+- `frontend/` — React/Vite UI (`frontend/src/*.ts(x)`, CSS, Bun tests)
+- `src/main.rs` — tiny binary entrypoint
+- `src/backend/` — Axum backend modules: auth, proxy, sessions, workspace, skills/memory, image browser, assets, tests
+- `src/lib.rs` — Rust library helpers shared by the binary and integration tests
+
 ## Run
 
 ```bash
