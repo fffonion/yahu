@@ -327,6 +327,7 @@ export default function App() {
   const [hasNewer, setHasNewer] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [input, setInput] = useState('');
+  const [composerCompact, setComposerCompact] = useState(false);
   const [filter, setFilter] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const setStatus = useCallback((_value: string) => {}, []);
@@ -359,6 +360,7 @@ export default function App() {
   const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
   const chatScrollRef = useRef<HTMLElement | null>(null);
+  const composerRef = useRef<HTMLElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const messageRequestRef = useRef(0);
   const searchVersionRef = useRef(0);
@@ -1016,7 +1018,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
         <WorkspaceAside workspacePath={workspacePath} workspaceEntries={workspaceEntries} parentPath={parentPath} preview={preview} loadWorkspace={loadWorkspace} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} />}
@@ -1220,6 +1222,7 @@ function ChatMain(props: any) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
+    if (window.matchMedia('(max-width: 760px)').matches && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (el.scrollTop < 80 && props.hasOlder && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'older');
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 80 && props.hasNewer && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'newer');
   };
@@ -1237,10 +1240,10 @@ function ChatMain(props: any) {
       {props.messages.length === 0 && <div className="empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {props.messages.map((m: ChatMessage) => <MessageView key={m.id} message={m} />)}
     </section>
-    <footer className="composer-wrap">
+    <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
       <div className="attachments">{props.attachments.map((a: Attachment) => <span className={`att ${a.kind}`} key={a.id}>{a.kind === 'image' ? <ImageIcon /> : <FileText />} {a.name} <button onClick={() => props.setAttachments((old: Attachment[]) => old.filter((x) => x.id !== a.id))}><X /></button></span>)}</div>
       <div className="composer-box" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); props.onFiles(e.dataTransfer.files); }}>
-        <textarea value={props.input} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) props.sendMessage(); }} />
+        <textarea value={props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) props.sendMessage(); }} />
         <div className="composer-footer">
           <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>

@@ -77,6 +77,20 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(navHeight).toBe(railHeight + Number(padding?.[1]) + Number(padding?.[2]) + 1);
   });
 
+  test('mobile composer collapses while reading history and restores controls on input focus', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('const [composerCompact, setComposerCompact] = useState(false);');
+    expect(source).toContain("className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`}");
+    expect(source).toContain("window.matchMedia('(max-width: 760px)').matches");
+    expect(source).toContain('props.setComposerCompact(true)');
+    expect(source).toContain('onFocus={() => props.setComposerCompact(false)}');
+    expect(styles).toContain('.composer-footer .send-btn{margin-left:auto}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control{display:none}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{height:38px;min-height:38px;max-height:38px;overflow:hidden;padding-right:54px}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:8px;bottom:8px;border-top:0;background:transparent;padding:0}');
+  });
+
   test('mobile bottom nav paints above the composer reserved area but below open dropdown menus', () => {
     const styles = css();
     const composerZ = Number(styles.match(/\.composer-wrap\{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:(\d+)\}/)?.[1]);
