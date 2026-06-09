@@ -3,7 +3,7 @@ export type HashRoute =
   | { mode: 'cron'; jobId?: string }
   | { mode: 'images'; imageFilename?: string }
   | { mode: 'workspace'; workspaceKind?: 'file' | 'folder'; workspacePath?: string }
-  | { mode: 'skills' }
+  | { mode: 'skills'; skillName?: string }
   | { mode: 'memory' }
   | { mode: 'settings' };
 
@@ -25,7 +25,10 @@ export function parseHashRoute(hash: string): HashRoute {
     return { mode: 'workspace' };
   }
   if (mode === 'memory') return { mode: 'memory' };
-  if (mode === 'skills') return { mode: 'skills' };
+  if (mode === 'skills') {
+    if (kind) return { mode: 'skills', skillName: decodePart(kind) };
+    return { mode: 'skills' };
+  }
   if (mode === 'settings') return { mode: 'settings' };
   return { mode: 'chat' };
 }
@@ -42,6 +45,6 @@ export function buildHashRoute(route: HashRoute): string {
     if (route.workspaceKind && route.workspacePath !== undefined) return `#/workspace/${route.workspaceKind}/${encodePart(route.workspacePath)}`;
     return '#/workspace';
   }
-  if (route.mode === 'skills') return '#/skills';
+  if (route.mode === 'skills') return route.skillName ? `#/skills/${encodePart(route.skillName)}` : '#/skills';
   return `#/${route.mode}`;
 }

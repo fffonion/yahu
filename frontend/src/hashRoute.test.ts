@@ -12,6 +12,13 @@ describe('hash route helpers', () => {
     expect(buildHashRoute({ mode: 'cron', jobId: 'job/abc' })).toBe('#/cron/job%2Fabc');
   });
 
+  test('parses and builds skill routes only when a skill name is present', () => {
+    expect(parseHashRoute('#/skills')).toEqual({ mode: 'skills' });
+    expect(parseHashRoute('#/skills/anime-torrent-download')).toEqual({ mode: 'skills', skillName: 'anime-torrent-download' });
+    expect(buildHashRoute({ mode: 'skills' })).toBe('#/skills');
+    expect(buildHashRoute({ mode: 'skills', skillName: 'anime-torrent-download' })).toBe('#/skills/anime-torrent-download');
+  });
+
   test('parses and builds image modal routes', () => {
     expect(parseHashRoute('#/images/openai_image.png')).toEqual({ mode: 'images', imageFilename: 'openai_image.png' });
     expect(buildHashRoute({ mode: 'images', imageFilename: 'openai image.png' })).toBe('#/images/openai%20image.png');

@@ -325,6 +325,7 @@ export default function App() {
   const [cronDeliver, setCronDeliver] = useState('');
   const [cronEditingId, setCronEditingId] = useState(initialRoute.mode === 'cron' ? initialRoute.jobId || '' : '');
   const [skillFilter, setSkillFilter] = useState('');
+  const [skillRouteTarget, setSkillRouteTarget] = useState(initialRoute.mode === 'skills' ? initialRoute.skillName || '' : '');
   const [expandedSkillCats, setExpandedSkillCats] = useState<Set<string>>(new Set());
   const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
@@ -355,15 +356,24 @@ export default function App() {
     const nextHash = buildHashRoute(route);
     if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash);
   }, []);
+  const clearSelectedSkill = useCallback(() => {
+    setSelectedSkillName('');
+    setSkillRouteTarget('');
+    setExpandedSkillPaths(new Set(['']));
+    setSkillFileTree({});
+    setSkillPreview({ path: '', content: '', kind: 'none' });
+  }, []);
   const applyHashRoute = useCallback((route: HashRoute) => {
     setMode(route.mode);
     setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'settings');
     if (route.mode !== 'chat' && route.mode !== 'cron') setMobileSidebarOpen(false);
     if (route.mode === 'chat' && route.sessionId) setActiveSessionId(route.sessionId);
     if (route.mode === 'cron' && route.jobId) setCronEditingId(route.jobId);
+    if (route.mode === 'skills' && route.skillName) setSkillRouteTarget(route.skillName);
+    if (route.mode === 'skills' && !route.skillName) clearSelectedSkill();
     if (route.mode === 'images') setInitialImageFilename(route.imageFilename || '');
     if (route.mode === 'workspace' && route.workspaceKind) setWorkspaceRouteTarget({ workspaceKind: route.workspaceKind, workspacePath: route.workspacePath || '' });
-  }, []);
+  }, [clearSelectedSkill]);
   useEffect(() => {
     const applyCurrentHashRoute = () => applyHashRoute(getCurrentHashRoute());
     window.addEventListener('hashchange', applyCurrentHashRoute);
@@ -574,16 +584,17 @@ export default function App() {
     if (blob.type.startsWith('image/')) setSkillPreview({ path, content: '', kind: 'image', url: URL.createObjectURL(blob) });
     else setSkillPreview({ path, content: await blob.text(), kind: 'text' });
   }, []);
-  const selectSkill = useCallback(async (skill: Skill) => {
+  const selectSkill = useCallback(async (skill: Skill, options?: { writeRoute?: boolean }) => {
     setSelectedSkillName(skill.name);
+    setSkillRouteTarget('');
     setExpandedSkillPaths(new Set(['']));
     setSkillFileTree({});
+    if (options?.writeRoute !== false) writeHashRoute({ mode: 'skills', skillName: skill.name });
     try {
       await loadSkillFiles(skill, '');
       await openSkillFile(skill.name, 'SKILL.md');
-      setStatus(`Skill loaded: ${skill.name}`);
     } catch (err: any) { setStatus(`Skill unavailable: ${err.message}`); }
-  }, [loadSkillFiles, openSkillFile]);
+  }, [loadSkillFiles, openSkillFile, writeHashRoute]);
   const loadSkills = useCallback(async () => {
     try {
       const res = await fetch('/skills/list', { cache: 'no-store' });
@@ -591,10 +602,8 @@ export default function App() {
       const body = await res.json();
       const list: Skill[] = body.data || body.skills || [];
       setSkillList(list);
-      const current = list.find((skill) => skill.name === selectedSkillName) || list[0];
-      if (current && !selectedSkillName) await selectSkill(current);
     } catch (err: any) { setStatus(`Skills: ${err.message}`); }
-  }, [selectSkill, selectedSkillName]);
+  }, []);
   const toggleSkillEnabled = useCallback(async (skill: Skill, enabled: boolean) => {
     const res = await fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
     if (!res.ok) { setStatus(`Skill toggle failed: ${await res.text()}`); return; }
@@ -675,6 +684,11 @@ export default function App() {
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
   useEffect(() => { if (mode === 'skills') loadSkills(); }, [mode, loadSkills]);
+  useEffect(() => {
+    if (mode !== 'skills' || !skillRouteTarget || !skillList.length) return;
+    const skill = skillList.find((item) => item.name === skillRouteTarget);
+    if (skill) selectSkill(skill, { writeRoute: false });
+  }, [mode, selectSkill, skillList, skillRouteTarget]);
   useEffect(() => {
     const route = getCurrentHashRoute();
     if (route.mode === 'cron' && route.jobId) {

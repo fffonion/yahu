@@ -21,15 +21,25 @@ describe('skills UI', () => {
     expect(styles).not.toContain('.skills-main{display:none!important}');
   });
 
-  test('skills mode lists skills, toggles enablement, and opens SKILL.md by default', () => {
+  test('skills mode lists skills and toggles enablement without auto-opening a skill by default', () => {
     const source = app();
     expect(source).toContain('SkillsSidebar');
     expect(source).toContain('SkillMain');
     expect(source).toContain('SkillWorkspaceAside');
     expect(source).toContain("fetch('/skills/list'");
     expect(source).toContain("fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`");
-    expect(source).toContain("openSkillFile(skill.name, 'SKILL.md')");
+    expect(source).not.toContain('|| list[0]');
+    expect(source).not.toContain('Skill loaded:');
     expect(source).toContain('className="skill-enable-toggle"');
+  });
+
+  test('skills are opened only from explicit selection or skill hash routes', () => {
+    const source = app();
+    expect(source).toContain("const [skillRouteTarget, setSkillRouteTarget] = useState(initialRoute.mode === 'skills' ? initialRoute.skillName || '' : '')");
+    expect(source).toContain("if (route.mode === 'skills' && route.skillName) setSkillRouteTarget(route.skillName)");
+    expect(source).toContain("if (route.mode === 'skills' && !route.skillName) clearSelectedSkill()");
+    expect(source).toContain("writeHashRoute({ mode: 'skills', skillName: skill.name })");
+    expect(source).toContain("openSkillFile(skill.name, 'SKILL.md')");
   });
 
   test('skills mode has a right-side skill file workspace', () => {
@@ -47,7 +57,8 @@ describe('skills UI', () => {
     const source = routes();
     expect(source).toContain("mode === 'skills'");
     expect(source).toContain("return { mode: 'skills' }");
-    expect(source).toContain("return '#/skills'");
+    expect(source).toContain("return { mode: 'skills', skillName: decodePart(kind) }");
+    expect(source).toContain("return route.skillName ? `#/skills/${encodePart(route.skillName)}` : '#/skills'");
   });
 });
 
