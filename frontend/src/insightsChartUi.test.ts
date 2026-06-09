@@ -31,4 +31,11 @@ describe('insights chart UI', () => {
     expect(css).toContain('.usage-chart-loading{min-height:260px;display:grid;place-items:center;');
     expect(css).toContain('.model-skeleton-list{display:grid;gap:10px}');
   });
+
+  test('keeps metric card glow away from rounded corners in light themes', () => {
+    const css = cssSource();
+    expect(css).toContain('.insight-card::after{content:"";position:absolute;inset:auto 14px -38px 14px;');
+    expect(css).toContain('height:72px;border-radius:999px;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 22%,transparent),color-mix(in srgb,var(--accent-2) 16%,transparent));');
+    expect(css).not.toContain('inset:auto -30% -55% -30%');
+  });
 });
