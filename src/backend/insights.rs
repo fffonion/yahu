@@ -15,20 +15,67 @@ struct UsageTotals {
     tool_calls: i64,
     estimated_cost: f64,
     actual_cost: f64,
+    cost: f64,
+    unpriced_tokens: i64,
+}
+
+#[derive(Clone, Copy)]
+struct ModelPrice {
+    input_per_million: f64,
+    output_per_million: f64,
+    cache_read_per_million: f64,
+    cache_write_per_million: f64,
+}
+
+impl ModelPrice {
+    fn estimate(&self, input: i64, output: i64, cache_read: i64, cache_write: i64) -> f64 {
+        ((input.max(0) as f64 * self.input_per_million)
+            + (output.max(0) as f64 * self.output_per_million)
+            + (cache_read.max(0) as f64 * self.cache_read_per_million)
+            + (cache_write.max(0) as f64 * self.cache_write_per_million))
+            / 1_000_000.0
+    }
 }
 
 impl UsageTotals {
     fn add_row(&mut self, row: &serde_json::Value) {
+        let input = json_i64(row, "input_tokens");
+        let output = json_i64(row, "output_tokens");
+        let cache_read = json_i64(row, "cache_read_tokens");
+        let cache_write = json_i64(row, "cache_write_tokens");
+        let reasoning = json_i64(row, "reasoning_tokens");
+        let actual_cost = json_f64(row, "actual_cost_usd");
+        let api_estimated_cost = json_f64(row, "estimated_cost_usd");
+        let fallback_estimated_cost = row
+            .get("model")
+            .and_then(|value| value.as_str())
+            .and_then(insights_price_for_model)
+            .map(|price| price.estimate(input, output, cache_read, cache_write))
+            .unwrap_or(0.0);
+        let estimated_cost = if api_estimated_cost > 0.0 {
+            api_estimated_cost
+        } else {
+            fallback_estimated_cost
+        };
+        let row_cost = if actual_cost > 0.0 {
+            actual_cost
+        } else {
+            estimated_cost
+        };
         self.sessions += 1;
-        self.input += json_i64(row, "input_tokens");
-        self.output += json_i64(row, "output_tokens");
-        self.cache_read += json_i64(row, "cache_read_tokens");
-        self.cache_write += json_i64(row, "cache_write_tokens");
-        self.reasoning += json_i64(row, "reasoning_tokens");
+        self.input += input;
+        self.output += output;
+        self.cache_read += cache_read;
+        self.cache_write += cache_write;
+        self.reasoning += reasoning;
         self.api_calls += json_i64(row, "api_call_count");
         self.tool_calls += json_i64(row, "tool_call_count");
-        self.estimated_cost += json_f64(row, "estimated_cost_usd");
-        self.actual_cost += json_f64(row, "actual_cost_usd");
+        self.estimated_cost += estimated_cost;
+        self.actual_cost += actual_cost;
+        self.cost += row_cost;
+        if row_cost <= 0.0 && input + output + cache_read + cache_write + reasoning > 0 {
+            self.unpriced_tokens += input + output + cache_read + cache_write + reasoning;
+        }
     }
 
     fn add_totals(&mut self, other: &UsageTotals) {
@@ -42,6 +89,8 @@ impl UsageTotals {
         self.tool_calls += other.tool_calls;
         self.estimated_cost += other.estimated_cost;
         self.actual_cost += other.actual_cost;
+        self.cost += other.cost;
+        self.unpriced_tokens += other.unpriced_tokens;
     }
 
     fn total_tokens(&self) -> i64 {
@@ -77,10 +126,43 @@ impl UsageTotals {
             "tool_calls": self.tool_calls,
             "estimated_cost_usd": self.estimated_cost,
             "actual_cost_usd": self.actual_cost,
+            "cost_usd": self.cost,
+            "unpriced_tokens": self.unpriced_tokens,
             "total_tokens": self.total_tokens(),
             "cache_hit_rate": self.cache_hit_rate(),
             "avg_tokens_per_session": self.avg_tokens_per_session(),
         })
+    }
+}
+
+fn insights_price_for_model(model: &str) -> Option<ModelPrice> {
+    let normalized = model
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-")
+        .replace('/', "-");
+    match normalized.as_str() {
+        // MiniMax official Pay-as-you-go Standard tier, permanent 50% discount, <=512k input.
+        // Source: https://platform.minimax.io/docs/guides/pricing-paygo
+        "minimax-m3" | "minimax-minimax-m3" | "minimax-m03" => Some(ModelPrice {
+            input_per_million: 0.30,
+            output_per_million: 1.20,
+            cache_read_per_million: 0.06,
+            cache_write_per_million: 0.0,
+        }),
+        "minimax-m2.7" | "minimax-m27" | "minimax-m2-7" => Some(ModelPrice {
+            input_per_million: 0.30,
+            output_per_million: 1.20,
+            cache_read_per_million: 0.06,
+            cache_write_per_million: 0.375,
+        }),
+        "minimax-m2.7-highspeed" | "minimax-m27-highspeed" | "minimax-m2-7-highspeed" => Some(ModelPrice {
+            input_per_million: 0.60,
+            output_per_million: 2.40,
+            cache_read_per_million: 0.06,
+            cache_write_per_million: 0.375,
+        }),
+        _ => None,
     }
 }
 

@@ -46,4 +46,18 @@ describe('insights helpers', () => {
     expect(totals.sessions).toBe(2);
     expect(Math.round(totals.cache_hit_rate * 100)).toBe(90);
   });
+
+  test('rolls up row-preferred cost and unpriced token counters', () => {
+    const model: UsageModel = {
+      model: 'minimax-m3',
+      totals: emptyTotals(),
+      daily: [
+        { date: '2026-06-07', label: '06/07', totals: { ...emptyTotals(), sessions: 1, total_tokens: 100, estimated_cost_usd: 0.1, cost_usd: 0.1 } },
+        { date: '2026-06-08', label: '06/08', totals: { ...emptyTotals(), sessions: 1, total_tokens: 50, actual_cost_usd: 0.2, cost_usd: 0.2, unpriced_tokens: 10 } },
+      ],
+    };
+    const totals = finalizeTotals(modelPeriodTotals(model, 2));
+    expect(totals.cost_usd).toBeCloseTo(0.3, 6);
+    expect(totals.unpriced_tokens).toBe(10);
+  });
 });

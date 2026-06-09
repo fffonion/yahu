@@ -9,6 +9,8 @@ export type UsageTotals = {
   tool_calls: number;
   estimated_cost_usd: number;
   actual_cost_usd: number;
+  cost_usd: number;
+  unpriced_tokens: number;
   total_tokens: number;
   cache_hit_rate: number;
   avg_tokens_per_session: number;
@@ -79,6 +81,8 @@ export function addTotals(a: UsageTotals, b: UsageTotals): UsageTotals {
     tool_calls: a.tool_calls + (b.tool_calls || 0),
     estimated_cost_usd: a.estimated_cost_usd + (b.estimated_cost_usd || 0),
     actual_cost_usd: a.actual_cost_usd + (b.actual_cost_usd || 0),
+    cost_usd: a.cost_usd + ((b.cost_usd ?? b.actual_cost_usd ?? b.estimated_cost_usd) || 0),
+    unpriced_tokens: a.unpriced_tokens + (b.unpriced_tokens || 0),
     total_tokens: a.total_tokens + (b.total_tokens || 0),
     cache_hit_rate: 0,
     avg_tokens_per_session: 0,
@@ -95,7 +99,7 @@ export function finalizeTotals(t: UsageTotals): UsageTotals {
 }
 
 export function emptyTotals(): UsageTotals {
-  return { sessions: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, api_calls: 0, tool_calls: 0, estimated_cost_usd: 0, actual_cost_usd: 0, total_tokens: 0, cache_hit_rate: 0, avg_tokens_per_session: 0 };
+  return { sessions: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, api_calls: 0, tool_calls: 0, estimated_cost_usd: 0, actual_cost_usd: 0, cost_usd: 0, unpriced_tokens: 0, total_tokens: 0, cache_hit_rate: 0, avg_tokens_per_session: 0 };
 }
 
 export function metricValue(day: UsageDay, metric: UsageMetric): number {

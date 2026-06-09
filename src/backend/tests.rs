@@ -355,4 +355,30 @@ mod tests {
         assert_eq!(one_day["totals"]["input"], 100);
         assert!(one_day["totals"]["cache_hit_rate"].as_f64().unwrap() > 0.89);
     }
+
+    #[test]
+    fn insights_estimates_minimax_cost_when_api_rows_have_no_cost() {
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![
+            serde_json::json!({"id":"m3","source":"telegram","model":"minimax-m3","last_active":ts,"input_tokens":1_000_000,"output_tokens":100_000,"cache_read_tokens":9_000_000,"cache_write_tokens":0,"reasoning_tokens":0}),
+            serde_json::json!({"id":"m27","source":"telegram","model":"minimax/m2.7","last_active":ts,"input_tokens":100_000,"output_tokens":10_000,"cache_read_tokens":900_000,"cache_write_tokens":20_000,"reasoning_tokens":0}),
+            serde_json::json!({"id":"unknown","source":"telegram","model":"unknown-model","last_active":ts,"input_tokens":500,"output_tokens":100,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0}),
+            serde_json::json!({"id":"actual","source":"telegram","model":"minimax-m3","last_active":ts,"input_tokens":1_000_000,"output_tokens":100_000,"cache_read_tokens":9_000_000,"actual_cost_usd":42.0}),
+        ];
+
+        let body = aggregate_usage_insights(&rows, ts);
+        let totals = &body["totals"];
+
+        assert!((totals["estimated_cost_usd"].as_f64().unwrap() - 2.0235).abs() < 0.000001);
+        assert!((totals["cost_usd"].as_f64().unwrap() - 43.0635).abs() < 0.000001);
+        assert_eq!(totals["actual_cost_usd"], 42.0);
+        assert_eq!(totals["unpriced_tokens"], 600);
+        let one_day = body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 1).unwrap();
+        assert!((one_day["totals"]["cost_usd"].as_f64().unwrap() - 43.0635).abs() < 0.000001);
+    }
 }

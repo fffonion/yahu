@@ -1170,7 +1170,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
       <div className="insights-cards">
         <InsightCard label="Tokens" value={fmtTokens(totals.total_tokens)} detail={`${fmtTokens(totals.input)} in · ${fmtTokens(totals.output)} out`} />
         <InsightCard label="Cache hit" value={fmtPercent(totals.cache_hit_rate)} detail={`${fmtTokens(totals.cache_read)} read · ${fmtTokens(totals.cache_write)} write`} />
-        <InsightCard label="Cost" value={fmtMoney(totals.actual_cost_usd || totals.estimated_cost_usd)} detail={`${totals.sessions || 0} sessions · ${totals.api_calls || 0} API calls`} />
+        <InsightCard label="Cost" value={fmtMoney(totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd)} detail={totals.unpriced_tokens ? `${fmtTokens(totals.unpriced_tokens)} unpriced · ${totals.api_calls || 0} API calls` : `${totals.sessions || 0} sessions · ${totals.api_calls || 0} API calls`} />
         <InsightCard label="Top model" value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || 'No usage'} />
       </div>
       <section className="insights-chart-card">
