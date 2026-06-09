@@ -356,7 +356,7 @@ export default function App() {
   }, []);
   const applyHashRoute = useCallback((route: HashRoute) => {
     setMode(route.mode);
-    setSidebarCollapsed(route.mode === 'images');
+    setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'settings');
     if (route.mode !== 'chat' && route.mode !== 'cron') setMobileSidebarOpen(false);
     if (route.mode === 'skills' && window.innerWidth <= 760) { setMode('chat'); return; }
     if (route.mode === 'chat' && route.sessionId) setActiveSessionId(route.sessionId);

@@ -47,4 +47,10 @@ describe('hash route integration', () => {
     expect(source).toContain("buildHashRoute({ mode: 'images', imageFilename: item.filename })");
     expect(source).toContain("buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path })");
   });
+
+  test('hash landing auto-collapses pages without a left list', () => {
+    const source = app();
+    expect(source).toContain("setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'settings')");
+    expect(source).toContain("setSidebarCollapsed(collapse || next === 'memory' || next === 'settings')");
+  });
 });
