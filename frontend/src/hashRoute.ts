@@ -4,6 +4,7 @@ export type HashRoute =
   | { mode: 'images'; imageFilename?: string }
   | { mode: 'workspace'; workspaceKind?: 'file' | 'folder'; workspacePath?: string }
   | { mode: 'skills'; skillName?: string }
+  | { mode: 'insights' }
   | { mode: 'memory' }
   | { mode: 'settings' };
 
@@ -25,6 +26,7 @@ export function parseHashRoute(hash: string): HashRoute {
     return { mode: 'workspace' };
   }
   if (mode === 'memory') return { mode: 'memory' };
+  if (mode === 'insights') return { mode: 'insights' };
   if (mode === 'skills') {
     if (kind) return { mode: 'skills', skillName: decodePart(kind) };
     return { mode: 'skills' };

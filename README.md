@@ -104,9 +104,9 @@ Open `http://127.0.0.1:9642`.
 | `--host` | `HERMES_WEBUI_HOST` | `127.0.0.1` | Listen address |
 | `--port` | `HERMES_WEBUI_PORT` | `9642` | Listen port |
 | `--api-url` | `HERMES_WEBUI_API_URL` | `http://127.0.0.1:8642` | Hermes API Server upstream |
-| `--hermes-home` | `HERMES_HOME` | `$HOME/.hermes` | Hermes data directory |
 | `--workspace` | `HERMES_WEBUI_WORKSPACE` | `$HOME/workspace` | File browser root |
 | `--image-dir` | `HERMES_WEBUI_IMAGE_DIR` | `$HERMES_HOME/cache/images` | Image gallery directory |
+|  | `HERMES_HOME` | `$HOME/.hermes` | Hermes data directory for skills, memory, model inventory, uploads, and default image cache |
 | `--insecure` | | | Skip yahu login gate |
 
 ## Service install

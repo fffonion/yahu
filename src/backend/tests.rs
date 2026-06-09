@@ -330,4 +330,29 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["id"], "s1");
     }
+
+    #[test]
+    fn insights_aggregates_recent_api_session_rows_by_model_without_db() {
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![
+            serde_json::json!({"id":"s1","source":"telegram","model":"minimax/m3","last_active":ts,"input_tokens":100,"output_tokens":20,"cache_read_tokens":900,"cache_write_tokens":10,"reasoning_tokens":5,"api_call_count":2,"tool_call_count":3,"estimated_cost_usd":0.12}),
+            serde_json::json!({"id":"s2","source":"api_server","model":"gpt-5.5","last_active":ts - 86400.0,"input_tokens":50,"output_tokens":10,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"api_call_count":1,"tool_call_count":0,"estimated_cost_usd":0.02}),
+        ];
+
+        let body = aggregate_usage_insights(&rows, ts);
+
+        assert_eq!(body["totals"]["input"], 150);
+        assert_eq!(body["totals"]["output"], 30);
+        assert_eq!(body["totals"]["cache_read"], 900);
+        assert_eq!(body["models"][0]["model"], "minimax/m3");
+        assert_eq!(body["periods"].as_array().unwrap().len(), 3);
+        let one_day = body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 1).unwrap();
+        assert_eq!(one_day["totals"]["input"], 100);
+        assert!(one_day["totals"]["cache_hit_rate"].as_f64().unwrap() > 0.89);
+    }
 }

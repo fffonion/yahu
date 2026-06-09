@@ -30,10 +30,12 @@ describe('hash route helpers', () => {
     expect(buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: 'src/App.tsx' })).toBe('#/workspace/file/src%2FApp.tsx');
   });
 
-  test('parses memory and settings routes', () => {
+  test('parses memory insights and settings routes', () => {
     expect(parseHashRoute('#/memory')).toEqual({ mode: 'memory' });
+    expect(parseHashRoute('#/insights')).toEqual({ mode: 'insights' });
     expect(parseHashRoute('#/settings')).toEqual({ mode: 'settings' });
     expect(buildHashRoute({ mode: 'memory' })).toBe('#/memory');
+    expect(buildHashRoute({ mode: 'insights' })).toBe('#/insights');
     expect(buildHashRoute({ mode: 'settings' })).toBe('#/settings');
   });
 });

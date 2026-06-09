@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Circle as SelectionMark, CircleHelp, Code, Download, Eye, FileText, Folder, Globe, History, Home, Image as ImageIcon, Info, Layout, List, MessageSquare, Network, Palette, Paperclip, Pencil, Pin, PinOff, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Circle as SelectionMark, CircleHelp, Code, Download, Eye, FileText, Folder, Globe, History, Home, Image as ImageIcon, Info, Layout, LineChart, List, MessageSquare, Network, Palette, Paperclip, Pencil, Pin, PinOff, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
@@ -8,10 +8,11 @@ import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
+import { areaPath, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageTotals } from './insights';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
-type Mode = 'chat' | 'cron' | 'memory' | 'images' | 'workspace' | 'skills' | 'settings';
+type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
 type Role = 'user' | 'assistant' | 'system' | 'tool';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
 type ChatMessage = { id: string; role: Role; content: string; timestamp?: string | number; pending?: boolean; toolName?: string };
@@ -311,7 +312,7 @@ function flattenModelOptions(body: any): ModelOption[] {
 export default function App() {
   const [mode, setMode] = useState<Mode>(initialRoute.mode || 'chat');
   const [lang, setLangState] = useState<Lang>(initLang);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'settings');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'insights' || initialRoute.mode === 'settings');
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => normalizeTheme(localStorage.getItem('theme')));
@@ -359,6 +360,11 @@ export default function App() {
   const [skillRouteTarget, setSkillRouteTarget] = useState(initialRoute.mode === 'skills' ? initialRoute.skillName || '' : '');
   const [expandedSkillCats, setExpandedSkillCats] = useState<Set<string>>(new Set());
   const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
+  const [usageInsights, setUsageInsights] = useState<UsageInsights | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState('');
+  const [usagePeriod, setUsagePeriod] = useState<1 | 7 | 30>(7);
+  const [usageMetric, setUsageMetric] = useState<UsageMetric>('total_tokens');
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
@@ -397,7 +403,7 @@ export default function App() {
   }, []);
   const applyHashRoute = useCallback((route: HashRoute) => {
     setMode(route.mode);
-    setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'settings');
+    setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'settings');
     if (route.mode !== 'chat' && route.mode !== 'cron') setMobileSidebarOpen(false);
     if (route.mode === 'chat' && route.sessionId) setActiveSessionId(route.sessionId);
     if (route.mode === 'cron' && route.jobId) setCronEditingId(route.jobId);
@@ -439,14 +445,29 @@ export default function App() {
       const body = await res.json();
       const list = flattenModelOptions(body);
       const current = realModelOrEmpty(activeSession?.model) || realModelOrEmpty(model);
-      if (current && !list.some((m) => m.id === current)) list.unshift({ id: current, label: current });
       if (list.length) {
+        const provider = current ? list.find((item) => item.id === current)?.provider || '' : '';
         setModels(list);
         if (!current) setModelState(list[0].id);
+        setSelectedModelProvider(provider);
       }
-      setStatus(t('chat.connected'));
+      setStatus(t('status.modelsLoaded'));
     } catch (err: any) { setStatus(`Models unavailable: ${err.message}`); }
-  }, [activeSession?.model, model]);
+  }, [activeSession?.model, model, setStatus]);
+
+  const loadUsageInsights = useCallback(async () => {
+    setUsageLoading(true);
+    setUsageError('');
+    try {
+      const res = await fetch('/insights/usage');
+      if (!res.ok) throw new Error(await res.text());
+      setUsageInsights(await res.json());
+    } catch (err: any) {
+      setUsageError(err?.message || 'Usage insights unavailable');
+    } finally {
+      setUsageLoading(false);
+    }
+  }, []);
 
   const loadSessions = useCallback(async (query = filter) => {
     const version = ++searchVersionRef.current;
@@ -713,6 +734,7 @@ export default function App() {
   }, [apiBase, cronEditingId, headers, loadCronJobs, resetCronForm]);
 
   useEffect(() => { loadModels(); loadWorkspace(''); }, []);
+  useEffect(() => { if (mode === 'insights' && !usageInsights && !usageLoading) loadUsageInsights(); }, [mode, usageInsights, usageLoading, loadUsageInsights]);
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
   useEffect(() => { if (mode === 'skills') loadSkills(); }, [mode, loadSkills]);
@@ -1002,7 +1024,7 @@ export default function App() {
   };
   const setNavMode = (next: Mode, collapse = false) => {
     setMode(next);
-    setSidebarCollapsed(collapse || next === 'memory' || next === 'settings');
+    setSidebarCollapsed(collapse || next === 'memory' || next === 'insights' || next === 'settings');
     setMobileSidebarOpen(false);
     const route: HashRoute = { mode: next } as HashRoute;
     writeHashRoute(route);
@@ -1017,6 +1039,7 @@ export default function App() {
           <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} title={t('nav.chat')}><MessageSquare /></button>
           <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} title={t('nav.cron')}><CalendarClock /></button>
           <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} title={t('nav.memory')}><Brain /></button>
+          <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} title={t('nav.insights')}><LineChart /></button>
           <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} title={t('nav.skills')}><Star /></button>
           <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} title={t('nav.images')}><ImageIcon /></button>
           <button className={`rail-btn nav-workspace ${mode === 'workspace' ? 'active' : ''}`} onClick={() => { setNavMode('workspace'); loadWorkspace(workspacePath); }} title={t('nav.workspace')}><Folder /></button>
@@ -1049,12 +1072,14 @@ export default function App() {
       </>}
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} />}
+      {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} />}
       {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} aria-label="Chat"><MessageSquare /></button>
         <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label="Cron"><CalendarClock /></button>
         <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label="Skills"><Star /></button>
+        <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} aria-label="Insights"><LineChart /></button>
         <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label="Images"><ImageIcon /></button>
         <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} aria-label="Memory"><Brain /></button>
       </nav>
@@ -1104,9 +1129,77 @@ function HeaderThemeControl({ theme, setTheme }: { theme: Theme; setTheme: (v: T
   </div>;
 }
 function ModeSidebar({ mode }: { mode: Mode }) {
-  const label = mode === 'cron' ? 'Cron jobs' : mode === 'memory' ? 'Memory' : mode === 'images' ? 'Images' : mode === 'workspace' ? 'Workspace' : 'Settings';
-  const text = mode === 'memory' ? 'Edit MEMORY.md and USER.md in a full-width editor.' : mode === 'workspace' ? 'Browse and preview local workspace files.' : mode === 'settings' ? 'API, connection, and WebUI options.' : mode === 'images' ? 'Native image gallery.' : 'Create and manage scheduled jobs.';
+  const label = mode === 'cron' ? 'Cron jobs' : mode === 'memory' ? 'Memory' : mode === 'insights' ? 'Insights' : mode === 'images' ? 'Images' : mode === 'workspace' ? 'Workspace' : 'Settings';
+  const text = mode === 'memory' ? 'Edit MEMORY.md and USER.md in a full-width editor.' : mode === 'insights' ? 'Recent model usage, cache, and cost trends.' : mode === 'workspace' ? 'Browse and preview local workspace files.' : mode === 'settings' ? 'API, connection, and WebUI options.' : mode === 'images' ? 'Native image gallery.' : 'Create and manage scheduled jobs.';
   return <div className="admin-side"><h2>{label}</h2><p>{text}</p></div>;
+}
+
+function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void }) {
+  const periodData = props.insights?.periods?.find((item) => item.days === props.period);
+  const totals = periodData?.totals || emptyTotals();
+  const models = useMemo(() => (props.insights?.models || [])
+    .map((model) => ({ ...model, periodTotals: finalizeTotals(modelPeriodTotals(model, props.period)) }))
+    .filter((model) => model.periodTotals.total_tokens > 0)
+    .sort((a, b) => b.periodTotals.total_tokens - a.periodTotals.total_tokens)
+    .slice(0, 6), [props.insights, props.period]);
+  const topModel = models[0];
+  const activeDays = periodSlice(props.insights?.daily || [], props.period);
+  const periodLabel = `${props.period}d`;
+  return <main className="main-panel insights-main">
+    <header className="chat-header header-no-drawer insights-header">
+      <div><h1>Insights</h1><span>{props.loading ? 'Loading usage…' : props.error || `Last ${periodLabel} · ${fmtTokens(totals.total_tokens)} tokens`}</span></div>
+      <div className="header-actions"><button className="icon-btn insights-refresh" onClick={props.refresh} disabled={props.loading} title="Refresh usage"><RefreshCw /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div>
+    </header>
+    <section className="insights-content">
+      <div className="insights-toolbar" aria-label="Usage controls">
+        <div className="segmented">{([30, 7, 1] as const).map((days) => <button key={days} className={props.period === days ? 'active' : ''} onClick={() => props.setPeriod(days)}>{days}d</button>)}</div>
+        <select aria-label="Usage metric" value={props.metric} onChange={(event) => props.setMetric(event.target.value as UsageMetric)}>{(Object.keys(metricLabels) as UsageMetric[]).map((metric) => <option key={metric} value={metric}>{metricLabels[metric]}</option>)}</select>
+      </div>
+      <div className="insights-cards">
+        <InsightCard label="Tokens" value={fmtTokens(totals.total_tokens)} detail={`${fmtTokens(totals.input)} in · ${fmtTokens(totals.output)} out`} />
+        <InsightCard label="Cache hit" value={fmtPercent(totals.cache_hit_rate)} detail={`${fmtTokens(totals.cache_read)} read · ${fmtTokens(totals.cache_write)} write`} />
+        <InsightCard label="Cost" value={fmtMoney(totals.actual_cost_usd || totals.estimated_cost_usd)} detail={`${totals.sessions || 0} sessions · ${totals.api_calls || 0} API calls`} />
+        <InsightCard label="Top model" value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || 'No usage'} />
+      </div>
+      <section className="insights-chart-card">
+        <div className="insights-card-head"><div><h2>{metricLabels[props.metric]} by model</h2><p>Recent {periodLabel} trend with cache/input/output usage</p></div><LineChart /></div>
+        <UsageAreaChart days={activeDays} models={models} metric={props.metric} />
+      </section>
+      <div className="insights-grid">
+        <section className="insights-panel"><h2>Models</h2>{models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
+        <section className="insights-panel"><h2>Other signals</h2><SignalRow name="Reasoning" value={fmtTokens(totals.reasoning)} /><SignalRow name="Tools" value={`${totals.tool_calls || 0}`} /><SignalRow name="Avg/session" value={fmtTokens(totals.avg_tokens_per_session)} /><SignalRow name="Sources" value={(props.insights?.sources || []).slice(0, 3).map((item) => `${item.source} ${fmtTokens(item.totals.total_tokens)}`).join(' · ') || '—'} /></section>
+      </div>
+    </section>
+  </main>;
+}
+function InsightCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return <article className="insight-card"><span>{label}</span><strong>{value}</strong><p>{detail}</p></article>;
+}
+function SignalRow({ name, value }: { name: string; value: string }) {
+  return <div className="signal-row"><span>{name}</span><strong>{value}</strong></div>;
+}
+function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: UsageTotals }; rank: number }) {
+  const max = Math.max(1, model.periodTotals.total_tokens);
+  const cache = Math.min(100, Math.round((model.periodTotals.cache_read / max) * 100));
+  return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><p>{fmtTokens(model.periodTotals.input)} input · {fmtTokens(model.periodTotals.output)} output · {fmtPercent(model.periodTotals.cache_hit_rate)} cache</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
+}
+function UsageAreaChart({ days, models, metric }: { days: UsageDay[]; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
+  const width = 720;
+  const height = 260;
+  const series = models.slice(0, 4).map((model, index) => ({ model: model.model, index, values: days.map((day) => metricValue(model.daily.find((item) => item.date === day.date) || day, metric)) }));
+  const totalValues = days.map((day) => metricValue(day, metric));
+  return <div className="usage-chart" data-series-count={series.length}>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Usage trend chart" preserveAspectRatio="none">
+      <defs>{series.map((item) => <linearGradient key={item.model} id={`insight-grad-${item.index}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={`var(--chart-${item.index})`} stopOpacity=".52" /><stop offset="100%" stopColor={`var(--chart-${item.index})`} stopOpacity=".03" /></linearGradient>)}</defs>
+      <path className="usage-total-area" d={areaPath(totalValues, width, height)} />
+      {series.map((item) => <g key={item.model} className={`usage-series usage-series-${item.index}`}>
+        <path className="usage-area" d={areaPath(item.values, width, height)} fill={`url(#insight-grad-${item.index})`} />
+        <path className="usage-line" d={linePath(item.values, width, height)} />
+      </g>)}
+    </svg>
+    <div className="chart-axis">{days.map((day, index) => <span key={day.date} style={{ left: `${days.length === 1 ? 50 : (index / (days.length - 1)) * 100}%` }}>{index === 0 || index === days.length - 1 || days.length <= 7 ? day.label : ''}</span>)}</div>
+    <div className="chart-legend">{series.map((item) => <span key={item.model}><i style={{ background: `var(--chart-${item.index})` }} />{item.model}</span>)}</div>
+  </div>;
 }
 function ChatSidebar(props: { filter: string; setFilter: (v: string) => void; startDraftSession: () => void; pinnedSessions: Session[]; normalSessions: Session[]; activeSessionId: string; setActiveSessionId: (v: string) => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void; pinnedIds: Set<string>; togglePin: (id: string) => void; openSessionMenu: (session: Session, event: React.MouseEvent) => void; openSessionMenuAt: (session: Session, x: number, y: number) => void }) {
   const activateSession = (id: string) => { props.setActiveSessionId(id); props.writeHashRoute({ mode: 'chat', sessionId: id }); buildHashRoute({ mode: 'chat', sessionId: id }); props.closeMobileSidebar(); };

@@ -11,11 +11,11 @@ Type=simple
 User=nobody
 Group=nogroup
 # Paths below must be customized for your setup:
-#   --workspace → where Hermes puts output files
-#   --hermes-home → path to ~/.hermes
-#   --image-dir  → image cache directory (optional)
+#   HERMES_HOME → Hermes data directory (optional; defaults to User's ~/.hermes)
+#   --image-dir → image cache directory (optional)
+Environment=HERMES_HOME=/var/lib/hermes
 EnvironmentFile=/etc/yahu.env
-ExecStart=/usr/local/bin/yahu --host 0.0.0.0 --port 9642 --api-url http://127.0.0.1:8642 --workspace /var/lib/hermes/workspace --hermes-home /var/lib/hermes
+ExecStart=/usr/local/bin/yahu --host 0.0.0.0 --port 9642 --api-url http://127.0.0.1:8642 --workspace /var/lib/hermes/workspace
 Restart=on-failure
 RestartSec=3
 

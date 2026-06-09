@@ -16,6 +16,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain("setNavMode('chat')");
     expect(source).toContain("setNavMode('cron')");
     expect(source).toContain("setNavMode('skills')");
+    expect(source).toContain("setNavMode('insights', true)");
     expect(source).toContain("setNavMode('images', true)");
     expect(source).toContain("setNavMode('memory')");
     expect(styles).toContain('@media (max-width: 760px)');
@@ -149,6 +150,21 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.mobile-header-drawer{display:inline-grid;width:30px;height:30px;min-width:30px;border-radius:10px;flex:0 0 30px}');
     expect(styles).toContain('.chat-header .header-theme-control>button,.image-toolbar .header-theme-control>button{height:30px;min-width:30px');
     expect(styles).toContain('.chat-header.header-no-drawer>div:first-of-type,.image-toolbar.header-no-drawer>div:first-of-type{margin-left:36px}');
+  });
+
+  test('mobile insights keeps charts readable and avoids horizontal overflow', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('function InsightsMain');
+    expect(source).toContain('UsageAreaChart');
+    expect(source).toContain('linearGradient');
+    expect(styles).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6');
+    expect(styles).toContain('.usage-area{opacity:.78;transform-origin:center bottom;animation:chart-fill .55s ease both}');
+    expect(styles).toContain('.usage-line{fill:none;stroke-width:3.2');
+    expect(styles).toContain('@media (max-width:760px){.mobile-bottom-nav .rail-btn.nav-insights.active');
+    expect(styles).toContain('.insights-content{padding:10px 10px calc(86px + env(safe-area-inset-bottom,0px));gap:10px');
+    expect(styles).toContain('.usage-chart{min-height:230px;padding-bottom:46px}');
+    expect(styles).toContain('.insights-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}');
   });
 
   test('mobile long press opens the session menu as right-click replacement', () => {

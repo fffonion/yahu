@@ -1,6 +1,6 @@
 use std::{
     cmp::Reverse,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
     env,
     ffi::OsStr,
@@ -92,9 +92,6 @@ struct Args {
 
     #[arg(long, env = "HERMES_WEBUI_WORKSPACE", default_value = ".")]
     workspace: PathBuf,
-
-    #[arg(long, env = "HERMES_HOME")]
-    hermes_home: Option<PathBuf>,
 
     #[arg(long, env = "HERMES_WEBUI_IMAGE_DIR")]
     image_dir: Option<PathBuf>,
@@ -195,12 +192,14 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
-    let hermes_home = args.hermes_home.unwrap_or_else(|| {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".hermes")
-    });
+    let hermes_home = std::env::var_os("HERMES_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".hermes")
+        });
     let image_dir = args
         .image_dir
         .unwrap_or_else(|| hermes_home.join("cache/images"));
@@ -248,6 +247,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/sessions/search", get(sessions_search))
         .route("/chat/messages/{session_id}", get(chat_messages_page))
         .route("/chat/attachments", post(chat_upload_attachments))
+        .route("/insights/usage", get(insights_usage))
         .route("/chat/watch/{session_id}", get(chat_watch))
         .route("/image-api/images", get(list_images))
         .route("/image-api/images/refresh", get(refresh_images))
@@ -285,6 +285,7 @@ include!("assets.rs");
 include!("proxy.rs");
 include!("models.rs");
 include!("sessions.rs");
+include!("insights.rs");
 include!("workspace.rs");
 include!("skills.rs");
 include!("memory.rs");

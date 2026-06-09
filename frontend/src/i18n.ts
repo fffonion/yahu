@@ -138,6 +138,7 @@ const translations: Record<string, Record<string, string>> = {
   'nav.chat': { en: 'Chat', 'zh-CN': '聊天', 'zh-TW': '聊天', ja: 'チャット' },
   'nav.cron': { en: 'Cron', 'zh-CN': '定时', 'zh-TW': '定時', ja: 'Cron' },
   'nav.memory': { en: 'Memory', 'zh-CN': '记忆', 'zh-TW': '記憶', ja: 'メモリ' },
+  'nav.insights': { en: 'Insights', 'zh-CN': '洞察', 'zh-TW': '洞察', ja: 'インサイト' },
   'nav.images': { en: 'Images', 'zh-CN': '图片', 'zh-TW': '圖片', ja: '画像' },
   'nav.workspace': { en: 'Workspace', 'zh-CN': '工作区', 'zh-TW': '工作區', ja: 'ワークスペース' },
   'nav.skills': { en: 'Skills', 'zh-CN': '技能', 'zh-TW': '技能', ja: 'スキル' },
