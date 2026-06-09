@@ -3,6 +3,12 @@ import { readFileSync } from 'node:fs';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+function cssRule(styles: string, selector: string) {
+  const start = styles.indexOf(`${selector}{`);
+  if (start < 0) return '';
+  const end = styles.indexOf('}', start);
+  return end >= 0 ? styles.slice(start, end + 1) : '';
+}
 
 describe('chat reasoning display toggle', () => {
   test('composer has an icon-only quick toggle for reasoning/thinking visibility', () => {
@@ -25,5 +31,9 @@ describe('chat reasoning display toggle', () => {
     expect(styles).toContain('.reasoning-view-toggle.active');
     expect(styles).toContain('.msg-reasoning');
     expect(styles).toContain('.msg-reasoning pre');
+    expect(cssRule(styles, '.msg-reasoning')).not.toContain('var(--accent');
+    expect(cssRule(styles, '.msg-reasoning>span')).not.toContain('var(--accent');
+    expect(cssRule(styles, '.msg-reasoning pre')).not.toContain('var(--accent');
+    expect(cssRule(styles, '.msg-reasoning')).toContain('var(--surface-2)');
   });
 });

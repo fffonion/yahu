@@ -19,4 +19,26 @@ describe('message reasoning normalization', () => {
     expect(parts.content).toBe('final answer');
     expect(parts.reasoning).toBe('hidden chain\ndraft thought');
   });
+
+  test('dedupes aliased reasoning fields from Hermes API Server messages', () => {
+    const parts = normalizeMessageParts('final answer', {
+      reasoning: 'same provider trace',
+      reasoning_content: 'same provider trace',
+      thinking_content: 'different trace',
+    });
+
+    expect(parts.content).toBe('final answer');
+    expect(parts.reasoning).toBe('same provider trace\ndifferent trace');
+  });
+
+  test('dedupes repeated reasoning array parts and direct fields', () => {
+    const parts = normalizeMessageParts([
+      { type: 'reasoning', text: 'same trace' },
+      { type: 'thinking', content: 'same trace' },
+      { type: 'output_text', text: 'answer' },
+    ], { reasoning_content: 'same trace' });
+
+    expect(parts.content).toBe('answer');
+    expect(parts.reasoning).toBe('same trace');
+  });
 });

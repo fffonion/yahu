@@ -4,6 +4,12 @@ const REASONING_PART_TYPES = new Set(['reasoning', 'thinking', 'thought', 'thoug
 const VISIBLE_TEXT_PART_TYPES = new Set(['text', 'output_text', 'input_text', 'message', 'content', 'assistant']);
 const REASONING_FIELD_NAMES = ['reasoning', 'reasoning_content', 'thinking', 'thinking_content', 'thought', 'thoughts', 'analysis'];
 
+function pushUniqueText(target: string[], text: string) {
+  const normalized = text.trim();
+  if (!normalized) return;
+  if (!target.includes(normalized)) target.push(normalized);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -26,7 +32,10 @@ function textFromUnknown(value: unknown): string {
 
 function collectReasoningFields(raw?: Record<string, unknown> | null): string[] {
   if (!raw) return [];
-  return REASONING_FIELD_NAMES.map((key) => textFromUnknown(raw[key]).trim()).filter(Boolean);
+  return REASONING_FIELD_NAMES.reduce<string[]>((acc, key) => {
+    pushUniqueText(acc, textFromUnknown(raw[key]));
+    return acc;
+  }, []);
 }
 
 export function normalizeMessageParts(value: unknown, raw?: Record<string, unknown> | null): MessageParts {
@@ -38,7 +47,7 @@ export function normalizeMessageParts(value: unknown, raw?: Record<string, unkno
       const type = String(record?.type || record?.kind || '').toLowerCase();
       const text = textFromUnknown(record || part).trim();
       if (!text) continue;
-      if (REASONING_PART_TYPES.has(type)) reasoning.push(text);
+      if (REASONING_PART_TYPES.has(type)) pushUniqueText(reasoning, text);
       else if (!type || VISIBLE_TEXT_PART_TYPES.has(type) || record?.text !== undefined || record?.content !== undefined) visible.push(text);
       else visible.push(text);
     }
