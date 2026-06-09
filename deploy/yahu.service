@@ -6,8 +6,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/yahu --host 127.0.0.1 --port 9642 --api-url http://127.0.0.1:8642 --workspace %h/workspace --hermes-home %h/.hermes
-Environment=HERMES_API_KEY=
-Environment=HERMES_WEBUI_AUTH_KEY=change-me
 Restart=on-failure
 RestartSec=3
 

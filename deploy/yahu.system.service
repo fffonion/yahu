@@ -5,13 +5,17 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Set User= and Group= to the user running Hermes
-# User=hermes
-# Group=hermes
-WorkingDirectory=%h/workspace/yet-another-hermes-ui
-EnvironmentFile=-%h/.hermes/.env
+# Run as an unprivileged user. Options:
+#   - Set User= to the user who owns the Hermes installation (simplest)
+#   - Or use DynamicUser=yes with ReadWritePaths= for a package deployment
+User=nobody
+Group=nogroup
+# Paths below must be customized for your setup:
+#   --workspace → where Hermes puts output files
+#   --hermes-home → path to ~/.hermes
+#   --image-dir  → image cache directory (optional)
 EnvironmentFile=/etc/yahu.env
-ExecStart=%h/.local/bin/yahu --host 0.0.0.0 --port 9642 --api-url http://127.0.0.1:8642 --workspace %h/workspace --hermes-home %h/.hermes
+ExecStart=/usr/local/bin/yahu --host 0.0.0.0 --port 9642 --api-url http://127.0.0.1:8642 --workspace /var/lib/hermes/workspace --hermes-home /var/lib/hermes
 Restart=on-failure
 RestartSec=3
 
