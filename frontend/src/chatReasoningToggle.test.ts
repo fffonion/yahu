@@ -17,6 +17,8 @@ describe('chat reasoning display toggle', () => {
     expect(source).toContain("setShowReasoning={setShowReasoning}");
     expect(source).toContain("className={`icon-btn reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`}");
     expect(source).toContain("aria-pressed={props.showReasoning}");
+    expect(source).toContain('<Lightbulb /></button>');
+    expect(source).not.toContain('reasoning-view-toggle ${props.showReasoning ? \'active\' : \'\'}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t(\'chat.hideThinking\') : t(\'chat.showThinking\')} title={props.showReasoning ? t(\'chat.hideThinking\') : t(\'chat.showThinking\')} onClick={() => props.setShowReasoning(!props.showReasoning)}><Eye /></button>');
   });
 
   test('assistant messages render reasoning only when the toggle is enabled', () => {
