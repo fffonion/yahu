@@ -280,6 +280,7 @@ fn latest_session_message_id(items: &[serde_json::Value]) -> i64 {
     items.iter().filter_map(session_message_id).max().unwrap_or(0)
 }
 
+#[cfg(test)]
 fn unseen_session_messages(
     items: &[serde_json::Value],
     last_id: i64,
@@ -299,6 +300,63 @@ fn unseen_session_messages(
         pairs.into_iter().map(|(_, message)| message).collect(),
         next_last_id,
     )
+}
+
+#[derive(Clone, Debug, Default)]
+struct SessionMessageWatchState {
+    last_id: i64,
+    fingerprints: HashMap<i64, String>,
+}
+
+fn session_message_fingerprint(message: &serde_json::Value) -> String {
+    serde_json::to_string(message).unwrap_or_else(|_| message.to_string())
+}
+
+fn session_message_watch_state(items: &[serde_json::Value]) -> SessionMessageWatchState {
+    let mut state = SessionMessageWatchState {
+        last_id: latest_session_message_id(items),
+        fingerprints: HashMap::new(),
+    };
+    for message in items {
+        if let Some(id) = session_message_id(message) {
+            state
+                .fingerprints
+                .insert(id, session_message_fingerprint(message));
+        }
+    }
+    state
+}
+
+fn changed_session_messages(
+    items: &[serde_json::Value],
+    state: &mut SessionMessageWatchState,
+) -> Vec<serde_json::Value> {
+    let mut pairs: Vec<(i64, serde_json::Value, String)> = items
+        .iter()
+        .filter_map(|message| {
+            session_message_id(message).map(|id| {
+                (id, message.clone(), session_message_fingerprint(message))
+            })
+        })
+        .collect();
+    pairs.sort_by_key(|(id, _, _)| *id);
+    let mut changed = Vec::new();
+    for (id, message, fingerprint) in pairs {
+        let is_new = id > state.last_id;
+        let is_changed = state
+            .fingerprints
+            .get(&id)
+            .map(|old| old != &fingerprint)
+            .unwrap_or(false);
+        if is_new || is_changed {
+            changed.push(message);
+        }
+        state.fingerprints.insert(id, fingerprint);
+        if id > state.last_id {
+            state.last_id = id;
+        }
+    }
+    changed
 }
 
 async fn fetch_session_messages_for_watch(
@@ -333,17 +391,15 @@ async fn chat_watch(
     let api_url = state.api_url.clone();
     let api_key = state.api_key.clone();
     let stream = async_stream::stream! {
-        let mut last_id: i64 = match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
-            Ok(items) => latest_session_message_id(&items),
-            Err(_) => 0,
+        let mut watch_state = match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
+            Ok(items) => session_message_watch_state(&items),
+            Err(_) => SessionMessageWatchState::default(),
         };
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
                     if let Ok(items) = fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
-                        let (new_items, next_last_id) = unseen_session_messages(&items, last_id);
-                        last_id = next_last_id;
-                        for msg in new_items {
+                        for msg in changed_session_messages(&items, &mut watch_state) {
                             yield Ok(SseEvent::default().data(msg.to_string()));
                         }
                     }

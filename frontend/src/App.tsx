@@ -226,7 +226,7 @@ function normalizeMessage(raw: any): ChatMessage {
   };
 }
 function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
-  if (prev.some((m) => m.id === msg.id)) return prev;
+  if (prev.some((m) => m.id === msg.id)) return prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m);
   const withoutStalePending = msg.role === 'assistant'
     ? prev.filter((m) => !(m.pending && m.id === OTHER_PLATFORM_PENDING_ID))
     : prev;

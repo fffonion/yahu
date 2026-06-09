@@ -252,6 +252,20 @@ mod tests {
         assert_eq!(new_items[1]["id"], 12);
     }
 
+    #[test]
+    fn session_watch_emits_streaming_updates_for_existing_message_ids() {
+        let initial = vec![serde_json::json!({"id": 20, "role": "assistant", "content": ""})];
+        let mut state = session_message_watch_state(&initial);
+        let updated = vec![serde_json::json!({"id": 20, "role": "assistant", "content": "partial stream"})];
+
+        let new_items = changed_session_messages(&updated, &mut state);
+
+        assert_eq!(new_items.len(), 1);
+        assert_eq!(new_items[0]["id"], 20);
+        assert_eq!(new_items[0]["content"], "partial stream");
+        assert_eq!(state.last_id, 20);
+    }
+
     #[tokio::test]
     async fn session_search_uses_api_server_messages_when_list_preview_does_not_match() {
         use std::collections::HashMap;
