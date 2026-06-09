@@ -45,23 +45,26 @@ Yahu is designed to sit beside an existing Hermes Agent installation. Point it a
 
 ## Screenshots
 
-### Chat
-
-![Chat page with demo session history](docs/screenshots/chat.png)
-
-### Cron
-
-![Cron editor with demo scheduled jobs](docs/screenshots/cron.png)
-
-### Workspace
-
-![Workspace file browser with a demo Rust fixture](docs/screenshots/workspace.png)
-
-### Skills and Image browser
+### Desktop
 
 <p>
-  <img src="docs/screenshots/skills.png" alt="Skills manager with demo skills on mobile" width="49%" />
-  <img src="docs/screenshots/images.png" alt="Mobile image browser with generated placeholder thumbnails" width="49%" />
+  <img src="docs/screenshots/chat.png" alt="Chat page with demo session history and multiple tool cards" width="49%" />
+  <img src="docs/screenshots/insights.png" alt="Insights dashboard in a light theme with usage chart and model cards" width="49%" />
+</p>
+<p>
+  <img src="docs/screenshots/skills.png" alt="Skills manager with demo skill files" width="49%" />
+  <img src="docs/screenshots/cron.png" alt="Cron editor with demo scheduled jobs" width="49%" />
+</p>
+<p>
+  <img src="docs/screenshots/workspace.png" alt="Workspace file browser with a syntax-highlighted demo Rust source file" width="49%" />
+  <img src="docs/screenshots/gallery.png" alt="Gallery with varied generated animal placeholder thumbnails" width="49%" />
+</p>
+
+### Mobile
+
+<p>
+  <img src="docs/screenshots/chat-mobile.png" alt="Mobile chat page with demo tool cards" width="49%" />
+  <img src="docs/screenshots/insights-mobile.png" alt="Mobile insights dashboard" width="49%" />
 </p>
 
 ## Install from a release
