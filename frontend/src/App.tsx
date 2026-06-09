@@ -1328,7 +1328,6 @@ function UsageAreaChart({ days, models, metric }: { days: UsageDay[]; models: Ar
       {series.map((item) => <g key={item.model} className={`usage-series usage-series-${item.index}`}>
         <path className="usage-area" d={areaPath(item.values, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />
         <path className="usage-line" d={linePath(item.values, width, height, pad, maxValue)} />
-        {item.values.map((value, pointIndex) => { const point = chartPoint(pointIndex, value, item.values.length, width, height, pad, maxValue); return <circle key={`${item.model}-${days[pointIndex]?.date || pointIndex}`} className="usage-dot" cx={point.x} cy={point.y} r="3.8" />; })}
       </g>)}
     </svg>
     <div className="chart-y-axis" aria-hidden="true">{yTicks.map((tick, tickIndex) => <span key={`${tickIndex}-${tick.label}`} style={{ top: `${tick.pct}%` }}>{tick.label}</span>)}</div>

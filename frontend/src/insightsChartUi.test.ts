@@ -13,6 +13,17 @@ describe('insights chart UI', () => {
     expect(app).toContain('aria-label={chartTooltipLabel');
   });
 
+  test('hides datapoint dots until hover or keyboard focus', () => {
+    const app = appSource();
+    const css = cssSource();
+    expect(app).not.toContain('className="usage-dot"');
+    expect(css).not.toContain('.usage-dot{');
+    expect(css).toContain('.chart-points{position:absolute;left:0;right:0;top:0;height:260px;z-index:4;pointer-events:auto}');
+    expect(css).toContain('.chart-point-hit{position:absolute;display:block;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:999px;pointer-events:auto;cursor:crosshair}');
+    expect(css).toContain('.chart-point-hit::after{content:"";position:absolute;inset:9px;border-radius:999px;background:var(--point-color,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--surface) 80%,transparent);opacity:0;');
+    expect(css).toContain('.chart-point-hit:hover::after,.chart-point-hit:focus-visible::after{opacity:1;transform:scale(1.12)}');
+  });
+
   test('keeps chart axis and tooltips styled inside the chart card', () => {
     const css = cssSource();
     expect(css).toContain('.chart-y-axis{position:absolute;left:0;top:0;bottom:48px;width:52px;');
