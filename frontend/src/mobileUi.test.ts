@@ -83,6 +83,11 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('const [composerCompact, setComposerCompact] = useState(false);');
     expect(source).toContain("className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`}");
     expect(source).toContain("window.matchMedia('(max-width: 760px)').matches");
+    expect(source).toContain('const collapseComposerForHistory = () => {');
+    expect(source).toContain('activeElement.blur();');
+    expect(source).toContain('onPointerDown={collapseComposerForHistory}');
+    expect(source).toContain('onTouchStart={collapseComposerForHistory}');
+    expect(source).toContain('onWheel={collapseComposerForHistory}');
     expect(source).toContain('props.setComposerCompact(true)');
     expect(source).toContain('onFocus={() => props.setComposerCompact(false)}');
     expect(styles).toContain('.composer-footer .send-btn{margin-left:auto}');

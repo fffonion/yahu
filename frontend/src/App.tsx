@@ -1220,9 +1220,16 @@ function DropdownControl({ icon, ariaLabel, label = '', value, options, onChange
 
 function ChatMain(props: any) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
+  const isMobileComposer = () => window.matchMedia('(max-width: 760px)').matches;
+  const collapseComposerForHistory = () => {
+    if (!isMobileComposer()) return;
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && props.composerRef.current?.contains(activeElement)) activeElement.blur();
+    props.setComposerCompact(true);
+  };
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
-    if (window.matchMedia('(max-width: 760px)').matches && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
+    if (isMobileComposer() && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (el.scrollTop < 80 && props.hasOlder && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'older');
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 80 && props.hasNewer && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'newer');
   };
@@ -1235,7 +1242,7 @@ function ChatMain(props: any) {
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   return <main className="main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div></header>
-    <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll}>
+    <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={collapseComposerForHistory}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {props.messages.length === 0 && <div className="empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {props.messages.map((m: ChatMessage) => <MessageView key={m.id} message={m} />)}
