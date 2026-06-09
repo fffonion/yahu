@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-pc-windows-gnu
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation deps (ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install cross-compilation deps (Windows)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64
+
+      - name: Bun install & build
+        run: |
+          bun install
+          bun run build
+
+      - name: Cargo build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (linux)
+        if: matrix.target != 'x86_64-pc-windows-gnu'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/yahu dist/
+          cp scripts/png-to-ios-heic.sh dist/
+          tar -czf yahu-${{ matrix.target }}.tar.gz -C dist yahu png-to-ios-heic.sh
+
+      - name: Package (windows)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/yahu.exe dist/
+          cp scripts/png-to-ios-heic.sh dist/
+          zip -j yahu-x86_64-pc-windows-gnu.zip dist/yahu.exe dist/png-to-ios-heic.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yahu-${{ matrix.target }}
+          path: yahu-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin
+
+      - name: Bun install & build
+        run: |
+          bun install
+          bun run build
+
+      - name: Cargo build
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/aarch64-apple-darwin/release/yahu dist/
+          cp scripts/png-to-ios-heic.sh dist/
+          tar -czf yahu-aarch64-apple-darwin.tar.gz -C dist yahu png-to-ios-heic.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yahu-aarch64-apple-darwin
+          path: yahu-aarch64-apple-darwin.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

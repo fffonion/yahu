@@ -1,0 +1,58 @@
+import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+
+const source = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const styles = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+
+describe('session search and composer session model UI', () => {
+  test('left search uses backend results instead of client-side title filtering', () => {
+    const app = source();
+    expect(app).toContain("fetch(`/sessions/search?");
+    expect(app).toContain('searchVersionRef');
+    expect(app).not.toContain("`${s.title || ''} ${s.preview || ''}`");
+  });
+
+  test('new conversation is an icon button beside the search field', () => {
+    const app = source();
+    const css = styles();
+    expect(app).toContain('className="session-searchbar"');
+    expect(app).toContain('aria-label="New conversation"');
+    expect(app).not.toContain('<span>New conversation</span>');
+    expect(css).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr)');
+    expect(css).toContain('.filter{height:44px');
+  });
+
+  test('composer model comes from selected session details, not a global Hermes fallback', () => {
+    const app = source();
+    expect(app).toContain('activeSessionDetail');
+    expect(app).toContain('loadSessionDetail(activeSessionId)');
+    expect(app).toContain('const sessionModel = realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id ||');
+    expect(app).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
+    expect(app).toContain('const currentOption = currentModel ? currentModelDisplayOption(currentModel, props.models) : undefined;');
+    expect(app).not.toContain('props.runtimeProvider');
+  });
+
+  test('mock stream UI and send branch are removed', () => {
+    const app = source();
+    expect(app).not.toContain('useMockStream');
+    expect(app).not.toContain('mock-toggle');
+    expect(app).not.toContain('/mock-stream');
+    expect(app).not.toContain('Mock stream');
+  });
+
+  test('session rows keep missing titles as a dash instead of promoting preview text', () => {
+    const app = source();
+    expect(app).toContain('sessionDisplayTitle(session)');
+    expect(app).not.toContain('<span className="session-title">{session.title || session.preview || session.id}</span>');
+    expect(app).not.toContain("session.title || '—'");
+  });
+
+  test('opened session header shows start and latest message times on the right', () => {
+    const app = source();
+    const css = styles();
+    expect(app).toContain("import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';");
+    expect(app).toContain('const headerTimes = sessionHeaderTimes(active, props.messages);');
+    expect(app).toContain('className="session-header-times"');
+    expect(css).toContain('.session-header-times{');
+  });
+});

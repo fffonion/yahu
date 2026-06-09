@@ -1,0 +1,30 @@
+export type ModelOption = { id: string; label: string; provider?: string };
+
+const PROVIDER_LABELS: Record<string, string> = {
+  'openai-codex': 'Codex',
+  minimax: 'MiniMax',
+  'minimax-cn': 'MiniMax',
+  copilot: 'GitHub Copilot',
+  openrouter: 'OpenRouter',
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  deepseek: 'DeepSeek',
+  xai: 'xAI',
+  'google-gemini': 'Google Gemini',
+  gemini: 'Google Gemini',
+};
+
+export function providerDisplayName(provider: string) {
+  const id = provider.trim();
+  if (!id) return '';
+  return PROVIDER_LABELS[id] || id.replace(/^custom:/, '').split(/[-_]/).filter(Boolean).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ');
+}
+
+export function currentModelDisplayOption(modelId: string, options: ModelOption[], apiProvider?: string): ModelOption {
+  const id = modelId.trim();
+  const match = options.find((item) => item.id === id);
+  const provider = (apiProvider || match?.provider || '').trim();
+  const providerLabel = providerDisplayName(provider);
+  const label = providerLabel ? `${providerLabel} · ${id}` : (match?.label || id);
+  return { id, label, provider: provider || undefined };
+}

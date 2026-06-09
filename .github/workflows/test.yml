@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Bun install & build
+        run: |
+          bun install
+          bun run build
+
+      - name: Bun tests
+        run: bun test
+
+      - name: Cargo test
+        run: cargo test

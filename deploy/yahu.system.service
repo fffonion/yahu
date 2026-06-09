@@ -1,0 +1,19 @@
+[Unit]
+Description=Yet Another Hermes UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Set User= and Group= to the user running Hermes
+# User=hermes
+# Group=hermes
+WorkingDirectory=%h/workspace/yet-another-hermes-ui
+EnvironmentFile=-%h/.hermes/.env
+EnvironmentFile=/etc/yahu.env
+ExecStart=%h/.local/bin/yahu --host 0.0.0.0 --port 9642 --api-url http://127.0.0.1:8642 --workspace %h/workspace --hermes-home %h/.hermes
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

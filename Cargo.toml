@@ -1,0 +1,37 @@
+[package]
+name = "yet-another-hermes-ui"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "yahu"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-stream = "0.3"
+axum = "0.8"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+crc32fast = "1"
+filetime = "0.2"
+flate2 = "1"
+futures-core = "0.3"
+headers = "0.4"
+hmac = "0.12"
+http = "1"
+include_dir = "0.7"
+mime_guess = "2"
+notify = "8"
+percent-encoding = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_urlencoded = "0.7"
+tempfile = "3"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+tracing = "0.1"
