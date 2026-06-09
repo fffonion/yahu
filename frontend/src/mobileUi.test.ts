@@ -107,6 +107,14 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.theme-card{display:none');
   });
 
+  test('mobile title bars stay compact to reserve vertical chat space', () => {
+    const styles = css();
+    expect(styles).toContain('.chat-header,.image-toolbar{min-height:48px;padding:6px 10px;display:flex');
+    expect(styles).toContain('.chat-header h1,.image-toolbar h1{font-size:17px}');
+    expect(styles).toContain('.mobile-header-drawer{display:inline-grid;width:34px;height:34px;min-width:34px;border-radius:12px;flex:0 0 34px}');
+    expect(styles).toContain('.chat-header .header-theme-control>button,.image-toolbar .header-theme-control>button{height:34px;min-width:34px');
+  });
+
   test('mobile long press opens the session menu as right-click replacement', () => {
     const source = app();
     expect(source).toContain('useLongPressContextMenu');
