@@ -9,13 +9,14 @@ import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageTotals } from './insights';
+import { normalizeMessageParts } from './messageReasoning';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
 type Role = 'user' | 'assistant' | 'system' | 'tool';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
-type ChatMessage = { id: string; role: Role; content: string; timestamp?: string | number; pending?: boolean; toolName?: string };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string };
 type ModelOption = { id: string; label: string; provider?: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
@@ -197,10 +198,7 @@ function highlightWorkspaceText(text: string, filePath?: string) {
   return out + escapeHtml(text.slice(last));
 }
 function normalizeContent(value: unknown) {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) return value.map((part: any) => part?.text || part?.content || JSON.stringify(part)).join('\n');
-  if (value === null || value === undefined) return '';
-  return String(value);
+  return normalizeMessageParts(value).content;
 }
 function rawToolName(raw: any) {
   const candidates = [raw.toolName, raw.tool_name, raw.name, raw.tool, raw.recipient_name, raw.function, raw.source];
@@ -219,10 +217,12 @@ function asRecordish(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 function normalizeMessage(raw: any): ChatMessage {
+  const parts = normalizeMessageParts(raw.content, raw);
   return {
     id: String(raw.id || uid('m')),
     role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',
-    content: normalizeContent(raw.content),
+    content: parts.content,
+    reasoning: parts.reasoning,
     timestamp: raw.timestamp,
     toolName: rawToolName(raw),
   };
@@ -325,6 +325,7 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || '' : '');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [showReasoning, setShowReasoning] = useState(() => localStorage.getItem('showReasoning') === '1');
   const [hasOlder, setHasOlder] = useState(false);
   const [hasNewer, setHasNewer] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -424,6 +425,7 @@ export default function App() {
   useEffect(() => localStorage.setItem('apiKey', apiKey), [apiKey]);
   useEffect(() => { const next = realModelOrEmpty(model); if (next) localStorage.setItem('model', next); }, [model]);
   useEffect(() => localStorage.setItem('effort', effort), [effort]);
+  useEffect(() => localStorage.setItem('showReasoning', showReasoning ? '1' : '0'), [showReasoning]);
   useEffect(() => localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds))), [pinnedIds]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || (activeSessionDetail?.id === activeSessionId ? activeSessionDetail : undefined);
@@ -859,6 +861,7 @@ export default function App() {
       const decoder = new TextDecoder();
       let buffer = '';
       let finalText = '';
+      let reasoningText = '';
       const scrollWithStream = () => {
         if (isNearBottom(chatScrollRef.current, 220)) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
       };
@@ -885,13 +888,22 @@ export default function App() {
               finalText += delta;
               animator.append(delta);
             }
+            if (event === 'reasoning.delta' || event === 'assistant.reasoning.delta' || event === 'thinking.delta' || event === 'assistant.thinking.delta') {
+              const delta = payload.delta || payload.text || payload.content || '';
+              reasoningText += delta;
+              setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, reasoning: reasoningText, pending: true } : m));
+            }
             if (event === 'tool.started' || event === 'tool.completed' || event === 'tool.progress') setStatus(event === 'tool.progress' ? (payload.delta || 'thinking') : `${payload.tool_name || 'tool'} ${event.replace('tool.', '')}`);
             if (event === 'assistant.completed') {
-              finalText = normalizeContent(payload.content || finalText);
+              const parts = normalizeMessageParts(payload.content || finalText, payload);
+              finalText = parts.content || finalText;
+              if (parts.reasoning) reasoningText = parts.reasoning;
               animator.setTarget(finalText);
             }
             if (event === 'run.completed' && payload?.messages?.[0]?.content && !finalText) {
-              finalText = normalizeContent(payload.messages[0].content);
+              const messageParts = normalizeMessageParts(payload.messages[0].content, payload.messages[0]);
+              finalText = messageParts.content;
+              if (messageParts.reasoning) reasoningText = messageParts.reasoning;
               animator.setTarget(finalText);
             }
           }
@@ -903,7 +915,7 @@ export default function App() {
       // Wait for the client-side typing animation to catch up to the server-provided final text
       // before flipping `pending: false`, so the caret / shimmer / glow run for the full duration.
       await animator.finish(finalText);
-      setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content } : m));
+      setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning } : m));
       setStatus(t('chat.connected'));
       await refreshSessionTitleOnce(sessionId);
       await loadWorkspace(workspacePath);
@@ -1061,7 +1073,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
         <WorkspaceAside workspacePath={workspacePath} workspaceEntries={workspaceEntries} parentPath={parentPath} preview={preview} loadWorkspace={loadWorkspace} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} />}
@@ -1272,7 +1284,7 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
   </article>;
 }
 
-function MessageView({ message }: { message: ChatMessage }) {
+function MessageView({ message, showReasoning = false }: { message: ChatMessage; showReasoning?: boolean }) {
   if (message.role === 'tool') return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
   const fallback = isPending ? '…' : '';
@@ -1290,6 +1302,7 @@ function MessageView({ message }: { message: ChatMessage }) {
           <span dangerouslySetInnerHTML={{ __html: html }} />
           {isPending && <span className="stream-caret" aria-hidden="true" />}
         </div>
+        {message.reasoning && showReasoning && <section className="msg-reasoning" aria-label="Reasoning / thinking"><span>Thinking</span><pre>{message.reasoning}</pre></section>}
       </div>
     </article>
   );
@@ -1358,7 +1371,7 @@ function ChatMain(props: any) {
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={collapseComposerForHistory}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {props.messages.length === 0 && <div className="empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
-      {props.messages.map((m: ChatMessage) => <MessageView key={m.id} message={m} />)}
+      {props.messages.map((m: ChatMessage) => <MessageView key={m.id} message={m} showReasoning={props.showReasoning} />)}
     </section>
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
       <div className="attachments">{props.attachments.map((a: Attachment) => <span className={`att ${a.kind}`} key={a.id}>{a.kind === 'image' ? <ImageIcon /> : <FileText />} {a.name} <button onClick={() => props.setAttachments((old: Attachment[]) => old.filter((x) => x.id !== a.id))}><X /></button></span>)}</div>
@@ -1369,6 +1382,7 @@ function ChatMain(props: any) {
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
           <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
+          <button type="button" className={`icon-btn reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={() => props.setShowReasoning(!props.showReasoning)}><Eye /></button>
           <button className="send-btn mobile-icon-only" disabled={props.busy} onClick={props.sendMessage} aria-label={props.busy ? 'Running' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Running' : 'Send'}</span></button>
         </div>
       </div>

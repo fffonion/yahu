@@ -26,6 +26,8 @@ const translations: Record<string, Record<string, string>> = {
   'chat.searchModels': { en: 'Search models...', 'zh-CN': '搜索模型...', 'zh-TW': '搜尋模型...', ja: 'モデルを検索...' },
   'chat.noModels': { en: 'No models', 'zh-CN': '无模型', 'zh-TW': '無模型', ja: 'モデルなし' },
   'chat.attachFiles': { en: 'Attach files', 'zh-CN': '添加附件', 'zh-TW': '添加附件', ja: 'ファイル添付' },
+  'chat.showThinking': { en: 'Show reasoning / thinking', 'zh-CN': '显示 reasoning / thinking', 'zh-TW': '顯示 reasoning / thinking', ja: 'reasoning / thinkingを表示' },
+  'chat.hideThinking': { en: 'Hide reasoning / thinking', 'zh-CN': '隐藏 reasoning / thinking', 'zh-TW': '隱藏 reasoning / thinking', ja: 'reasoning / thinkingを非表示' },
   'chat.send': { en: 'Send', 'zh-CN': '发送', 'zh-TW': '發送', ja: '送信' },
   'chat.renameTitle': { en: 'Rename session', 'zh-CN': '重命名', 'zh-TW': '重新命名', ja: 'セッション名変更' },
   'chat.deleteTitle': { en: 'Delete session', 'zh-CN': '删除会话', 'zh-TW': '刪除會話', ja: 'セッション削除' },

@@ -1,0 +1,48 @@
+type MessageParts = { content: string; reasoning: string };
+
+const REASONING_PART_TYPES = new Set(['reasoning', 'thinking', 'thought', 'thoughts', 'analysis', 'reasoning_text', 'thinking_text']);
+const VISIBLE_TEXT_PART_TYPES = new Set(['text', 'output_text', 'input_text', 'message', 'content', 'assistant']);
+const REASONING_FIELD_NAMES = ['reasoning', 'reasoning_content', 'thinking', 'thinking_content', 'thought', 'thoughts', 'analysis'];
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function textFromUnknown(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) return value.map(textFromUnknown).filter(Boolean).join('\n');
+  const record = asRecord(value);
+  if (record) {
+    for (const key of ['text', 'content', 'value', 'summary']) {
+      const text = textFromUnknown(record[key]);
+      if (text) return text;
+    }
+  }
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
+function collectReasoningFields(raw?: Record<string, unknown> | null): string[] {
+  if (!raw) return [];
+  return REASONING_FIELD_NAMES.map((key) => textFromUnknown(raw[key]).trim()).filter(Boolean);
+}
+
+export function normalizeMessageParts(value: unknown, raw?: Record<string, unknown> | null): MessageParts {
+  const reasoning = collectReasoningFields(raw);
+  if (Array.isArray(value)) {
+    const visible: string[] = [];
+    for (const part of value) {
+      const record = asRecord(part);
+      const type = String(record?.type || record?.kind || '').toLowerCase();
+      const text = textFromUnknown(record || part).trim();
+      if (!text) continue;
+      if (REASONING_PART_TYPES.has(type)) reasoning.push(text);
+      else if (!type || VISIBLE_TEXT_PART_TYPES.has(type) || record?.text !== undefined || record?.content !== undefined) visible.push(text);
+      else visible.push(text);
+    }
+    return { content: visible.join('\n'), reasoning: reasoning.join('\n') };
+  }
+  return { content: textFromUnknown(value), reasoning: reasoning.join('\n') };
+}
