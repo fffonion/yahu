@@ -35,4 +35,12 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain('aria-label="delete cron job"');
     expect(source).not.toContain('aria-label={paused ? \'resume\' : \'pause\'}');
   });
+
+  test('mobile cron editor uses content-height rows instead of desktop filler rows', () => {
+    const styles = css();
+    expect(styles).toContain('.cron-main .cron-detail{height:auto;grid-template-rows:none;align-content:start}');
+    expect(styles).toContain('.cron-main .cron-prompt textarea{min-height:220px;height:220px}');
+    expect(styles).toContain('.cron-main .cron-script textarea{min-height:64px;height:64px}');
+    expect(styles).toContain('.cron-detail-wrap{padding:8px 10px calc(var(--mobile-bottom-nav-height) + 10px + env(safe-area-inset-bottom,0px))}');
+  });
 });
