@@ -125,6 +125,7 @@ const translations: Record<string, Record<string, string>> = {
   'skills.skillFiles': { en: 'Skill files', 'zh-CN': '技能文件', 'zh-TW': '技能檔案', ja: 'スキルファイル' },
   'skills.select': { en: 'Select a skill', 'zh-CN': '选择一个技能', 'zh-TW': '選擇一個技能', ja: 'スキルを選択' },
   'skills.noDescription': { en: 'No description', 'zh-CN': '无描述', 'zh-TW': '無描述', ja: '説明なし' },
+'skills.selectHint': { en: 'Select a skill from the sidebar to view its files.', 'zh-CN': '从侧边栏选择一个技能查看文件。', 'zh-TW': '從側邊欄選擇一個技能查看檔案。', ja: 'サイドバーからスキルを選択してファイルを表示。' },
   'skills.enabled': { en: 'Enabled skill', 'zh-CN': '已启用技能', 'zh-TW': '已啟用技能', ja: 'スキルを有効化' },
   'skills.disabled': { en: 'Disabled skill', 'zh-CN': '已禁用技能', 'zh-TW': '已停用技能', ja: 'スキルを無効化' },
 
