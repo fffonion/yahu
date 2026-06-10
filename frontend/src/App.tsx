@@ -1606,6 +1606,30 @@ function DropdownControl({ icon, ariaLabel, label = '', value, options, onChange
 function ChatMain(props: any) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
   const isMobile = useMediaQuery('(max-width: 760px)');
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const resizeComposerTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    if (props.composerCompact) {
+      textarea.style.height = '';
+      textarea.style.maxHeight = '';
+      textarea.style.overflowY = '';
+      return;
+    }
+    const minHeight = isMobile ? 64 : 96;
+    const maxHeight = Math.max(minHeight, Math.floor(window.innerHeight * 0.2));
+    textarea.style.height = 'auto';
+    textarea.style.maxHeight = `${maxHeight}px`;
+    textarea.style.overflowY = 'hidden';
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [isMobile, props.composerCompact]);
+  useLayoutEffect(() => { resizeComposerTextarea(); }, [props.input, props.composerCompact, resizeComposerTextarea]);
+  useEffect(() => {
+    window.addEventListener('resize', resizeComposerTextarea);
+    return () => window.removeEventListener('resize', resizeComposerTextarea);
+  }, [resizeComposerTextarea]);
   const collapseComposerForHistory = () => {
     if (!isMobile) return;
     const activeElement = document.activeElement;
@@ -1646,7 +1670,7 @@ function ChatMain(props: any) {
       <FollowUpQueueView items={props.followUpQueue || []} onSteer={props.onSteerQueuedItem} onEdit={props.onEditQueuedItem} onReorder={props.onReorderQueuedItem} />
       <div className="attachments">{props.attachments.map((a: Attachment) => <span className={`att ${a.kind}`} key={a.id}>{a.kind === 'image' ? <ImageIcon /> : <FileText />} {a.name} <button onClick={() => props.setAttachments((old: Attachment[]) => old.filter((x) => x.id !== a.id))}><X /></button></span>)}</div>
       <div className="composer-box" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); props.onFiles(e.dataTransfer.files); }}>
-        <textarea value={props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key !== 'Enter' || e.shiftKey || (e.nativeEvent as KeyboardEvent).isComposing) return; const modified = e.metaKey || e.ctrlKey; const shouldSend = props.composerEnterMode === 'enter-newline' ? modified : !modified; if (!shouldSend) return; e.preventDefault(); props.sendMessage(); }} />
+        <textarea ref={textareaRef} value={props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key !== 'Enter' || e.shiftKey || (e.nativeEvent as KeyboardEvent).isComposing) return; const modified = e.metaKey || e.ctrlKey; const shouldSend = props.composerEnterMode === 'enter-newline' ? modified : !modified; if (!shouldSend) return; e.preventDefault(); props.sendMessage(); }} />
         <div className="composer-footer">
           <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>

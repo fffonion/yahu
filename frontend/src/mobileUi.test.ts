@@ -88,7 +88,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     const styles = css();
     expect(styles).toContain('.composer-wrap:not(.composer-compact){padding:0 0 calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom,0px));background:var(--surface);box-shadow:0 -8px 22px rgba(0,0,0,.08)}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box{width:100%;border:0;border-radius:0;box-shadow:none;background:transparent}');
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{display:block;width:100%;height:64px;padding:12px 14px;border:0;border-radius:0;box-shadow:none;background:var(--surface);resize:none}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{display:block;width:100%;height:64px;min-height:64px;max-height:20dvh;padding:12px 14px;border:0;border-radius:0;box-shadow:none;background:var(--surface);resize:none;overflow-y:hidden}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea:focus{border:0;box-shadow:none}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:static;display:flex;gap:6px;width:100%;padding:8px 10px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))');
