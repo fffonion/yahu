@@ -90,5 +90,6 @@ describe('insights chart UI', () => {
     expect(css).toContain('.header-actions .icon-btn svg{display:block;flex:0 0 auto}');
     expect(css).toContain('.header-actions .insights-refresh{width:38px}');
     expect(css).toContain('.header-actions .insights-refresh{width:30px;height:30px;min-width:30px;padding:0}');
+    expect(css).toContain('@media (max-width:760px){.mobile-bottom-nav .rail-btn.nav-insights.active{background:transparent;color:#14b8a6;box-shadow:none}.insights-header .header-actions{gap:6px}');
   });
 });
