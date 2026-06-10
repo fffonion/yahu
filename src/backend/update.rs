@@ -76,7 +76,7 @@ pub async fn check_update(
     Ok(Json(UpdateCheck {
         current: current.to_string(),
         latest: latest.to_string(),
-        available: compare_versions(current, latest) == std::cmp::Ordering::Less,
+        available: is_dirty_version(current) || compare_versions(current, latest) == std::cmp::Ordering::Less,
         download_url,
         release_url: html_url,
     }))
@@ -263,6 +263,13 @@ fn asset_target() -> Option<&'static str> {
         ("x86_64", "windows") => Some("x86_64-pc-windows-gnu"),
         _ => None,
     }
+}
+
+fn is_dirty_version(v: &str) -> bool {
+    // Clean semver has dots (e.g. "0.3.0"). Commit hashes and git-describe
+    // outputs like "b1ee630" or "0.3.0-5-g1234abc" lack a second dot or
+    // contain a hyphen after the first dot-group.
+    !v.contains('.')
 }
 
 fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
