@@ -270,6 +270,14 @@ function normalizeMessage(raw: any): ChatMessage {
     toolInput: rawToolInput(raw),
   };
 }
+function findUnreconciledLocalAssistantIndex(prev: ChatMessage[]) {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const msg = prev[i];
+    if (msg.role === 'assistant' && msg.id.startsWith('assistant_')) return i;
+    if (msg.role === 'user' || (msg.role === 'assistant' && !msg.pending && msg.id !== OTHER_PLATFORM_PENDING_ID)) break;
+  }
+  return -1;
+}
 function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   if (prev.some((m) => m.id === msg.id)) return prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m);
   // Match by content+role for user messages (server ID differs from local uid)
@@ -287,6 +295,8 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
     if (pendingIdx >= 0) return prev.map((m, i) => i === pendingIdx ? { ...m, ...msg, pending: false } : m);
     const localStreamIdx = prev.findIndex((m) => m.role === 'assistant' && m.id.startsWith('assistant_') && m.content === msg.content && (m.reasoning || '') === (msg.reasoning || ''));
     if (localStreamIdx >= 0) return prev.map((m, i) => i === localStreamIdx ? { ...m, ...msg, pending: false } : m);
+    const turnLocalStreamIdx = findUnreconciledLocalAssistantIndex(prev);
+    if (turnLocalStreamIdx >= 0) return prev.map((m, i) => i === turnLocalStreamIdx ? { ...m, ...msg, pending: false } : m);
   }
   const withoutStalePending = msg.role === 'assistant'
     ? prev.filter((m) => !(m.pending && m.id === OTHER_PLATFORM_PENDING_ID))
@@ -434,11 +444,13 @@ export default function App() {
   const composerRef = useRef<HTMLElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const messageRequestRef = useRef(0);
+  const activeSessionIdRef = useRef(activeSessionId);
   const searchVersionRef = useRef(0);
   const modelRef = useRef(model);
   const providerRef = useRef(selectedModelProvider);
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { providerRef.current = selectedModelProvider; }, [selectedModelProvider]);
+  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
   const scrollLatestAfterRenderRef = useRef(false);
   const titleRefreshDoneRef = useRef<Set<string>>(new Set());
   const skipNextHistoryLoadRef = useRef('');
@@ -557,10 +569,10 @@ export default function App() {
       if (version !== searchVersionRef.current) return;
       const list: Session[] = body.data || [];
       setSessions(list);
-      if (!activeSessionId && list.length) setActiveSessionId(list[0].id);
+      if (!activeSessionIdRef.current && list.length) setActiveSessionId(list[0].id);
       setStatus(t('chat.connected'));
     } catch (err: any) { setStatus(`Sessions unavailable: ${err.message}`); }
-  }, [activeSessionId, filter, headers]);
+  }, [filter, headers]);
 
   const loadSessionDetail = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
@@ -979,6 +991,7 @@ export default function App() {
   const runChatTurn = async (turnText: string, turnAttachments: Attachment[], initialSessionId = activeSessionId, clearComposer = true) => {
     const text = turnText.trim();
     if (!text && turnAttachments.length === 0) return;
+    messageRequestRef.current += 1;
     setBusy(true); setStatus('Running');
     let sessionId = initialSessionId;
     let createdSession: Session | null = null;

@@ -13,6 +13,9 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain("msg.role === 'user'");
     expect(app).toContain("msg.role === 'assistant'");
     expect(app).toContain("m.id.startsWith('assistant_') && m.content === msg.content");
+    expect(app).toContain('function findUnreconciledLocalAssistantIndex(prev: ChatMessage[])');
+    expect(app).toContain('const turnLocalStreamIdx = findUnreconciledLocalAssistantIndex(prev);');
+    expect(app).toContain('i === turnLocalStreamIdx ? { ...m, ...msg, pending: false } : m');
     expect(app).toContain('setMessages((prev) => {');
     expect(app).toContain('const next = mergeWatchedMessage(prev, msg);');
   });
