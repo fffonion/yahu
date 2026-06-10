@@ -65,6 +65,12 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.memory-grid textarea{min-height:0;overflow:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}');
   });
 
+  test('mobile settings uses the content panel as the scroll container', () => {
+    const styles = css();
+    expect(styles).toContain('.settings-main{overflow:hidden}');
+    expect(styles).toContain('.settings-content{padding:16px 16px calc(96px + env(safe-area-inset-bottom,0px));min-height:0;overflow:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}');
+  });
+
   test('mobile composer bottom padding matches the rendered bottom nav height without an extra gap', () => {
     const styles = css();
     const navHeight = Number(styles.match(/--mobile-bottom-nav-height:(\d+)px/)?.[1]);
