@@ -8,7 +8,7 @@ import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
-import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, stackedAreaPath, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
 import { shouldRenderMessage } from './messageVisibility';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
@@ -1496,6 +1496,7 @@ function ModeSidebar({ mode }: { mode: Mode }) {
 }
 
 function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void }) {
+  const [chartStacked, setChartStacked] = useState(false);
   const periodData = props.insights?.periods?.find((item) => item.days === props.period);
   const totals = periodData?.totals || emptyTotals();
   const models = useMemo(() => (props.insights?.models || [])
@@ -1533,8 +1534,8 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         </>}
       </div>
       <section className="insights-chart-card">
-        <div className="insights-card-head"><div><h2>{metricLabels[props.metric]} by model</h2><p>Recent {periodLabel} trend with cache/input/output usage</p></div><LineChart /></div>
-        {showSkeleton ? <UsageChartSkeleton /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} />}
+        <div className="insights-card-head"><div><h2>{metricLabels[props.metric]} by model</h2><p>Recent {periodLabel} trend with cache/input/output usage</p></div><button type="button" className="chart-stack-toggle" aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? 'Unstack' : 'Stack'}</button></div>
+        {showSkeleton ? <UsageChartSkeleton /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} stacked={chartStacked} />}
       </section>
       <div className="insights-grid">
         <section className="insights-panel"><h2>Models</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
@@ -1569,30 +1570,40 @@ function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: Us
   const cache = Math.min(100, Math.round((model.periodTotals.cache_read / max) * 100));
   return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{fmtTokens(model.periodTotals.input)} input · {fmtTokens(model.periodTotals.output)} output · {fmtPercent(model.periodTotals.cache_hit_rate)} cache</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
 }
-function UsageAreaChart({ days, models, metric }: { days: UsageDay[]; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
+function UsageAreaChart({ days, models, metric, stacked }: { days: UsageDay[]; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric; stacked: boolean }) {
   const width = 720;
   const height = 260;
   const pad = { top: 14, right: 18, bottom: 28, left: 58 };
   const compactAxisLabels = useMediaQuery('(max-width: 760px)');
   const series = models.slice(0, 4).map((model, index) => ({ model: model.model, index, values: days.map((day) => metricValue(model.daily.find((item) => item.date === day.date) || day, metric)) }));
   const totalValues = days.map((day) => metricValue(day, metric));
-  const allValues = [...totalValues, ...series.flatMap((item) => item.values)];
+  const stackedSeries = series.reduce<Array<{ model: string; index: number; values: number[]; lower: number[]; upper: number[] }>>((acc, item) => {
+    const lower = acc.length ? acc[acc.length - 1].upper : item.values.map(() => 0);
+    const upper = item.values.map((value, index) => lower[index] + value);
+    acc.push({ ...item, lower, upper });
+    return acc;
+  }, []);
+  const allValues = [...totalValues, ...series.flatMap((item) => item.values), ...stackedSeries.flatMap((item) => item.upper)];
   const maxValue = Math.max(1, ...allValues);
   const yTicks = chartYAxisTicks(allValues, 4, (value) => metric === 'cost_usd' ? formatMetricValue(metric, value) : compactAxisLabels ? fmtCompactAxisTick(value) : formatMetricValue(metric, value));
-  return <div className="usage-chart" data-series-count={series.length}>
+  const pointSeries = stacked
+    ? stackedSeries.map((item) => ({ model: item.model, index: item.index, values: item.values, pointValues: item.upper }))
+    : series.map((item) => ({ model: item.model, index: item.index, values: item.values, pointValues: item.values }));
+  return <div className={`usage-chart ${stacked ? 'stacked' : 'unstacked'}`} data-series-count={series.length}>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Usage trend chart" preserveAspectRatio="none">
-      <defs>{series.map((item) => <linearGradient key={item.model} id={`insight-grad-${item.index}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={`var(--chart-${item.index})`} stopOpacity=".52" /><stop offset="100%" stopColor={`var(--chart-${item.index})`} stopOpacity=".03" /></linearGradient>)}</defs>
+      <defs>{series.map((item) => <linearGradient key={item.model} id={`insight-grad-${item.index}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={`var(--chart-${item.index})`} stopOpacity=".52" /><stop offset="100%" stopColor={`var(--chart-${item.index})`} stopOpacity=".06" /></linearGradient>)}</defs>
       <g className="chart-grid" aria-hidden="true">{yTicks.map((tick, tickIndex) => { const y = chartPoint(0, tick.value, 1, width, height, pad, maxValue).y; return <line key={`${tickIndex}-${tick.label}`} x1={pad.left} x2={width - pad.right} y1={y} y2={y} />; })}</g>
-      <path className="usage-total-area" d={areaPath(totalValues, width, height, pad, maxValue)} />
-      {series.map((item) => <g key={item.model} className={`usage-series usage-series-${item.index}`}>
+      {!stacked && <path className="usage-total-area" d={areaPath(totalValues, width, height, pad, maxValue)} />}
+      {stacked ? stackedSeries.map((item) => <path key={item.model} className="usage-stack-area" d={stackedAreaPath(item.lower, item.upper, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />) : series.map((item) => <g key={item.model} className={`usage-series usage-series-${item.index}`}>
         <path className="usage-area" d={areaPath(item.values, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />
         <path className="usage-line" d={linePath(item.values, width, height, pad, maxValue)} />
       </g>)}
+      {stacked && <path className="usage-total-line" d={linePath(totalValues, width, height, pad, maxValue)} />}
     </svg>
     <div className="chart-y-axis" aria-hidden="true">{yTicks.map((tick, tickIndex) => <span key={`${tickIndex}-${tick.label}`} style={{ top: `${tick.pct}%` }}>{tick.label}</span>)}</div>
-    <div className="chart-points">{series.map((item) => item.values.map((value, pointIndex) => { const day = days[pointIndex]; const point = chartPoint(pointIndex, value, item.values.length, width, height, pad, maxValue); const label = chartTooltipLabel(item.model, day?.label || '', value, metricLabels[metric], formatMetricValue(metric, value)); return <span key={`${item.model}-${day?.date || pointIndex}`} className="chart-point-hit" tabIndex={0} aria-label={label} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{label}</span></span>; }))}</div>
+    <div className="chart-points">{pointSeries.map((item) => item.values.map((value, pointIndex) => { const day = days[pointIndex]; const point = chartPoint(pointIndex, item.pointValues[pointIndex], item.values.length, width, height, pad, maxValue); const label = chartTooltipLabel(item.model, day?.label || '', value, metricLabels[metric], formatMetricValue(metric, value)); return <span key={`${item.model}-${day?.date || pointIndex}`} className="chart-point-hit" tabIndex={0} aria-label={label} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{label}</span></span>; }))}</div>
     <div className="chart-axis">{days.map((day, index) => <span key={day.date} style={{ left: `${days.length === 1 ? 50 : (index / (days.length - 1)) * 100}%` }}>{index === 0 || index === days.length - 1 || days.length <= 7 ? day.label : ''}</span>)}</div>
-    <div className="chart-legend">{series.map((item) => <span key={item.model}><i style={{ background: `var(--chart-${item.index})` }} />{item.model}</span>)}</div>
+    <div className="chart-legend">{series.map((item) => <span key={item.model}><i style={{ background: `var(--chart-${item.index})` }} />{item.model}</span>)}{stacked && <span><i className="total" />Total</span>}</div>
   </div>;
 }
 function ChatSidebar(props: { filter: string; setFilter: (v: string) => void; startDraftSession: () => void; pinnedSessions: Session[]; normalSessions: Session[]; activeSessionId: string; setActiveSessionId: (v: string) => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void; pinnedIds: Set<string>; togglePin: (id: string) => void; openSessionMenu: (session: Session, event: React.MouseEvent) => void; openSessionMenuAt: (session: Session, x: number, y: number) => void }) {

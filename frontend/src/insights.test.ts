@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelPeriodTotals, type UsageModel } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelPeriodTotals, stackedAreaPath, type UsageModel } from './insights';
 
 describe('insights helpers', () => {
   test('formats token and percent metrics compactly', () => {
@@ -19,6 +19,12 @@ describe('insights helpers', () => {
     const area = areaPath([0, 50, 100], 300, 120);
     expect(area.endsWith('Z')).toBe(true);
     expect(area).toContain('L 288.00 108.00');
+  });
+
+  test('builds stacked area band paths between lower and upper model totals', () => {
+    const band = stackedAreaPath([0, 20, 40], [10, 50, 100], 300, 120, 12, 100);
+    expect(band).toContain('M 12.00 98.40 L 150.00 60.00 L 288.00 12.00');
+    expect(band).toContain('L 288.00 69.60 L 150.00 88.80 L 12.00 108.00 Z');
   });
 
   test('uses left-side axis padding and common max for chart coordinates', () => {

@@ -170,3 +170,17 @@ export function areaPath(values: number[], width: number, height: number, pad: C
   const lastX = width - p.right;
   return `${path} L ${lastX.toFixed(2)} ${baseY.toFixed(2)} L ${p.left.toFixed(2)} ${baseY.toFixed(2)} Z`;
 }
+
+export function stackedAreaPath(lowerValues: number[], upperValues: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
+  if (!lowerValues.length || !upperValues.length) return '';
+  const count = Math.min(lowerValues.length, upperValues.length);
+  const upper = upperValues.slice(0, count).map((value, index) => {
+    const { x, y } = chartPoint(index, value, count, width, height, pad, maxValue || chartMax(upperValues));
+    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).join(' ');
+  const lower = lowerValues.slice(0, count).map((value, index) => {
+    const { x, y } = chartPoint(index, value, count, width, height, pad, maxValue || chartMax(upperValues));
+    return `L ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }).reverse().join(' ');
+  return `${upper} ${lower} Z`;
+}
