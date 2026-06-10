@@ -2053,6 +2053,7 @@ function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void;
 function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute, mode, onNavigateToSettings }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void; mode?: Mode; onNavigateToSettings?: () => void }) {
   const MAX_PAGE_SIZE = 120;
   const MIN_PRELOAD_DISTANCE_PX = 1800;
+  const GALLERY_PRELOAD_ROWS = 2;
   const [images, setImages] = useState<ImageEntry[]>([]);
   const [stats, setStats] = useState<ImageStats>({ total_images: 0, total_bytes: 0 });
   const [loading, setLoading] = useState(false);
@@ -2124,7 +2125,8 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     const estimatedCardH = clamp(colW, window.innerWidth <= 760 ? 140 : 180, 420);
     const grid = gridRef.current;
     const gap = grid ? (parseFloat(getComputedStyle(grid).rowGap || getComputedStyle(grid).gap) || (window.innerWidth <= 760 ? 8 : 18)) : (window.innerWidth <= 760 ? 8 : 18);
-    const rows = Math.max(1, Math.ceil(viewportH / (estimatedCardH + gap)) + 1);
+    const visibleRows = Math.max(1, Math.ceil(viewportH / (estimatedCardH + gap)));
+    const rows = visibleRows + GALLERY_PRELOAD_ROWS;
     return clamp(cols * rows, cols * 2, MAX_PAGE_SIZE);
   };
   const lazyPageSizeForViewport = () => clamp(getGridColumnCount() * 2, 4, MAX_PAGE_SIZE);

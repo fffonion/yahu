@@ -27,9 +27,12 @@ describe('image browser parity with standalone Hermes image browser', () => {
     const source = app();
     expect(source).toContain('const MAX_PAGE_SIZE = 120;');
     expect(source).toContain('const MIN_PRELOAD_DISTANCE_PX = 1800;');
+    expect(source).toContain('const GALLERY_PRELOAD_ROWS = 2;');
     expect(source).toContain('initialPageSizeForViewport');
     expect(source).toContain('lazyPageSizeForViewport');
     expect(source).toContain('pageSizeForViewport(offset)');
+    expect(source).toContain('const visibleRows = Math.max(1, Math.ceil(viewportH / (estimatedCardH + gap)));');
+    expect(source).toContain('const rows = visibleRows + GALLERY_PRELOAD_ROWS;');
     expect(source).toContain('const pageSize = pageSizeForViewport(offset);');
     expect(source).toContain('limit=${pageSize}');
     expect(source).toContain('const more = chunk.length === pageSize;');
