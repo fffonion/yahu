@@ -51,6 +51,16 @@ describe('draft session lifecycle', () => {
     expect(source).not.toContain('await loadSessions(filter);\n      await loadWorkspace(workspacePath);');
   });
 
+  test('first stream adopts the effective session id and removes the precreated seed session', () => {
+    const source = app();
+    expect(source).toContain('let effectiveSessionId = sessionId;');
+    expect(source).toContain("if (payloadSessionId && payloadSessionId !== effectiveSessionId) effectiveSessionId = payloadSessionId;");
+    expect(source).toContain('await reconcileEffectiveSession(sessionId, effectiveSessionId, createdSession);');
+    expect(source).toContain('if (createdSession && previousSessionId !== effectiveSessionId)');
+    expect(source).toContain("method: 'DELETE'");
+    expect(source).toContain('writeHashRoute({ mode: \'chat\', sessionId: effectiveSessionId });');
+  });
+
   test('new button and filter align in one row without inherited filter margin', () => {
     const styles = css();
     expect(styles).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr);align-items:center');

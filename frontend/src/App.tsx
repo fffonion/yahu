@@ -719,6 +719,21 @@ export default function App() {
     await loadSessionDetail(sessionId);
   }, [loadSessionDetail]);
 
+  const reconcileEffectiveSession = useCallback(async (previousSessionId: string, effectiveSessionId: string, createdSession: Session | null) => {
+    if (!effectiveSessionId || previousSessionId === effectiveSessionId) return previousSessionId;
+    skipNextHistoryLoadRef.current = effectiveSessionId;
+    const effectiveSession = createdSession ? { ...createdSession, id: effectiveSessionId } : { id: effectiveSessionId };
+    setActiveSessionId(effectiveSessionId);
+    setActiveSessionDetail(effectiveSession);
+    setSessions((old) => [effectiveSession, ...old.filter((s) => s.id !== previousSessionId && s.id !== effectiveSessionId)]);
+    writeHashRoute({ mode: 'chat', sessionId: effectiveSessionId });
+    if (createdSession && previousSessionId !== effectiveSessionId) {
+      await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(previousSessionId)}`), { method: 'DELETE', headers: headers(false) }).catch(() => null);
+    }
+    await loadSessionDetail(effectiveSessionId);
+    return effectiveSessionId;
+  }, [apiBase, headers, loadSessionDetail, writeHashRoute]);
+
   const createSession = useCallback(async () => {
     const sessionModel = realModelOrEmpty(modelRef.current) || models[0]?.id || '';
     const sessionProvider = providerRef.current;
@@ -1101,11 +1116,13 @@ export default function App() {
     messageRequestRef.current += 1;
     setBusy(true); setStatus('Running');
     let sessionId = initialSessionId;
+    let effectiveSessionId = sessionId;
     let createdSession: Session | null = null;
     try {
       if (!sessionId || sessionId === DRAFT_SESSION_ID) {
         createdSession = await createSession();
         sessionId = createdSession.id;
+        effectiveSessionId = sessionId;
         skipNextHistoryLoadRef.current = sessionId;
         setActiveSessionId(sessionId);
         setActiveSessionDetail(createdSession);
@@ -1166,6 +1183,8 @@ export default function App() {
             if (!data) continue;
             let payload: any;
             try { payload = JSON.parse(data); } catch { continue; }
+            const payloadSessionId = typeof payload?.session_id === 'string' ? payload.session_id.trim() : '';
+            if (payloadSessionId && payloadSessionId !== effectiveSessionId) effectiveSessionId = payloadSessionId;
             if (event === 'assistant.delta') {
               const delta = payload.delta || '';
               finalText += delta;
@@ -1198,6 +1217,7 @@ export default function App() {
       // Wait for the client-side typing animation to catch up to the server-provided final text
       // before flipping `pending: false`, so the caret / shimmer / glow run for the full duration.
       await animator.finish(finalText);
+      sessionId = await reconcileEffectiveSession(sessionId, effectiveSessionId, createdSession);
       setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning } : m));
       setStatus(t('chat.connected'));
       await refreshSessionTitleOnce(sessionId);
