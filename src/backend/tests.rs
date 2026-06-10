@@ -193,9 +193,9 @@ mod tests {
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
             models_dev_url: "https://models.dev/api.json".to_string(),
- github_repo: String::new(),
- }
- }
+            github_repo: String::new(),
+        }
+    }
 
     #[tokio::test]
     async fn session_search_uses_api_server_list_endpoint_without_state_db() {
