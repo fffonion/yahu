@@ -34,7 +34,8 @@ describe('chat follow-up queue and steer behaviour', () => {
     expect(source).toContain('onMoveQueuedItem={moveQueuedItem}');
     expect(source).toContain('className="followup-queue"');
     expect(source).toContain('className="followup-text"');
-    expect(source).toContain('<GripVertical />');
+    expect(source).toContain('<ChevronUp />');
+    expect(source).toContain('<ChevronDown />');
   });
 
   test('steer mode posts a slash steer prompt through the session chat endpoint without opening a second stream reader', () => {
@@ -57,6 +58,6 @@ describe('chat follow-up queue and steer behaviour', () => {
     const styles = css();
     expect(styles).toContain('.followup-queue{display:grid;gap:6px;padding:8px 12px 0;background:var(--surface)}');
     expect(styles).toContain('.followup-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)');
-    expect(styles).toContain('.followup-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto 24px;align-items:center;gap:6px;min-height:34px');
+    expect(styles).toContain('.followup-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;align-items:center;gap:6px;min-height:34px');
   });
 });

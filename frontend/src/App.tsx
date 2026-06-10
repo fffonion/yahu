@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Circle as SelectionMark, CircleHelp, Code, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layout, Lightbulb, LineChart, List, MessageSquare, Network, Palette, Paperclip, Pencil, Pin, PinOff, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layout, Lightbulb, LineChart, List, MessageSquare, Network, Palette, Paperclip, Pencil, Pin, PinOff, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
@@ -1560,8 +1560,8 @@ function FollowUpQueueView({ items, onSteer, onEdit, onMove }: { items: FollowUp
       <button type="button" className="followup-action" onClick={() => onSteer(item)} title="Steer now">Steer</button>
       <button type="button" className="followup-action" onClick={() => onEdit(item)} title="Edit queued follow-up"><Pencil /></button>
       <span className="followup-sort" aria-label="Sort queued follow-up">
-        <button type="button" disabled={index === 0} onClick={() => onMove(item.id, -1)} title="Move up"><GripVertical /></button>
-        <button type="button" disabled={index === items.length - 1} onClick={() => onMove(item.id, 1)} title="Move down"><GripVertical /></button>
+        <button type="button" className="followup-sort-btn" disabled={index === 0} onClick={() => onMove(item.id, -1)} title="Move up"><ChevronUp /></button>
+        <button type="button" className="followup-sort-btn" disabled={index === items.length - 1} onClick={() => onMove(item.id, 1)} title="Move down"><ChevronDown /></button>
       </span>
     </div>)}
   </div>;
