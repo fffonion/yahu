@@ -62,6 +62,16 @@ describe('workspace page file tree layout', () => {
     expect(styles).toContain('.workspace-tree.file-list{min-height:0}');
   });
 
+  test('chat right workspace preview can jump to full workspace preview', () => {
+    const source = app();
+    const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));
+    expect(source).toContain('Maximize2');
+    expect(source).toContain("'workspace.openFullPreview'");
+    expect(browser).toContain('aria-label={t(\'workspace.openFullPreview\')}');
+    expect(browser).toContain("window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path });");
+    expect(browser).toContain('aria-label="Close preview"');
+  });
+
   test('chat right workspace previews files in place without changing to workspace route', () => {
     const source = app();
     const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));

@@ -113,6 +113,7 @@ const translations: Record<string, Record<string, string>> = {
   'workspace.expand': { en: 'Expand workspace', 'zh-CN': '展开工作区', 'zh-TW': '展開工作區', ja: 'ワークスペースを展開' },
   'workspace.collapse': { en: 'Collapse workspace', 'zh-CN': '折叠工作区', 'zh-TW': '摺疊工作區', ja: 'ワークスペースを折りたたむ' },
   'workspace.openPage': { en: 'Open workspace page', 'zh-CN': '打开工作区页面', 'zh-TW': '開啟工作區頁面', ja: 'ワークスペースページを開く' },
+  'workspace.openFullPreview': { en: 'Open full workspace preview', 'zh-CN': '打开工作区大屏预览', 'zh-TW': '開啟工作區大屏預覽', ja: 'ワークスペースの大きなプレビューを開く' },
   'workspace.download': { en: 'download', 'zh-CN': '下载', 'zh-TW': '下載', ja: 'ダウンロード' },
   'workspace.expandFolder': { en: 'expand folder', 'zh-CN': '展开文件夹', 'zh-TW': '展開資料夾', ja: 'フォルダを展開' },
   'workspace.editItem': { en: 'Edit item', 'zh-CN': '编辑', 'zh-TW': '編輯', ja: '編集' },
