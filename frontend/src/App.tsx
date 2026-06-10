@@ -812,7 +812,7 @@ export default function App() {
         setStatus(t('chat.streamingOther'));
       } catch { /* ignore */ }
     };
-    es.onerror = () => { es.close(); watchSourceRef.current = null; };
+    es.onerror = () => { watchSourceRef.current = null; };
     return () => { es.close(); watchSourceRef.current = null; };
   }, [activeSessionId]);
   useEffect(() => {

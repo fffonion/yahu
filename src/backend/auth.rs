@@ -20,6 +20,7 @@ async fn require_auth(
         || path.starts_with("/skills")
         || path.starts_with("/sessions/search")
         || path.starts_with("/chat/messages")
+        || path.starts_with("/chat/watch")
         || path.starts_with("/chat/attachments")
         || path.starts_with("/insights")
         || path.starts_with("/image-api")
