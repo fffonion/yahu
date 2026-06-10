@@ -1438,12 +1438,17 @@ function CustomDialog({ dialog, setDialog }: { dialog: DialogState; setDialog: (
   useEffect(() => { setValue(dialog?.value || ''); }, [dialog]);
   useEffect(() => {
     if (!dialog) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); finish(dialog.variant === 'confirm' ? false : null); }
-      if (e.key === 'Enter') { e.preventDefault(); finish(dialog.variant === 'prompt' ? (document.querySelector<HTMLInputElement>('.dialog-card input')?.value ?? '') : true); }
+    const consumeDialogKey = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { consumeDialogKey(event); finish(dialog.variant === 'confirm' ? false : null); }
+      if (event.key === 'Enter') { consumeDialogKey(event); finish(dialog.variant === 'prompt' ? (document.querySelector<HTMLInputElement>('.dialog-card input')?.value ?? '') : true); }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [dialog, finish]);
   if (!dialog) return null;
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) finish(dialog.variant === 'confirm' ? false : null); }}>
@@ -2441,6 +2446,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (!modal) return;
       if (event.key === 'Escape') closeImageModal();
       if (event.key === 'ArrowLeft') { event.preventDefault(); navigateModal(-1); }
