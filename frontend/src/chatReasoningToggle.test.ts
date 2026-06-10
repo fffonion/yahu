@@ -30,7 +30,7 @@ describe('chat reasoning display toggle', () => {
 
   test('reasoning block and toggle have compact themed styles', () => {
     const styles = css();
-    expect(styles).toContain('.reasoning-view-toggle{width:38px;height:38px;justify-content:center;padding:0;flex:0 0 38px}');
+    expect(styles).toContain('.reasoning-view-toggle{justify-content:center;padding:0}');
     expect(styles).toContain('.reasoning-view-toggle.active');
     expect(styles).toContain('.msg-reasoning');
     expect(styles).toContain('.msg-reasoning pre');
