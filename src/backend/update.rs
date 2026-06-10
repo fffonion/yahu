@@ -22,7 +22,7 @@ pub struct UpdateCheck {
     pub release_url: String,
 }
 
-pub async fn check_update(
+async fn check_update(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<UpdateCheck>, (StatusCode, String)> {
     let repo = &state.github_repo;
@@ -88,7 +88,7 @@ pub struct ApplyResult {
     pub message: String,
 }
 
-pub async fn apply_update(
+async fn apply_update(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ApplyResult>, (StatusCode, String)> {
     let repo = &state.github_repo;
@@ -134,17 +134,28 @@ pub async fn apply_update(
     let tmp_dir = std::env::temp_dir();
     let archive_path = tmp_dir.join(format!("yahu-update-{tag}.tar.gz"));
 
-    let resp = state
-        .client
-        .get(&download_url)
-        .header("User-Agent", format!("yahu/{YAHU_VERSION}"))
-        .send()
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    let resp = timeout(
+        Duration::from_secs(60),
+        state
+            .client
+            .get(&download_url)
+            .header("User-Agent", format!("yahu/{YAHU_VERSION}"))
+            .send(),
+    )
+    .await
+    .map_err(|_| (StatusCode::GATEWAY_TIMEOUT, "download timed out".to_string()))?
+    .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
-    let bytes = resp
-        .bytes()
+    if !resp.status().is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("download returned {}", resp.status()),
+        ));
+    }
+
+    let bytes = timeout(Duration::from_secs(60), resp.bytes())
         .await
+        .map_err(|_| (StatusCode::GATEWAY_TIMEOUT, "download timed out".to_string()))?
         .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
 
     fs::write(&archive_path, &bytes)
@@ -178,7 +189,6 @@ pub async fn apply_update(
 
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&new_path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -196,12 +206,23 @@ pub async fn apply_update(
 
         info!("update applied, restarting");
 
-        // execve to replace current process
         let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
-        let err = Command::new(&bin_path).args(args).status().await;
-        // If execve succeeds we never reach here; if it fails, exit
-        warn!("execve failed: {err:?}");
-        std::process::exit(0);
+        let restart_path = bin_path.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(500));
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                let err = std::process::Command::new(&restart_path).args(args).exec();
+                eprintln!("failed to exec updated yahu: {err}");
+            }
+            std::process::exit(1);
+        });
+
+        return Ok(Json(ApplyResult {
+            success: true,
+            message: "update applied; restarting".into(),
+        }));
     }
 
     #[cfg(target_os = "windows")]

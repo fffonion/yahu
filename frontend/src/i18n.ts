@@ -145,6 +145,9 @@ const translations: Record<string, Record<string, string>> = {
 'settings.upToDate': { en: 'Up to date', 'zh-CN': '已是最新', 'zh-TW': '已是最新', ja: '最新です' },
 'settings.viewRelease': { en: 'View release', 'zh-CN': '查看发布', 'zh-TW': '查看發布', ja: 'リリースを見る' },
 'settings.installUpdate': { en: 'Install update', 'zh-CN': '安装更新', 'zh-TW': '安裝更新', ja: 'アップデートをインストール' },
+'settings.checkingUpdate': { en: 'Checking…', 'zh-CN': '检查中…', 'zh-TW': '檢查中…', ja: '確認中…' },
+'settings.installingUpdate': { en: 'Installing update…', 'zh-CN': '正在安装更新…', 'zh-TW': '正在安裝更新…', ja: 'アップデートをインストール中…' },
+'settings.restartingUpdate': { en: 'Restarting…', 'zh-CN': '正在重启…', 'zh-TW': '正在重啟…', ja: '再起動中…' },
 
   // Navigation
   'nav.chat': { en: 'Chat', 'zh-CN': '聊天', 'zh-TW': '聊天', ja: 'チャット' },
