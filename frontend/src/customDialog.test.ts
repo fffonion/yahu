@@ -22,6 +22,12 @@ describe('custom themed dialogs', () => {
     expect(styles).toContain('.dialog-actions');
   });
 
+  test('confirm dialogs resolve from mouse clicks instead of relying on form submit', () => {
+    const source = app();
+    expect(source).toContain("<button type=\"button\" className={dialog.danger ? 'danger' : ''} onClick={() => finish(dialog.variant === 'prompt' ? value : true)}>{dialog.variant === 'prompt' ? 'Save' : 'Confirm'}</button>");
+    expect(source).toContain('onSubmit={(event) => { event.preventDefault(); }}');
+  });
+
   test('memory and settings sidebars do not show login-key protection copy', () => {
     const source = app();
     expect(source).not.toContain('Protected by WebUI login key.');

@@ -1333,7 +1333,7 @@ function CustomDialog({ dialog, setDialog }: { dialog: DialogState; setDialog: (
       {dialog.variant === 'prompt' && <input autoFocus value={value} onChange={(event) => setValue(event.target.value)} />}
       <div className="dialog-actions">
         <button type="button" onClick={() => finish(dialog.variant === 'confirm' ? false : null)}>Cancel</button>
-        <button type="submit" className={dialog.danger ? 'danger' : ''}>{dialog.variant === 'prompt' ? 'Save' : 'Confirm'}</button>
+        <button type="button" className={dialog.danger ? 'danger' : ''} onClick={() => finish(dialog.variant === 'prompt' ? value : true)}>{dialog.variant === 'prompt' ? 'Save' : 'Confirm'}</button>
       </div>
     </form>
   </div>;
