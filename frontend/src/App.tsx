@@ -1997,7 +1997,8 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
         mergeImage(item);
       }
       if ((payload.new_items || []).length >= MAX_PAGE_SIZE) { hasMoreRef.current = true; setHasMore(true); }
-      setNotice(added || updated ? `Refresh complete: added ${added}, updated ${updated}` : 'Refresh complete: no new images');
+      if (added || updated) setNotice(`Refresh complete: added ${added}, updated ${updated}`);
+      else if (window.innerWidth > 760) setNotice('Refresh complete: no new images');
       await loadStats();
     } catch (err: any) { setNotice(`Refresh failed: ${err.message || err}`); }
     finally { refreshBusyRef.current = false; }
