@@ -1202,18 +1202,18 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
         <WorkspaceAside workspacePath={workspacePath} workspaceEntries={workspaceEntries} parentPath={parentPath} preview={preview} loadWorkspace={loadWorkspace} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
-      {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} />}
-      {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />}
+      {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'skills' && <>
-        <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
+        <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
         <SkillWorkspaceAside skill={selectedSkill} skillFileTree={skillFileTree} expandedSkillPaths={expandedSkillPaths} toggleSkillFolder={toggleSkillFolder} openSkillFile={openSkillFile} />
       </>}
-      {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />}
-      {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} />}
-      {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} />}
+      {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
@@ -1251,7 +1251,7 @@ function ThemeCard({ theme, setTheme }: { theme: Theme; setTheme: (v: Theme) => 
 function MobileHeaderDrawerButton({ open, onClick }: { open: boolean; onClick: () => void }) {
   return <button type="button" className="mobile-header-drawer rail-btn" aria-label="Open list" aria-expanded={open} onClick={onClick}><List /></button>;
 }
-function HeaderThemeControl({ theme, setTheme }: { theme: Theme; setTheme: (v: Theme) => void }) {
+function HeaderThemeControl({ theme, setTheme, mode, onNavigateToSettings }: { theme: Theme; setTheme: (v: Theme) => void; mode?: Mode; onNavigateToSettings?: () => void }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1262,8 +1262,10 @@ function HeaderThemeControl({ theme, setTheme }: { theme: Theme; setTheme: (v: T
     window.addEventListener('keydown', closeOnEscape);
     return () => { window.removeEventListener('pointerdown', closeOutside); window.removeEventListener('keydown', closeOnEscape); };
   }, [open]);
+  const isSettingsActive = mode === 'settings';
   return <div className="header-theme-control" ref={rootRef}>
-    <button type="button" className="mobile-icon-only palette-btn" aria-label="Theme" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Palette /></button>
+    {onNavigateToSettings && <button type="button" className={`mobile-header-settings-btn rail-btn nav-settings ${isSettingsActive ? 'active' : ''}`} aria-label="Settings" onClick={onNavigateToSettings}><Settings /></button>}
+    <button type="button" className="mobile-icon-only palette-btn desktop-only-theme" aria-label="Theme" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Palette /></button>
     {open && <div className="theme-menu" role="menu">
       {THEME_OPTIONS.map((item) => <button key={item.id} type="button" role="menuitemradio" aria-checked={theme === item.id} className={theme === item.id ? 'active' : ''} onClick={() => { setTheme(item.id); setOpen(false); }}><span>{item.label}</span></button>)}
     </div>}
@@ -1275,7 +1277,7 @@ function ModeSidebar({ mode }: { mode: Mode }) {
   return <div className="admin-side"><h2>{label}</h2><p>{text}</p></div>;
 }
 
-function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void }) {
+function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void }) {
   const periodData = props.insights?.periods?.find((item) => item.days === props.period);
   const totals = periodData?.totals || emptyTotals();
   const models = useMemo(() => (props.insights?.models || [])
@@ -1292,7 +1294,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   return <main className={`main-panel insights-main ${showSkeleton ? 'insights-loading' : ''}`}>
     <header className="chat-header header-no-drawer insights-header">
       <div><h1>Insights</h1><span>{showSkeleton ? 'Loading usage…' : props.error || `Last ${periodLabel} · ${fmtTokens(totals.total_tokens)} tokens`}</span></div>
-      <div className="header-actions"><button className="icon-btn mobile-icon-only insights-refresh" onClick={props.refresh} disabled={props.loading} title="Refresh usage"><RefreshCw /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div>
+      <div className="header-actions"><button className="icon-btn mobile-icon-only insights-refresh" onClick={props.refresh} disabled={props.loading} title="Refresh usage"><RefreshCw /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div>
     </header>
     <section className="insights-content">
       <div className="insights-toolbar" aria-label="Usage controls">
@@ -1537,7 +1539,7 @@ function ChatMain(props: any) {
   const modelOptions = currentOption ? [currentOption, ...props.models.filter((m: ModelOption) => m.id !== currentModel)] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   return <main className="main-panel">
-    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div></header>
+    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={collapseComposerForHistory}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {props.messages.length === 0 && <div className="empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
@@ -1591,8 +1593,8 @@ function WorkspaceAside(props: any) {
   if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title={t('workspace.openPage')} aria-label="Open workspace page" onClick={() => props.loadWorkspace(props.workspacePath)}><Folder /></button></div></aside>;
   return <aside className="workspace"><WorkspaceBrowser {...props} compact /></aside>;
 }
-function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar }: any) {
-  return <main className="main-panel workspace-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
+function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: any) {
+  return <main className="main-panel workspace-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
 function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu }: any) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
@@ -1616,8 +1618,8 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
   const toggleCat = (cat: string) => setExpandedCats(new Set(expandedCats.has(cat) ? [...expandedCats].filter((c) => c !== cat) : [...expandedCats, cat]));
   return <><div className="cron-sidebar-head"><div><h2>Skills</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
-function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void }) {
-  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
+function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
+  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
 function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void }) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.filter((e) => e.name !== '.archive').map((entry) => {
@@ -1666,15 +1668,15 @@ function WorkspaceBrowser({ workspacePath, workspaceEntries, parentPath, preview
     {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><button onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div>{preview.kind === 'image' ? <img src={preview.url} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />}</div>}
   </>;
 }
-function AdminMain({ mode, setStatus, theme, setTheme }: { mode: Extract<Mode, 'memory'>; apiBase: string; headers: (json?: boolean) => Record<string, string>; setStatus: (v: string) => void; theme: Theme; setTheme: (v: Theme) => void }) {
-  return <main className={`main-panel admin-main ${mode === 'memory' ? 'memory-main' : ''}`}><header className="chat-header header-no-drawer"><div><h1>{t('memory.title')}</h1><span>{t('memory.subtitle')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} /></header><MemoryPanel setStatus={setStatus} /></main>;
+function AdminMain({ mode, setStatus, theme, setTheme, onNavigateToSettings }: { mode: Extract<Mode, 'memory'>; apiBase: string; headers: (json?: boolean) => Record<string, string>; setStatus: (v: string) => void; theme: Theme; setTheme: (v: Theme) => void; onNavigateToSettings: () => void }) {
+  return <main className={`main-panel admin-main ${mode === 'memory' ? 'memory-main' : ''}`}><header className="chat-header header-no-drawer"><div><h1>{t('memory.title')}</h1><span>{t('memory.subtitle')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><MemoryPanel setStatus={setStatus} /></main>;
 }
 function CronSidebar({ jobs, editingId, beginCronEdit, resetCronForm, writeHashRoute, closeMobileSidebar }: { jobs: Job[]; editingId: string; beginCronEdit: (job: Job) => void; resetCronForm: () => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void }) {
   return <><div className="cron-sidebar-head"><div><h2>Cron jobs</h2><p>{jobs.length} scheduled jobs</p></div><button className="new-chat-btn" aria-label={t('cron.newJob')} title={t('cron.newJob')} onClick={() => { resetCronForm(); writeHashRoute({ mode: 'cron' }); closeMobileSidebar(); }}><Plus /></button></div><div className="cron-sidebar-list">{jobs.map((j) => <button type="button" data-route={buildHashRoute({ mode: 'cron', jobId: jobId(j) })} className={`cron-sidebar-row ${jobId(j) === editingId ? 'active' : ''}`} key={jobId(j)} onClick={() => { beginCronEdit(j); closeMobileSidebar(); }}>
     <span className="session-icon"><CalendarClock /></span><span className="session-text"><span className="session-title">{j.name || jobId(j)}</span><span className="session-preview">{jobSchedule(j.schedule)} · {jobState(j)}{j.script ? ` · ${j.script}` : ''}</span></span>
   </button>)}</div></>;
 }
-function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void }) {
+function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
   const deliverDisplay = (d: string) => {
     if (!d) return '—';
     if (d === 'origin') return 'origin (reply to chat)';
@@ -1683,7 +1685,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
     return d;
   };
   return <main className="main-panel cron-main">
-    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{t('cron.jobs')}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header>
+    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{t('cron.jobs')}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></header>
     <section className="cron-detail-wrap"><div className="cron-detail">
       <label className="cron-field"><span>Name</span><input value={props.name} onChange={(e) => props.setName(e.target.value)} placeholder="Job name" /></label>
       <label className="cron-field"><span>Schedule</span><input value={props.schedule} onChange={(e) => props.setSchedule(e.target.value)} placeholder="Schedule, e.g. 0 9 * * *" /></label>
@@ -1715,7 +1717,7 @@ function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void;
   return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>API, language, theme, and follow-ups</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">Queue</option><option value="steer">Steer</option></select></label><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button></section></main>;
 }
 
-function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void }) {
+function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute, mode, onNavigateToSettings }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void; mode?: Mode; onNavigateToSettings?: () => void }) {
   const MAX_PAGE_SIZE = 120;
   const MIN_PRELOAD_DISTANCE_PX = 1800;
   const [images, setImages] = useState<ImageEntry[]>([]);
@@ -2225,7 +2227,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
         {selecting && selected.size > 0 && <><button className="mobile-icon-only" aria-label="Download selected" onClick={() => downloadSelectedFiles(selectedList)}><Download /> <span className="btn-label">Download selected</span></button><button className="mobile-icon-only" aria-label="Organize" onClick={organizeTime}><CalendarClock /> <span className="btn-label">Organize</span></button><button className="danger mobile-icon-only" aria-label="Delete selected" onClick={() => deleteNames(selectedList)}><Trash2 /> <span className="btn-label">Delete selected</span></button></>}
         <button className="mobile-icon-only" aria-label={selecting ? 'Cancel selection' : 'Select images'} onClick={toggleSelectionMode}><CheckSquare /> <span className="btn-label">{selecting ? 'Cancel' : 'Select'}</span></button>
         <button className="icon-btn" aria-label="Refresh" onClick={refresh}><RefreshCw /></button>
-        <HeaderThemeControl theme={theme} setTheme={setTheme} />
+        <HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} />
       </div>
     </header>
     <section className="image-grid-wrap" ref={scrollRef} onScroll={onImageScroll}>
