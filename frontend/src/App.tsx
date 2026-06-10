@@ -1636,7 +1636,7 @@ function ChatMain(props: any) {
       textarea.style.removeProperty('--composer-textarea-pad-bottom');
       return;
     }
-    const minHeight = isMobile ? 64 : 96;
+    const minHeight = 48;
     const maxHeight = Math.max(minHeight, Math.floor(window.innerHeight * 0.2));
     textarea.style.removeProperty('--composer-textarea-pad-bottom');
     textarea.style.height = 'auto';
@@ -1649,7 +1649,8 @@ function ChatMain(props: any) {
       textarea.style.setProperty('--composer-textarea-pad-bottom', `${Math.ceil(basePaddingBottom + footer.offsetHeight + 8)}px`);
       textarea.style.height = 'auto';
     }
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+    const contentHeight = textarea.value.trim() ? textarea.scrollHeight : minHeight;
+    const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [isMobile, props.composerCompact]);

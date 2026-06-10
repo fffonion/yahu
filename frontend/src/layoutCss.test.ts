@@ -21,7 +21,7 @@ describe('sidebar session list css', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     expect(css).toContain('.composer-wrap{position:relative;z-index:150;padding:0;background:var(--surface);box-shadow:0 -8px 22px rgba(0,0,0,.08)}');
     expect(css).toContain('.composer-box{position:relative;z-index:150;overflow:visible;width:100%;border:0;border-radius:0;background:transparent;box-shadow:none}');
-    expect(css).toContain('.composer-box textarea{display:block;width:100%;height:96px;min-height:96px;max-height:20dvh;padding:14px 18px;line-height:1.5;border:0;border-radius:0;background:var(--surface);box-shadow:none;resize:none;overflow-y:hidden}');
+    expect(css).toContain('.composer-box textarea{display:block;width:100%;height:48px;min-height:48px;max-height:20dvh;padding:14px 18px;line-height:1.5;border:0;border-radius:0;background:var(--surface);box-shadow:none;resize:none;overflow-y:hidden}');
     expect(css).toContain('.composer-box textarea{padding:5px 18px}');
     expect(css).toContain('.composer-box textarea:focus{border:0;box-shadow:none}');
     expect(css).toContain('.composer-footer{position:static;display:flex;width:100%;gap:8px;padding:10px 18px;background:transparent;border-top:0}');
@@ -39,6 +39,8 @@ describe('sidebar session list css', () => {
     expect(source).toContain("const footer = props.composerRef.current?.querySelector('.composer-footer') as HTMLElement | null;");
     expect(source).toContain('basePaddingBottom + footer.offsetHeight + 8');
     expect(source).toContain('ref={textareaRef}');
+    expect(source).toContain('const contentHeight = textarea.value.trim() ? textarea.scrollHeight : minHeight;');
+    expect(source).toContain('const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);');
     expect(css).toContain('max-height:20dvh');
     expect(css).toContain('padding:14px 18px');
     expect(css).toContain('.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:5px}');
