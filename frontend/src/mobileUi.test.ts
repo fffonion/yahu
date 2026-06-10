@@ -84,7 +84,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box{width:100%;border:0;border-radius:0;box-shadow:none;background:transparent}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{display:block;width:100%;height:64px;padding:12px 14px;border:0;border-radius:0;box-shadow:none;background:var(--surface);resize:none}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea:focus{border:0;box-shadow:none}');
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{display:flex;gap:6px;width:100%;padding:8px 10px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:static;display:flex;gap:6px;width:100%;padding:8px 10px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))');
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer .attach-btn,.composer-wrap:not(.composer-compact) .composer-footer .send-btn,.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control{width:100%;min-width:0;height:44px}');
   });
@@ -114,7 +114,7 @@ describe('mobile WebUI layout and touch affordances', () => {
 
   test('compact composer send button keeps the same right inset as expanded composer', () => {
     const styles = css();
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{display:flex;gap:6px;width:100%;padding:8px 10px;border-top:0;background:transparent');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:static;display:flex;gap:6px;width:100%;padding:8px 10px;border-top:0;background:transparent');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:0;');
     expect(styles).toContain('.composer-footer .send-btn{margin-left:auto}');
   });
