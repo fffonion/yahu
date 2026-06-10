@@ -95,6 +95,13 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer .attach-btn,.composer-wrap:not(.composer-compact) .composer-footer .send-btn,.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control{width:100%;min-width:0;height:44px}');
   });
 
+  test('expanded chat composer textarea uses one row so single-line input does not grow', () => {
+    const source = app();
+    expect(source).toContain('<textarea ref={textareaRef} rows={1}');
+    expect(source).toContain('const minHeight = 48;');
+    expect(source).toContain('const contentHeight = textarea.value.trim() ? textarea.scrollHeight : minHeight;');
+  });
+
   test('composer collapses while reading history on desktop and mobile, then restores controls on input focus', () => {
     const source = app();
     const styles = css();
