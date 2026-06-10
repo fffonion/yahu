@@ -23,7 +23,8 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain('className="cron-field cron-prompt"');
     expect(source).toContain('className="cron-field cron-script"');
     expect(styles).toContain('.cron-field.cron-prompt,.cron-field.cron-script,.cron-detail-actions{grid-column:1/-1}');
-    expect(styles).toContain('.cron-main .cron-prompt textarea{min-height:460px;height:auto}');
+    expect(styles).toContain('.cron-main .cron-prompt{min-height:0;height:100%;grid-template-rows:auto minmax(0,1fr)}');
+    expect(styles).toContain('.cron-main .cron-prompt textarea{min-height:0;height:100%;resize:vertical}');
     expect(styles).toContain('.cron-script textarea{min-height:96px;height:96px');
   });
 
