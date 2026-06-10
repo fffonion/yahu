@@ -439,14 +439,25 @@ function useLongPressContextMenu(openAt: (x: number, y: number) => void) {
   return { onPointerDown, onPointerMove, onPointerUp: clear, onPointerCancel: clear };
 }
 
+function modelOptionKey(item: { id: string; provider?: string }) {
+  return `${String(item.provider || '').trim()}\u0000${item.id}`;
+}
+function findModelOption(options: ModelOption[], modelId: string, provider = '') {
+  const id = realModelOrEmpty(modelId);
+  const providerId = String(provider || '').trim();
+  return options.find((item) => item.id === id && String(item.provider || '').trim() === providerId)
+    || options.find((item) => item.id === id)
+    || undefined;
+}
 function flattenModelOptions(body: any): ModelOption[] {
   const seen = new Set<string>();
   const out: ModelOption[] = [];
   const push = (id: unknown, label?: unknown, provider?: unknown) => {
     const modelId = String(id || '').trim();
-    if (!modelId || modelId === 'hermes-agent' || seen.has(modelId)) return;
-    seen.add(modelId);
     const providerName = String(provider || '').trim();
+    const key = `${providerName}\u0000${modelId}`;
+    if (!modelId || modelId === 'hermes-agent' || seen.has(key)) return;
+    seen.add(key);
     out.push({ id: modelId, label: String(label || (providerName ? `${providerName} · ${modelId}` : modelId)), provider: providerName || undefined });
   };
   if (Array.isArray(body?.providers)) {
@@ -622,15 +633,23 @@ export default function App() {
       const body = await res.json();
       const list = flattenModelOptions(body);
       const current = realModelOrEmpty(activeSession?.model) || realModelOrEmpty(model);
+      const currentProvider = String(activeSession?.provider || providerRef.current || selectedModelProvider || '').trim();
       if (list.length) {
-        const provider = current ? list.find((item) => item.id === current)?.provider || '' : '';
+        const provider = current ? findModelOption(list, current, currentProvider)?.provider || currentProvider : '';
         setModels(list);
-        if (!current) setModelState(list[0].id);
-        setSelectedModelProvider(provider);
+        if (!current) {
+          modelRef.current = list[0].id;
+          providerRef.current = String(list[0].provider || '').trim();
+          setModelState(list[0].id);
+          setSelectedModelProvider(String(list[0].provider || '').trim());
+        } else {
+          providerRef.current = provider;
+          setSelectedModelProvider(provider);
+        }
       }
       setStatus(t('status.modelsLoaded'));
     } catch (err: any) { setStatus(`Models unavailable: ${err.message}`); }
-  }, [activeSession?.model, model, setStatus]);
+  }, [activeSession?.model, activeSession?.provider, model, selectedModelProvider, setStatus]);
 
   const loadUsageInsights = useCallback(async () => {
     setUsageLoading(true);
@@ -1387,7 +1406,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} onClearNewMessages={() => { setNewMessageCount(0); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} onClearNewMessages={() => { setNewMessageCount(0); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -1674,11 +1693,12 @@ function MessageView({ message, showReasoning = false }: { message: ChatMessage;
   );
 }
 
-function DropdownControl({ icon, ariaLabel, label = '', value, options, onChange, wide = false, hideLabel = false, searchable = false }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; options: Array<{ id: string; label: string; provider?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean }) {
+function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', options, onChange, wide = false, hideLabel = false, searchable = false }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; options: Array<{ id: string; label: string; provider?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
-  const current = options.find((item) => item.id === value) || { id: value, label: value };
+  const current = findModelOption(options, value, valueProvider) || { id: value, label: value, provider: valueProvider || undefined };
+  const currentKey = modelOptionKey(current);
   const filteredOptions = searchable && query.trim() ? options.filter((item) => `${item.label} ${item.id}`.toLowerCase().includes(query.trim().toLowerCase())) : options;
   useEffect(() => {
     if (!open) return;
@@ -1704,7 +1724,7 @@ function DropdownControl({ icon, ariaLabel, label = '', value, options, onChange
     </button>
     {open && <div className="dropdown-menu" role="listbox">
       {searchable && <input className="dropdown-search" autoFocus placeholder={t('chat.searchModels')} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.stopPropagation()} />}
-      {filteredOptions.map((item) => <button type="button" role="option" aria-selected={item.id === value} className={item.id === value ? 'selected' : ''} key={item.id} onClick={() => { onChange(item.id, item); setOpen(false); }}>{item.label}</button>)}
+      {filteredOptions.map((item) => <button type="button" role="option" aria-selected={modelOptionKey(item) === currentKey} className={modelOptionKey(item) === currentKey ? 'selected' : ''} key={modelOptionKey(item)} onClick={() => { onChange(item.id, item); setOpen(false); }}>{item.label}</button>)}
       {filteredOptions.length === 0 && <span className="dropdown-empty">{t('chat.noModels')}</span>}
     </div>}
   </div>;
@@ -1761,11 +1781,13 @@ function ChatMain(props: any) {
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 120 && props.newMessageCount > 0) props.onClearNewMessages();
   };
   const sessionModel = realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id || '';
+  const sessionProvider = String(props.selectedModelProvider || active?.provider || props.activeSessionDetail?.provider || '').trim();
   const currentModel = sessionModel;
   const activeTitle = active?.id === DRAFT_SESSION_ID ? 'New conversation' : active ? sessionDisplayTitle(active) : 'Hermes Agent';
   const headerTimes = sessionHeaderTimes(active, props.messages);
-  const currentOption = currentModel ? currentModelDisplayOption(currentModel, props.models) : undefined;
-  const modelOptions = currentOption ? [currentOption, ...props.models.filter((m: ModelOption) => m.id !== currentModel)] : props.models;
+  const exactCurrentOption = currentModel ? findModelOption(props.models, currentModel, sessionProvider) : undefined;
+  const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;
+  const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = dedupeVisibleChatMessages(props.messages);
   return <main className="main-panel">
@@ -1792,7 +1814,7 @@ function ChatMain(props: any) {
         <div className="composer-footer">
           <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
-          <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
+          <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
           <button type="button" className={`icon-btn reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={() => props.setShowReasoning(!props.showReasoning)}><Lightbulb /></button>
           <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? 'Queue follow-up' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Queue' : 'Send'}</span></button>

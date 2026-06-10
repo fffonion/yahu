@@ -35,6 +35,17 @@ describe('composer model selector', () => {
     expect(source).toContain('setModel={changeSessionModel}');
   });
 
+  test('keeps duplicate model ids from different providers selectable', () => {
+    const source = app();
+    expect(source).toContain("const key = `${providerName}\\u0000${modelId}`;");
+    expect(source).toContain('seen.has(key)');
+    expect(source).toContain('function modelOptionKey');
+    expect(source).toContain('function findModelOption');
+    expect(source).toContain('valueProvider={sessionProvider}');
+    expect(source).toContain('key={modelOptionKey(item)}');
+    expect(source).not.toContain('props.models.filter((m: ModelOption) => m.id !== currentModel)');
+  });
+
   test('bottom model and reasoning controls are icon-only with searchable capped menus', () => {
     const source = app();
     const styles = css();
