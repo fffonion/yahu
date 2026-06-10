@@ -197,7 +197,7 @@ pub async fn apply_update(
         info!("update applied, restarting");
 
         // execve to replace current process
-        let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+        let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
         let err = Command::new(&bin_path).args(args).status().await;
         // If execve succeeds we never reach here; if it fails, exit
         warn!("execve failed: {err:?}");
