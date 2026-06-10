@@ -402,7 +402,7 @@ export default function App() {
   const [skillFilter, setSkillFilter] = useState('');
   const [skillRouteTarget, setSkillRouteTarget] = useState(initialRoute.mode === 'skills' ? initialRoute.skillName || '' : '');
   const [expandedSkillCats, setExpandedSkillCats] = useState<Set<string>>(new Set());
-  const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
+  const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string; workspaceEdit?: boolean } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
   const [usageInsights, setUsageInsights] = useState<UsageInsights | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState('');
@@ -1090,7 +1090,7 @@ export default function App() {
   const openWorkspacePathFile = useCallback(async (targetPath: string) => {
     await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' });
   }, [openWorkspaceEntry]);
-  const openWorkspaceRouteTarget = useCallback(async (targetPath: string, workspaceKind: 'file' | 'folder') => {
+  const openWorkspaceRouteTarget = useCallback(async (targetPath: string, workspaceKind: 'file' | 'folder', options?: { edit?: boolean }) => {
     setMode('workspace');
     setSidebarCollapsed(false);
     const parents = workspaceRouteParents(targetPath);
@@ -1102,10 +1102,13 @@ export default function App() {
     }
     setExpandedWorkspacePaths((old) => new Set([...Array.from(old), ...parents, targetPath]));
     if (workspaceKind === 'file') await openWorkspacePathFile(targetPath);
+    if (options?.edit) {
+      setPreview((old) => ({ ...old, editRequest: Date.now() }));
+    }
   }, [fetchWorkspaceEntries, openWorkspacePathFile]);
   useEffect(() => {
     if (!workspaceRouteTarget) return;
-    openWorkspaceRouteTarget(workspaceRouteTarget.workspacePath, workspaceRouteTarget.workspaceKind).catch((err: any) => setStatus(`Workspace route unavailable: ${err.message}`));
+    openWorkspaceRouteTarget(workspaceRouteTarget.workspacePath, workspaceRouteTarget.workspaceKind, { edit: workspaceRouteTarget.workspaceEdit }).catch((err: any) => setStatus(`Workspace route unavailable: ${err.message}`));
     setWorkspaceRouteTarget(null);
   }, [openWorkspaceRouteTarget, workspaceRouteTarget]);
   const parentPath = workspacePath.split('/').filter(Boolean).slice(0, -1).join('/');
@@ -1152,13 +1155,27 @@ export default function App() {
     event.preventDefault();
     event.stopPropagation();
     const x = Math.min(event.clientX, window.innerWidth - 190);
-    const y = Math.min(event.clientY, window.innerHeight - (entry.kind === 'file' ? 154 : 112));
+    const y = Math.min(event.clientY, window.innerHeight - (entry.kind === 'file' ? 220 : 112));
     setWorkspaceMenu({ entry, x: Math.max(8, x), y: Math.max(8, y) });
   };
   const editWorkspaceEntry = async (entry: WorkspaceEntry) => {
     setWorkspaceMenu(null);
     if (entry.kind !== 'file') return;
     await openWorkspaceEntry(entry, { edit: true });
+  };
+  const viewWorkspaceEntry = async (entry: WorkspaceEntry) => {
+    setWorkspaceMenu(null);
+    setMode('workspace');
+    setSidebarCollapsed(false);
+    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
+    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: entry.path });
+  };
+  const editWorkspaceEntryPage = async (entry: WorkspaceEntry) => {
+    setWorkspaceMenu(null);
+    setMode('workspace');
+    setSidebarCollapsed(false);
+    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
+    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: entry.path, workspaceEdit: true });
   };
   const renameWorkspaceEntry = async (entry: WorkspaceEntry) => {
     setWorkspaceMenu(null);
@@ -1219,7 +1236,7 @@ export default function App() {
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSession(sessionMenu.session)}><Trash2 /> {t('chat.delete')}</button>
       </div>}
       {workspaceMenu && <div className="workspace-context-menu" role="menu" style={{ left: workspaceMenu.x, top: workspaceMenu.y }} onContextMenu={(event) => event.preventDefault()}>
-        {workspaceMenu.entry.kind === 'file' && <button type="button" role="menuitem" onClick={() => editWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.editItem')}</button>}
+        {workspaceMenu.entry.kind === 'file' && <><button type="button" role="menuitem" onClick={() => viewWorkspaceEntry(workspaceMenu.entry)}><Eye /> {t('workspace.viewItem')}</button><button type="button" role="menuitem" onClick={() => editWorkspaceEntryPage(workspaceMenu.entry)}><Pencil /> {t('workspace.editItemPage')}</button><button type="button" role="menuitem" onClick={() => editWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.editItem')}</button></>}
         <button type="button" role="menuitem" onClick={() => renameWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.renameItem')}</button>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteWorkspaceEntry(workspaceMenu.entry)}><Trash2 /> {t('workspace.deleteItem')}</button>
       </div>}
@@ -1680,7 +1697,7 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
 }
 function WorkspaceBrowser({ workspacePath, workspaceEntries, parentPath, preview, loadWorkspace, openWorkspaceEntry, downloadEntry, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
   const openEntry = (entry: WorkspaceEntry) => {
-    if (entry.kind === 'dir') return;
+    if (entry.kind === 'dir') { loadWorkspace(entry.path); return; }
     openWorkspaceEntry(entry);
   };
   return <>
