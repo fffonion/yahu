@@ -35,8 +35,14 @@ describe('sidebar session list css', () => {
     expect(source).toContain('const resizeComposerTextarea = useCallback(() =>');
     expect(source).toContain('const maxHeight = Math.max(minHeight, Math.floor(window.innerHeight * 0.2));');
     expect(source).toContain("textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'");
+    expect(source).toContain("textarea.style.setProperty('--composer-textarea-pad-bottom'");
+    expect(source).toContain("const footer = props.composerRef.current?.querySelector('.composer-footer') as HTMLElement | null;");
+    expect(source).toContain('basePaddingBottom + footer.offsetHeight + 8');
     expect(source).toContain('ref={textareaRef}');
     expect(css).toContain('max-height:20dvh');
     expect(css).toContain('padding:14px 18px');
+    expect(css).toContain('.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:5px}');
+    expect(css).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{box-sizing:border-box;padding-bottom:var(--composer-textarea-pad-bottom)}');
+    expect(css).toContain('@media (max-width:760px){.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:12px}}');
   });
 });
