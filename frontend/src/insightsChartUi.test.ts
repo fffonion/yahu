@@ -55,6 +55,19 @@ describe('insights chart UI', () => {
     expect(css).toContain('.model-cost-sub{font-size:11px;color:var(--muted);line-height:1}');
   });
 
+  test('renders insights source channels as a wrapping right-panel list instead of one compressed line', () => {
+    const app = appSource();
+    const css = cssSource();
+    expect(app).toContain('function SourceSignalList');
+    expect(app).toContain('className="signal-row signal-row-sources"');
+    expect(app).toContain('className="source-channel-list"');
+    expect(app).toContain('className="source-channel-chip"');
+    expect(app).not.toContain("<SignalRow name=\"Sources\" value={(props.insights?.sources || []).slice(0, 3).map((item) => `${item.source} ${fmtTokens(item.totals.total_tokens)}`).join(' · ') || '—'} />");
+    expect(css).toContain('.signal-row-sources{display:grid;grid-template-columns:1fr;gap:8px}');
+    expect(css).toContain('.source-channel-list{display:grid;grid-template-columns:1fr;gap:6px;min-width:0}');
+    expect(css).toContain('.source-channel-chip{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;max-width:100%;');
+  });
+
   test('keeps metric card glow away from rounded corners in light themes', () => {
     const css = cssSource();
     expect(css).toContain('.insight-card::after{content:"";position:absolute;inset:auto 14px -38px 14px;');

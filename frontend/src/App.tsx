@@ -8,7 +8,7 @@ import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
-import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageTotals } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
 import { shouldRenderMessage } from './messageVisibility';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
@@ -1286,7 +1286,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
       </section>
       <div className="insights-grid">
         <section className="insights-panel"><h2>Models</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
-        <section className="insights-panel"><h2>Other signals</h2>{showSkeleton ? <SignalSkeletonList /> : <><SignalRow name="Reasoning" value={fmtTokens(totals.reasoning)} /><SignalRow name="Tools" value={`${totals.tool_calls || 0}`} /><SignalRow name="Avg/session" value={fmtTokens(totals.avg_tokens_per_session)} /><SignalRow name="Sources" value={(props.insights?.sources || []).slice(0, 3).map((item) => `${item.source} ${fmtTokens(item.totals.total_tokens)}`).join(' · ') || '—'} /></>}</section>
+        <section className="insights-panel"><h2>Other signals</h2>{showSkeleton ? <SignalSkeletonList /> : <><SignalRow name="Reasoning" value={fmtTokens(totals.reasoning)} /><SignalRow name="Tools" value={`${totals.tool_calls || 0}`} /><SignalRow name="Avg/session" value={fmtTokens(totals.avg_tokens_per_session)} /><SourceSignalList sources={(props.insights?.sources || []).slice(0, 6)} /></>}</section>
       </div>
     </section>
   </main>;
@@ -1308,6 +1308,9 @@ function SignalSkeletonList() {
 }
 function SignalRow({ name, value }: { name: string; value: string }) {
   return <div className="signal-row"><span>{name}</span><strong>{value}</strong></div>;
+}
+function SourceSignalList({ sources }: { sources: UsageSource[] }) {
+  return <div className="signal-row signal-row-sources"><span>Sources</span><div className="source-channel-list">{sources.length ? sources.map((item) => <span className="source-channel-chip" key={item.source}><b>{item.source}</b><em>{fmtTokens(item.totals.total_tokens)}</em></span>) : <span className="source-channel-empty">—</span>}</div></div>;
 }
 function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: UsageTotals }; rank: number }) {
   const max = Math.max(1, model.periodTotals.total_tokens);
