@@ -61,7 +61,7 @@ describe('composer model selector', () => {
     const source = app();
     const styles = css();
     expect(source).toContain("${open ? 'open' : ''}");
-    expect(styles).toContain('.composer-wrap{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:160}');
+    expect(styles).toContain('.composer-wrap{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:160;padding:10px 10px calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom,0px))}');
     expect(styles).toContain('.composer-box,.composer-footer{overflow:visible}');
     expect(styles).toContain('.dropdown-control.open{z-index:170}');
     expect(styles).toContain('.dropdown-control.open .dropdown-menu{z-index:180}');

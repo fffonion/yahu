@@ -102,6 +102,9 @@ struct Args {
         default_value = "https://models.dev/api.json"
     )]
     models_dev_url: String,
+
+    #[arg(long, env = "YAHU_GITHUB_REPO", default_value = "fffonion/yahu")]
+    github_repo: String,
 }
 
 #[derive(Clone)]
@@ -119,6 +122,7 @@ struct AppState {
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
     models_dev_url: String,
+    github_repo: String,
 }
 
 #[derive(Deserialize)]
@@ -241,6 +245,7 @@ pub async fn run() -> anyhow::Result<()> {
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
         models_dev_url: args.models_dev_url,
+        github_repo: args.github_repo,
     });
 
     let app = Router::new()
@@ -263,6 +268,9 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/sessions/search", get(sessions_search))
         .route("/chat/messages/{session_id}", get(chat_messages_page))
         .route("/chat/attachments", post(chat_upload_attachments))
+        .route("/version", get(yahu_version))
+        .route("/update/check", get(check_update))
+        .route("/update/apply", post(apply_update))
         .route("/insights/usage", get(insights_usage))
         .route("/chat/watch/{session_id}", get(chat_watch))
         .route("/image-api/images", get(list_images))
@@ -306,5 +314,6 @@ include!("workspace.rs");
 include!("skills.rs");
 include!("memory.rs");
 include!("chat_uploads.rs");
+include!("update.rs");
 include!("images.rs");
 include!("tests.rs");

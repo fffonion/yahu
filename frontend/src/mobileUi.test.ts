@@ -121,7 +121,7 @@ describe('mobile WebUI layout and touch affordances', () => {
 
   test('mobile bottom nav paints above the composer reserved area but below open dropdown menus', () => {
     const styles = css();
-    const composerZ = Number(styles.match(/\.composer-wrap\{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:(\d+)\}/)?.[1]);
+    const composerZ = Number(styles.match(/\.composer-wrap\{[^}]*z-index:(\d+)/)?.[1]);
     const navZ = Number(styles.match(/\.mobile-bottom-nav\{[^}]*z-index:(\d+)/)?.[1]);
     const menuZ = Number(styles.match(/\.dropdown-control\.open \.dropdown-menu\{z-index:(\d+)\}/)?.[1]);
 
@@ -218,7 +218,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     const styles = css();
     expect(styles).toContain('.chat-scroll{padding:10px 10px 12px}');
     expect(styles).toContain('.main-panel,.chat-header,.chat-scroll{min-width:0;width:100%;max-width:100vw;overflow-x:hidden}');
-    expect(styles).toContain('.composer-wrap{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:160}');
+    expect(styles).toContain('.composer-wrap{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:160;padding:10px 10px calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom,0px))}');
     expect(styles).toContain('.chat-header>div:first-of-type{min-width:0;flex:1 1 auto}');
     expect(styles).toContain('.msg-row{grid-template-columns:minmax(0,1fr);width:100%;min-width:0;max-width:100%;gap:8px}');
     expect(styles).toContain('.msg-row .avatar{display:none}');

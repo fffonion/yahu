@@ -135,7 +135,15 @@ const translations: Record<string, Record<string, string>> = {
   'settings.language': { en: 'Language', 'zh-CN': '语言', 'zh-TW': '語言', ja: '言語' },
   'settings.theme': { en: 'Theme', 'zh-CN': '主题', 'zh-TW': '主題', ja: 'テーマ' },
   'settings.followUpBehaviour': { en: 'Follow-up behaviour', 'zh-CN': '追问行为', 'zh-TW': '追問行為', ja: 'フォローアップ動作' },
-  'settings.refreshConn': { en: 'Refresh connection', 'zh-CN': '刷新连接', 'zh-TW': '重新整理連線', ja: '接続を更新' },
+  
+'settings.refreshConn': { en: 'Refresh connection', 'zh-CN': '刷新连接', 'zh-TW': '重新整理連線', ja: '接続を更新' },
+'settings.update': { en: 'Update', 'zh-CN': '更新', 'zh-TW': '更新', ja: 'アップデート' },
+'settings.version': { en: 'Version', 'zh-CN': '版本', 'zh-TW': '版本', ja: 'バージョン' },
+'settings.checkUpdate': { en: 'Check for updates', 'zh-CN': '检查更新', 'zh-TW': '檢查更新', ja: 'アップデート確認' },
+'settings.updateAvailable': { en: 'Update available', 'zh-CN': '有新版本', 'zh-TW': '有新版本', ja: 'アップデートあり' },
+'settings.upToDate': { en: 'Up to date', 'zh-CN': '已是最新', 'zh-TW': '已是最新', ja: '最新です' },
+'settings.viewRelease': { en: 'View release', 'zh-CN': '查看发布', 'zh-TW': '查看發布', ja: 'リリースを見る' },
+'settings.installUpdate': { en: 'Install update', 'zh-CN': '安装更新', 'zh-TW': '安裝更新', ja: 'アップデートをインストール' },
 
   // Navigation
   'nav.chat': { en: 'Chat', 'zh-CN': '聊天', 'zh-TW': '聊天', ja: 'チャット' },
