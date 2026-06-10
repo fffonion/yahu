@@ -17,15 +17,14 @@ describe('workspace collapse and context menu', () => {
     expect(source).toContain("t('workspace.collapse')");
   });
 
-  test('workspace rows expose a right-click rename/delete menu', () => {
+  test('workspace rows expose a right-click view/edit/rename/delete menu', () => {
     const source = app();
-    expect(source).toContain('WorkspaceContextMenu');
-    expect(source).toContain('openWorkspaceMenu');
     expect(source).toContain('workspace-context-menu');
-    expect(source).toContain("t('workspace.editItem')");
-    expect(source).toContain('editWorkspaceEntry');
-    expect(source).toContain('openWorkspaceEntry(entry, { edit: true })');
-    expect(source).toContain('editRequest');
+    expect(source).toContain('openWorkspaceMenu');
+    expect(source).toContain("t('workspace.viewItem')");
+    expect(source).toContain("t('workspace.editItemPage')");
+    expect(source).toContain('editWorkspaceEntryPage');
+    expect(source).toContain('workspaceEdit');
     expect(source).toContain("t('workspace.renameItem')");
     expect(source).toContain("t('workspace.deleteItem')");
     expect(source).toContain("method: 'PATCH'");

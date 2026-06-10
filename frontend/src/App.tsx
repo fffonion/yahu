@@ -1158,11 +1158,6 @@ export default function App() {
     const y = Math.min(event.clientY, window.innerHeight - (entry.kind === 'file' ? 220 : 112));
     setWorkspaceMenu({ entry, x: Math.max(8, x), y: Math.max(8, y) });
   };
-  const editWorkspaceEntry = async (entry: WorkspaceEntry) => {
-    setWorkspaceMenu(null);
-    if (entry.kind !== 'file') return;
-    await openWorkspaceEntry(entry, { edit: true });
-  };
   const viewWorkspaceEntry = async (entry: WorkspaceEntry) => {
     setWorkspaceMenu(null);
     setMode('workspace');
@@ -1236,14 +1231,14 @@ export default function App() {
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSession(sessionMenu.session)}><Trash2 /> {t('chat.delete')}</button>
       </div>}
       {workspaceMenu && <div className="workspace-context-menu" role="menu" style={{ left: workspaceMenu.x, top: workspaceMenu.y }} onContextMenu={(event) => event.preventDefault()}>
-        {workspaceMenu.entry.kind === 'file' && <><button type="button" role="menuitem" onClick={() => viewWorkspaceEntry(workspaceMenu.entry)}><Eye /> {t('workspace.viewItem')}</button><button type="button" role="menuitem" onClick={() => editWorkspaceEntryPage(workspaceMenu.entry)}><Pencil /> {t('workspace.editItemPage')}</button><button type="button" role="menuitem" onClick={() => editWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.editItem')}</button></>}
+        {workspaceMenu.entry.kind === 'file' && <><button type="button" role="menuitem" onClick={() => viewWorkspaceEntry(workspaceMenu.entry)}><Eye /> {t('workspace.viewItem')}</button><button type="button" role="menuitem" onClick={() => editWorkspaceEntryPage(workspaceMenu.entry)}><Pencil /> {t('workspace.editItemPage')}</button></>}
         <button type="button" role="menuitem" onClick={() => renameWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.renameItem')}</button>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteWorkspaceEntry(workspaceMenu.entry)}><Trash2 /> {t('workspace.deleteItem')}</button>
       </div>}
 
       {mode === 'chat' && <>
         <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
-        <WorkspaceAside workspacePath={workspacePath} workspaceEntries={workspaceEntries} parentPath={parentPath} preview={preview} loadWorkspace={loadWorkspace} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
+        <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -1630,8 +1625,8 @@ function FollowUpQueueView({ items, onSteer, onEdit, onReorder }: { items: Follo
 }
 
 function WorkspaceAside(props: any) {
-  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title={t('workspace.openPage')} aria-label="Open workspace page" onClick={() => props.loadWorkspace(props.workspacePath)}><Folder /></button></div></aside>;
-  return <aside className="workspace"><WorkspaceBrowser {...props} compact /></aside>;
+  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title={t('workspace.openPage')} aria-label="Open workspace page" onClick={() => { window.location.hash = '#/workspace'; }}><Folder /></button></div></aside>;
+  return <aside className="workspace"><WorkspaceBrowser rootEntries={props.rootEntries} workspaceTree={props.workspaceTree} expandedWorkspacePaths={props.expandedWorkspacePaths} toggleWorkspaceFolder={props.toggleWorkspaceFolder} openWorkspaceEntry={props.openWorkspaceEntry} downloadEntry={props.downloadEntry} preview={props.preview} setPreview={props.setPreview} compact setCollapsed={props.setCollapsed} openWorkspaceMenu={props.openWorkspaceMenu} /></aside>;
 }
 function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: any) {
   return <main className="main-panel workspace-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
@@ -1695,17 +1690,20 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   if (preview.kind === 'none') { const Icon = emptyIcon || Folder; return <section className="workspace-editor-preview empty"><div className="empty-state"><Icon className="big-mark" /><h2>{emptyTitle || t('workspace.selectFile')}</h2><p>{emptyDesc || t('workspace.selectFileDesc')}</p></div></section>; }
   return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label="Edit" onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label="Cancel edit" onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label="Close preview" onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview"><pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} /></div>}</section>;
 }
-function WorkspaceBrowser({ workspacePath, workspaceEntries, parentPath, preview, loadWorkspace, openWorkspaceEntry, downloadEntry, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
-  const openEntry = (entry: WorkspaceEntry) => {
-    if (entry.kind === 'dir') { loadWorkspace(entry.path); return; }
-    openWorkspaceEntry(entry);
-  };
+function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, preview, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
+  const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
+    const expanded = entry.kind === 'dir' && expandedWorkspacePaths.has(entry.path);
+    const children = expanded ? (workspaceTree[entry.path] || []) : [];
+    return <React.Fragment key={entry.path}>
+      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry)} onContextMenu={(ev) => openWorkspaceMenu?.(entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry); } }}>
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title="download" onClick={(ev) => { ev.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
+      </div>
+      {expanded && children.length > 0 && renderRows(children, depth + 1)}
+    </React.Fragment>;
+  });
   return <>
-    <header className="workspace-head"><span className="panel-title">WORKSPACE</span><span>{compact ? 'MAIN' : 'FULL'}</span><button onClick={() => loadWorkspace(parentPath)}><ChevronLeft /></button><button onClick={() => loadWorkspace(workspacePath)}><RefreshCw /></button><button aria-label={compact ? t('workspace.collapse') : undefined} onClick={() => compact ? setCollapsed(true) : setPreview({ path: '', content: '', kind: 'none' })}><X /></button></header>
-    <div className="pathbar">/{workspacePath || 'Home'}</div>
-    <div className="file-list">{workspaceEntries.map((e: WorkspaceEntry) => <div className="file-row" key={e.path} role="button" tabIndex={0} onDoubleClick={() => openEntry(e)} onClick={() => openEntry(e)} onContextMenu={(ev) => openWorkspaceMenu?.(e, ev)} onKeyDown={(ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && e.kind === 'file') { ev.preventDefault(); openEntry(e); } }}>
-      <span className="caret">{e.kind === 'dir' ? <ChevronRight /> : null}</span>{e.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{e.name}</span><span className="file-size">{e.kind === 'file' ? fmtSize(e.size) : ''}</span><button title={e.kind === 'file' ? 'download' : 'expand folder'} onClick={(ev) => { ev.stopPropagation(); e.kind === 'file' ? downloadEntry(e) : openWorkspaceEntry(e); }}>{e.kind === 'file' ? <Download /> : <ChevronRight />}</button>
-    </div>)}</div>
+    <header className="workspace-head"><span className="panel-title">WORKSPACE</span><span>{compact ? 'MAIN' : 'FULL'}</span><button aria-label={compact ? t('workspace.collapse') : undefined} onClick={() => compact ? setCollapsed(true) : setPreview({ path: '', content: '', kind: 'none' })}><X /></button></header>
+    <div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div>
     {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><button onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div>{preview.kind === 'image' ? <img src={preview.url} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />}</div>}
   </>;
 }
