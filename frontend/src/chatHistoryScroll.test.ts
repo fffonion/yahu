@@ -24,8 +24,8 @@ describe('chat history infinite scroll', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('className="empty-state chat-empty-state"');
-    expect(styles).toContain('.chat-empty-state{--chat-empty-title-offset:8px}');
-    expect(styles).toContain('@media(min-width:761px){.chat-empty-state{transform:translateY(var(--chat-empty-title-offset))}');
+    expect(styles).toContain('.chat-empty-state{flex:1;margin:0 auto}');
+    expect(styles).not.toContain('chat-empty-title-offset');
     expect(styles).not.toContain('@media (max-width: 760px){.chat-empty-state{transform');
   });
 });
