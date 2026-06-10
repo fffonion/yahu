@@ -24,6 +24,7 @@ type ModelOption = { id: string; label: string; provider?: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
+type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'none'; url?: string; editRequest?: number };
 type Skill = { name: string; description?: string; category?: string; enabled?: boolean };
 type WorkspaceContextMenu = { entry: WorkspaceEntry; x: number; y: number } | null;
 type DialogState = { variant: 'prompt' | 'confirm'; title: string; message: string; value?: string; danger?: boolean; resolve: (value: any) => void } | null;
@@ -382,10 +383,10 @@ export default function App() {
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const [skillFileTree, setSkillFileTree] = useState<Record<string, WorkspaceEntry[]>>({});
   const [expandedSkillPaths, setExpandedSkillPaths] = useState<Set<string>>(() => new Set(['']));
-  const [skillPreview, setSkillPreview] = useState<{ path: string; content: string; kind: 'text' | 'image' | 'none'; url?: string }>({ path: '', content: '', kind: 'none' });
+  const [skillPreview, setSkillPreview] = useState<WorkspacePreview>({ path: '', content: '', kind: 'none' });
   const [workspaceTree, setWorkspaceTree] = useState<Record<string, WorkspaceEntry[]>>({});
   const [expandedWorkspacePaths, setExpandedWorkspacePaths] = useState<Set<string>>(() => new Set(['']));
-  const [preview, setPreview] = useState<{ path: string; content: string; kind: 'text' | 'image' | 'none'; url?: string }>({ path: '', content: '', kind: 'none' });
+  const [preview, setPreview] = useState<WorkspacePreview>({ path: '', content: '', kind: 'none' });
   const [dialog, setDialog] = useState<DialogState>(null);
   const [activeSessionDetail, setActiveSessionDetail] = useState<Session | null>(null);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(readPinnedIds);
@@ -817,8 +818,18 @@ export default function App() {
   useEffect(() => {
     if (!sessionMenu && !workspaceMenu) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setWorkspaceMenu(null); } };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest('.session-context-menu,.workspace-context-menu')) return;
+      setSessionMenu(null);
+      setWorkspaceMenu(null);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+    };
   }, [sessionMenu, workspaceMenu]);
   useLayoutEffect(() => {
     if (!scrollLatestAfterRenderRef.current) return;
@@ -1055,7 +1066,7 @@ export default function App() {
   };
 
   const downloadEntry = useCallback((entry: WorkspaceEntry) => { const a = document.createElement('a'); a.href = `/workspace/file?path=${encodeURIComponent(entry.path)}&download=1`; a.download = entry.name; a.click(); }, []);
-  const openWorkspaceEntry = useCallback(async (entry: WorkspaceEntry) => {
+  const openWorkspaceEntry = useCallback(async (entry: WorkspaceEntry, options?: { edit?: boolean }) => {
     if (entry.kind === 'dir') {
       writeHashRoute({ mode: 'workspace', workspaceKind: 'folder', workspacePath: entry.path });
       await toggleWorkspaceFolder(entry);
@@ -1064,9 +1075,15 @@ export default function App() {
     const res = await fetch(`/workspace/file?path=${encodeURIComponent(entry.path)}`);
     if (!res.ok) { setStatus(`Preview failed: ${res.status}`); return; }
     const blob = await res.blob();
-    if (blob.type.startsWith('image/')) setPreview({ path: entry.path, content: '', kind: 'image', url: URL.createObjectURL(blob) });
-    else if (blob.type.startsWith('text/') || isWorkspaceTextFile(entry.name)) setPreview({ path: entry.path, content: await blob.text(), kind: 'text' });
-    else downloadEntry(entry);
+    if (blob.type.startsWith('image/')) {
+      setPreview({ path: entry.path, content: '', kind: 'image', url: URL.createObjectURL(blob) });
+      if (options?.edit) setStatus('Workspace item is not editable');
+    } else if (blob.type.startsWith('text/') || isWorkspaceTextFile(entry.name)) {
+      setPreview({ path: entry.path, content: await blob.text(), kind: 'text', editRequest: options?.edit ? Date.now() : undefined });
+    } else {
+      if (options?.edit) setStatus('Workspace item is not editable');
+      else downloadEntry(entry);
+    }
     writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
     buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
   }, [downloadEntry, toggleWorkspaceFolder, writeHashRoute]);
@@ -1135,8 +1152,13 @@ export default function App() {
     event.preventDefault();
     event.stopPropagation();
     const x = Math.min(event.clientX, window.innerWidth - 190);
-    const y = Math.min(event.clientY, window.innerHeight - 112);
+    const y = Math.min(event.clientY, window.innerHeight - (entry.kind === 'file' ? 154 : 112));
     setWorkspaceMenu({ entry, x: Math.max(8, x), y: Math.max(8, y) });
+  };
+  const editWorkspaceEntry = async (entry: WorkspaceEntry) => {
+    setWorkspaceMenu(null);
+    if (entry.kind !== 'file') return;
+    await openWorkspaceEntry(entry, { edit: true });
   };
   const renameWorkspaceEntry = async (entry: WorkspaceEntry) => {
     setWorkspaceMenu(null);
@@ -1197,6 +1219,7 @@ export default function App() {
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSession(sessionMenu.session)}><Trash2 /> {t('chat.delete')}</button>
       </div>}
       {workspaceMenu && <div className="workspace-context-menu" role="menu" style={{ left: workspaceMenu.x, top: workspaceMenu.y }} onContextMenu={(event) => event.preventDefault()}>
+        {workspaceMenu.entry.kind === 'file' && <button type="button" role="menuitem" onClick={() => editWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.editItem')}</button>}
         <button type="button" role="menuitem" onClick={() => renameWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.renameItem')}</button>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteWorkspaceEntry(workspaceMenu.entry)}><Trash2 /> {t('workspace.deleteItem')}</button>
       </div>}
@@ -1641,6 +1664,7 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   const startEdit = () => { setEditContent(preview.content || ''); setEditMode(true); };
   const cancelEdit = () => { setEditMode(false); setEditContent(''); };
   useEffect(() => { setEditMode(false); setEditContent(''); }, [preview.path]);
+  useEffect(() => { if (preview.editRequest && preview.kind === 'text') startEdit(); }, [preview.editRequest]);
   const saveEdit = async () => {
     setSaving(true);
     try {
@@ -1652,7 +1676,7 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
     } finally { setSaving(false); }
   };
   if (preview.kind === 'none') { const Icon = emptyIcon || Folder; return <section className="workspace-editor-preview empty"><div className="empty-state"><Icon className="big-mark" /><h2>{emptyTitle || t('workspace.selectFile')}</h2><p>{emptyDesc || t('workspace.selectFileDesc')}</p></div></section>; }
-  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label="Edit" onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" onClick={cancelEdit}><X /></button></>}{!editMode && <button onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} /> : <div className="workspace-text-preview"><pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} /></div>}</section>;
+  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label="Edit" onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label="Cancel edit" onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label="Close preview" onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} /> : <div className="workspace-text-preview"><pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} /></div>}</section>;
 }
 function WorkspaceBrowser({ workspacePath, workspaceEntries, parentPath, preview, loadWorkspace, openWorkspaceEntry, downloadEntry, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
   const openEntry = (entry: WorkspaceEntry) => {

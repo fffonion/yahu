@@ -115,6 +115,7 @@ const translations: Record<string, Record<string, string>> = {
   'workspace.openPage': { en: 'Open workspace page', 'zh-CN': '打开工作区页面', 'zh-TW': '開啟工作區頁面', ja: 'ワークスペースページを開く' },
   'workspace.download': { en: 'download', 'zh-CN': '下载', 'zh-TW': '下載', ja: 'ダウンロード' },
   'workspace.expandFolder': { en: 'expand folder', 'zh-CN': '展开文件夹', 'zh-TW': '展開資料夾', ja: 'フォルダを展開' },
+  'workspace.editItem': { en: 'Edit item', 'zh-CN': '编辑', 'zh-TW': '編輯', ja: '編集' },
   'workspace.renameItem': { en: 'Rename item', 'zh-CN': '重命名', 'zh-TW': '重新命名', ja: '名前変更' },
   'workspace.deleteItem': { en: 'Delete item', 'zh-CN': '删除', 'zh-TW': '刪除', ja: '削除' },
 

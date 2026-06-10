@@ -22,6 +22,10 @@ describe('workspace collapse and context menu', () => {
     expect(source).toContain('WorkspaceContextMenu');
     expect(source).toContain('openWorkspaceMenu');
     expect(source).toContain('workspace-context-menu');
+    expect(source).toContain("t('workspace.editItem')");
+    expect(source).toContain('editWorkspaceEntry');
+    expect(source).toContain('openWorkspaceEntry(entry, { edit: true })');
+    expect(source).toContain('editRequest');
     expect(source).toContain("t('workspace.renameItem')");
     expect(source).toContain("t('workspace.deleteItem')");
     expect(source).toContain("method: 'PATCH'");
@@ -33,6 +37,17 @@ describe('workspace collapse and context menu', () => {
     expect(styles).toContain('.app-shell.workspace-collapsed');
     expect(styles).toContain('.workspace.workspace-collapsed');
     expect(styles).toContain('.workspace-expand');
+  });
+
+  test('workspace row heights stay fixed when folder trees overflow', () => {
+    const styles = css();
+    expect(styles).toContain('.file-row{display:grid;grid-template-columns:18px 18px minmax(0,1fr) auto 28px;gap:8px;align-items:center;padding:8px;border-radius:12px;cursor:pointer;flex:0 0 auto}');
+  });
+
+  test('workspace context menus close on outside pointer down', () => {
+    const source = app();
+    expect(source).toContain("window.addEventListener('pointerdown', onPointerDown, true)");
+    expect(source).toContain("target?.closest('.session-context-menu,.workspace-context-menu')");
   });
 
   test('backend exposes workspace item rename and delete routes', () => {
