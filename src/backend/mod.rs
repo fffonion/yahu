@@ -149,6 +149,11 @@ struct WorkspaceRenamePayload {
 }
 
 #[derive(Deserialize)]
+struct WorkspaceSavePayload {
+    content: String,
+}
+
+#[derive(Deserialize)]
 struct SkillQuery {
     name: Option<String>,
     path: Option<String>,
@@ -243,7 +248,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/login", get(login_page).post(login_submit))
         .route("/logout", post(logout))
         .route("/workspace/list", get(workspace_list))
-        .route("/workspace/file", get(workspace_file))
+        .route("/workspace/file", get(workspace_file).put(workspace_save))
         // Keep route shape discoverable for regression tests: .route("/workspace/item", patch(workspace_rename).delete(workspace_delete))
         .route(
             "/workspace/item",

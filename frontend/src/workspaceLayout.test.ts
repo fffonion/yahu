@@ -25,12 +25,12 @@ describe('workspace page file tree layout', () => {
     expect(source).toContain('preview.kind === \'image\'');
   });
 
-  test('text preview shows only the highlighted pane, not a duplicate plain editor', () => {
+  test('text preview shows highlighted pane and an edit-mode textarea', () => {
     const source = app();
     const component = source.slice(source.indexOf('function WorkspaceEditorPreview'), source.indexOf('function WorkspaceBrowser'));
     expect(component).toContain('workspace-code-highlight');
-    expect(component).not.toContain('className="workspace-editor"');
-    expect(component).not.toContain('<textarea');
+    expect(component).toContain('workspace-editor-textarea');
+    expect(component).toContain('editMode');
   });
 
   test('collapsed right workspace rail exposes two themed buttons', () => {

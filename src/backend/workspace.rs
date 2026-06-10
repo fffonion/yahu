@@ -150,6 +150,28 @@ async fn workspace_delete(
     }
     Json(serde_json::json!({"ok": true, "path": rel})).into_response()
 }
+async fn workspace_save(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<WorkspaceQuery>,
+    Json(payload): Json<WorkspaceSavePayload>,
+) -> Response<Body> {
+    let rel = query.path.unwrap_or_default();
+    if rel.trim().is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "path is required");
+    }
+    let file = match resolve_workspace_path(&state.workspace, &rel) {
+        Ok(path) => path,
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
+    };
+    if let Err(err) = fs::write(&file, &payload.content).await {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("cannot write file: {err}"),
+        );
+    }
+    Json(serde_json::json!({ "ok": true, "path": rel })).into_response()
+}
+
 fn resolve_workspace_path(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
     let mut clean = PathBuf::new();
     for component in Path::new(rel).components() {

@@ -1613,8 +1613,24 @@ function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleS
   return <aside className="skill-workspace workspace"><div className="workspace-sidebar-head"><div><h2>{t('skills.skillFiles')}</h2><p>{skill?.category || t('skills.select')}</p></div></div><div className="workspace-tree file-list">{renderRows(skillFileTree[''] || [])}</div></aside>;
 }
 function WorkspaceEditorPreview({ preview, setPreview }: any) {
+  const [editMode, setEditMode] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [saving, setSaving] = useState(false);
+  const startEdit = () => { setEditContent(preview.content || ''); setEditMode(true); };
+  const cancelEdit = () => { setEditMode(false); setEditContent(''); };
+  useEffect(() => { setEditMode(false); setEditContent(''); }, [preview.path]);
+  const saveEdit = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/workspace/file?path=${encodeURIComponent(preview.path)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: editContent }) });
+      if (!res.ok) { alert(`Save failed: ${res.status}`); return; }
+      setPreview({ ...preview, content: editContent });
+      setEditMode(false);
+      setEditContent('');
+    } finally { setSaving(false); }
+  };
   if (preview.kind === 'none') return <section className="workspace-editor-preview empty"><div className="empty-state"><Folder className="big-mark" /><h2>{t('workspace.selectFile')}</h2><p>{t('workspace.selectFileDesc')}</p></div></section>;
-  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><button onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : <div className="workspace-text-preview"><pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} /></div>}</section>;
+  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label="Edit" onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" onClick={cancelEdit}><X /></button></>}{!editMode && <button onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} /> : <div className="workspace-text-preview"><pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} /></div>}</section>;
 }
 function WorkspaceBrowser({ workspacePath, workspaceEntries, parentPath, preview, loadWorkspace, openWorkspaceEntry, downloadEntry, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
   const openEntry = (entry: WorkspaceEntry) => {
