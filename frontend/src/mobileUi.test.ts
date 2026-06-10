@@ -177,7 +177,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.usage-line{fill:none;stroke-width:3.2');
     expect(styles).toContain('@media (max-width:760px){.mobile-bottom-nav .rail-btn.nav-insights.active');
     expect(styles).toContain('.insights-content{padding:10px 10px calc(86px + env(safe-area-inset-bottom,0px));gap:10px');
-    expect(styles).toContain('.usage-chart{min-height:230px;padding-bottom:46px}');
+    expect(styles).toContain('.usage-chart{min-height:230px;padding-bottom:46px;overflow:visible}');
     expect(styles).toContain('.chart-y-axis{left:-12px;bottom:46px;width:48px;font-size:10px}');
     expect(styles).toContain('.insights-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}');
   });
