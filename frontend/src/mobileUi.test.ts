@@ -107,7 +107,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.composer-wrap.composer-compact .attachments{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control,.composer-wrap.composer-compact .composer-footer .reasoning-view-toggle{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{height:48px;min-height:48px;max-height:48px;overflow:hidden;padding:10px 56px 10px 14px}');
-    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:8px;width:auto;border-top:0;background:transparent;padding:0}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:8px;width:auto;border-top:0;background:transparent;padding:0;pointer-events:none}');
     expect(styles).toContain('.composer-wrap.composer-compact{padding:8px 18px}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box{min-height:64px}');
   });
