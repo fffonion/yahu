@@ -8,7 +8,7 @@ async fn require_auth(
     next: Next,
 ) -> Response<Body> {
     let path = req.uri().path();
-    if state.insecure || path == "/health" || path == "/login" {
+    if state.insecure || path == "/health" || path == "/login" || path == "/manifest.json" || path == "/sw.js" || path == "/icon.svg" || path == "/icon-192.png" || path == "/icon-512.png" {
         return next.run(req).await;
     }
     if valid_cookie(req.headers(), &state) {
