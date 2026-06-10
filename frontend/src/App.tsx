@@ -1476,16 +1476,14 @@ function DropdownControl({ icon, ariaLabel, label = '', value, options, onChange
 
 function ChatMain(props: any) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
-  const isMobileComposer = () => window.matchMedia('(max-width: 760px)').matches;
   const collapseComposerForHistory = () => {
-    if (!isMobileComposer()) return;
     const activeElement = document.activeElement;
     if (activeElement instanceof HTMLElement && props.composerRef.current?.contains(activeElement)) activeElement.blur();
     props.setComposerCompact(true);
   };
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
-    if (isMobileComposer() && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
+    if (!props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (el.scrollTop < 80 && props.hasOlder && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'older');
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 80 && props.hasNewer && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'newer');
   };

@@ -89,23 +89,26 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer .attach-btn,.composer-wrap:not(.composer-compact) .composer-footer .send-btn,.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control{width:100%;min-width:0;height:44px}');
   });
 
-  test('mobile composer collapses while reading history and restores controls on input focus', () => {
+  test('composer collapses while reading history on desktop and mobile, then restores controls on input focus', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('const [composerCompact, setComposerCompact] = useState(false);');
     expect(source).toContain("className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`}");
-    expect(source).toContain("window.matchMedia('(max-width: 760px)').matches");
+    expect(source).not.toContain("window.matchMedia('(max-width: 760px)').matches");
     expect(source).toContain('const collapseComposerForHistory = () => {');
     expect(source).toContain('activeElement.blur();');
     expect(source).toContain('onPointerDown={collapseComposerForHistory}');
     expect(source).toContain('onTouchStart={collapseComposerForHistory}');
     expect(source).toContain('onWheel={collapseComposerForHistory}');
+    expect(source).toContain('!props.composerRef.current?.contains(document.activeElement)');
     expect(source).toContain('props.setComposerCompact(true)');
     expect(source).toContain('onFocus={() => props.setComposerCompact(false)}');
     expect(styles).toContain('.composer-footer .send-btn{margin-left:auto}');
+    expect(styles).toContain('.composer-wrap.composer-compact .attachments{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{height:38px;min-height:38px;max-height:38px;overflow:hidden;padding-right:54px}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:8px;bottom:8px;border-top:0;background:transparent;padding:0}');
+    expect(styles).toContain('.composer-wrap.composer-compact{padding:8px 18px}');
   });
 
   test('mobile bottom nav paints above the composer reserved area but below open dropdown menus', () => {
