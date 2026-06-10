@@ -10,6 +10,7 @@ import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type CurrencyRates, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
+import { shouldRenderMessage } from './messageVisibility';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
@@ -1418,6 +1419,7 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
 }
 
 function MessageView({ message, showReasoning = false }: { message: ChatMessage; showReasoning?: boolean }) {
+  if (!shouldRenderMessage(message, showReasoning)) return null;
   if (message.role === 'tool') return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
   const fallback = isPending ? '…' : '';
