@@ -390,43 +390,23 @@ async fn chat_watch(
     let client = state.client.clone();
     let api_url = state.api_url.clone();
     let api_key = state.api_key.clone();
-    eprintln!("[chat_watch] session={}: STARTED, api_url={}", session_id, api_url);
     let stream = async_stream::stream! {
-        eprintln!("[chat_watch] session={}: stream block entered", session_id);
         let mut watch_state = match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
-            Ok(items) => {
-                eprintln!("[chat_watch] session={}: initial fetch ok, {} items, last_id={}", session_id, items.len(), latest_session_message_id(&items));
-                session_message_watch_state(&items)
-            }
-            Err(e) => {
-                eprintln!("[chat_watch] session={}: initial fetch FAILED: {}", session_id, e);
-                SessionMessageWatchState::default()
-            }
+            Ok(items) => session_message_watch_state(&items),
+            Err(_) => SessionMessageWatchState::default(),
         };
-        eprintln!("[chat_watch] session={}: entering loop", session_id);
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                    eprintln!("[chat_watch] session={}: tick", session_id);
-                    match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
-                        Ok(items) => {
-                            let changed = changed_session_messages(&items, &mut watch_state);
-                            if !changed.is_empty() {
-                                eprintln!("[chat_watch] session={}: {} changed messages", session_id, changed.len());
-                                for msg in &changed {
-                                    yield Ok(SseEvent::default().data(msg.to_string()));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("[chat_watch] session={}: poll FAILED: {}", session_id, e);
+                    if let Ok(items) = fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
+                        for msg in changed_session_messages(&items, &mut watch_state) {
+                            yield Ok(SseEvent::default().data(msg.to_string()));
                         }
                     }
                 }
                 else => break,
             }
         }
-        eprintln!("[chat_watch] session={}: loop ended", session_id);
     };
     Sse::new(stream).keep_alive(KeepAlive::default())
 }

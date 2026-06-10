@@ -269,6 +269,16 @@ function normalizeMessage(raw: any): ChatMessage {
 }
 function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   if (prev.some((m) => m.id === msg.id)) return prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m);
+  // Match by content+role for user messages (server ID differs from local uid)
+  if (msg.role === 'user') {
+    const existing = prev.findIndex((m) => m.role === 'user' && m.content === msg.content);
+    if (existing >= 0) return prev.map((m, i) => i === existing ? { ...m, ...msg } : m);
+  }
+  // Match pending assistant placeholder for assistant messages from watch
+  if (msg.role === 'assistant') {
+    const pendingIdx = prev.findIndex((m) => m.pending && (m.id === OTHER_PLATFORM_PENDING_ID || m.id.startsWith('assistant_')));
+    if (pendingIdx >= 0) return prev.map((m, i) => i === pendingIdx ? { ...m, ...msg, pending: false } : m);
+  }
   const withoutStalePending = msg.role === 'assistant'
     ? prev.filter((m) => !(m.pending && m.id === OTHER_PLATFORM_PENDING_ID))
     : prev;
@@ -414,6 +424,10 @@ export default function App() {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const messageRequestRef = useRef(0);
   const searchVersionRef = useRef(0);
+  const modelRef = useRef(model);
+  const providerRef = useRef(selectedModelProvider);
+  useEffect(() => { modelRef.current = model; }, [model]);
+  useEffect(() => { providerRef.current = selectedModelProvider; }, [selectedModelProvider]);
   const scrollLatestAfterRenderRef = useRef(false);
   const titleRefreshDoneRef = useRef<Set<string>>(new Set());
   const skipNextHistoryLoadRef = useRef('');
@@ -567,7 +581,7 @@ export default function App() {
   }, [loadSessionDetail]);
 
   const createSession = useCallback(async () => {
-    const sessionModel = realModelOrEmpty(activeSessionDetail?.model) || realModelOrEmpty(model) || models[0]?.id || '';
+    const sessionModel = realModelOrEmpty(modelRef.current) || models[0]?.id || '';
     const res = await fetch(apiJoin(apiBase, '/api/sessions'), { method: 'POST', headers: headers(), body: JSON.stringify({ model: sessionModel }) });
     if (!res.ok) throw new Error(await res.text());
     const body = await res.json();
