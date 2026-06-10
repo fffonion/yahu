@@ -13,6 +13,13 @@ describe('insights chart UI', () => {
     expect(app).toContain('aria-label={label}');
   });
 
+  test('uses no-decimal compact y-axis token labels on narrow screens', () => {
+    const app = appSource();
+    expect(app).toContain("fmtCompactAxisTick");
+    expect(app).toContain("useMediaQuery('(max-width: 760px)')");
+    expect(app).toContain("compactAxisLabels ? fmtCompactAxisTick(value) : formatMetricValue(metric, value)");
+  });
+
   test('hides datapoint dots until hover or keyboard focus', () => {
     const app = appSource();
     const css = cssSource();

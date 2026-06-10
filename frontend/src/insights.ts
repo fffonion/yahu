@@ -51,6 +51,16 @@ export function fmtTokens(value: number | undefined): string {
   return Math.round(n).toString();
 }
 
+export function fmtCompactAxisTick(value: number | undefined): string {
+  const n = Number(value || 0);
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 1_000_000_000) return `${sign}${Math.round(abs / 1_000_000_000)}B`;
+  if (abs >= 1_000_000) return `${sign}${Math.round(abs / 1_000_000)}M`;
+  if (abs >= 1_000) return `${sign}${Math.round(abs / 1_000)}K`;
+  return Math.round(n).toString();
+}
+
 export function fmtMoney(value: number | undefined): string {
   const n = Number(value || 0);
   const usd = Number.isFinite(n) && n > 0 ? n : 0;

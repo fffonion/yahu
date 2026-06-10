@@ -8,7 +8,7 @@ import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
-import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
 import { shouldRenderMessage } from './messageVisibility';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
@@ -78,6 +78,20 @@ const initialRoute = getCurrentHashRoute();
 const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
 const fmtSize = (bytes?: number) => bytes === undefined ? '' : bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} k` : `${(bytes / 1024 / 1024).toFixed(1)} M`;
 const basename = (path: string) => path.split('/').filter(Boolean).pop() || 'Home';
+
+function useMediaQuery(query: string) {
+  const read = () => typeof window !== 'undefined' && window.matchMedia(query).matches;
+  const [matches, setMatches] = useState(read);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
 const isWorkspaceTextFile = (name: string) => /\.(md|txt|json|ya?ml|toml|csv|ts|tsx|js|jsx|py|rs|go|sh|css|html|lock)$/i.test(name) || /^(Makefile|Dockerfile|\.gitignore|\.dockerignore|\.env|\.npmrc|\.prettierrc|\.eslintrc)$/i.test(name);
 const jobId = (job: Job) => job.job_id || job.id || '';
 const jobSchedule = (schedule: Job['schedule']) => typeof schedule === 'string' ? schedule : (schedule?.display || schedule?.expr || 'no schedule');
@@ -1321,11 +1335,12 @@ function UsageAreaChart({ days, models, metric }: { days: UsageDay[]; models: Ar
   const width = 720;
   const height = 260;
   const pad = { top: 14, right: 18, bottom: 28, left: 58 };
+  const compactAxisLabels = useMediaQuery('(max-width: 760px)');
   const series = models.slice(0, 4).map((model, index) => ({ model: model.model, index, values: days.map((day) => metricValue(model.daily.find((item) => item.date === day.date) || day, metric)) }));
   const totalValues = days.map((day) => metricValue(day, metric));
   const allValues = [...totalValues, ...series.flatMap((item) => item.values)];
   const maxValue = Math.max(1, ...allValues);
-  const yTicks = chartYAxisTicks(allValues, 4, (value) => formatMetricValue(metric, value));
+  const yTicks = chartYAxisTicks(allValues, 4, (value) => metric === 'cost_usd' ? formatMetricValue(metric, value) : compactAxisLabels ? fmtCompactAxisTick(value) : formatMetricValue(metric, value));
   return <div className="usage-chart" data-series-count={series.length}>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Usage trend chart" preserveAspectRatio="none">
       <defs>{series.map((item) => <linearGradient key={item.model} id={`insight-grad-${item.index}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={`var(--chart-${item.index})`} stopOpacity=".52" /><stop offset="100%" stopColor={`var(--chart-${item.index})`} stopOpacity=".03" /></linearGradient>)}</defs>

@@ -1,11 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelPeriodTotals, type UsageModel } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelPeriodTotals, type UsageModel } from './insights';
 
 describe('insights helpers', () => {
   test('formats token and percent metrics compactly', () => {
     expect(fmtTokens(1532)).toBe('1.5K');
     expect(fmtTokens(2_400_000)).toBe('2.4M');
     expect(fmtPercent(0.941)).toBe('94%');
+  });
+
+  test('formats narrow chart axis labels without decimals', () => {
+    expect(fmtCompactAxisTick(1532)).toBe('2K');
+    expect(fmtCompactAxisTick(1_240_000)).toBe('1M');
+    expect(fmtCompactAxisTick(2_600_000_000)).toBe('3B');
   });
 
   test('builds animated svg line and gradient area paths from usage values', () => {
@@ -66,10 +72,7 @@ describe('insights helpers', () => {
   });
 
   test('formats costs as USD regardless of language or exchange-rate data', () => {
-    const rates = { USD: 1, CNY: 7.2, JPY: 155 };
     expect(fmtMoney(1.25)).toBe('$1.25');
-    expect(fmtMoney(1.25, 'zh-CN', rates)).toBe('$1.25');
-    expect(fmtMoney(1.25, 'ja', rates)).toBe('$1.25');
-    expect(fmtMoney(0.001, 'zh-CN', rates)).toBe('$0.0010');
+    expect(fmtMoney(0.001)).toBe('$0.0010');
   });
 });
