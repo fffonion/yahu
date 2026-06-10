@@ -2249,7 +2249,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       <div><h1>Gallery</h1><span>{images.length}/{stats.total_images || '—'} loaded · {formatImageBytes(stats.total_bytes)}{notice ? ` · ${notice}` : ''}</span></div>
       <div className="image-actions">
         {selecting && selected.size > 0 && <><button className="mobile-icon-only" aria-label="Download selected" onClick={() => downloadSelectedFiles(selectedList)}><Download /> <span className="btn-label">Download selected</span></button><button className="mobile-icon-only" aria-label="Organize" onClick={organizeTime}><CalendarClock /> <span className="btn-label">Organize</span></button><button className="danger mobile-icon-only" aria-label="Delete selected" onClick={() => deleteNames(selectedList)}><Trash2 /> <span className="btn-label">Delete selected</span></button></>}
-        <button className="mobile-icon-only" aria-label={selecting ? 'Cancel selection' : 'Select images'} onClick={toggleSelectionMode}><CheckSquare /> <span className="btn-label">{selecting ? 'Cancel' : 'Select'}</span></button>
+        <button className="icon-btn mobile-icon-only" aria-label={selecting ? 'Cancel selection' : 'Select images'} onClick={toggleSelectionMode}><CheckSquare /> <span className="btn-label">{selecting ? 'Cancel' : 'Select'}</span></button>
         <button className="icon-btn" aria-label="Refresh" onClick={refresh}><RefreshCw /></button>
         <HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} />
       </div>
