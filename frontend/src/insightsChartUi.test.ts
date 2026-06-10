@@ -81,4 +81,14 @@ describe('insights chart UI', () => {
     expect(css).toContain('height:72px;border-radius:999px;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 22%,transparent),color-mix(in srgb,var(--accent-2) 16%,transparent));');
     expect(css).not.toContain('inset:auto -30% -55% -30%');
   });
+
+  test('centers insights refresh icon inside desktop and mobile header buttons', () => {
+    const app = appSource();
+    const css = cssSource();
+    expect(app).toContain('className="icon-btn mobile-icon-only insights-refresh"');
+    expect(css).toContain('.header-actions .icon-btn{height:38px;min-width:38px;padding:0;justify-content:center}');
+    expect(css).toContain('.header-actions .icon-btn svg{display:block;flex:0 0 auto}');
+    expect(css).toContain('.header-actions .insights-refresh{width:38px}');
+    expect(css).toContain('.header-actions .insights-refresh{width:30px;height:30px;min-width:30px;padding:0}');
+  });
 });
