@@ -14,6 +14,8 @@ describe('workspace collapse and context menu', () => {
     expect(source).toContain('useState(true)');
     expect(source).toContain('workspace-collapsed');
     expect(source).toContain('Expand workspace');
+    expect(source).not.toContain('Open workspace page');
+    expect(source).not.toContain("window.location.hash = '#/workspace'");
     expect(source).toContain("t('workspace.collapse')");
   });
 

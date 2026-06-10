@@ -1856,7 +1856,7 @@ function FollowUpQueueView({ items, onSteer, onEdit, onReorder }: { items: Follo
 }
 
 function WorkspaceAside(props: any) {
-  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button><button className="workspace-rail-btn" title={t('workspace.openPage')} aria-label="Open workspace page" onClick={() => { window.location.hash = '#/workspace'; }}><Folder /></button></div></aside>;
+  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button></div></aside>;
   return <aside className="workspace"><WorkspaceBrowser rootEntries={props.rootEntries} workspaceTree={props.workspaceTree} expandedWorkspacePaths={props.expandedWorkspacePaths} toggleWorkspaceFolder={props.toggleWorkspaceFolder} openWorkspaceEntry={props.openWorkspaceEntry} downloadEntry={props.downloadEntry} preview={props.preview} setPreview={props.setPreview} compact setCollapsed={props.setCollapsed} openWorkspaceMenu={props.openWorkspaceMenu} /></aside>;
 }
 function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: any) {
