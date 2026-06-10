@@ -2278,7 +2278,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     if (!selectedList.length) return;
     const res = await fetch('/image-api/batch-mtime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filenames: selectedList }) });
     if (!res.ok) { setNotice(await res.text()); return; }
-    setSelecting(false); setSelected(new Set()); refresh();
+    setSelecting(false); setSelected(new Set()); loadImages(true);
   };
   const generateHeic = async (item: ImageEntry): Promise<ImageEntry | null> => {
     setNotice(`Generating HEIC for ${item.filename}...`);
