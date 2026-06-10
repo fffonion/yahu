@@ -494,8 +494,14 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId) || (activeSessionDetail?.id === activeSessionId ? activeSessionDetail : undefined);
   useEffect(() => {
     const activeModel = realModelOrEmpty(activeSession?.model);
-    if (activeModel) setModelState((current) => activeModel !== current ? activeModel : current);
-  }, [activeSession?.model]);
+    const activeProvider = String(activeSession?.provider || '').trim();
+    if (activeModel) {
+      modelRef.current = activeModel;
+      providerRef.current = activeProvider;
+      setModelState((current) => activeModel !== current ? activeModel : current);
+      setSelectedModelProvider((current) => activeProvider !== current ? activeProvider : current);
+    }
+  }, [activeSession?.model, activeSession?.provider]);
 
   const filteredSessions = useMemo(() => {
     const pinned = sessions.filter((s) => pinnedIds.has(s.id));
@@ -568,6 +574,8 @@ export default function App() {
     const resolvedModel = realModelOrEmpty(nextModel);
     if (!resolvedModel) return;
     const provider = String(option?.provider || '').trim();
+    modelRef.current = resolvedModel;
+    providerRef.current = provider;
     setModelState(resolvedModel);
     setSelectedModelProvider(provider);
     if (activeSessionId === DRAFT_SESSION_ID) setActiveSessionDetail((old) => old ? { ...old, model: resolvedModel, provider } : old);
@@ -588,7 +596,9 @@ export default function App() {
 
   const createSession = useCallback(async () => {
     const sessionModel = realModelOrEmpty(modelRef.current) || models[0]?.id || '';
-    const res = await fetch(apiJoin(apiBase, '/api/sessions'), { method: 'POST', headers: headers(), body: JSON.stringify({ model: sessionModel }) });
+    const sessionProvider = providerRef.current;
+    const sessionBody = sessionProvider ? { model: sessionModel, provider: sessionProvider } : { model: sessionModel };
+    const res = await fetch(apiJoin(apiBase, '/api/sessions'), { method: 'POST', headers: headers(), body: JSON.stringify(sessionBody) });
     if (!res.ok) throw new Error(await res.text());
     const body = await res.json();
     return (body.session || body.data || body) as Session;
@@ -949,8 +959,8 @@ export default function App() {
     if (!trimmed) return;
     if (!sessionId || sessionId === DRAFT_SESSION_ID) { enqueueFollowUp(trimmed, sessionId); return; }
     try {
-      const sessionModel = activeSession?.model || activeSessionDetail?.model || modelRef.current;
-      const sessionProvider = activeSession?.provider || activeSessionDetail?.provider || providerRef.current;
+      const sessionModel = realModelOrEmpty(modelRef.current) || activeSession?.model || activeSessionDetail?.model || '';
+      const sessionProvider = providerRef.current || activeSession?.provider || activeSessionDetail?.provider || '';
       const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(sessionId)}/chat`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(`/steer ${text}`, sessionModel, effort, sessionProvider)) });
       if (!res.ok) throw new Error(await res.text());
       setStatus(`Steered: ${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`);
@@ -996,8 +1006,8 @@ export default function App() {
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
     setHasNewer(false);
-    const sessionModel = createdSession?.model || activeSession?.model || activeSessionDetail?.model || modelRef.current;
-    const sessionProvider = createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || providerRef.current;
+    const sessionModel = realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model || '';
+    const sessionProvider = providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || '';
     if (clearComposer) { setInput(''); setAttachments([]); }
     setStatus('Running');
     if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });

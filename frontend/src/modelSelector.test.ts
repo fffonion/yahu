@@ -20,11 +20,16 @@ describe('composer model selector', () => {
     expect(source).toContain('const changeSessionModel = useCallback((nextModel: string, option?: ModelOption) =>');
     expect(source).toContain('const resolvedModel = realModelOrEmpty(nextModel)');
     expect(source).toContain('setSelectedModelProvider(provider)');
+    expect(source).toContain('modelRef.current = resolvedModel');
+    expect(source).toContain('providerRef.current = provider');
     expect(source).toContain('{ ...old, model: resolvedModel, provider }');
     expect(source).toContain('{ ...s, model: resolvedModel, provider }');
+    expect(source).toContain('const sessionBody = sessionProvider ? { model: sessionModel, provider: sessionProvider } : { model: sessionModel };');
+    expect(source).toContain('const sessionModel = realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model ||');
+    expect(source).toContain('const sessionProvider = providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider ||');
     expect(source).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
-    expect(source).toContain('setModelState((current) => activeModel !== current ? activeModel : current)');
-    expect(source).toContain('}, [activeSession?.model]);');
+    expect(source).toContain('setSelectedModelProvider((current) => activeProvider !== current ? activeProvider : current)');
+    expect(source).toContain('}, [activeSession?.model, activeSession?.provider]);');
     expect(source).not.toContain('if (activeModel && activeModel !== model) setModelState(activeModel);');
     expect(source).not.toContain('body: JSON.stringify({ model: resolvedModel })');
     expect(source).toContain('setModel={changeSessionModel}');

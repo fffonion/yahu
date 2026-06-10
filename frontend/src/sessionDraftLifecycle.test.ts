@@ -16,7 +16,8 @@ describe('draft session lifecycle', () => {
 
   test('creating the backend session does not send a title so Hermes can auto-title it', () => {
     const source = app();
-    expect(source).toContain("body: JSON.stringify({ model: sessionModel })");
+    expect(source).toContain('const sessionBody = sessionProvider ? { model: sessionModel, provider: sessionProvider } : { model: sessionModel };');
+    expect(source).toContain('body: JSON.stringify(sessionBody)');
     expect(source).not.toContain('title: `WebUI ${new Date().toLocaleString()}`');
     expect(source).not.toContain("title: 'New conversation', model: sessionModel");
   });
