@@ -305,18 +305,21 @@ async function capturePage(browser, spec) {
 }
 
 const specs = [
-  { name: 'chat', file: 'chat.png', hash: '#/chat/demo-chat-001', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.tool-card'); await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0)); } },
+  { name: 'chat', file: 'chat.png', hash: '#/chat/demo-chat-001', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.tool-card'); await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0)); } },
   { name: 'insights', file: 'insights.png', hash: '#/insights', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); } },
-  { name: 'skills', file: 'skills.png', hash: '#/skills/demo-gallery-curator', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight'); await page.locator('.section-label', { hasText: 'productivity' }).click().catch(() => {}); } },
-  { name: 'cron', file: 'cron.png', hash: '#/cron/job-demo-weekly', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.cron-detail textarea'); } },
+  { name: 'skills', file: 'skills.png', hash: '#/skills/demo-gallery-curator', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight'); await page.locator('.section-label', { hasText: 'productivity' }).click().catch(() => {}); } },
+  { name: 'cron', file: 'cron.png', hash: '#/cron/job-demo-weekly', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.cron-detail textarea'); } },
   { name: 'workspace', file: 'workspace.png', hash: '#/workspace/file/src%2Fmain.rs', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight .tok-keyword'); } },
   { name: 'gallery', file: 'gallery.png', hash: '#/images', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.image-card img.loaded'); } },
   { name: 'chat-mobile', file: 'chat-mobile.png', hash: '#/chat/demo-chat-001', theme: 'vscode-dark-plus', viewport: mobile, mobile: true, prepare: async (page) => { await page.waitForSelector('.tool-card'); await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0)); } },
   { name: 'insights-mobile', file: 'insights-mobile.png', hash: '#/insights', theme: 'vscode-dark-plus', viewport: mobile, mobile: true, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); } },
 ];
+const only = new Set((process.env.YAHU_SCREENSHOT_ONLY || '').split(',').map((item) => item.trim()).filter(Boolean));
+const selectedSpecs = only.size ? specs.filter((spec) => only.has(spec.name) || only.has(spec.file)) : specs;
 
 mkdirSync(OUT_DIR, { recursive: true });
 for (const file of ['chat.png', 'cron.png', 'workspace.png', 'skills.png', 'images.png', 'insights.png', 'gallery.png', 'chat-mobile.png', 'insights-mobile.png']) {
+  if (only.size && !selectedSpecs.some((spec) => spec.file === file)) continue;
   const path = join(OUT_DIR, file);
   if (existsSync(path)) rmSync(path);
 }
@@ -325,7 +328,7 @@ let browser;
 try {
   await waitForServer();
   browser = await chromium.launch({ headless: true });
-  for (const spec of specs) await capturePage(browser, spec);
+  for (const spec of selectedSpecs) await capturePage(browser, spec);
 } finally {
   if (browser) await browser.close();
   server.kill('SIGTERM');
