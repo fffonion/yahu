@@ -1292,7 +1292,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   return <main className={`main-panel insights-main ${showSkeleton ? 'insights-loading' : ''}`}>
     <header className="chat-header header-no-drawer insights-header">
       <div><h1>Insights</h1><span>{showSkeleton ? 'Loading usage…' : props.error || `Last ${periodLabel} · ${fmtTokens(totals.total_tokens)} tokens`}</span></div>
-      <div className="header-actions"><button className="icon-btn insights-refresh" onClick={props.refresh} disabled={props.loading} title="Refresh usage"><RefreshCw /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div>
+      <div className="header-actions"><button className="icon-btn mobile-icon-only insights-refresh" onClick={props.refresh} disabled={props.loading} title="Refresh usage"><RefreshCw /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} /></div>
     </header>
     <section className="insights-content">
       <div className="insights-toolbar" aria-label="Usage controls">
@@ -2223,8 +2223,8 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       <div><h1>Gallery</h1><span>{images.length}/{stats.total_images || '—'} loaded · {formatImageBytes(stats.total_bytes)}{notice ? ` · ${notice}` : ''}</span></div>
       <div className="image-actions">
         {selecting && selected.size > 0 && <><button className="mobile-icon-only" aria-label="Download selected" onClick={() => downloadSelectedFiles(selectedList)}><Download /> <span className="btn-label">Download selected</span></button><button className="mobile-icon-only" aria-label="Organize" onClick={organizeTime}><CalendarClock /> <span className="btn-label">Organize</span></button><button className="danger mobile-icon-only" aria-label="Delete selected" onClick={() => deleteNames(selectedList)}><Trash2 /> <span className="btn-label">Delete selected</span></button></>}
-        <button className="mobile-icon-only" aria-label={selecting ? 'Cancel selection' : 'Select images'} onClick={toggleSelectionMode}><SelectionMark /> <span className="btn-label">{selecting ? 'Cancel' : 'Select'}</span></button>
-        <button className="mobile-icon-only" aria-label="Refresh" onClick={refresh}><RefreshCw /> <span className="btn-label">Refresh</span></button>
+        <button className="mobile-icon-only" aria-label={selecting ? 'Cancel selection' : 'Select images'} onClick={toggleSelectionMode}><CheckSquare /> <span className="btn-label">{selecting ? 'Cancel' : 'Select'}</span></button>
+        <button className="icon-btn" aria-label="Refresh" onClick={refresh}><RefreshCw /></button>
         <HeaderThemeControl theme={theme} setTheme={setTheme} />
       </div>
     </header>
