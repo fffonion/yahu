@@ -151,7 +151,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('chat-header header-no-drawer');
     expect(source).toContain('image-toolbar header-no-drawer');
     expect(styles).toContain('.chat-header,.image-toolbar{min-height:44px;padding:4px 9px;display:flex');
-    expect(styles).toContain('.chat-header h1,.image-toolbar h1{font-size:16px;line-height:1.15}');
+    expect(styles).toContain('.chat-header h1,.image-toolbar h1{font-size:16px;line-height:1.15;transform:translateY(1px)}');
     expect(styles).toContain('.chat-header span,.image-toolbar span{font-size:11px;line-height:1.1}');
     expect(styles).toContain('.image-actions>button{width:30px;height:30px}');
     expect(styles).toContain('.mobile-header-drawer{display:inline-grid;width:30px;height:30px;min-width:30px;border-radius:10px;flex:0 0 30px}');
