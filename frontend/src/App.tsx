@@ -1265,11 +1265,20 @@ export default function App() {
 
 function CustomDialog({ dialog, setDialog }: { dialog: DialogState; setDialog: (dialog: DialogState) => void }) {
   const [value, setValue] = useState('');
+  const finish = useCallback((result: string | boolean | null) => { if (dialog) { dialog.resolve(result); setDialog(null); } }, [dialog, setDialog]);
   useEffect(() => { setValue(dialog?.value || ''); }, [dialog]);
+  useEffect(() => {
+    if (!dialog) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); finish(dialog.variant === 'confirm' ? false : null); }
+      if (e.key === 'Enter') { e.preventDefault(); finish(dialog.variant === 'prompt' ? (document.querySelector<HTMLInputElement>('.dialog-card input')?.value ?? '') : true); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dialog, finish]);
   if (!dialog) return null;
-  const finish = (result: string | boolean | null) => { dialog.resolve(result); setDialog(null); };
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) finish(dialog.variant === 'confirm' ? false : null); }}>
-    <form className="dialog-card" role="dialog" aria-modal="true" aria-label={dialog.title} onSubmit={(event) => { event.preventDefault(); finish(dialog.variant === 'prompt' ? value : true); }}>
+    <form className="dialog-card" role="dialog" aria-modal="true" aria-label={dialog.title} onSubmit={(event) => { event.preventDefault(); }}>
       <h2>{dialog.title}</h2>
       <p>{dialog.message}</p>
       {dialog.variant === 'prompt' && <input autoFocus value={value} onChange={(event) => setValue(event.target.value)} />}

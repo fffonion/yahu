@@ -392,15 +392,30 @@ async fn chat_watch(
     let api_key = state.api_key.clone();
     let stream = async_stream::stream! {
         let mut watch_state = match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
-            Ok(items) => session_message_watch_state(&items),
-            Err(_) => SessionMessageWatchState::default(),
+            Ok(items) => {
+                eprintln!("[chat_watch] session={}: initial fetch ok, {} items, last_id={}", session_id, items.len(), latest_session_message_id(&items));
+                session_message_watch_state(&items)
+            }
+            Err(e) => {
+                eprintln!("[chat_watch] session={}: initial fetch FAILED: {}", session_id, e);
+                SessionMessageWatchState::default()
+            }
         };
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                    if let Ok(items) = fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
-                        for msg in changed_session_messages(&items, &mut watch_state) {
-                            yield Ok(SseEvent::default().data(msg.to_string()));
+                    match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
+                        Ok(items) => {
+                            let changed = changed_session_messages(&items, &mut watch_state);
+                            if !changed.is_empty() {
+                                eprintln!("[chat_watch] session={}: {} changed messages", session_id, changed.len());
+                                for msg in &changed {
+                                    yield Ok(SseEvent::default().data(msg.to_string()));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[chat_watch] session={}: poll FAILED: {}", session_id, e);
                         }
                     }
                 }
