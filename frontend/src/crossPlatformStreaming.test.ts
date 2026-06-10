@@ -12,7 +12,11 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain('if (prev.some((m) => m.id === msg.id)) return prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m);');
     expect(app).toContain("msg.role === 'user'");
     expect(app).toContain("msg.role === 'assistant'");
-    expect(app).toContain("m.id.startsWith('assistant_') && m.content === msg.content");
+    expect(app).toContain('findCurrentTurnPersistedAssistantIndex(prev)');
+    expect(app).toContain('m.content === msg.content || !isLocalStreamAssistant(msg)');
+    expect(app).toContain('function isLocalStreamTool(message: ChatMessage)');
+    expect(app).toContain('sameFinalIdx >= 0');
+    expect(app).toContain('withoutMatchingLocalTools');
     expect(app).toContain('function findUnreconciledLocalAssistantIndex(prev: ChatMessage[])');
     expect(app).toContain('const turnLocalStreamIdx = findUnreconciledLocalAssistantIndex(prev);');
     expect(app).toContain('i === turnLocalStreamIdx ? { ...m, ...msg, pending: false } : m');

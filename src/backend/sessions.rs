@@ -390,11 +390,18 @@ async fn chat_watch(
     let client = state.client.clone();
     let api_url = state.api_url.clone();
     let api_key = state.api_key.clone();
+    let active_chat_streams = state.active_chat_streams.clone();
+    let mut chat_stream_rx = state.chat_streams.subscribe();
     let stream = async_stream::stream! {
         let mut watch_state = match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
             Ok(items) => session_message_watch_state(&items),
             Err(_) => SessionMessageWatchState::default(),
         };
+        if let Some(messages) = active_chat_streams.read().await.get(&session_id).cloned() {
+            for msg in messages {
+                yield Ok(SseEvent::default().data(msg.to_string()));
+            }
+        }
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
@@ -402,6 +409,14 @@ async fn chat_watch(
                         for msg in changed_session_messages(&items, &mut watch_state) {
                             yield Ok(SseEvent::default().data(msg.to_string()));
                         }
+                    }
+                }
+                Ok(text) = chat_stream_rx.recv() => {
+                    if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&text)
+                        && envelope.get("session_id").and_then(|value| value.as_str()) == Some(session_id.as_str())
+                        && let Some(message) = envelope.get("message")
+                    {
+                        yield Ok(SseEvent::default().data(message.to_string()));
                     }
                 }
                 else => break,

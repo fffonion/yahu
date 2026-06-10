@@ -8,6 +8,7 @@ async fn proxy_hermes(
 ) -> Response<Body> {
     let query = uri.query().map(|q| format!("?{}", q)).unwrap_or_default();
     let url = format!("{}/{}{}", state.api_url, path, query);
+    let stream_session_id = proxied_chat_stream_session_id(&path, &method);
     let req_method =
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET);
     let bytes = match to_bytes(body, MAX_PROXY_BODY).await {
@@ -16,6 +17,22 @@ async fn proxy_hermes(
             return json_error(StatusCode::BAD_REQUEST, &format!("cannot read body: {err}"));
         }
     };
+    if let Some(session_id) = &stream_session_id {
+        begin_chat_stream_snapshot(&state, session_id).await;
+        if let Some(input) = chat_stream_request_input_text(&bytes) {
+            publish_chat_stream_message(
+                &state,
+                session_id,
+                serde_json::json!({
+                    "id": format!("user_{}", chat_stream_run_id()),
+                    "role": "user",
+                    "content": input,
+                    "timestamp": unix_now_seconds(),
+                }),
+            )
+            .await;
+        }
+    }
     let mut builder = state.client.request(req_method, url).body(bytes);
     for (key, value) in headers.iter() {
         let name = key.as_str().to_ascii_lowercase();
@@ -30,7 +47,7 @@ async fn proxy_hermes(
         builder = builder.bearer_auth(key);
     }
     match builder.send().await {
-        Ok(resp) => response_from_reqwest(resp).await,
+        Ok(resp) => response_from_reqwest(state, stream_session_id, resp).await,
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
             &format!("Hermes API proxy failed: {err}"),
@@ -53,8 +70,18 @@ fn should_forward_proxy_header(name: &str) -> bool {
         && !name.starts_with("sec-ch-")
 }
 
-async fn response_from_reqwest(resp: reqwest::Response) -> Response<Body> {
+async fn response_from_reqwest(
+    state: Arc<AppState>,
+    stream_session_id: Option<String>,
+    resp: reqwest::Response,
+) -> Response<Body> {
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
     let mut builder = Response::builder().status(status);
     for (key, value) in resp.headers() {
         if matches!(
@@ -64,7 +91,286 @@ async fn response_from_reqwest(resp: reqwest::Response) -> Response<Body> {
             builder = builder.header(key, value);
         }
     }
+    if status.is_success()
+        && content_type.starts_with("text/event-stream")
+        && let Some(session_id) = stream_session_id
+    {
+        return builder
+            .body(Body::from_stream(chat_streaming_body(
+                state,
+                session_id,
+                resp.bytes_stream(),
+            )))
+            .unwrap();
+    }
     builder
         .body(Body::from_stream(resp.bytes_stream()))
         .unwrap()
+}
+
+fn proxied_chat_stream_session_id(path: &str, method: &Method) -> Option<String> {
+    if method != Method::POST {
+        return None;
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() == 5
+        && parts[0] == "api"
+        && parts[1] == "sessions"
+        && parts[3] == "chat"
+        && parts[4] == "stream"
+    {
+        return Some(parts[2].to_string());
+    }
+    None
+}
+
+fn chat_stream_run_id() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos().to_string())
+        .unwrap_or_else(|_| "0".to_string())
+}
+
+fn chat_stream_request_input_text(bytes: &[u8]) -> Option<String> {
+    let body = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    chat_stream_input_text(body.get("input")?).filter(|text| !text.is_empty())
+}
+
+fn chat_stream_input_text(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => Some(text.trim().to_string()),
+        serde_json::Value::Array(items) => {
+            let text = items
+                .iter()
+                .filter_map(|item| {
+                    item.as_str()
+                        .map(str::to_string)
+                        .or_else(|| item.get("text").and_then(|value| value.as_str()).map(str::to_string))
+                        .or_else(|| item.get("content").and_then(|value| value.as_str()).map(str::to_string))
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            Some(text.trim().to_string())
+        }
+        serde_json::Value::Object(map) => map
+            .get("text")
+            .and_then(|value| value.as_str())
+            .or_else(|| map.get("content").and_then(|value| value.as_str()))
+            .map(|text| text.trim().to_string()),
+        _ => None,
+    }
+}
+
+fn parse_sse_block(block: &str) -> (String, String) {
+    let mut event = String::from("message");
+    let mut data = Vec::new();
+    for line in block.lines() {
+        if let Some(value) = line.strip_prefix("event:") {
+            event = value.trim().to_string();
+        } else if let Some(value) = line.strip_prefix("data:") {
+            data.push(value.trim_start().to_string());
+        }
+    }
+    (event, data.join("\n"))
+}
+
+async fn begin_chat_stream_snapshot(state: &Arc<AppState>, session_id: &str) {
+    state
+        .active_chat_streams
+        .write()
+        .await
+        .insert(session_id.to_string(), Vec::new());
+}
+
+async fn publish_chat_stream_message(
+    state: &Arc<AppState>,
+    session_id: &str,
+    message: serde_json::Value,
+) {
+    {
+        let mut active = state.active_chat_streams.write().await;
+        let messages = active.entry(session_id.to_string()).or_default();
+        if let Some(id) = message.get("id").and_then(|value| value.as_str()) {
+            if let Some(existing) = messages
+                .iter_mut()
+                .find(|item| item.get("id").and_then(|value| value.as_str()) == Some(id))
+            {
+                *existing = message.clone();
+            } else {
+                messages.push(message.clone());
+            }
+        } else {
+            messages.push(message.clone());
+        }
+    }
+    let envelope = serde_json::json!({
+        "session_id": session_id,
+        "message": message,
+    });
+    let _ = state.chat_streams.send(envelope.to_string());
+}
+
+async fn clear_chat_stream_snapshot_later(state: Arc<AppState>, session_id: String) {
+    sleep(Duration::from_secs(8)).await;
+    state.active_chat_streams.write().await.remove(&session_id);
+}
+
+fn stream_payload_tool_name(payload: &serde_json::Value) -> String {
+    ["tool_name", "name", "tool", "recipient_name"]
+        .iter()
+        .find_map(|key| payload.get(key).and_then(|value| value.as_str()))
+        .unwrap_or("tool")
+        .to_string()
+}
+
+fn chat_streaming_body(
+    state: Arc<AppState>,
+    session_id: String,
+    upstream: impl futures_core::Stream<Item = Result<axum::body::Bytes, reqwest::Error>> + Send + 'static,
+) -> impl futures_core::Stream<Item = Result<axum::body::Bytes, reqwest::Error>> {
+    async_stream::stream! {
+        let stream_id = chat_stream_run_id();
+        let assistant_id = format!("assistant_{}", stream_id);
+        let mut buffer = String::new();
+        let mut final_text = String::new();
+        let mut reasoning_text = String::new();
+        futures_util::pin_mut!(upstream);
+        while let Some(item) = futures_util::StreamExt::next(&mut upstream).await {
+            let chunk = match item {
+                Ok(chunk) => chunk,
+                Err(err) => {
+                    yield Err(err);
+                    continue;
+                }
+            };
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(index) = buffer.find("\n\n") {
+                let block = buffer[..index].to_string();
+                buffer = buffer[index + 2..].to_string();
+                let (event, data) = parse_sse_block(&block);
+                if data.is_empty() {
+                    continue;
+                }
+                let payload = serde_json::from_str::<serde_json::Value>(&data).unwrap_or(serde_json::Value::Null);
+                if event == "assistant.delta" {
+                    if let Some(delta) = payload.get("delta").and_then(|value| value.as_str()) {
+                        final_text.push_str(delta);
+                    }
+                    publish_chat_stream_message(
+                        &state,
+                        &session_id,
+                        serde_json::json!({
+                            "id": assistant_id,
+                            "role": "assistant",
+                            "content": final_text,
+                            "reasoning": reasoning_text,
+                            "pending": true,
+                            "timestamp": unix_now_seconds(),
+                        }),
+                    ).await;
+                } else if matches!(event.as_str(), "reasoning.delta" | "assistant.reasoning.delta" | "thinking.delta" | "assistant.thinking.delta") {
+                    let delta = payload
+                        .get("delta")
+                        .or_else(|| payload.get("text"))
+                        .or_else(|| payload.get("content"))
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default();
+                    reasoning_text.push_str(delta);
+                    publish_chat_stream_message(
+                        &state,
+                        &session_id,
+                        serde_json::json!({
+                            "id": assistant_id,
+                            "role": "assistant",
+                            "content": final_text,
+                            "reasoning": reasoning_text,
+                            "pending": true,
+                            "timestamp": unix_now_seconds(),
+                        }),
+                    ).await;
+                } else if matches!(event.as_str(), "tool.started" | "tool.completed" | "tool.progress") {
+                    let tool_name = stream_payload_tool_name(&payload);
+                    publish_chat_stream_message(
+                        &state,
+                        &session_id,
+                        serde_json::json!({
+                            "id": format!("tool_{}_{}", stream_id, tool_name),
+                            "role": "tool",
+                            "tool_name": tool_name,
+                            "content": serde_json::json!({
+                                "status": event,
+                                "tool_name": stream_payload_tool_name(&payload),
+                                "delta": payload.get("delta").cloned().unwrap_or(serde_json::Value::Null),
+                                "payload": payload,
+                            }).to_string(),
+                            "timestamp": unix_now_seconds(),
+                        }),
+                    ).await;
+                } else if event == "assistant.completed" {
+                    if let Some(content) = payload.get("content") {
+                        final_text = normalize_stream_content(content);
+                    }
+                    publish_chat_stream_message(
+                        &state,
+                        &session_id,
+                        serde_json::json!({
+                            "id": assistant_id,
+                            "role": "assistant",
+                            "content": final_text,
+                            "reasoning": reasoning_text,
+                            "pending": false,
+                            "timestamp": unix_now_seconds(),
+                        }),
+                    ).await;
+                } else if event == "run.completed" || event == "done" {
+                    if event == "run.completed" {
+                        if let Some(content) = payload
+                            .get("messages")
+                            .and_then(|messages| messages.as_array())
+                            .and_then(|messages| messages.iter().find(|message| message.get("role").and_then(|role| role.as_str()) == Some("assistant")))
+                            .and_then(|message| message.get("content"))
+                        {
+                            let content_text = normalize_stream_content(content);
+                            if !content_text.is_empty() {
+                                final_text = content_text;
+                            }
+                        }
+                        publish_chat_stream_message(
+                            &state,
+                            &session_id,
+                            serde_json::json!({
+                                "id": assistant_id,
+                                "role": "assistant",
+                                "content": final_text,
+                                "reasoning": reasoning_text,
+                                "pending": false,
+                                "timestamp": unix_now_seconds(),
+                            }),
+                        ).await;
+                    }
+                    let state_for_clear = state.clone();
+                    let session_for_clear = session_id.clone();
+                    tokio::spawn(async move { clear_chat_stream_snapshot_later(state_for_clear, session_for_clear).await; });
+                }
+            }
+            yield Ok(chunk);
+        }
+    }
+}
+
+fn normalize_stream_content(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|item| {
+                item.as_str()
+                    .map(str::to_string)
+                    .or_else(|| item.get("text").and_then(|value| value.as_str()).map(str::to_string))
+                    .or_else(|| item.get("content").and_then(|value| value.as_str()).map(str::to_string))
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }

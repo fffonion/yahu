@@ -179,6 +179,7 @@ mod tests {
     fn test_app_state(api_url: String, root: &Path) -> AppState {
         let (updates, _) = broadcast::channel::<String>(1);
         let (deletes, _) = broadcast::channel::<String>(1);
+        let (chat_streams, _) = broadcast::channel::<String>(1);
         AppState {
             client: reqwest::Client::new(),
             api_url,
@@ -190,6 +191,8 @@ mod tests {
             image_dir: root.to_path_buf(),
             updates,
             deletes,
+            chat_streams,
+            active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
             models_dev_url: "https://models.dev/api.json".to_string(),

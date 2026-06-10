@@ -2100,6 +2100,7 @@ dependencies = [
  "filetime",
  "flate2",
  "futures-core",
+ "futures-util",
  "headers",
  "hmac",
  "http",

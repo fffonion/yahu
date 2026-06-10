@@ -270,15 +270,37 @@ function normalizeMessage(raw: any): ChatMessage {
     toolInput: rawToolInput(raw),
   };
 }
+function isLocalStreamAssistant(message: ChatMessage) {
+  return message.role === 'assistant' && message.id.startsWith('assistant_');
+}
+function isLocalStreamTool(message: ChatMessage) {
+  return message.role === 'tool' && message.id.startsWith('tool_');
+}
+function findCurrentTurnPersistedAssistantIndex(prev: ChatMessage[]) {
+  let lastUserIndex = -1;
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    if (prev[i].role === 'user') { lastUserIndex = i; break; }
+  }
+  return prev.findIndex((m, i) => i > lastUserIndex && m.role === 'assistant' && !isLocalStreamAssistant(m));
+}
 function findUnreconciledLocalAssistantIndex(prev: ChatMessage[]) {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const msg = prev[i];
-    if (msg.role === 'assistant' && msg.id.startsWith('assistant_')) return i;
+    if (isLocalStreamAssistant(msg)) return i;
     if (msg.role === 'user' || (msg.role === 'assistant' && !msg.pending && msg.id !== OTHER_PLATFORM_PENDING_ID)) break;
   }
   return -1;
 }
 function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  if (msg.role === 'assistant' && isLocalStreamAssistant(msg)) {
+    const currentTurnPersistedIdx = findCurrentTurnPersistedAssistantIndex(prev);
+    if (currentTurnPersistedIdx >= 0) {
+      const persistedId = prev[currentTurnPersistedIdx].id;
+      return prev
+        .filter((m) => m.id === persistedId || !isLocalStreamAssistant(m))
+        .map((m) => m.id === persistedId ? { ...m, content: msg.content || m.content, reasoning: msg.reasoning || m.reasoning, pending: msg.pending } : m);
+    }
+  }
   if (prev.some((m) => m.id === msg.id)) return prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m);
   // Match by content+role for user messages (server ID differs from local uid)
   if (msg.role === 'user') {
@@ -291,12 +313,37 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
   // real id. Merge that persisted copy back into the local card instead of
   // appending a duplicate after the first streamed turn completes.
   if (msg.role === 'assistant') {
-    const pendingIdx = prev.findIndex((m) => m.pending && (m.id === OTHER_PLATFORM_PENDING_ID || m.id.startsWith('assistant_')));
+    const sameFinalIdx = isLocalStreamAssistant(msg)
+      ? prev.findIndex((m) => m.role === 'assistant' && !isLocalStreamAssistant(m) && !m.pending && m.content === msg.content)
+      : -1;
+    if (sameFinalIdx >= 0) return prev;
+    const pendingIdx = prev.findIndex((m) => m.pending && (m.id === OTHER_PLATFORM_PENDING_ID || isLocalStreamAssistant(m)));
     if (pendingIdx >= 0) return prev.map((m, i) => i === pendingIdx ? { ...m, ...msg, pending: false } : m);
-    const localStreamIdx = prev.findIndex((m) => m.role === 'assistant' && m.id.startsWith('assistant_') && m.content === msg.content && (m.reasoning || '') === (msg.reasoning || ''));
-    if (localStreamIdx >= 0) return prev.map((m, i) => i === localStreamIdx ? { ...m, ...msg, pending: false } : m);
+    if (isLocalStreamAssistant(msg)) {
+      const currentTurnPersistedIdx = findCurrentTurnPersistedAssistantIndex(prev);
+      if (currentTurnPersistedIdx >= 0) {
+        return prev.map((m, i) => i === currentTurnPersistedIdx ? { ...m, content: msg.content || m.content, reasoning: msg.reasoning || m.reasoning, pending: msg.pending } : m);
+      }
+    }
+    const localStreamIdx = prev.findIndex((m) => isLocalStreamAssistant(m) && (m.content === msg.content || !isLocalStreamAssistant(msg)));
+    if (localStreamIdx >= 0) {
+      const localStreamId = prev[localStreamIdx].id;
+      return prev
+        .filter((m) => m.id === localStreamId || !isLocalStreamAssistant(m))
+        .map((m) => m.id === localStreamId ? { ...m, ...msg, pending: false } : m);
+    }
     const turnLocalStreamIdx = findUnreconciledLocalAssistantIndex(prev);
     if (turnLocalStreamIdx >= 0) return prev.map((m, i) => i === turnLocalStreamIdx ? { ...m, ...msg, pending: false } : m);
+  }
+  if (msg.role === 'tool') {
+    const samePersistedToolIdx = isLocalStreamTool(msg)
+      ? prev.findIndex((m) => m.role === 'tool' && !isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || ''))
+      : -1;
+    if (samePersistedToolIdx >= 0) return prev;
+    if (!isLocalStreamTool(msg)) {
+      const withoutMatchingLocalTools = prev.filter((m) => !(isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '')));
+      if (withoutMatchingLocalTools.length !== prev.length) return [...withoutMatchingLocalTools, msg].slice(-MESSAGE_WINDOW);
+    }
   }
   const withoutStalePending = msg.role === 'assistant'
     ? prev.filter((m) => !(m.pending && m.id === OTHER_PLATFORM_PENDING_ID))
@@ -306,6 +353,41 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
     next.push({ id: OTHER_PLATFORM_PENDING_ID, role: 'assistant', content: '', pending: true });
   }
   return next.slice(-MESSAGE_WINDOW);
+}
+function dedupeVisibleChatMessages(messages: ChatMessage[]) {
+  const result: ChatMessage[] = [];
+  const assistantByTurnContent = new Map<string, number>();
+  let turn = 0;
+  let lastUserResultIndex = -1;
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      turn += 1;
+      assistantByTurnContent.clear();
+      lastUserResultIndex = result.length;
+      result.push(msg);
+      continue;
+    }
+    if (msg.role === 'assistant' && msg.content.trim()) {
+      const fuzzyExisting = result.findIndex((m, i) => i > lastUserResultIndex && m.role === 'assistant');
+      if (fuzzyExisting >= 0) {
+        const previous = result[fuzzyExisting];
+        const preferCurrent = (isLocalStreamAssistant(previous) && !isLocalStreamAssistant(msg)) || msg.content.length > previous.content.length;
+        result[fuzzyExisting] = preferCurrent ? { ...previous, ...msg, pending: previous.pending && msg.pending } : { ...previous, pending: previous.pending && msg.pending };
+        continue;
+      }
+      const key = `${turn}\u0000${msg.content.trim()}`;
+      const existing = assistantByTurnContent.get(key);
+      if (existing !== undefined) {
+        const previous = result[existing];
+        const preferCurrent = isLocalStreamAssistant(previous) && !isLocalStreamAssistant(msg);
+        result[existing] = preferCurrent ? { ...previous, ...msg, pending: previous.pending && msg.pending } : { ...previous, pending: previous.pending && msg.pending };
+        continue;
+      }
+      assistantByTurnContent.set(key, result.length);
+    }
+    result.push(msg);
+  }
+  return result;
 }
 function isNearBottom(el: HTMLElement | null, px = 120) {
   if (!el) return true;
@@ -451,6 +533,12 @@ export default function App() {
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { providerRef.current = selectedModelProvider; }, [selectedModelProvider]);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
+  useEffect(() => {
+    setMessages((prev) => {
+      const next = dedupeVisibleChatMessages(prev);
+      return next.length === prev.length ? prev : next;
+    });
+  }, [messages]);
   const scrollLatestAfterRenderRef = useRef(false);
   const titleRefreshDoneRef = useRef<Set<string>>(new Set());
   const skipNextHistoryLoadRef = useRef('');
@@ -1679,14 +1767,15 @@ function ChatMain(props: any) {
   const currentOption = currentModel ? currentModelDisplayOption(currentModel, props.models) : undefined;
   const modelOptions = currentOption ? [currentOption, ...props.models.filter((m: ModelOption) => m.id !== currentModel)] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
+  const visibleMessages = dedupeVisibleChatMessages(props.messages);
   return <main className="main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={collapseComposerForHistory}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
-      {props.messages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
+      {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {(() => {
-        const splitIdx = props.newMessageCount > 0 ? Math.max(0, props.messages.length - props.newMessageCount) : -1;
-        return props.messages.map((m: ChatMessage, i: number) => (
+        const splitIdx = props.newMessageCount > 0 ? Math.max(0, visibleMessages.length - props.newMessageCount) : -1;
+        return visibleMessages.map((m: ChatMessage, i: number) => (
           <React.Fragment key={m.id}>
             {i === splitIdx && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
             <MessageView message={m} showReasoning={props.showReasoning} />

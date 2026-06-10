@@ -119,6 +119,8 @@ struct AppState {
     image_dir: PathBuf,
     updates: broadcast::Sender<String>,
     deletes: broadcast::Sender<String>,
+    chat_streams: broadcast::Sender<String>,
+    active_chat_streams: Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>,
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
     models_dev_url: String,
@@ -225,6 +227,7 @@ pub async fn run() -> anyhow::Result<()> {
     let image_dir = image_dir.canonicalize().unwrap_or(image_dir);
     let (updates, _) = broadcast::channel::<String>(128);
     let (deletes, _) = broadcast::channel::<String>(128);
+    let (chat_streams, _) = broadcast::channel::<String>(256);
     let (fs_tx, fs_rx) = mpsc::unbounded_channel::<PathBuf>();
     let _image_watcher = start_image_watcher(&image_dir, fs_tx)?;
     tokio::spawn(process_fs_events(image_dir.clone(), fs_rx, updates.clone()));
@@ -242,6 +245,8 @@ pub async fn run() -> anyhow::Result<()> {
         image_dir,
         updates,
         deletes,
+        chat_streams,
+        active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
         models_dev_url: args.models_dev_url,
