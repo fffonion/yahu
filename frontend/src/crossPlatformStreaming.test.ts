@@ -12,6 +12,7 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain('if (prev.some((m) => m.id === msg.id)) return prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m);');
     expect(app).toContain("msg.role === 'user'");
     expect(app).toContain("msg.role === 'assistant'");
+    expect(app).toContain("m.id.startsWith('assistant_') && m.content === msg.content");
     expect(app).toContain('setMessages((prev) => {');
     expect(app).toContain('const next = mergeWatchedMessage(prev, msg);');
   });

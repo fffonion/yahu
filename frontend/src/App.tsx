@@ -277,10 +277,16 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
     const existing = prev.findIndex((m) => m.role === 'user' && m.content === msg.content);
     if (existing >= 0) return prev.map((m, i) => i === existing ? { ...m, ...msg } : m);
   }
-  // Match pending assistant placeholder for assistant messages from watch
+  // Match pending assistant placeholder for assistant messages from watch.
+  // Local browser-originated streams use a temporary assistant_* id; once the
+  // server persists the same assistant message, the watch endpoint sends the
+  // real id. Merge that persisted copy back into the local card instead of
+  // appending a duplicate after the first streamed turn completes.
   if (msg.role === 'assistant') {
     const pendingIdx = prev.findIndex((m) => m.pending && (m.id === OTHER_PLATFORM_PENDING_ID || m.id.startsWith('assistant_')));
     if (pendingIdx >= 0) return prev.map((m, i) => i === pendingIdx ? { ...m, ...msg, pending: false } : m);
+    const localStreamIdx = prev.findIndex((m) => m.role === 'assistant' && m.id.startsWith('assistant_') && m.content === msg.content && (m.reasoning || '') === (msg.reasoning || ''));
+    if (localStreamIdx >= 0) return prev.map((m, i) => i === localStreamIdx ? { ...m, ...msg, pending: false } : m);
   }
   const withoutStalePending = msg.role === 'assistant'
     ? prev.filter((m) => !(m.pending && m.id === OTHER_PLATFORM_PENDING_ID))
