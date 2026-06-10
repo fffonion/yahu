@@ -586,7 +586,7 @@ export default function App() {
     if (!res.ok) throw new Error(await res.text());
     const body = await res.json();
     return (body.session || body.data || body) as Session;
-  }, [activeSessionDetail?.model, apiBase, headers, model, models]);
+  }, [apiBase, headers, models]);
 
   const startDraftSession = useCallback(() => {
     const sessionModel = realModelOrEmpty(model) || models[0]?.id || '';
@@ -931,8 +931,8 @@ export default function App() {
     if (!trimmed) return;
     if (!sessionId || sessionId === DRAFT_SESSION_ID) { enqueueFollowUp(trimmed, sessionId); return; }
     try {
-      const sessionModel = activeSession?.model || activeSessionDetail?.model || model;
-      const sessionProvider = activeSession?.provider || activeSessionDetail?.provider || (selectedModelProvider && sessionModel === model ? selectedModelProvider : '');
+      const sessionModel = activeSession?.model || activeSessionDetail?.model || modelRef.current;
+      const sessionProvider = activeSession?.provider || activeSessionDetail?.provider || providerRef.current;
       const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(sessionId)}/chat`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(`/steer ${text}`, sessionModel, effort, sessionProvider)) });
       if (!res.ok) throw new Error(await res.text());
       setStatus(`Steered: ${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`);
@@ -978,8 +978,8 @@ export default function App() {
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
     setHasNewer(false);
-    const sessionModel = createdSession?.model || activeSession?.model || activeSessionDetail?.model || model;
-    const sessionProvider = createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || (selectedModelProvider && sessionModel === model ? selectedModelProvider : '');
+    const sessionModel = createdSession?.model || activeSession?.model || activeSessionDetail?.model || modelRef.current;
+    const sessionProvider = createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || providerRef.current;
     if (clearComposer) { setInput(''); setAttachments([]); }
     setStatus('Running');
     if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
