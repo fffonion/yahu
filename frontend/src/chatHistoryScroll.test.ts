@@ -19,4 +19,13 @@ describe('chat history infinite scroll', () => {
     expect(styles).toContain('.history-loading');
     expect(styles).toContain('pointer-events:none');
   });
+
+  test('desktop empty chat centers the title line in the blank area without changing mobile', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('className="empty-state chat-empty-state"');
+    expect(styles).toContain('.chat-empty-state{--chat-empty-title-offset:8px}');
+    expect(styles).toContain('@media(min-width:761px){.chat-empty-state{transform:translateY(var(--chat-empty-title-offset))}');
+    expect(styles).not.toContain('@media (max-width: 760px){.chat-empty-state{transform');
+  });
 });
