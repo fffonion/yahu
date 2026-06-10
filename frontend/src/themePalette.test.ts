@@ -25,6 +25,7 @@ describe('full palette theme control', () => {
     expect(styles).toContain('--editor-bg:#ffffff;--editor-text:#333333;--syntax-keyword:#0000ff;--syntax-string:#a31515;--syntax-number:#098658;--syntax-comment:#008000;');
     expect(styles).toContain(':root[data-theme="hermes-dark"]{--bg:#0D0D1A;--sidebar:#141425;--surface:#1A1A2E;');
     expect(styles).toContain(':root[data-theme="hermes-light"]{--bg:#FEFCF7;--sidebar:#FAF7F0;--surface:#F3EEE3;');
+    expect(styles).toContain(':root[data-theme="vscode-light-plus"] .send-btn,:root[data-theme="vscode-light-plus"] .save-memory,:root[data-theme="hermes-light"] .send-btn,:root[data-theme="hermes-light"] .save-memory{color:#fff}');
   });
 
   test('workspace editor and markdown code use theme editor tokens', () => {
