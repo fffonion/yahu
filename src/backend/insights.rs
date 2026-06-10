@@ -3,6 +3,7 @@ const INSIGHTS_PAGE_SIZE: usize = 200;
 const INSIGHTS_SCAN_LIMIT: usize = 5_000;
 const INSIGHTS_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const FX_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 type ModelPriceCatalog = HashMap<String, ModelPrice>;
 
@@ -248,6 +249,54 @@ async fn insights_usage(State(state): State<Arc<AppState>>) -> Response<Body> {
             &format!("insights API request failed: {err}"),
         ),
     }
+}
+
+async fn insights_fx(State(state): State<Arc<AppState>>) -> Response<Body> {
+    match fetch_fx_rates(&state).await {
+        Ok(body) => Json(body).into_response(),
+        Err(err) => json_error(StatusCode::BAD_GATEWAY, &format!("fx request failed: {err}")),
+    }
+}
+
+async fn fetch_fx_rates(state: &AppState) -> anyhow::Result<serde_json::Value> {
+    {
+        let cache = state.fx_cache.read().await;
+        if let Some(body) = fresh_model_cache_body(&cache, FX_CACHE_TTL) {
+            return Ok(body);
+        }
+    }
+    let resp = timeout(
+        INSIGHTS_REQUEST_TIMEOUT,
+        state
+            .client
+            .get(state.fx_url.as_str())
+            .header(header::USER_AGENT, concat!("yahu/", env!("CARGO_PKG_VERSION")))
+            .send(),
+    )
+    .await??;
+    if !resp.status().is_success() {
+        anyhow::bail!("fx request failed: {}", resp.status());
+    }
+    let raw = resp.json::<serde_json::Value>().await?;
+    let rates = raw
+        .get("rates")
+        .and_then(|value| value.as_object())
+        .cloned()
+        .unwrap_or_default();
+    let body = serde_json::json!({
+        "object": "yahu.insights.fx",
+        "base": "USD",
+        "date": raw.get("date").cloned().unwrap_or(serde_json::Value::Null),
+        "rates": {
+            "USD": 1.0,
+            "CNY": rates.get("CNY").and_then(|value| value.as_f64()).unwrap_or(0.0),
+            "JPY": rates.get("JPY").and_then(|value| value.as_f64()).unwrap_or(0.0),
+        }
+    });
+    let mut cache = state.fx_cache.write().await;
+    cache.fetched_at = Some(std::time::Instant::now());
+    cache.body = Some(body.clone());
+    Ok(body)
 }
 
 async fn fetch_models_dev_price_catalog(state: &AppState) -> anyhow::Result<ModelPriceCatalog> {

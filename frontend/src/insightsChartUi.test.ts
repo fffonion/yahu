@@ -10,7 +10,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('className="chart-y-axis"');
     expect(app).toContain('className="chart-point-hit"');
     expect(app).toContain('className="chart-tooltip"');
-    expect(app).toContain('aria-label={chartTooltipLabel');
+    expect(app).toContain('aria-label={label}');
   });
 
   test('hides datapoint dots until hover or keyboard focus', () => {
@@ -41,6 +41,16 @@ describe('insights chart UI', () => {
     expect(css).toContain('.skeleton-number{width:min(78%,190px);height:31px}');
     expect(css).toContain('.usage-chart-loading{min-height:260px;display:grid;place-items:center;');
     expect(css).toContain('.model-skeleton-list{display:grid;gap:10px}');
+  });
+
+  test('renders cost metric option and per-model cost sublabel', () => {
+    const app = appSource();
+    const css = cssSource();
+    expect(app).toContain('metricLabels.cost_usd');
+    expect(app).toContain('className="model-value"');
+    expect(app).toContain('className="model-cost-sub"');
+    expect(css).toContain('.model-value{display:grid;justify-items:end;gap:3px}');
+    expect(css).toContain('.model-cost-sub{font-size:11px;color:var(--muted);line-height:1}');
   });
 
   test('keeps metric card glow away from rounded corners in light themes', () => {

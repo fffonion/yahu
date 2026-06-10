@@ -102,6 +102,13 @@ struct Args {
         default_value = "https://models.dev/api.json"
     )]
     models_dev_url: String,
+
+    #[arg(
+        long,
+        env = "HERMES_WEBUI_FX_URL",
+        default_value = "https://open.er-api.com/v6/latest/USD"
+    )]
+    fx_url: String,
 }
 
 #[derive(Clone)]
@@ -119,6 +126,8 @@ struct AppState {
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
     models_dev_url: String,
+    fx_cache: Arc<RwLock<ModelCache>>,
+    fx_url: String,
 }
 
 #[derive(Deserialize)]
@@ -236,6 +245,8 @@ pub async fn run() -> anyhow::Result<()> {
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
         models_dev_url: args.models_dev_url,
+        fx_cache: Arc::new(RwLock::new(ModelCache::default())),
+        fx_url: args.fx_url,
     });
 
     let app = Router::new()
@@ -259,6 +270,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/chat/messages/{session_id}", get(chat_messages_page))
         .route("/chat/attachments", post(chat_upload_attachments))
         .route("/insights/usage", get(insights_usage))
+        .route("/insights/fx", get(insights_fx))
         .route("/chat/watch/{session_id}", get(chat_watch))
         .route("/image-api/images", get(list_images))
         .route("/image-api/images/refresh", get(refresh_images))

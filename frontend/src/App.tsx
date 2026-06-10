@@ -8,7 +8,7 @@ import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
-import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageTotals } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelPeriodTotals, periodSlice, type CurrencyRates, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
 
@@ -381,6 +381,7 @@ export default function App() {
   const [usageError, setUsageError] = useState('');
   const [usagePeriod, setUsagePeriod] = useState<1 | 7 | 30>(7);
   const [usageMetric, setUsageMetric] = useState<UsageMetric>('total_tokens');
+  const [currencyRates, setCurrencyRates] = useState<CurrencyRates>({ USD: 1 });
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
@@ -477,9 +478,16 @@ export default function App() {
     setUsageLoading(true);
     setUsageError('');
     try {
-      const res = await fetch('/insights/usage');
-      if (!res.ok) throw new Error(await res.text());
-      setUsageInsights(await res.json());
+      const [usageRes, fxRes] = await Promise.all([
+        fetch('/insights/usage'),
+        fetch('/insights/fx').catch(() => null),
+      ]);
+      if (!usageRes.ok) throw new Error(await usageRes.text());
+      setUsageInsights(await usageRes.json());
+      if (fxRes?.ok) {
+        const fx = await fxRes.json();
+        setCurrencyRates({ USD: 1, ...(fx.rates || {}) });
+      }
     } catch (err: any) {
       setUsageError(err?.message || 'Usage insights unavailable');
     } finally {
@@ -1180,7 +1188,7 @@ export default function App() {
       </>}
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} />}
-      {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} />}
+      {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} currencyRates={currencyRates} lang={lang} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} />}
       {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
@@ -1242,7 +1250,7 @@ function ModeSidebar({ mode }: { mode: Mode }) {
   return <div className="admin-side"><h2>{label}</h2><p>{text}</p></div>;
 }
 
-function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void }) {
+function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; currencyRates: CurrencyRates; lang: Lang; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void }) {
   const periodData = props.insights?.periods?.find((item) => item.days === props.period);
   const totals = periodData?.totals || emptyTotals();
   const models = useMemo(() => (props.insights?.models || [])
@@ -1254,6 +1262,8 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   const activeDays = periodSlice(props.insights?.daily || [], props.period);
   const periodLabel = `${props.period}d`;
   const showSkeleton = props.loading;
+  const fmtCost = (value: number | undefined) => fmtMoney(value, props.lang, props.currencyRates);
+  const costMetricLabel = metricLabels.cost_usd;
   return <main className={`main-panel insights-main ${showSkeleton ? 'insights-loading' : ''}`}>
     <header className="chat-header header-no-drawer insights-header">
       <div><h1>Insights</h1><span>{showSkeleton ? 'Loading usage…' : props.error || `Last ${periodLabel} · ${fmtTokens(totals.total_tokens)} tokens`}</span></div>
@@ -1273,16 +1283,16 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         </> : <>
           <InsightCard label="Tokens" value={fmtTokens(totals.total_tokens)} detail={`${fmtTokens(totals.input)} in · ${fmtTokens(totals.output)} out`} />
           <InsightCard label="Cache hit" value={fmtPercent(totals.cache_hit_rate)} detail={`${fmtTokens(totals.cache_read)} read · ${fmtTokens(totals.cache_write)} write`} />
-          <InsightCard label="Cost" value={fmtMoney(totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd)} detail={totals.unpriced_tokens ? `${fmtTokens(totals.unpriced_tokens)} unpriced · ${totals.api_calls || 0} API calls` : `${totals.sessions || 0} sessions · ${totals.api_calls || 0} API calls`} />
+          <InsightCard label={costMetricLabel} value={fmtCost(totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd)} detail={totals.unpriced_tokens ? `${fmtTokens(totals.unpriced_tokens)} unpriced · ${totals.api_calls || 0} API calls` : `${totals.sessions || 0} sessions · ${totals.api_calls || 0} API calls`} />
           <InsightCard label="Top model" value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || 'No usage'} />
         </>}
       </div>
       <section className="insights-chart-card">
         <div className="insights-card-head"><div><h2>{metricLabels[props.metric]} by model</h2><p>Recent {periodLabel} trend with cache/input/output usage</p></div><LineChart /></div>
-        {showSkeleton ? <UsageChartSkeleton /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} />}
+        {showSkeleton ? <UsageChartSkeleton /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} lang={props.lang} currencyRates={props.currencyRates} />}
       </section>
       <div className="insights-grid">
-        <section className="insights-panel"><h2>Models</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
+        <section className="insights-panel"><h2>Models</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} lang={props.lang} currencyRates={props.currencyRates} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
         <section className="insights-panel"><h2>Other signals</h2>{showSkeleton ? <SignalSkeletonList /> : <><SignalRow name="Reasoning" value={fmtTokens(totals.reasoning)} /><SignalRow name="Tools" value={`${totals.tool_calls || 0}`} /><SignalRow name="Avg/session" value={fmtTokens(totals.avg_tokens_per_session)} /><SignalRow name="Sources" value={(props.insights?.sources || []).slice(0, 3).map((item) => `${item.source} ${fmtTokens(item.totals.total_tokens)}`).join(' · ') || '—'} /></>}</section>
       </div>
     </section>
@@ -1306,12 +1316,12 @@ function SignalSkeletonList() {
 function SignalRow({ name, value }: { name: string; value: string }) {
   return <div className="signal-row"><span>{name}</span><strong>{value}</strong></div>;
 }
-function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: UsageTotals }; rank: number }) {
+function ModelUsageRow({ model, rank, lang, currencyRates }: { model: UsageModel & { periodTotals: UsageTotals }; rank: number; lang: Lang; currencyRates: CurrencyRates }) {
   const max = Math.max(1, model.periodTotals.total_tokens);
   const cache = Math.min(100, Math.round((model.periodTotals.cache_read / max) * 100));
-  return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><p>{fmtTokens(model.periodTotals.input)} input · {fmtTokens(model.periodTotals.output)} output · {fmtPercent(model.periodTotals.cache_hit_rate)} cache</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
+  return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd, lang, currencyRates)}</small></div><p>{fmtTokens(model.periodTotals.input)} input · {fmtTokens(model.periodTotals.output)} output · {fmtPercent(model.periodTotals.cache_hit_rate)} cache</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
 }
-function UsageAreaChart({ days, models, metric }: { days: UsageDay[]; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
+function UsageAreaChart({ days, models, metric, lang, currencyRates }: { days: UsageDay[]; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric; lang: Lang; currencyRates: CurrencyRates }) {
   const width = 720;
   const height = 260;
   const pad = { top: 14, right: 18, bottom: 28, left: 58 };
@@ -1319,7 +1329,7 @@ function UsageAreaChart({ days, models, metric }: { days: UsageDay[]; models: Ar
   const totalValues = days.map((day) => metricValue(day, metric));
   const allValues = [...totalValues, ...series.flatMap((item) => item.values)];
   const maxValue = Math.max(1, ...allValues);
-  const yTicks = chartYAxisTicks(allValues, 4);
+  const yTicks = chartYAxisTicks(allValues, 4, (value) => formatMetricValue(metric, value, lang, currencyRates));
   return <div className="usage-chart" data-series-count={series.length}>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Usage trend chart" preserveAspectRatio="none">
       <defs>{series.map((item) => <linearGradient key={item.model} id={`insight-grad-${item.index}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={`var(--chart-${item.index})`} stopOpacity=".52" /><stop offset="100%" stopColor={`var(--chart-${item.index})`} stopOpacity=".03" /></linearGradient>)}</defs>
@@ -1331,7 +1341,7 @@ function UsageAreaChart({ days, models, metric }: { days: UsageDay[]; models: Ar
       </g>)}
     </svg>
     <div className="chart-y-axis" aria-hidden="true">{yTicks.map((tick, tickIndex) => <span key={`${tickIndex}-${tick.label}`} style={{ top: `${tick.pct}%` }}>{tick.label}</span>)}</div>
-    <div className="chart-points">{series.map((item) => item.values.map((value, pointIndex) => { const day = days[pointIndex]; const point = chartPoint(pointIndex, value, item.values.length, width, height, pad, maxValue); return <span key={`${item.model}-${day?.date || pointIndex}`} className="chart-point-hit" tabIndex={0} aria-label={chartTooltipLabel(item.model, day?.label || '', value, metricLabels[metric])} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{chartTooltipLabel(item.model, day?.label || '', value, metricLabels[metric])}</span></span>; }))}</div>
+    <div className="chart-points">{series.map((item) => item.values.map((value, pointIndex) => { const day = days[pointIndex]; const point = chartPoint(pointIndex, value, item.values.length, width, height, pad, maxValue); const label = chartTooltipLabel(item.model, day?.label || '', value, metricLabels[metric], formatMetricValue(metric, value, lang, currencyRates)); return <span key={`${item.model}-${day?.date || pointIndex}`} className="chart-point-hit" tabIndex={0} aria-label={label} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{label}</span></span>; }))}</div>
     <div className="chart-axis">{days.map((day, index) => <span key={day.date} style={{ left: `${days.length === 1 ? 50 : (index / (days.length - 1)) * 100}%` }}>{index === 0 || index === days.length - 1 || days.length <= 7 ? day.label : ''}</span>)}</div>
     <div className="chart-legend">{series.map((item) => <span key={item.model}><i style={{ background: `var(--chart-${item.index})` }} />{item.model}</span>)}</div>
   </div>;

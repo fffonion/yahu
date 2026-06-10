@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtPercent, fmtTokens, linePath, modelPeriodTotals, type UsageModel } from './insights';
+import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, currencyForLang, emptyTotals, finalizeTotals, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelPeriodTotals, type UsageModel } from './insights';
 
 describe('insights helpers', () => {
   test('formats token and percent metrics compactly', () => {
@@ -59,5 +59,20 @@ describe('insights helpers', () => {
     const totals = finalizeTotals(modelPeriodTotals(model, 2));
     expect(totals.cost_usd).toBeCloseTo(0.3, 6);
     expect(totals.unpriced_tokens).toBe(10);
+  });
+
+  test('includes cost as a chart metric option', () => {
+    expect(metricLabels.cost_usd).toBe('Cost');
+  });
+
+  test('formats USD model costs in display currency selected by language', () => {
+    const rates = { USD: 1, CNY: 7.2, JPY: 155 };
+    expect(currencyForLang('en', rates)).toBe('USD');
+    expect(currencyForLang('zh-CN', rates)).toBe('CNY');
+    expect(currencyForLang('zh-TW', rates)).toBe('CNY');
+    expect(currencyForLang('ja', rates)).toBe('JPY');
+    expect(fmtMoney(1.25, 'en', rates)).toBe('$1.25');
+    expect(fmtMoney(1.25, 'zh-CN', rates)).toBe('¥9.00');
+    expect(fmtMoney(1.25, 'ja', rates)).toBe('￥194');
   });
 });
