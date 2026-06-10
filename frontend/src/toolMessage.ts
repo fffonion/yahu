@@ -1,5 +1,8 @@
 export type ToolField = { key: string; value: string };
-export type ToolSummary = { title: string; toolName: string; subtitle: string; fields: ToolField[]; raw: unknown; status: string };
+export type ToolSummary = { title: string; toolName: string; subtitle: string; fields: ToolField[]; raw: unknown; input?: unknown; result: unknown; status: string };
+
+const INPUT_KEYS = ['arguments', 'args', 'params', 'parameters', 'input', 'tool_input', 'tool_args', 'request'];
+const META_KEYS = new Set(['source', 'tool_name', 'name', 'tool', 'recipient_name', 'function', 'status', 'success', ...INPUT_KEYS]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -38,7 +41,43 @@ function cleanToolName(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
-export function summarizeToolMessage(content: string, fallbackToolName = ''): ToolSummary {
+function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed || !/^[\[{]/.test(trimmed)) return value;
+  try { return JSON.parse(trimmed); } catch { return value; }
+}
+
+function firstDefined(record: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null && value !== '') return parseMaybeJson(value);
+  }
+  return undefined;
+}
+
+function invocationFromRecord(root: Record<string, unknown> | null): unknown {
+  if (!root) return undefined;
+  const direct = firstDefined(root, INPUT_KEYS);
+  if (direct !== undefined) return direct;
+  const toolCall = asRecord(root.tool_call);
+  const nestedToolCall = firstDefined(toolCall || {}, INPUT_KEYS);
+  if (nestedToolCall !== undefined) return nestedToolCall;
+  const fn = asRecord(root.function);
+  return firstDefined(fn || {}, ['arguments', 'args', 'params', 'parameters']);
+}
+
+function resultFromRecord(root: Record<string, unknown> | null, parsed: unknown): unknown {
+  if (!root) return parsed;
+  const primary = firstDefined(root, ['result', 'output', 'message', 'content', 'data', 'error']);
+  if (primary !== undefined) return primary;
+  const entries = Object.entries(root).filter(([key]) => !META_KEYS.has(key));
+  if (!entries.length) return parsed;
+  if (entries.length === 1) return entries[0][1];
+  return Object.fromEntries(entries);
+}
+
+export function summarizeToolMessage(content: string, fallbackToolName = '', fallbackInput?: unknown): ToolSummary {
   const parsed = parseUntrustedToolResult(content) ?? tryParseJson(content);
   const root = asRecord(parsed);
   const contentToolName = cleanToolName(root?.source) || cleanToolName(root?.tool_name) || cleanToolName(root?.name) || cleanToolName(root?.tool) || cleanToolName(root?.recipient_name) || cleanToolName(root?.function);
@@ -65,6 +104,7 @@ export function summarizeToolMessage(content: string, fallbackToolName = ''): To
 
   if (root) {
     push('source', root.source);
+    push('input', invocationFromRecord(root));
     push('result', root.result ?? root.output ?? root.message ?? root.content);
     push('error', root.error);
     push('path', root.path ?? root.file ?? root.resolved_path);
@@ -80,5 +120,6 @@ export function summarizeToolMessage(content: string, fallbackToolName = ''): To
     || fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value
     || (root ? `${Object.keys(root).length} fields` : content);
 
-  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, status };
+  const input = invocationFromRecord(root) ?? parseMaybeJson(fallbackInput);
+  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status };
 }

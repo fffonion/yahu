@@ -18,7 +18,7 @@ type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | '
 type Role = 'user' | 'assistant' | 'system' | 'tool';
 type FollowUpBehaviour = 'queue' | 'steer';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
@@ -240,6 +240,16 @@ function rawToolName(raw: any) {
   }
   return undefined;
 }
+function rawToolInput(raw: any) {
+  if (raw?.role !== 'tool') return undefined;
+  const candidates = [raw.arguments, raw.args, raw.params, raw.parameters, raw.input, raw.tool_input, raw.tool_args, raw.request, raw.tool_call?.arguments, raw.tool_call?.args, raw.tool_call?.params, raw.tool_call?.parameters];
+  const fn = asRecordish(raw.function);
+  if (fn) candidates.push(fn.arguments, fn.args, fn.params, fn.parameters);
+  for (const value of candidates) {
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return undefined;
+}
 function asRecordish(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -253,6 +263,7 @@ function normalizeMessage(raw: any): ChatMessage {
     reasoning: parts.reasoning,
     timestamp: raw.timestamp,
     toolName: rawToolName(raw),
+    toolInput: rawToolInput(raw),
   };
 }
 function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
@@ -1376,6 +1387,10 @@ function StructuredValue({ value }: { value: unknown }) {
   return <span className={`tool-scalar ${typeof value}`}>{String(value)}</span>;
 }
 
+function ToolDetailSection({ title, value }: { title: string; value: unknown }) {
+  return <section className="tool-detail-section"><h4>{title}</h4><StructuredValue value={value} /></section>;
+}
+
 function getToolIcon(toolName: string): React.ReactNode {
   const name = (toolName || '').toLowerCase().replace(/^functions\./, '');
   if (name.startsWith('browser_')) return <Globe />;
@@ -1411,7 +1426,7 @@ function getToolIcon(toolName: string): React.ReactNode {
 
 function ToolMessageView({ message }: { message: ChatMessage }) {
   const [expanded, setExpanded] = useState(false);
-  const summary = useMemo(() => summarizeToolMessage(message.content, message.toolName), [message.content, message.toolName]);
+  const summary = useMemo(() => summarizeToolMessage(message.content, message.toolName, message.toolInput), [message.content, message.toolName, message.toolInput]);
   const toolName = summary.toolName;
   const isError = summary.status !== 'ok';
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`}>
@@ -1423,7 +1438,10 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
         <span className="tool-subtitle">{summary.subtitle}</span>
         <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
       </button>
-      {expanded && <div className="tool-detail"><StructuredValue value={summary.raw} /></div>}
+      {expanded && <div className="tool-detail">
+        {summary.input !== undefined && <ToolDetailSection title="Invocation" value={summary.input} />}
+        <ToolDetailSection title="Result" value={summary.result} />
+      </div>}
     </div>
   </article>;
 }

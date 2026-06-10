@@ -7,6 +7,18 @@ describe('summarizeToolMessage', () => {
     expect(summary.title).toBe('read file');
     expect(summary.subtitle).toBe('read 10 lines');
     expect(summary.fields).toContainEqual({ key: 'path', value: '/tmp/a.txt' });
+    expect(summary.result).toBe('read 10 lines');
+  });
+
+  test('preserves invocation parameters from tool content and external API fields', () => {
+    const fromContent = summarizeToolMessage(JSON.stringify({ tool_name: 'read_file', arguments: { path: '/tmp/a.txt', limit: 20 }, result: 'read 20 lines' }));
+    expect(fromContent.input).toEqual({ path: '/tmp/a.txt', limit: 20 });
+    expect(fromContent.result).toBe('read 20 lines');
+    expect(fromContent.fields).toContainEqual({ key: 'input', value: '{"path":"/tmp/a.txt","limit":20}' });
+
+    const fromFallback = summarizeToolMessage('plain terminal output', 'functions.terminal', '{"command":"pwd","timeout":120}');
+    expect(fromFallback.input).toEqual({ command: 'pwd', timeout: 120 });
+    expect(fromFallback.result).toBe('plain terminal output');
   });
 
   test('uses untrusted tool result source as the displayed tool name', () => {
