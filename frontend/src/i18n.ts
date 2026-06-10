@@ -139,6 +139,9 @@ const translations: Record<string, Record<string, string>> = {
   'settings.language': { en: 'Language', 'zh-CN': '语言', 'zh-TW': '語言', ja: '言語' },
   'settings.theme': { en: 'Theme', 'zh-CN': '主题', 'zh-TW': '主題', ja: 'テーマ' },
   'settings.followUpBehaviour': { en: 'Follow-up behaviour', 'zh-CN': '追问行为', 'zh-TW': '追問行為', ja: 'フォローアップ動作' },
+  'settings.composerEnterMode': { en: 'Composer Enter key', 'zh-CN': '输入框回车键', 'zh-TW': '輸入框 Enter 鍵', ja: '入力欄のEnterキー' },
+  'settings.enterSend': { en: 'Enter sends; Ctrl+Enter inserts newline', 'zh-CN': 'Enter 发送；Ctrl+Enter 换行', 'zh-TW': 'Enter 傳送；Ctrl+Enter 換行', ja: 'Enterで送信、Ctrl+Enterで改行' },
+  'settings.enterNewline': { en: 'Enter inserts newline; Ctrl+Enter sends', 'zh-CN': 'Enter 换行；Ctrl+Enter 发送', 'zh-TW': 'Enter 換行；Ctrl+Enter 傳送', ja: 'Enterで改行、Ctrl+Enterで送信' },
   
 'settings.refreshConn': { en: 'Refresh connection', 'zh-CN': '刷新连接', 'zh-TW': '重新整理連線', ja: '接続を更新' },
 'settings.update': { en: 'Update', 'zh-CN': '更新', 'zh-TW': '更新', ja: 'アップデート' },
@@ -187,6 +190,12 @@ const translations: Record<string, Record<string, string>> = {
 
   // Misc
   'misc.messages': { en: 'messages', 'zh-CN': '条消息', 'zh-TW': '條訊息', ja: 'メッセージ' },
+
+  // New messages
+  'chat.newMessages': { en: 'New messages', 'zh-CN': '新消息', 'zh-TW': '新訊息', ja: '新しいメッセージ' },
+  'chat.newMessagesCount': { en: '{n} new messages', 'zh-CN': '{n} 条新消息', 'zh-TW': '{n} 條新訊息', ja: '{n}件の新しいメッセージ' },
+  'chat.newMessageCount': { en: '1 new message', 'zh-CN': '1 条新消息', 'zh-TW': '1 條新訊息', ja: '1件の新しいメッセージ' },
+
 };
 
 export type Lang = 'en' | 'zh-CN' | 'zh-TW' | 'ja';

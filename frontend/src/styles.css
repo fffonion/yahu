@@ -67,3 +67,11 @@ select,input,textarea{border-radius:var(--radius-md)}
 
 .followup-queue{display:grid;gap:6px;padding:8px 12px 0;background:var(--surface)}.followup-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:6px;min-height:34px;padding:6px 8px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2);transition:opacity .15s,box-shadow .15s}.followup-item.dragging{opacity:.45}.followup-item.drag-over{box-shadow:0 -2px 0 0 var(--accent)}.followup-drag-handle{display:grid;place-items:center;cursor:grab;color:var(--muted);padding:2px;border-radius:6px;touch-action:none}.followup-drag-handle:hover{background:var(--accent-soft);color:var(--accent)}.followup-drag-handle:active{cursor:grabbing}.followup-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:13px}.followup-action{height:26px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);display:inline-grid;place-items:center;padding:0 8px;cursor:pointer}.followup-action:hover{background:var(--accent-soft);color:var(--accent)}.followup-action svg{width:14px;height:14px}
 @media (max-width:760px){.followup-queue{padding:6px 8px 0}.followup-item{grid-template-columns:auto minmax(0,1fr) auto auto;padding:5px 6px}.followup-action{height:24px;padding:0 6px;font-size:11px}.followup-drag-handle{padding:1px}}
+
+/* New messages separator */
+.new-messages-separator{display:flex;align-items:center;gap:12px;padding:8px 0;user-select:none}
+.new-messages-separator::before,.new-messages-separator::after{content:'';flex:1;height:1px;background:var(--accent)}
+.new-messages-label{font-size:12px;font-weight:500;color:var(--accent);white-space:nowrap;letter-spacing:.02em}
+
+/* Floating new messages bubble */
+.new-messages-bubble{position:absolute;left:50%;transform:translateX(-50%);bottom:100%;margin-bottom:6px;z-index:160;padding:6px 16px;border:1px solid var(--accent);border-radius:999px;background:var(--accent);color:#fff;font-size:13px;font-weight:500;cursor:pointer;box-shadow:0 4px 16px color-mix(in srgb,var(--accent) 30%,transparent);transition:opacity .2s,transform .2s;white-space:nowrap}.new-messages-bubble:hover{opacity:.9;transform:translateX(-50%) translateY(-2px)}

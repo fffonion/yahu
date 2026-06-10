@@ -23,7 +23,7 @@ describe('chat reasoning display toggle', () => {
 
   test('assistant messages render reasoning only when the toggle is enabled', () => {
     const source = app();
-    expect(source).toContain("<MessageView key={m.id} message={m} showReasoning={props.showReasoning} />");
+    expect(source).toContain("<MessageView message={m} showReasoning={props.showReasoning} />");
     expect(source).toContain("message.reasoning && showReasoning");
     expect(source).toContain("className=\"msg-reasoning\"");
   });

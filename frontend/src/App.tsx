@@ -17,6 +17,7 @@ type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
 type Role = 'user' | 'assistant' | 'system' | 'tool';
 type FollowUpBehaviour = 'queue' | 'steer';
+type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
 type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
@@ -40,6 +41,7 @@ const DEFAULT_API_BASE = '/hermes';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
+const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const THEME_OPTIONS: Array<{ id: Theme; label: string }> = [
   { id: 'hermes-light', label: 'Hermes Light' },
   { id: 'hermes-dark', label: 'Hermes Dark' },
@@ -61,6 +63,7 @@ const normalizeTheme = (value: string | null): Theme => {
 const isDarkTheme = (value: Theme) => DARK_THEMES.has(value);
 const themeLabel = (value: Theme) => THEME_OPTIONS.find((item) => item.id === value)?.label || value;
 const normalizeFollowUpBehaviour = (value: string | null): FollowUpBehaviour => value === 'steer' ? 'steer' : 'queue';
+const normalizeComposerEnterMode = (value: string | null): ComposerEnterMode => value === 'enter-newline' ? 'enter-newline' : 'enter-send';
 const readFollowUpQueues = (): Record<string, FollowUpQueueItem[]> => {
   try {
     const parsed = JSON.parse(localStorage.getItem(FOLLOW_UP_QUEUES_KEY) || '{}');
@@ -372,6 +375,7 @@ export default function App() {
   const [model, setModelState] = useState(readStoredModel);
   const [selectedModelProvider, setSelectedModelProvider] = useState('');
   const [followUpBehaviour, setFollowUpBehaviour] = useState<FollowUpBehaviour>(() => normalizeFollowUpBehaviour(localStorage.getItem(FOLLOW_UP_BEHAVIOUR_KEY)));
+  const [composerEnterMode, setComposerEnterMode] = useState<ComposerEnterMode>(() => normalizeComposerEnterMode(localStorage.getItem(COMPOSER_ENTER_MODE_KEY)));
   const [followUpQueues, setFollowUpQueues] = useState<Record<string, FollowUpQueueItem[]>>(readFollowUpQueues);
   const [effort, setEffort] = useState<(typeof EFFORTS)[number]>(() => (localStorage.getItem('effort') as (typeof EFFORTS)[number]) || 'medium');
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -387,6 +391,7 @@ export default function App() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const setStatus = useCallback((_value: string) => {}, []);
   const [busy, setBusy] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
   const [workspacePath, setWorkspacePath] = useState('');
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
   const [skillList, setSkillList] = useState<Skill[]>([]);
@@ -481,6 +486,7 @@ export default function App() {
   useEffect(() => localStorage.setItem('apiKey', apiKey), [apiKey]);
   useEffect(() => { const next = realModelOrEmpty(model); if (next) localStorage.setItem('model', next); }, [model]);
   useEffect(() => localStorage.setItem(FOLLOW_UP_BEHAVIOUR_KEY, followUpBehaviour), [followUpBehaviour]);
+  useEffect(() => localStorage.setItem(COMPOSER_ENTER_MODE_KEY, composerEnterMode), [composerEnterMode]);
   useEffect(() => localStorage.setItem('effort', effort), [effort]);
   useEffect(() => localStorage.setItem('showReasoning', showReasoning ? '1' : '0'), [showReasoning]);
   useEffect(() => localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds))), [pinnedIds]);
@@ -813,6 +819,7 @@ export default function App() {
   useEffect(() => { if (activeSessionId) { loadSessionDetail(activeSessionId); if (skipNextHistoryLoadRef.current === activeSessionId) { skipNextHistoryLoadRef.current = ''; return; } loadMessageWindow(activeSessionId, 'latest'); } }, [activeSessionId]);
   useEffect(() => {
     if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
+    setNewMessageCount(0);
     if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
     const es = new EventSource(`/chat/watch/${encodeURIComponent(activeSessionId)}`);
     watchSourceRef.current = es;
@@ -821,8 +828,19 @@ export default function App() {
       try {
         const raw = JSON.parse(ev.data);
         const msg = normalizeMessage(raw);
-        setMessages((prev) => mergeWatchedMessage(prev, msg));
+        let didAppend = false;
+        setMessages((prev) => {
+          const next = mergeWatchedMessage(prev, msg);
+          didAppend = next.length > prev.length || (next.length === prev.length && next[next.length - 1]?.id !== prev[prev.length - 1]?.id);
+          return next;
+        });
+        const wasNearBottom = chatScrollRef.current && isNearBottom(chatScrollRef.current);
         scrollToBottom();
+        if (wasNearBottom) {
+          setNewMessageCount(0);
+        } else if (didAppend) {
+          setNewMessageCount((n) => n + 1);
+        }
         setStatus(t('chat.streamingOther'));
       } catch { /* ignore */ }
     };
@@ -1061,6 +1079,7 @@ export default function App() {
   const sendMessage = async () => {
     const text = input.trim();
     if (!text && attachments.length === 0) return;
+    setNewMessageCount(0);
     if (busy) {
       if (!text) return;
       if (followUpBehaviour === 'steer') await steerFollowUp(text);
@@ -1251,7 +1270,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} onClearNewMessages={() => { setNewMessageCount(0); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -1263,7 +1282,7 @@ export default function App() {
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
-      {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} />}
+      {mode === 'settings' && <SettingsMain apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} aria-label="Chat"><MessageSquare /></button>
@@ -1588,6 +1607,7 @@ function ChatMain(props: any) {
     if (isMobile && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (el.scrollTop < 80 && props.hasOlder && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'older');
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 80 && props.hasNewer && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'newer');
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120 && props.newMessageCount > 0) props.onClearNewMessages();
   };
   const sessionModel = realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id || '';
   const currentModel = sessionModel;
@@ -1601,13 +1621,22 @@ function ChatMain(props: any) {
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={collapseComposerForHistory}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {props.messages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
-      {props.messages.map((m: ChatMessage) => <MessageView key={m.id} message={m} showReasoning={props.showReasoning} />)}
+      {(() => {
+        const splitIdx = props.newMessageCount > 0 ? Math.max(0, props.messages.length - props.newMessageCount) : -1;
+        return props.messages.map((m: ChatMessage, i: number) => (
+          <React.Fragment key={m.id}>
+            {i === splitIdx && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
+            <MessageView message={m} showReasoning={props.showReasoning} />
+          </React.Fragment>
+        ));
+      })()}
     </section>
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
+      {props.newMessageCount > 0 && <button className="new-messages-bubble" onClick={props.onClearNewMessages} aria-label={t('chat.newMessages')}>{props.newMessageCount === 1 ? t('chat.newMessageCount') : t('chat.newMessagesCount').replace('{n}', String(props.newMessageCount))}</button>}
       <FollowUpQueueView items={props.followUpQueue || []} onSteer={props.onSteerQueuedItem} onEdit={props.onEditQueuedItem} onReorder={props.onReorderQueuedItem} />
       <div className="attachments">{props.attachments.map((a: Attachment) => <span className={`att ${a.kind}`} key={a.id}>{a.kind === 'image' ? <ImageIcon /> : <FileText />} {a.name} <button onClick={() => props.setAttachments((old: Attachment[]) => old.filter((x) => x.id !== a.id))}><X /></button></span>)}</div>
       <div className="composer-box" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); props.onFiles(e.dataTransfer.files); }}>
-        <textarea value={props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) props.sendMessage(); }} />
+        <textarea value={props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key !== 'Enter' || e.shiftKey || (e.nativeEvent as KeyboardEvent).isComposing) return; const modified = e.metaKey || e.ctrlKey; const shouldSend = props.composerEnterMode === 'enter-newline' ? modified : !modified; if (!shouldSend) return; e.preventDefault(); props.sendMessage(); }} />
         <div className="composer-footer">
           <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
@@ -1769,7 +1798,7 @@ function MemoryPanel({ setStatus }: { setStatus: (v: string) => void }) {
   const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); setStatus(res.ok ? t('memory.saved') : await res.text()); };
   return <section className="admin-content memory-grid"><label><span>MEMORY.md</span><textarea value={doc.memory} onChange={(e) => setDoc({ ...doc, memory: e.target.value })}/></label><label><span>USER.md</span><textarea value={doc.user} onChange={(e) => setDoc({ ...doc, user: e.target.value })}/></label><button className="save-memory" onClick={save}>{t('memory.save')}</button></section>;
 }
-function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void; apiKey: string; setApiKey: (v: string) => void; loadModels: () => void; loadSessions: () => void; theme: Theme; setTheme: (v: Theme) => void; lang: Lang; setLang: (v: Lang) => void; followUpBehaviour: FollowUpBehaviour; setFollowUpBehaviour: (v: FollowUpBehaviour) => void }) {
+function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void; apiKey: string; setApiKey: (v: string) => void; loadModels: () => void; loadSessions: () => void; theme: Theme; setTheme: (v: Theme) => void; lang: Lang; setLang: (v: Lang) => void; followUpBehaviour: FollowUpBehaviour; setFollowUpBehaviour: (v: FollowUpBehaviour) => void; composerEnterMode: ComposerEnterMode; setComposerEnterMode: (v: ComposerEnterMode) => void }) {
   const LANG_OPTIONS: Array<{ id: Lang; label: string }> = [
     { id: 'en', label: 'English' },
     { id: 'zh-CN', label: '简体中文' },
@@ -1808,7 +1837,7 @@ function SettingsMain(props: { apiBase: string; setApiBase: (v: string) => void;
       setTimeout(() => { window.location.reload(); }, 3000);
     } catch (e: any) { setUpdateStatus('error'); setUpdateError(e?.message || 'Update failed'); }
   };
-  return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>API, language, theme, and follow-ups</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={'settings' as Mode} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">Queue</option><option value="steer">Steer</option></select></label><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button><div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}><h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('settings.update')}</h3><p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: 13 }}>{t('settings.version')}: <code>{currentVer || '...'}</code></p><div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><button className="btn-wide" onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'applying' || updateStatus === 'restarting'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-2)', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'checking' ? t('settings.checkingUpdate') : <><RefreshCw size={15} /> {t('settings.checkUpdate')}</>}</button>{updateInfo && <span style={{ fontSize: 13 }}>{updateInfo.available ? <span style={{ color: 'var(--green)' }}>{t('settings.updateAvailable')}: {updateInfo.latest}</span> : <span style={{ color: 'var(--muted)' }}>{t('settings.upToDate')}</span>}</span>}{updateInfo?.available && updateInfo.release_url && <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>{t('settings.viewRelease')}</a>}</div>{updateInfo?.available && <button className="btn-wide" onClick={applyUpdate} disabled={updateStatus === 'applying' || updateStatus === 'restarting'} style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--accent)', borderRadius: 12, background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'applying' ? t('settings.installingUpdate') : updateStatus === 'restarting' ? t('settings.restartingUpdate') : <><Download size={15} /> {t('settings.installUpdate')}</>}</button>}{updateStatus === 'error' && <p style={{ margin: '8px 0 0', color: 'var(--danger)', fontSize: 13 }}>{updateError}</p>}</div></section></main>;
+  return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>API, language, theme, and follow-ups</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={'settings' as Mode} /></header><section className="settings-content"><label><span>{t('settings.apiBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">Queue</option><option value="steer">Steer</option></select></label><label><span>{t('settings.composerEnterMode')}</span><select value={props.composerEnterMode} onChange={(e) => props.setComposerEnterMode(e.target.value as ComposerEnterMode)}><option value="enter-send">{t('settings.enterSend')}</option><option value="enter-newline">{t('settings.enterNewline')}</option></select></label><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button><div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}><h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('settings.update')}</h3><p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: 13 }}>{t('settings.version')}: <code>{currentVer || '...'}</code></p><div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><button className="btn-wide" onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'applying' || updateStatus === 'restarting'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-2)', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'checking' ? t('settings.checkingUpdate') : <><RefreshCw size={15} /> {t('settings.checkUpdate')}</>}</button>{updateInfo && <span style={{ fontSize: 13 }}>{updateInfo.available ? <span style={{ color: 'var(--green)' }}>{t('settings.updateAvailable')}: {updateInfo.latest}</span> : <span style={{ color: 'var(--muted)' }}>{t('settings.upToDate')}</span>}</span>}{updateInfo?.available && updateInfo.release_url && <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>{t('settings.viewRelease')}</a>}</div>{updateInfo?.available && <button className="btn-wide" onClick={applyUpdate} disabled={updateStatus === 'applying' || updateStatus === 'restarting'} style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--accent)', borderRadius: 12, background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'applying' ? t('settings.installingUpdate') : updateStatus === 'restarting' ? t('settings.restartingUpdate') : <><Download size={15} /> {t('settings.installUpdate')}</>}</button>}{updateStatus === 'error' && <p style={{ margin: '8px 0 0', color: 'var(--danger)', fontSize: 13 }}>{updateError}</p>}</div></section></main>;
 }
 
 function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute, mode, onNavigateToSettings }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void; mode?: Mode; onNavigateToSettings?: () => void }) {
