@@ -884,6 +884,13 @@ export default function App() {
     [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
     return next;
   });
+  const reorderQueuedItem = (fromIndex: number, toIndex: number) => updateFollowUpQueue(activeSessionId, (items) => {
+    if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length || fromIndex === toIndex) return items;
+    const next = [...items];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    return next;
+  });
   const shiftNextFollowUp = (sessionId: string) => {
     const key = followUpQueueKey(sessionId);
     const current = readFollowUpQueues();
@@ -1195,7 +1202,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onMoveQueuedItem={moveQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} model={model} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} />
         <WorkspaceAside workspacePath={workspacePath} workspaceEntries={workspaceEntries} parentPath={parentPath} preview={preview} loadWorkspace={loadWorkspace} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} />}
@@ -1535,7 +1542,7 @@ function ChatMain(props: any) {
       {props.messages.map((m: ChatMessage) => <MessageView key={m.id} message={m} showReasoning={props.showReasoning} />)}
     </section>
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
-      <FollowUpQueueView items={props.followUpQueue || []} onSteer={props.onSteerQueuedItem} onEdit={props.onEditQueuedItem} onMove={props.onMoveQueuedItem} />
+      <FollowUpQueueView items={props.followUpQueue || []} onSteer={props.onSteerQueuedItem} onEdit={props.onEditQueuedItem} onReorder={props.onReorderQueuedItem} />
       <div className="attachments">{props.attachments.map((a: Attachment) => <span className={`att ${a.kind}`} key={a.id}>{a.kind === 'image' ? <ImageIcon /> : <FileText />} {a.name} <button onClick={() => props.setAttachments((old: Attachment[]) => old.filter((x) => x.id !== a.id))}><X /></button></span>)}</div>
       <div className="composer-box" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); props.onFiles(e.dataTransfer.files); }}>
         <textarea value={props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) props.sendMessage(); }} />
@@ -1552,17 +1559,28 @@ function ChatMain(props: any) {
   </main>;
 }
 
-function FollowUpQueueView({ items, onSteer, onEdit, onMove }: { items: FollowUpQueueItem[]; onSteer: (item: FollowUpQueueItem) => void; onEdit: (item: FollowUpQueueItem) => void; onMove: (id: string, direction: -1 | 1) => void }) {
+function FollowUpQueueView({ items, onSteer, onEdit, onReorder }: { items: FollowUpQueueItem[]; onSteer: (item: FollowUpQueueItem) => void; onEdit: (item: FollowUpQueueItem) => void; onReorder: (fromIndex: number, toIndex: number) => void }) {
+  const dragIdx = React.useRef<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = React.useState<number | null>(null);
   if (!items.length) return null;
   return <div className="followup-queue" aria-label="Queued follow-ups">
-    {items.map((item, index) => <div className="followup-item" key={item.id} title={item.text}>
+    {items.map((item, index) => <div
+      className={`followup-item${dragOverIdx === index ? ' drag-over' : ''}`}
+      key={item.id}
+      title={item.text}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverIdx(index); }}
+      onDragLeave={() => { setDragOverIdx((prev) => prev === index ? null : prev); }}
+      onDrop={(e) => { e.preventDefault(); const from = dragIdx.current; if (from !== null && from !== index) onReorder(from, index); dragIdx.current = null; setDragOverIdx(null); }}
+    >
+      <span
+        className="followup-drag-handle"
+        draggable={true}
+        onDragStart={(e) => { dragIdx.current = index; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(index)); (e.target as HTMLElement).closest('.followup-item')?.classList.add('dragging'); }}
+        onDragEnd={() => { dragIdx.current = null; setDragOverIdx(null); document.querySelectorAll('.followup-item.dragging').forEach((el) => el.classList.remove('dragging')); }}
+      ><GripVertical /></span>
       <span className="followup-text">{item.text}</span>
       <button type="button" className="followup-action" onClick={() => onSteer(item)} title="Steer now">Steer</button>
       <button type="button" className="followup-action" onClick={() => onEdit(item)} title="Edit queued follow-up"><Pencil /></button>
-      <span className="followup-sort" aria-label="Sort queued follow-up">
-        <button type="button" className="followup-sort-btn" disabled={index === 0} onClick={() => onMove(item.id, -1)} title="Move up"><ChevronUp /></button>
-        <button type="button" className="followup-sort-btn" disabled={index === items.length - 1} onClick={() => onMove(item.id, 1)} title="Move down"><ChevronDown /></button>
-      </span>
     </div>)}
   </div>;
 }
