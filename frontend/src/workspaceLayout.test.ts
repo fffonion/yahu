@@ -53,6 +53,23 @@ describe('workspace page file tree layout', () => {
     expect(styles).not.toContain('workspace-collapse-btn');
   });
 
+  test('chat right workspace reserves scrollable middle row and visible bottom preview', () => {
+    const source = app();
+    const styles = css();
+    const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));
+    expect(browser).toContain("{preview.kind !== 'none' && <div className=\"preview\"");
+    expect(styles).toContain('.workspace{border-left-width:1px;border-top-width:0;border-bottom-width:0;border-right-width:0;height:100vh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}');
+    expect(styles).toContain('.workspace-tree.file-list{min-height:0}');
+  });
+
+  test('chat right workspace previews files in place without changing to workspace route', () => {
+    const source = app();
+    const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));
+    expect(source).toContain('options?: { edit?: boolean; route?: boolean }');
+    expect(browser).toContain("openWorkspaceEntry(entry, compact ? { route: false } : undefined)");
+    expect(source).toContain("if (options?.route !== false) writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });");
+  });
+
   test('mobile drawer remains enabled on the workspace route so the file tree is reachable', () => {
     const source = app();
     expect(source).toContain("const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';");

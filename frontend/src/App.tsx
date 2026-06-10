@@ -1115,7 +1115,7 @@ export default function App() {
   };
 
   const downloadEntry = useCallback((entry: WorkspaceEntry) => { const a = document.createElement('a'); a.href = `/workspace/file?path=${encodeURIComponent(entry.path)}&download=1`; a.download = entry.name; a.click(); }, []);
-  const openWorkspaceEntry = useCallback(async (entry: WorkspaceEntry, options?: { edit?: boolean }) => {
+  const openWorkspaceEntry = useCallback(async (entry: WorkspaceEntry, options?: { edit?: boolean; route?: boolean }) => {
     if (entry.kind === 'dir') {
       writeHashRoute({ mode: 'workspace', workspaceKind: 'folder', workspacePath: entry.path });
       await toggleWorkspaceFolder(entry);
@@ -1133,8 +1133,8 @@ export default function App() {
       if (options?.edit) setStatus('Workspace item is not editable');
       else downloadEntry(entry);
     }
-    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
-    buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
+    if (options?.route !== false) writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
+    if (options?.route !== false) buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
   }, [downloadEntry, toggleWorkspaceFolder, writeHashRoute]);
   const openWorkspacePathFile = useCallback(async (targetPath: string) => {
     await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' });
@@ -1787,7 +1787,7 @@ function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, 
     const expanded = entry.kind === 'dir' && expandedWorkspacePaths.has(entry.path);
     const children = expanded ? (workspaceTree[entry.path] || []) : [];
     return <React.Fragment key={entry.path}>
-      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry)} onContextMenu={(ev) => openWorkspaceMenu?.(entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry); } }}>
+      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry, compact ? { route: false } : undefined)} onContextMenu={(ev) => openWorkspaceMenu?.(entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry, compact ? { route: false } : undefined); } }}>
         <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title="download" onClick={(ev) => { ev.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
       </div>
       {expanded && children.length > 0 && renderRows(children, depth + 1)}
