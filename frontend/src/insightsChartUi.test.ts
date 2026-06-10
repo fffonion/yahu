@@ -43,12 +43,14 @@ describe('insights chart UI', () => {
     expect(css).toContain('.model-skeleton-list{display:grid;gap:10px}');
   });
 
-  test('renders cost metric option and per-model cost sublabel', () => {
+  test('renders cost metric option and per-model USD cost sublabel without FX calls', () => {
     const app = appSource();
     const css = cssSource();
     expect(app).toContain('metricLabels.cost_usd');
     expect(app).toContain('className="model-value"');
     expect(app).toContain('className="model-cost-sub"');
+    expect(app).not.toContain('/insights/fx');
+    expect(app).not.toContain('currencyRates');
     expect(css).toContain('.model-value{display:grid;justify-items:end;gap:3px}');
     expect(css).toContain('.model-cost-sub{font-size:11px;color:var(--muted);line-height:1}');
   });

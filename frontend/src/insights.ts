@@ -31,8 +31,6 @@ export type UsageInsights = {
   periods: UsagePeriod[];
 };
 
-export type CurrencyRates = { USD: number; CNY?: number; JPY?: number };
-export type CurrencyCode = keyof CurrencyRates;
 export type UsageMetric = 'total_tokens' | 'input' | 'output' | 'cache_read' | 'cache_write' | 'reasoning' | 'cost_usd';
 
 export const metricLabels: Record<UsageMetric, string> = {
@@ -53,20 +51,11 @@ export function fmtTokens(value: number | undefined): string {
   return Math.round(n).toString();
 }
 
-export function currencyForLang(lang: string, rates: CurrencyRates = { USD: 1 }): CurrencyCode {
-  const wanted: CurrencyCode = lang === 'ja' ? 'JPY' : lang.startsWith('zh') ? 'CNY' : 'USD';
-  return Number(rates[wanted] || 0) > 0 ? wanted : 'USD';
-}
-
-export function fmtMoney(value: number | undefined, lang = 'en', rates: CurrencyRates = { USD: 1 }): string {
-  const usd = Number(value || 0);
-  const currency = currencyForLang(lang, rates);
-  const rate = Number(rates[currency] || 1);
-  const n = Number.isFinite(usd) && usd > 0 ? usd * rate : 0;
-  const locale = lang === 'ja' ? 'ja-JP' : lang.startsWith('zh') ? 'zh-CN' : 'en-US';
-  const minimumFractionDigits = currency === 'JPY' ? 0 : n > 0 && n < 0.01 ? 4 : 2;
-  const maximumFractionDigits = currency === 'JPY' ? 0 : n > 0 && n < 0.01 ? 4 : 2;
-  return new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits, maximumFractionDigits }).format(n);
+export function fmtMoney(value: number | undefined): string {
+  const n = Number(value || 0);
+  const usd = Number.isFinite(n) && n > 0 ? n : 0;
+  const digits = usd > 0 && usd < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(usd);
 }
 
 export function fmtPercent(value: number | undefined): string {
@@ -147,8 +136,8 @@ export function chartYAxisTicks(values: number[], count = 4, format: (value: num
   });
 }
 
-export function formatMetricValue(metric: UsageMetric, value: number, lang = 'en', rates: CurrencyRates = { USD: 1 }): string {
-  return metric === 'cost_usd' ? fmtMoney(value, lang, rates) : fmtTokens(value);
+export function formatMetricValue(metric: UsageMetric, value: number): string {
+  return metric === 'cost_usd' ? fmtMoney(value) : fmtTokens(value);
 }
 
 export function chartTooltipLabel(model: string, dayLabel: string, value: number, metricLabel: string, displayValue = fmtTokens(value)): string {

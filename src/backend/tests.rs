@@ -193,8 +193,6 @@ mod tests {
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
             models_dev_url: "https://models.dev/api.json".to_string(),
-            fx_cache: Arc::new(RwLock::new(ModelCache::default())),
-            fx_url: "https://open.er-api.com/v6/latest/USD".to_string(),
         }
     }
 
@@ -455,35 +453,4 @@ mod tests {
         assert!((price.estimate(1_000_000, 100_000, 9_000_000, 0) - 1.92).abs() < 0.000001);
     }
 
-    #[tokio::test]
-    async fn insights_fetches_fx_rates_from_configured_backend_url() {
-        async fn fx(headers: HeaderMap) -> Json<serde_json::Value> {
-            assert!(
-                headers
-                    .get(header::USER_AGENT)
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or("")
-                    .starts_with("yahu/")
-            );
-            Json(serde_json::json!({"base":"USD","date":"2026-06-09","rates":{"CNY":6.77,"JPY":160.16}}))
-        }
-
-        let app = Router::new().route("/latest", get(fx));
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        let temp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
-        state.fx_url = format!("http://{addr}/latest");
-
-        let body = fetch_fx_rates(&state).await.unwrap();
-
-        assert_eq!(body["object"], "yahu.insights.fx");
-        assert_eq!(body["base"], "USD");
-        assert_eq!(body["rates"]["USD"], 1.0);
-        assert_eq!(body["rates"]["CNY"], 6.77);
-        assert_eq!(body["rates"]["JPY"], 160.16);
-    }
 }
