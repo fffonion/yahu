@@ -43,6 +43,13 @@ describe('skills UI', () => {
     expect(source).toContain("openSkillFile(skill.name, 'SKILL.md')");
   });
 
+  test('mobile skills drawer closes after selecting a skill row', () => {
+    const source = app();
+    expect(source).toContain('closeMobileSidebar={closeMobileSidebar} />');
+    expect(source).toContain('closeMobileSidebar: () => void');
+    expect(source).toContain('onClick={() => { selectSkill(skill); closeMobileSidebar(); }}');
+  });
+
   test('skills mode has a right-side skill file workspace', () => {
     const source = app();
     const styles = css();
