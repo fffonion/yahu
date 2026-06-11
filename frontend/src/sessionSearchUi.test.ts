@@ -28,7 +28,8 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('loadSessionDetail(activeSessionId)');
     expect(app).toContain('const sessionModel = realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id ||');
     expect(app).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
-    expect(app).toContain('const currentOption = currentModel ? currentModelDisplayOption(currentModel, props.models) : undefined;');
+    expect(app).toContain('const exactCurrentOption = currentModel ? findModelOption(props.models, currentModel, sessionProvider) : undefined;');
+    expect(app).toContain('const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;');
     expect(app).not.toContain('props.runtimeProvider');
   });
 

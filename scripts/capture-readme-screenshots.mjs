@@ -42,36 +42,48 @@ function addTotals(a, b) {
   return out;
 }
 function makeInsights() {
-  const dates = ['06/03', '06/04', '06/05', '06/06', '06/07', '06/08', '06/09'];
-  const models = [
-    ['openai/gpt-5.5', 1.0, 5.4],
-    ['minimax/minimax-m3', 0.72, 3.7],
-    ['deepseek/deepseek-v4-flash', 0.38, 1.9],
-    ['xai/grok-4.3', 0.24, 2.5],
-  ].map(([model, scale, cost]) => {
-    const daily = dates.map((label, i) => ({
-      date: `2026-06-${String(i + 3).padStart(2, '0')}`,
-      label,
-      totals: total({
-        sessions: Math.round(3 + i * Number(scale)),
-        input: Math.round((620_000 + i * 98_000) * Number(scale)),
-        output: Math.round((82_000 + i * 14_000) * Number(scale)),
-        cache_read: Math.round((3_600_000 + i * 410_000) * Number(scale)),
-        cache_write: Math.round(24_000 * Number(scale)),
-        reasoning: Math.round((12_000 + i * 2_500) * Number(scale)),
-        api_calls: Math.round(18 + i * 3 * Number(scale)),
-        tool_calls: Math.round(8 + i * Number(scale)),
-        cost_usd: Number(cost) * (0.7 + i / 10),
-      }),
-    }));
+  const start = new Date('2026-05-11T00:00:00Z');
+  const dayLabels = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date(start.getTime() + i * 86_400_000);
+    return {
+      date: d.toISOString().slice(0, 10),
+      label: `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`,
+      weekday: d.getUTCDay(),
+    };
+  });
+  const profile = [0.48, 0.58, 0.92, 0.76, 1.24, 0.42, 0.36, 0.64, 0.88, 1.38, 0.97, 0.72, 0.54, 0.46, 0.81, 1.12, 0.69, 1.58, 1.04, 0.61, 0.49, 0.73, 0.95, 1.71, 1.18, 0.86, 0.52, 0.44, 1.09, 0.83];
+  const modelSpecs = [
+    { model: 'openai/gpt-5.5', scale: 1.0, phase: 0, cost: 5.2, toolBias: 1.15 },
+    { model: 'minimax/minimax-m3', scale: 0.74, phase: 4, cost: 3.4, toolBias: 0.78 },
+    { model: 'deepseek/deepseek-v4-flash', scale: 0.41, phase: 9, cost: 1.8, toolBias: 0.92 },
+    { model: 'xai/grok-4.3', scale: 0.28, phase: 15, cost: 2.2, toolBias: 1.34 },
+  ];
+  const models = modelSpecs.map((spec, modelIndex) => {
+    const daily = dayLabels.map((day, i) => {
+      const weekdayFactor = day.weekday === 0 || day.weekday === 6 ? 0.52 : 1.0;
+      const wave = 1 + 0.18 * Math.sin((i + spec.phase) / 2.7) + 0.11 * Math.cos((i + modelIndex * 3) / 4.1);
+      const releasePulse = i === 9 || i === 17 || i === 23 ? 1.42 + modelIndex * 0.08 : 1;
+      const quietDip = i === 6 || i === 20 || i === 27 ? 0.58 : 1;
+      const activity = Math.max(0.22, profile[i] * weekdayFactor * wave * releasePulse * quietDip * spec.scale);
+      const input = Math.round((410_000 + (i % 5) * 42_000 + modelIndex * 31_000) * activity);
+      const output = Math.round(input * (0.105 + (i % 4) * 0.008 + modelIndex * 0.006));
+      const cache_read = Math.round(input * (16.4 + ((i + modelIndex) % 6) * 0.7));
+      const cache_write = Math.round(input * (0.028 + ((i + 2) % 5) * 0.006));
+      const reasoning = Math.round(output * (0.13 + ((i + modelIndex) % 4) * 0.025));
+      const api_calls = Math.max(1, Math.round(activity * (7 + (i % 6))));
+      const tool_calls = Math.max(0, Math.round(activity * (3 + (i % 3)) * spec.toolBias));
+      const cost_usd = Number((activity * spec.cost * (0.82 + (i % 7) * 0.035)).toFixed(2));
+      return { date: day.date, label: day.label, totals: total({ sessions: Math.max(1, Math.round(api_calls / 3)), input, output, cache_read, cache_write, reasoning, api_calls, tool_calls, cost_usd }) };
+    });
     const totals = daily.reduce(addTotals, total({ sessions: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, api_calls: 0, tool_calls: 0, cost_usd: 0 }));
-    return { model, totals, daily };
+    return { model: spec.model, totals, daily };
   });
-  const daily = dates.map((label, i) => {
+  const daily = dayLabels.map((day, i) => {
     const totals = models.map((m) => m.daily[i].totals).reduce(addTotals, total({ sessions: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, api_calls: 0, tool_calls: 0, cost_usd: 0 }));
-    return { date: `2026-06-${String(i + 3).padStart(2, '0')}`, label, totals };
+    return { date: day.date, label: day.label, totals };
   });
-  const totals = daily.map((d) => d.totals).reduce(addTotals, total({ sessions: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, api_calls: 0, tool_calls: 0, cost_usd: 0 }));
+  const periodTotals = (days) => daily.slice(-days).map((d) => d.totals).reduce(addTotals, total({ sessions: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, api_calls: 0, tool_calls: 0, cost_usd: 0 }));
+  const totals = periodTotals(30);
   return {
     object: 'usage_insights',
     generated_at: now,
@@ -84,7 +96,7 @@ function makeInsights() {
       { source: 'webui', totals: models[2].totals },
       { source: 'cron', totals: models[3].totals },
     ],
-    periods: [1, 7, 30].map((days) => ({ days, totals, models })),
+    periods: [1, 7, 30].map((days) => ({ days, totals: periodTotals(days), models })),
   };
 }
 
@@ -100,7 +112,7 @@ const messages = [
   { id: '3', role: 'tool', tool_name: 'terminal', timestamp: now - 5280, content: JSON.stringify({ tool_name: 'terminal', command: 'bun test frontend/src/*.test.ts', output: '150 tests passed across 39 files in 0.22s', exit_code: 0 }) },
   { id: '4', role: 'tool', tool_name: 'read_file', timestamp: now - 5220, content: JSON.stringify({ tool_name: 'read_file', path: '/demo/workspace/src/main.rs', content: 'pub fn render_dashboard(config: DemoConfig) -> Result<Page> { /* highlighted in Workspace */ }' }) },
   { id: '5', role: 'tool', tool_name: 'browser_navigate', timestamp: now - 5160, content: JSON.stringify({ tool_name: 'browser_navigate', status: 'success', url: 'http://127.0.0.1:9765/#/insights', title: 'Insights' }) },
-  { id: '6', role: 'tool', tool_name: 'image_generate', timestamp: now - 5100, content: JSON.stringify({ tool_name: 'image_generate', image: 'demo-gallery://animals', message: 'Generated varied public-safe animal placeholders for the gallery fixture.' }) },
+  { id: '6', role: 'tool', tool_name: 'image_generate', timestamp: now - 5100, content: JSON.stringify({ tool_name: 'image_generate', image: 'demo-gallery://landscapes', message: 'Generated varied public-safe landscape placeholders for the gallery fixture.' }) },
   { id: '7', role: 'assistant', timestamp: now - 5040, content: '**Done.** The demo build is green, the Rust file preview is highlighted, and the gallery has varied placeholder art with refresh-ready metadata.' },
 ];
 const jobs = [
@@ -123,9 +135,9 @@ const skillFiles = {
   scripts: [{ name: 'prepare-demo-gallery.py', path: 'scripts/prepare-demo-gallery.py', kind: 'file', size: 960 }],
 };
 const skillFileBodies = {
-  'SKILL.md': `---\nname: demo-gallery-curator\ndescription: Public-safe screenshot fixture workflow.\n---\n\n# Demo Gallery Curator\n\nUse deterministic placeholder art for public documentation.\n\n## Steps\n\n1. Generate varied animal thumbnails.\n2. Capture gallery and chat with mocked data.\n3. Verify no live session, skill, cron, or workspace content is visible.`,
-  'references/gallery-fixtures.md': '# Gallery fixtures\n\nUse simple cat, dog, fox, bird, and rabbit illustrations. Avoid logos and real people.',
-  'scripts/prepare-demo-gallery.py': 'def build_gallery_fixture():\n    return ["cat", "dog", "fox", "bird"]\n',
+  'SKILL.md': `---\nname: demo-gallery-curator\ndescription: Public-safe screenshot fixture workflow.\n---\n\n# Demo Gallery Curator\n\nUse deterministic placeholder art for public documentation.\n\n## Steps\n\n1. Generate varied landscape thumbnails.\n2. Capture gallery and chat with mocked data.\n3. Verify no live session, skill, cron, or workspace content is visible.`,
+  'references/gallery-fixtures.md': '# Gallery fixtures\n\nUse simple mountain, coast, forest, desert, lake, and night skyline landscapes. Avoid logos, text, real people, or identifiable places.',
+  'scripts/prepare-demo-gallery.py': 'def build_gallery_fixture():\n    return ["alpine_lake", "coastal_dawn", "cedar_valley", "desert_rain"]\n',
 };
 const workspaceEntries = {
   '': [
@@ -147,47 +159,54 @@ const workspaceFiles = {
 };
 
 const palettes = [
-  ['#0ea5e9', '#fef3c7', '#f97316'],
-  ['#8b5cf6', '#fce7f3', '#22c55e'],
-  ['#14b8a6', '#ecfeff', '#f59e0b'],
-  ['#ef4444', '#fff7ed', '#3b82f6'],
-  ['#84cc16', '#f0fdf4', '#a855f7'],
-  ['#06b6d4', '#eff6ff', '#fb7185'],
-  ['#f59e0b', '#fffbeb', '#10b981'],
-  ['#6366f1', '#eef2ff', '#f43f5e'],
-  ['#22c55e', '#f7fee7', '#0ea5e9'],
-  ['#ec4899', '#fdf2f8', '#14b8a6'],
-  ['#eab308', '#fefce8', '#7c3aed'],
-  ['#0f766e', '#ccfbf1', '#ea580c'],
+  ['#0f172a', '#7dd3fc', '#fef3c7', '#f97316'],
+  ['#1e1b4b', '#c4b5fd', '#f5d0fe', '#38bdf8'],
+  ['#064e3b', '#86efac', '#ecfccb', '#fbbf24'],
+  ['#7c2d12', '#fed7aa', '#fef9c3', '#fb7185'],
+  ['#1e3a8a', '#93c5fd', '#dbeafe', '#22c55e'],
+  ['#312e81', '#818cf8', '#fef3c7', '#f472b6'],
+  ['#164e63', '#67e8f9', '#cffafe', '#a3e635'],
+  ['#581c87', '#d8b4fe', '#fae8ff', '#f59e0b'],
+  ['#365314', '#bef264', '#f7fee7', '#14b8a6'],
+  ['#831843', '#f9a8d4', '#fdf2f8', '#38bdf8'],
+  ['#78350f', '#fde68a', '#fff7ed', '#10b981'],
+  ['#0c4a6e', '#bae6fd', '#f0f9ff', '#f97316'],
 ];
-const animalNames = ['cat-orbit', 'dog-lantern', 'fox-river', 'rabbit-moon', 'bird-garden', 'cat-cloud', 'dog-comet', 'fox-sunrise', 'rabbit-meadow', 'bird-aurora', 'cat-citrus', 'dog-tide'];
-function animalSvg(name, index) {
-  const [main, bg, accent] = palettes[index % palettes.length];
-  const isDog = name.includes('dog');
-  const isBird = name.includes('bird');
-  const isRabbit = name.includes('rabbit');
-  const isFox = name.includes('fox');
-  const ears = isDog ? `<path d="M145 142 C110 105 104 75 136 74 C166 82 169 118 145 142Z" fill="${accent}"/><path d="M255 142 C290 105 296 75 264 74 C234 82 231 118 255 142Z" fill="${accent}"/>`
-    : isRabbit ? `<path d="M158 126 C136 70 151 28 177 72 C188 95 181 118 158 126Z" fill="${main}"/><path d="M242 126 C264 70 249 28 223 72 C212 95 219 118 242 126Z" fill="${main}"/>`
-    : isBird ? `<path d="M128 150 C78 124 76 86 132 102 Z" fill="${accent}"/><path d="M272 150 C322 124 324 86 268 102 Z" fill="${accent}"/>`
-    : `<path d="M150 128 L116 70 L180 100 Z" fill="${isFox ? accent : main}"/><path d="M250 128 L284 70 L220 100 Z" fill="${isFox ? accent : main}"/>`;
-  const snout = isBird ? `<path d="M200 186 L238 204 L200 222 Z" fill="${accent}"/>` : `<ellipse cx="200" cy="214" rx="42" ry="26" fill="${bg}"/><circle cx="184" cy="206" r="5" fill="#111827"/><circle cx="216" cy="206" r="5" fill="#111827"/><path d="M191 222 Q200 232 209 222" fill="none" stroke="#111827" stroke-width="5" stroke-linecap="round"/>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="${bg}"/><stop offset="1" stop-color="${main}" stop-opacity=".42"/></linearGradient></defs><rect width="400" height="300" rx="36" fill="url(#g)"/><circle cx="70" cy="56" r="28" fill="${accent}" opacity=".22"/><circle cx="334" cy="236" r="44" fill="${main}" opacity=".18"/><path d="M62 238 C118 202 150 260 202 224 C246 193 289 225 340 188" fill="none" stroke="${accent}" stroke-width="14" stroke-linecap="round" opacity=".34"/>${ears}<ellipse cx="200" cy="166" rx="95" ry="82" fill="${main}"/><circle cx="166" cy="162" r="10" fill="#111827"/><circle cx="234" cy="162" r="10" fill="#111827"/>${snout}<circle cx="150" cy="198" r="12" fill="${accent}" opacity=".35"/><circle cx="250" cy="198" r="12" fill="${accent}" opacity=".35"/></svg>`;
+const landscapeNames = ['alpine-lake', 'coastal-dawn', 'cedar-valley', 'desert-rain', 'fjord-night', 'lavender-hills', 'glacier-bay', 'red-rock-canyon', 'rice-terraces', 'pink-salt-lagoon', 'golden-steppe', 'island-storm'];
+function landscapeSvg(name, index) {
+  const [dark, sky, haze, accent] = palettes[index % palettes.length];
+  const sunX = 62 + (index % 4) * 78;
+  const sunY = 54 + (index % 3) * 18;
+  const water = name.includes('lake') || name.includes('coastal') || name.includes('fjord') || name.includes('bay') || name.includes('lagoon') || name.includes('island');
+  const desert = name.includes('desert') || name.includes('canyon') || name.includes('steppe');
+  const trees = name.includes('cedar') || name.includes('terraces') || name.includes('valley');
+  const stars = name.includes('night') ? Array.from({ length: 18 }, (_, i) => `<circle cx="${32 + (i * 41) % 336}" cy="${28 + (i * 29) % 96}" r="${1 + (i % 2)}" fill="#fff" opacity=".72"/>`).join('') : '';
+  const ridgeA = desert ? `M0 184 C52 122 98 166 142 116 C188 72 230 160 284 102 C330 58 372 126 400 90 V300 H0Z` : `M0 174 C44 120 78 146 118 88 C160 28 214 164 260 94 C304 34 352 112 400 72 V300 H0Z`;
+  const ridgeB = `M0 206 C54 166 96 192 142 142 C188 92 230 198 286 150 C336 108 364 154 400 124 V300 H0Z`;
+  const foreground = water
+    ? `<path d="M0 214 C80 204 142 226 206 214 C282 200 330 222 400 210 V300 H0Z" fill="${haze}" opacity=".82"/><path d="M0 236 C74 224 154 248 230 232 C300 218 346 242 400 230 V300 H0Z" fill="${sky}" opacity=".56"/><path d="M20 252 C86 244 152 264 214 250" fill="none" stroke="#fff" stroke-width="4" opacity=".45"/><path d="M248 260 C298 248 340 262 382 254" fill="none" stroke="#fff" stroke-width="3" opacity=".38"/>`
+    : `<path d="M0 224 C60 198 100 226 158 206 C232 180 286 214 400 188 V300 H0Z" fill="${haze}" opacity=".9"/><path d="M0 252 C80 226 146 258 220 234 C300 208 354 238 400 218 V300 H0Z" fill="${accent}" opacity=".34"/>`;
+  const treeLayer = trees ? Array.from({ length: 14 }, (_, i) => `<path d="M${18 + i * 28} ${222 - (i % 4) * 9} l10 -34 l10 34 h-20Z" fill="${dark}" opacity=".82"/>`).join('') : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><defs><linearGradient id="sky" x1="0" x2="0" y1="0" y2="1"><stop stop-color="${sky}"/><stop offset=".58" stop-color="${haze}"/><stop offset="1" stop-color="${dark}" stop-opacity=".42"/></linearGradient><linearGradient id="glow" x1="0" x2="1"><stop stop-color="${accent}" stop-opacity=".85"/><stop offset="1" stop-color="#fff" stop-opacity=".2"/></linearGradient></defs><rect width="400" height="300" rx="34" fill="url(#sky)"/><circle cx="${sunX}" cy="${sunY}" r="32" fill="${accent}" opacity=".72"/><circle cx="${sunX}" cy="${sunY}" r="54" fill="${accent}" opacity=".18"/>${stars}<path d="${ridgeA}" fill="${dark}" opacity=".88"/><path d="${ridgeB}" fill="url(#glow)" opacity=".56"/>${foreground}${treeLayer}<path d="M0 284 C62 272 112 294 176 280 C246 264 314 288 400 272 V300 H0Z" fill="${dark}" opacity=".72"/></svg>`;
 }
-const imageAssets = new Map(animalNames.map((name, index) => [`/demo-assets/${name}.svg`, animalSvg(name, index)]));
-const images = animalNames.map((name, index) => ({
+const landscapeArtwork = landscapeNames.map((name, index) => {
+  const svg = landscapeSvg(name, index);
+  return { name, svg, url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` };
+});
+const imageAssets = new Map(landscapeArtwork.map(({ name, svg }) => [`/demo-assets/${name}.svg`, svg]));
+const images = landscapeArtwork.map(({ name, url }, index) => ({
   filename: `${name}.png`,
-  image_url: `/demo-assets/${name}.svg`,
-  png_url: `/demo-assets/${name}.svg`,
-  heic_url: index % 3 === 0 ? `/demo-assets/${name}.svg` : null,
+  image_url: url,
+  png_url: url,
+  heic_url: index % 3 === 0 ? url : null,
   heic_status: index % 3 === 0 ? 'available' : 'missing',
   heic_filename: `${name}.heic`,
   download_filename: `${name}.png`,
-  download_url: `/demo-assets/${name}.svg`,
+  download_url: url,
   download_label: 'Download',
   created_at: now - index * 600,
   modified_at: now - index * 600,
-  size: 42_000 + index * 1800,
+  size: 68_000 + index * 2400,
 }));
 
 function json(data) {
@@ -232,7 +251,7 @@ function routeFixture(url, method) {
     const parts = pathname.split('/');
     const filename = decodeURIComponent(parts[3] || '');
     const item = images.find((img) => img.filename === filename);
-    if (parts[4] === 'metadata') return json({ filename, dimensions: { width: 400, height: 300 }, png: { filename, url: item?.png_url || '', size: item?.size || 0, modified_at: item?.modified_at || now }, heic_status: item?.heic_status || 'missing', png_text: [{ keyword: 'Prompt', value: 'Public-safe generated animal placeholder.' }, { keyword: 'Theme', value: 'Yahu README demo fixture.' }] });
+    if (parts[4] === 'metadata') return json({ filename, dimensions: { width: 400, height: 300 }, png: { filename, url: item?.png_url || '', size: item?.size || 0, modified_at: item?.modified_at || now }, heic_status: item?.heic_status || 'missing', png_text: [{ keyword: 'Prompt', value: 'Public-safe generated landscape placeholder.' }, { keyword: 'Theme', value: 'Yahu README demo fixture.' }] });
     if (item) return json(item);
   }
   if (pathname === '/memory') return json({ memory: 'Demo memory placeholder.', user: 'Demo user placeholder.' });
@@ -306,13 +325,13 @@ async function capturePage(browser, spec) {
 
 const specs = [
   { name: 'chat', file: 'chat.png', hash: '#/chat/demo-chat-001', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.tool-card'); await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0)); } },
-  { name: 'insights', file: 'insights.png', hash: '#/insights', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); } },
+  { name: 'insights', file: 'insights.png', hash: '#/insights', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); await page.getByRole('button', { name: '30d' }).click(); await page.waitForTimeout(250); } },
   { name: 'skills', file: 'skills.png', hash: '#/skills/demo-gallery-curator', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight'); await page.locator('.section-label', { hasText: 'productivity' }).click().catch(() => {}); } },
   { name: 'cron', file: 'cron.png', hash: '#/cron/job-demo-weekly', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.cron-detail textarea'); } },
   { name: 'workspace', file: 'workspace.png', hash: '#/workspace/file/src%2Fmain.rs', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight .tok-keyword'); } },
   { name: 'gallery', file: 'gallery.png', hash: '#/images', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.image-card img.loaded'); } },
   { name: 'chat-mobile', file: 'chat-mobile.png', hash: '#/chat/demo-chat-001', theme: 'vscode-dark-plus', viewport: mobile, mobile: true, prepare: async (page) => { await page.waitForSelector('.tool-card'); await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0)); } },
-  { name: 'insights-mobile', file: 'insights-mobile.png', hash: '#/insights', theme: 'vscode-dark-plus', viewport: mobile, mobile: true, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); } },
+  { name: 'insights-mobile', file: 'insights-mobile.png', hash: '#/insights', theme: 'vscode-dark-plus', viewport: mobile, mobile: true, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); await page.getByRole('button', { name: '30d' }).click(); await page.waitForTimeout(250); } },
 ];
 const only = new Set((process.env.YAHU_SCREENSHOT_ONLY || '').split(',').map((item) => item.trim()).filter(Boolean));
 const selectedSpecs = only.size ? specs.filter((spec) => only.has(spec.name) || only.has(spec.file)) : specs;

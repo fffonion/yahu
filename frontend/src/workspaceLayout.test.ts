@@ -33,12 +33,12 @@ describe('workspace page file tree layout', () => {
     expect(component).toContain('editMode');
   });
 
-  test('collapsed right workspace rail exposes two themed buttons', () => {
+  test('collapsed right workspace rail only exposes the expand control', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('workspace-collapsed-actions');
     expect(source).toContain('aria-label="Expand workspace"');
-    expect(source).toContain('aria-label="Open workspace page"');
+    expect(source).not.toContain('aria-label="Open workspace page"');
     expect(styles).toContain('.workspace-collapsed-actions');
     expect(styles).toContain('.workspace-rail-btn');
   });

@@ -57,7 +57,7 @@ Yahu is designed to sit beside an existing Hermes Agent installation. Point it a
 </p>
 <p>
   <img src="docs/screenshots/workspace.png" alt="Workspace file browser with a syntax-highlighted demo Rust source file" width="49%" />
-  <img src="docs/screenshots/gallery.png" alt="Gallery with varied generated animal placeholder thumbnails" width="49%" />
+  <img src="docs/screenshots/gallery.png" alt="Gallery with varied generated landscape placeholder thumbnails" width="49%" />
 </p>
 
 ### Mobile
