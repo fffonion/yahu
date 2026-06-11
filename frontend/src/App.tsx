@@ -11,6 +11,7 @@ import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute
 import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelPeriodTotals, periodSlice, stackedAreaPath, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
 import { shouldRenderMessage } from './messageVisibility';
+import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
@@ -135,14 +136,6 @@ function parseSseBlock(block: string) {
 }
 function roleName(role: Role) { return role === 'assistant' ? 'Hermes Agent' : role === 'tool' ? 'Tool' : role === 'system' ? 'System' : 'You'; }
 function messageRoleName(message: ChatMessage, assistantName?: string) { return message.role === 'assistant' ? (message.model || assistantName || 'Hermes Agent') : roleName(message.role); }
-function markdownText(text: string) {
-  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return escaped
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<span class="md-strong">$1</span>')
-    .replace(/\n/g, '<br/>');
-}
 function escapeHtml(text: string) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -1734,7 +1727,7 @@ function MessageView({ message, showReasoning = false, assistantName }: { messag
           {isPending && <span className="stream-state" aria-label="streaming"><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">streaming</span></span>}
         </div>
         <div className="msg-body">
-          <span dangerouslySetInnerHTML={{ __html: html }} />
+          <div className="md-content" dangerouslySetInnerHTML={{ __html: html }} />
           {isPending && <span className="stream-caret" aria-hidden="true" />}
         </div>
         {message.reasoning && showReasoning && <section className="msg-reasoning" aria-label="Reasoning / thinking"><span>Thinking</span><pre>{message.reasoning}</pre></section>}
