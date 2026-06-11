@@ -6,6 +6,10 @@ describe('chat history scroll triggers', () => {
     expect(shouldLoadOlderFromWheel({ scrollTop: 0, scrollHeight: 420, clientHeight: 640 }, -24, true, false)).toBe(true);
   });
 
+  test('wheel-up near the top requests older history after hidden rows shrink the scroll range', () => {
+    expect(shouldLoadOlderFromWheel({ scrollTop: 42, scrollHeight: 720, clientHeight: 640 }, -24, true, false)).toBe(true);
+  });
+
   test('does not request older history for wheel-down, missing older pages, or active load', () => {
     const atTop = { scrollTop: 0, scrollHeight: 420, clientHeight: 640 };
     expect(shouldLoadOlderFromWheel(atTop, 18, true, false)).toBe(false);

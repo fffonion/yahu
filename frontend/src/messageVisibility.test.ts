@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { shouldRenderMessage } from './messageVisibility';
+import { isToolLikeMessage, shouldRenderMessage } from './messageVisibility';
 
 describe('chat message visibility', () => {
   test('hides completed assistant messages that have no visible content', () => {
@@ -23,5 +23,17 @@ describe('chat message visibility', () => {
     expect(shouldRenderMessage(msg)).toBe(true);
     expect(shouldRenderMessage(msg, false, true)).toBe(true);
     expect(shouldRenderMessage(msg, false, false)).toBe(false);
+  });
+
+  test('tool-like patch and terminal messages hide even when their role is not tool', () => {
+    const patchMessage = { role: 'assistant', content: '<untrusted_tool_result source="patch">diff</untrusted_tool_result>', pending: false };
+    const terminalMessage = { role: 'system', content: JSON.stringify({ tool_name: 'terminal', output: 'done' }), pending: false };
+    const namedToolMessage = { role: 'assistant', content: 'plain output', toolName: 'functions.patch', pending: false };
+    expect(isToolLikeMessage(patchMessage)).toBe(true);
+    expect(isToolLikeMessage(terminalMessage)).toBe(true);
+    expect(isToolLikeMessage(namedToolMessage)).toBe(true);
+    expect(shouldRenderMessage(patchMessage, false, false)).toBe(false);
+    expect(shouldRenderMessage(terminalMessage, false, false)).toBe(false);
+    expect(shouldRenderMessage(namedToolMessage, false, false)).toBe(false);
   });
 });

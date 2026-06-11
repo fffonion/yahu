@@ -10,7 +10,7 @@ import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelPeriodTotals, periodSlice, stackedAreaPath, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
-import { shouldRenderMessage } from './messageVisibility';
+import { isToolLikeMessage, shouldRenderMessage } from './messageVisibility';
 import { shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
@@ -1721,7 +1721,7 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
 
 function MessageView({ message, showReasoning = false, showToolCalls = true, assistantName }: { message: ChatMessage; showReasoning?: boolean; showToolCalls?: boolean; assistantName?: string }) {
   if (!shouldRenderMessage(message, showReasoning, showToolCalls)) return null;
-  if (message.role === 'tool') return <ToolMessageView message={message} />;
+  if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
   const fallback = isPending ? '…' : '';
   const html = markdownText(message.content || fallback);

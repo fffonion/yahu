@@ -19,7 +19,7 @@ export function shouldLoadNewerFromScroll(metrics: ChatScrollMetrics, hasNewer: 
 export function shouldLoadOlderFromWheel(metrics: ChatScrollMetrics, deltaY: number, hasOlder: boolean, loading: boolean): boolean {
   if (deltaY >= 0) return false;
   if (!hasOlder || loading) return false;
-  const atTop = metrics.scrollTop <= 0;
+  const atTop = isNearOlderBoundary(metrics);
   const cannotMoveScrollTop = metrics.scrollHeight <= metrics.clientHeight + 1;
   return atTop || cannotMoveScrollTop;
 }
