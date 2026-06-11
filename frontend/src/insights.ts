@@ -117,6 +117,13 @@ export function metricValue(day: UsageDay, metric: UsageMetric): number {
   return Number(day?.totals?.[metric] || 0);
 }
 
+export function modelDailyMetricValues(model: UsageModel, days: UsageDay[], metric: UsageMetric): number[] {
+  return days.map((day) => {
+    const modelDay = (model.daily || []).find((item) => item.date === day.date);
+    return modelDay ? metricValue(modelDay, metric) : 0;
+  });
+}
+
 export type ChartPadding = number | { top: number; right: number; bottom: number; left: number };
 
 function normalizeChartPadding(pad: ChartPadding) {

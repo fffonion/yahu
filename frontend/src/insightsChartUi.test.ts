@@ -75,18 +75,22 @@ describe('insights chart UI', () => {
     expect(css).toContain('.source-channel-chip{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;max-width:100%;');
   });
 
-  test('chart header uses a stack toggle button and stacked mode draws model fills under one total line', () => {
+  test('chart header uses an icon stack toggle button and stacked mode draws model fills under one total line', () => {
     const app = appSource();
     const css = cssSource();
     expect(app).toContain('const [chartStacked, setChartStacked] = useState(false)');
-    expect(app).toContain('className="chart-stack-toggle"');
+    expect(app).toContain('className="chart-stack-toggle icon-btn"');
+    expect(app).toContain("aria-label={chartStacked ? 'Show unstacked chart' : 'Show stacked chart'}");
+    expect(app).toContain('{chartStacked ? <LineChart /> : <Layers />}');
+    expect(app).not.toContain("{chartStacked ? 'Unstack' : 'Stack'}");
     expect(app).toContain('aria-pressed={chartStacked}');
     expect(app).toContain('<UsageAreaChart days={activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
     expect(app).toContain('className={`usage-chart ${stacked ? \'stacked\' : \'unstacked\'}`}');
+    expect(app).toContain('modelDailyMetricValues(model, days, metric)');
     expect(app).toContain('className="usage-stack-area"');
     expect(app).toContain('className="usage-total-line"');
     expect(app).not.toContain('<LineChart /></div>');
-    expect(css).toContain('.chart-stack-toggle{');
+    expect(css).toContain('.chart-stack-toggle{width:34px;height:34px;padding:0;');
     expect(css).toContain('.usage-chart.stacked .usage-line{display:none}');
     expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);');
   });
