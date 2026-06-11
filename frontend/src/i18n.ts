@@ -137,7 +137,8 @@ const translations: Record<string, Record<string, string>> = {
 
   // Settings
   'settings.title': { en: 'Settings', 'zh-CN': '设置', 'zh-TW': '設定', ja: '設定' },
-  'settings.apiBase': { en: 'Hermes API base', 'zh-CN': 'Hermes API 地址', 'zh-TW': 'Hermes API 位址', ja: 'Hermes APIベース' },
+  'settings.apiUrl': { en: 'Hermes API URL', 'zh-CN': 'Hermes API 地址', 'zh-TW': 'Hermes API 位址', ja: 'Hermes API URL' },
+  'settings.apiProxyBase': { en: 'Browser API proxy base', 'zh-CN': '浏览器 API 代理地址', 'zh-TW': '瀏覽器 API 代理位址', ja: 'ブラウザAPIプロキシベース' },
   'settings.apiKey': { en: 'External API key', 'zh-CN': '外部 API key', 'zh-TW': '外部 API key', ja: '外部APIキー' },
   'settings.language': { en: 'Language', 'zh-CN': '语言', 'zh-TW': '語言', ja: '言語' },
   'settings.theme': { en: 'Theme', 'zh-CN': '主题', 'zh-TW': '主題', ja: 'テーマ' },

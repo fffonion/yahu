@@ -2,6 +2,13 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({"status":"ok"}))
 }
 
+async fn runtime_config(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "api_url": state.api_url.clone(),
+        "api_proxy_base": "/hermes",
+    }))
+}
+
 async fn require_auth(
     State(state): State<Arc<AppState>>,
     req: Request<Body>,

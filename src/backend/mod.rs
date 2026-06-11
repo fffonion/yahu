@@ -255,6 +255,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/health", get(health))
+        .route("/runtime-config", get(runtime_config))
         .route("/login", get(login_page).post(login_submit))
         .route("/logout", post(logout))
         .route("/workspace/list", get(workspace_list))
