@@ -10,7 +10,7 @@ describe('full palette theme control', () => {
     expect(source).toContain("type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus'");
     expect(source).toContain("{ id: 'vscode-dark-plus', label: 'VS Code Dark+' }");
     expect(source).toContain("{ id: 'vscode-light-plus', label: 'VS Code Light+' }");
-    expect(source).toContain('<label><span>Theme</span><select value={theme}');
+    expect(source).toContain("<label><span>{t('theme.theme')}</span><select value={theme}");
     expect(source).not.toContain("onClick={() => setTheme('dark')}");
     expect(source).not.toContain("onClick={() => setTheme('light')}");
     expect(source).not.toContain('setSkin');

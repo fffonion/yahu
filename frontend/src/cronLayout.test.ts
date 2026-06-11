@@ -31,9 +31,9 @@ describe('cron manager split editor layout', () => {
   test('right detail pane exposes save run and delete actions together', () => {
     const source = app();
     expect(source).toContain('className="cron-detail-actions"');
-    expect(source).toContain('aria-label="save cron job"');
-    expect(source).toContain('aria-label="run cron job"');
-    expect(source).toContain('aria-label="delete cron job"');
+    expect(source).toContain("aria-label={t('cron.saveAria')}");
+    expect(source).toContain("aria-label={t('cron.runAria')}");
+    expect(source).toContain("aria-label={t('cron.deleteAria')}");
     expect(source).not.toContain('aria-label={paused ? \'resume\' : \'pause\'}');
   });
 

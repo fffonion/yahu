@@ -24,7 +24,7 @@ describe('custom themed dialogs', () => {
 
   test('confirm dialogs resolve from mouse clicks instead of relying on form submit', () => {
     const source = app();
-    expect(source).toContain("<button type=\"button\" className={dialog.danger ? 'danger' : ''} onClick={() => finish(dialog.variant === 'prompt' ? value : true)}>{dialog.variant === 'prompt' ? 'Save' : 'Confirm'}</button>");
+    expect(source).toContain("<button type=\"button\" className={dialog.danger ? 'danger' : ''} onClick={() => finish(dialog.variant === 'prompt' ? value : true)}>{dialog.variant === 'prompt' ? t('dialog.save') : t('dialog.confirm')}</button>");
     expect(source).toContain('onSubmit={(event) => { event.preventDefault(); }}');
   });
 

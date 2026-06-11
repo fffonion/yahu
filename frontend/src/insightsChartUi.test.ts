@@ -42,7 +42,7 @@ describe('insights chart UI', () => {
     const app = appSource();
     const css = cssSource();
     expect(app).toContain('const showSkeleton = props.loading');
-    expect(app).toContain('<InsightCardSkeleton label="Tokens" />');
+    expect(app).toContain("<InsightCardSkeleton label={t('insights.tokens')} />");
     expect(app).toContain('<UsageChartSkeleton />');
     expect(app).toContain('<ModelUsageSkeletonList />');
     expect(css).toContain('.skeleton-number{width:min(78%,190px);height:31px}');
@@ -53,7 +53,7 @@ describe('insights chart UI', () => {
   test('renders cost metric option and per-model USD cost sublabel without FX calls', () => {
     const app = appSource();
     const css = cssSource();
-    expect(app).toContain('metricLabels.cost_usd');
+    expect(app).toContain("usageMetricLabel('cost_usd')");
     expect(app).toContain('className="model-value"');
     expect(app).toContain('className="model-cost-sub"');
     expect(app).not.toContain('/insights/fx');
@@ -80,7 +80,7 @@ describe('insights chart UI', () => {
     const css = cssSource();
     expect(app).toContain('const [chartStacked, setChartStacked] = useState(false)');
     expect(app).toContain('className="chart-stack-toggle icon-btn"');
-    expect(app).toContain("aria-label={chartStacked ? 'Show unstacked chart' : 'Show stacked chart'}");
+    expect(app).toContain("aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')}");
     expect(app).toContain('{chartStacked ? <LineChart /> : <Layers />}');
     expect(app).not.toContain("{chartStacked ? 'Unstack' : 'Stack'}");
     expect(app).toContain('aria-pressed={chartStacked}');
@@ -93,6 +93,13 @@ describe('insights chart UI', () => {
     expect(css).toContain('.chart-stack-toggle{width:34px;height:34px;padding:0;');
     expect(css).toContain('.usage-chart.stacked .usage-line{display:none}');
     expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);');
+  });
+
+  test('uses half-width strokes for desktop mobile and stacked total lines', () => {
+    const css = cssSource();
+    expect(css).toContain('.usage-line{fill:none;stroke-width:.8;');
+    expect(css).toContain('.usage-line{stroke-width:.75}');
+    expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.85;');
   });
 
   test('renders one-day model usage as a proportional share bar with model indicators', () => {

@@ -13,7 +13,7 @@ import { normalizeMessageParts } from './messageReasoning';
 import { isToolLikeMessage, shouldRenderMessage } from './messageVisibility';
 import { shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { markdownText } from './markdown';
-import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
+import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
@@ -103,8 +103,17 @@ function useMediaQuery(query: string) {
 }
 const isWorkspaceTextFile = (name: string) => /\.(md|txt|json|ya?ml|toml|csv|ts|tsx|js|jsx|py|rs|go|sh|css|html|lock)$/i.test(name) || /^(Makefile|Dockerfile|\.gitignore|\.dockerignore|\.env|\.npmrc|\.prettierrc|\.eslintrc)$/i.test(name);
 const jobId = (job: Job) => job.job_id || job.id || '';
-const jobSchedule = (schedule: Job['schedule']) => typeof schedule === 'string' ? schedule : (schedule?.display || schedule?.expr || 'no schedule');
+const jobSchedule = (schedule: Job['schedule']) => typeof schedule === 'string' ? schedule : (schedule?.display || schedule?.expr || t('cron.noSchedule'));
 const jobState = (job: Job) => job.status || (job.paused || job.enabled === false ? 'paused' : 'active');
+const jobStateLabel = (job: Job) => {
+  const state = jobState(job);
+  if (state === 'paused') return t('cron.paused');
+  if (state === 'active') return t('cron.active');
+  return state;
+};
+const usageMetricLabel = (metric: UsageMetric) => t(`insights.metric.${metric}`);
+const navLabel = (mode: Mode) => t(`nav.${mode}`);
+const modeSummary = (mode: Mode) => mode === 'memory' ? t('mode.memorySummary') : mode === 'insights' ? t('mode.insightsSummary') : mode === 'workspace' ? t('mode.workspaceSummary') : mode === 'settings' ? t('mode.settingsSummary') : mode === 'images' ? t('mode.imagesSummary') : t('mode.cronSummary');
 const apiJoin = (base: string, path: string) => `${base.replace(/\/$/, '')}${path}`;
 const numericId = (id?: string) => /^\d+$/.test(id || '') ? id : '';
 const workspaceRouteParents = (path: string) => {
@@ -664,7 +673,7 @@ export default function App() {
       if (!usageRes.ok) throw new Error(await usageRes.text());
       setUsageInsights(await usageRes.json());
     } catch (err: any) {
-      setUsageError(err?.message || 'Usage insights unavailable');
+      setUsageError(err?.message || t('insights.unavailable'));
     } finally {
       setUsageLoading(false);
     }
@@ -823,7 +832,7 @@ export default function App() {
       setWorkspacePath(body.path);
       setWorkspaceEntries(body.entries);
       setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
-    } catch (err: any) { setWorkspaceEntries([]); setStatus(`Workspace unavailable: ${err.message}`); }
+    } catch (err: any) { setWorkspaceEntries([]); setStatus(tf('workspace.unavailable', err.message)); }
   }, [fetchWorkspaceEntries, workspacePath]);
 
   const toggleWorkspaceFolder = useCallback(async (entry: WorkspaceEntry) => {
@@ -839,7 +848,7 @@ export default function App() {
         setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
       }
       setExpandedWorkspacePaths((old) => new Set(old).add(path));
-    } catch (err: any) { setStatus(`Workspace folder unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('workspace.folderUnavailable', err.message)); }
   }, [expandedWorkspacePaths, fetchWorkspaceEntries, workspaceTree]);
 
   const selectedSkill = skillList.find((skill) => skill.name === selectedSkillName) || null;
@@ -905,7 +914,7 @@ export default function App() {
       const nextJobs = body.data || body.jobs || [];
       setCronJobs(nextJobs);
       if (cronEditingId && !nextJobs.some((job: Job) => jobId(job) === cronEditingId)) resetCronForm();
-    } catch (err: any) { setStatus(`Jobs unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('cron.jobsUnavailable', err.message)); }
   }, [apiBase, cronEditingId, headers, resetCronForm]);
   const beginCronEdit = useCallback((job: Job) => {
     const values = cronEditableValues(job);
@@ -927,7 +936,7 @@ export default function App() {
       const created = (bodyJson.data || bodyJson.job || bodyJson) as Job;
       const id = jobId(created);
       if (id) setCronEditingId(id);
-      setStatus('Cron job saved');
+      setStatus(t('cron.saved'));
       await loadCronJobs();
       return;
     }
@@ -935,14 +944,14 @@ export default function App() {
     const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(cronEditingId)}`), { method: 'PATCH', headers: headers(), body: JSON.stringify(patchBody) });
     if (!res.ok) { setStatus(await res.text()); return; }
     await loadCronJobs();
-    setStatus('Cron job saved');
+    setStatus(t('cron.saved'));
   }, [apiBase, cronEditingId, cronName, cronPrompt, cronSchedule, cronScript, headers, loadCronJobs]);
   const runCronJob = useCallback(async () => {
     if (!cronEditingId) return;
     const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(cronEditingId)}/run`), { method: 'POST', headers: headers(false) });
     if (!res.ok) { setStatus(await res.text()); return; }
     await loadCronJobs();
-    setStatus('Cron job started');
+    setStatus(t('cron.ran'));
   }, [apiBase, cronEditingId, headers, loadCronJobs]);
   const deleteCronJob = useCallback(async () => {
     if (!cronEditingId) return;
@@ -950,7 +959,7 @@ export default function App() {
     if (!res.ok) { setStatus(await res.text()); return; }
     resetCronForm();
     await loadCronJobs();
-    setStatus('Cron job deleted');
+    setStatus(t('cron.deleted'));
   }, [apiBase, cronEditingId, headers, loadCronJobs, resetCronForm]);
 
   useEffect(() => { loadModels(); loadWorkspace(''); }, []);
@@ -1267,15 +1276,15 @@ export default function App() {
       return;
     }
     const res = await fetch(`/workspace/file?path=${encodeURIComponent(entry.path)}`);
-    if (!res.ok) { setStatus(`Preview failed: ${res.status}`); return; }
+    if (!res.ok) { setStatus(tf('workspace.previewFailed', res.status)); return; }
     const blob = await res.blob();
     if (blob.type.startsWith('image/')) {
       setPreview({ path: entry.path, content: '', kind: 'image', url: URL.createObjectURL(blob) });
-      if (options?.edit) setStatus('Workspace item is not editable');
+      if (options?.edit) setStatus(t('workspace.itemNotEditable'));
     } else if (blob.type.startsWith('text/') || isWorkspaceTextFile(entry.name)) {
       setPreview({ path: entry.path, content: await blob.text(), kind: 'text', editRequest: options?.edit ? Date.now() : undefined });
     } else {
-      if (options?.edit) setStatus('Workspace item is not editable');
+      if (options?.edit) setStatus(t('workspace.itemNotEditable'));
       else downloadEntry(entry);
     }
     if (options?.route !== false) writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
@@ -1302,7 +1311,7 @@ export default function App() {
   }, [fetchWorkspaceEntries, openWorkspacePathFile]);
   useEffect(() => {
     if (!workspaceRouteTarget) return;
-    openWorkspaceRouteTarget(workspaceRouteTarget.workspacePath, workspaceRouteTarget.workspaceKind, { edit: workspaceRouteTarget.workspaceEdit }).catch((err: any) => setStatus(`Workspace route unavailable: ${err.message}`));
+    openWorkspaceRouteTarget(workspaceRouteTarget.workspacePath, workspaceRouteTarget.workspaceKind, { edit: workspaceRouteTarget.workspaceEdit }).catch((err: any) => setStatus(tf('workspace.routeUnavailable', err.message)));
     setWorkspaceRouteTarget(null);
   }, [openWorkspaceRouteTarget, workspaceRouteTarget]);
   const parentPath = workspacePath.split('/').filter(Boolean).slice(0, -1).join('/');
@@ -1368,22 +1377,22 @@ export default function App() {
   };
   const renameWorkspaceEntry = async (entry: WorkspaceEntry) => {
     setWorkspaceMenu(null);
-    const nextName = await requestPrompt('Rename item', 'Choose a new file or folder name.', entry.name);
+    const nextName = await requestPrompt(t('workspace.renameTitle'), t('workspace.renameMessage'), entry.name);
     if (nextName === null) return;
     const res = await fetch(`/workspace/item?path=${encodeURIComponent(entry.path)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nextName }) });
-    if (!res.ok) { setStatus(`Workspace rename failed: ${await res.text()}`); return; }
+    if (!res.ok) { setStatus(tf('workspace.renameFailed', await res.text())); return; }
     setPreview((old) => old.path === entry.path ? { path: '', content: '', kind: 'none' } : old);
     await loadWorkspace(workspacePath);
-    setStatus('Renamed workspace item');
+    setStatus(t('workspace.renamed'));
   };
   const deleteWorkspaceEntry = async (entry: WorkspaceEntry) => {
     setWorkspaceMenu(null);
-    if (!await requestConfirm('Delete workspace item', `Delete workspace ${entry.kind} “${entry.name}”?`, true)) return;
+    if (!await requestConfirm(t('workspace.deleteTitle'), tf('workspace.deleteConfirm', entry.kind, entry.name), true)) return;
     const res = await fetch(`/workspace/item?path=${encodeURIComponent(entry.path)}`, { method: 'DELETE' });
-    if (!res.ok) { setStatus(`Workspace delete failed: ${await res.text()}`); return; }
+    if (!res.ok) { setStatus(tf('workspace.deleteFailed', await res.text())); return; }
     setPreview((old) => old.path === entry.path || old.path.startsWith(`${entry.path}/`) ? { path: '', content: '', kind: 'none' } : old);
     await loadWorkspace(workspacePath);
-    setStatus('Deleted workspace item');
+    setStatus(t('workspace.deleted'));
   };
   const closeMobileSidebar = () => setMobileSidebarOpen(false);
   const toggleMobileSidebar = () => {
@@ -1445,13 +1454,13 @@ export default function App() {
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
-      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
-        <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} aria-label="Chat"><MessageSquare /></button>
-        <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label="Cron"><CalendarClock /></button>
-        <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label="Skills"><Star /></button>
-        <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} aria-label="Insights"><LineChart /></button>
-        <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label="Images"><ImageIcon /></button>
-        <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} aria-label="Memory"><Brain /></button>
+      <nav className="mobile-bottom-nav" aria-label={t('nav.mobile')}>
+        <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} aria-label={t('nav.chat')}><MessageSquare /></button>
+        <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label={t('nav.cron')}><CalendarClock /></button>
+        <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label={t('nav.skills')}><Star /></button>
+        <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} aria-label={t('nav.insights')}><LineChart /></button>
+        <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label={t('nav.images')}><ImageIcon /></button>
+        <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} aria-label={t('nav.memory')}><Brain /></button>
       </nav>
     </div>
   );
@@ -1482,17 +1491,17 @@ function CustomDialog({ dialog, setDialog }: { dialog: DialogState; setDialog: (
       <p>{dialog.message}</p>
       {dialog.variant === 'prompt' && <input autoFocus value={value} onChange={(event) => setValue(event.target.value)} />}
       <div className="dialog-actions">
-        <button type="button" onClick={() => finish(dialog.variant === 'confirm' ? false : null)}>Cancel</button>
-        <button type="button" className={dialog.danger ? 'danger' : ''} onClick={() => finish(dialog.variant === 'prompt' ? value : true)}>{dialog.variant === 'prompt' ? 'Save' : 'Confirm'}</button>
+        <button type="button" onClick={() => finish(dialog.variant === 'confirm' ? false : null)}>{t('dialog.cancel')}</button>
+        <button type="button" className={dialog.danger ? 'danger' : ''} onClick={() => finish(dialog.variant === 'prompt' ? value : true)}>{dialog.variant === 'prompt' ? t('dialog.save') : t('dialog.confirm')}</button>
       </div>
     </form>
   </div>;
 }
 function ThemeCard({ theme, setTheme }: { theme: Theme; setTheme: (v: Theme) => void }) {
-  return <div className="theme-card"><div className="theme-title"><span>Appearance</span><span>{themeLabel(theme)}</span></div><label><span>Theme</span><select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label></div>;
+  return <div className="theme-card"><div className="theme-title"><span>{t('theme.appearance')}</span><span>{themeLabel(theme)}</span></div><label><span>{t('theme.theme')}</span><select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label></div>;
 }
 function MobileHeaderDrawerButton({ open, onClick }: { open: boolean; onClick: () => void }) {
-  return <button type="button" className="mobile-header-drawer rail-btn" aria-label="Open list" aria-expanded={open} onClick={onClick}><List /></button>;
+  return <button type="button" className="mobile-header-drawer rail-btn" aria-label={t('nav.openList')} aria-expanded={open} onClick={onClick}><List /></button>;
 }
 function HeaderThemeControl({ theme, setTheme, mode, onNavigateToSettings }: { theme: Theme; setTheme: (v: Theme) => void; mode?: Mode; onNavigateToSettings?: () => void }) {
   const [open, setOpen] = useState(false);
@@ -1507,17 +1516,15 @@ function HeaderThemeControl({ theme, setTheme, mode, onNavigateToSettings }: { t
   }, [open]);
   const isSettingsActive = mode === 'settings';
   return <div className="header-theme-control" ref={rootRef}>
-    {onNavigateToSettings && <button type="button" className={`mobile-header-settings-btn rail-btn nav-settings ${isSettingsActive ? 'active' : ''}`} aria-label="Settings" onClick={onNavigateToSettings}><Settings /></button>}
-    <button type="button" className="mobile-icon-only palette-btn desktop-only-theme" aria-label="Theme" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Palette /></button>
+    {onNavigateToSettings && <button type="button" className={`mobile-header-settings-btn rail-btn nav-settings ${isSettingsActive ? 'active' : ''}`} aria-label={t('settings.title')} onClick={onNavigateToSettings}><Settings /></button>}
+    <button type="button" className="mobile-icon-only palette-btn desktop-only-theme" aria-label={t('theme.theme')} aria-expanded={open} onClick={() => setOpen((value) => !value)}><Palette /></button>
     {open && <div className="theme-menu" role="menu">
       {THEME_OPTIONS.map((item) => <button key={item.id} type="button" role="menuitemradio" aria-checked={theme === item.id} className={theme === item.id ? 'active' : ''} onClick={() => { setTheme(item.id); setOpen(false); }}><span>{item.label}</span></button>)}
     </div>}
   </div>;
 }
 function ModeSidebar({ mode }: { mode: Mode }) {
-  const label = mode === 'cron' ? 'Cron jobs' : mode === 'memory' ? 'Memory' : mode === 'insights' ? 'Insights' : mode === 'images' ? 'Images' : mode === 'workspace' ? 'Workspace' : 'Settings';
-  const text = mode === 'memory' ? 'Edit MEMORY.md and USER.md in a full-width editor.' : mode === 'insights' ? 'Recent model usage, cache, and cost trends.' : mode === 'workspace' ? 'Browse and preview local workspace files.' : mode === 'settings' ? 'API, connection, and WebUI options.' : mode === 'images' ? 'Native image gallery.' : 'Create and manage scheduled jobs.';
-  return <div className="admin-side"><h2>{label}</h2><p>{text}</p></div>;
+  return <div className="admin-side"><h2>{navLabel(mode)}</h2><p>{modeSummary(mode)}</p></div>;
 }
 
 function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void }) {
@@ -1535,37 +1542,37 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   const isSingleDay = props.period === 1;
   const showSkeleton = props.loading;
   const fmtCost = (value: number | undefined) => fmtMoney(value);
-  const costMetricLabel = metricLabels.cost_usd;
+  const costMetricLabel = usageMetricLabel('cost_usd');
   return <main className={`main-panel insights-main ${showSkeleton ? 'insights-loading' : ''}`}>
     <header className="chat-header header-no-drawer insights-header">
-      <div><h1>Insights</h1><span>{showSkeleton ? 'Loading usage…' : props.error || `Last ${periodLabel} · ${fmtTokens(totals.total_tokens)} tokens`}</span></div>
-      <div className="header-actions"><button className="icon-btn mobile-icon-only insights-refresh" onClick={props.refresh} disabled={props.loading} title="Refresh usage"><RefreshCw /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div>
+      <div><h1>{t('insights.title')}</h1><span>{showSkeleton ? t('insights.loadingUsage') : props.error || tf('insights.lastTokens', periodLabel, fmtTokens(totals.total_tokens))}</span></div>
+      <div className="header-actions"><button className="icon-btn mobile-icon-only insights-refresh" onClick={props.refresh} disabled={props.loading} title={t('insights.refreshUsage')}><RefreshCw /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div>
     </header>
     <section className="insights-content">
-      <div className="insights-toolbar" aria-label="Usage controls">
+      <div className="insights-toolbar" aria-label={t('insights.usageControls')}>
         <div className="segmented">{([30, 7, 1] as const).map((days) => <button key={days} className={props.period === days ? 'active' : ''} onClick={() => props.setPeriod(days)}>{days}d</button>)}</div>
-        <select aria-label="Usage metric" value={props.metric} onChange={(event) => props.setMetric(event.target.value as UsageMetric)}>{(Object.keys(metricLabels) as UsageMetric[]).map((metric) => <option key={metric} value={metric}>{metricLabels[metric]}</option>)}</select>
+        <select aria-label={t('insights.usageMetric')} value={props.metric} onChange={(event) => props.setMetric(event.target.value as UsageMetric)}>{(Object.keys(metricLabels) as UsageMetric[]).map((metric) => <option key={metric} value={metric}>{usageMetricLabel(metric)}</option>)}</select>
       </div>
       <div className="insights-cards">
         {showSkeleton ? <>
-          <InsightCardSkeleton label="Tokens" />
-          <InsightCardSkeleton label="Cache hit" />
-          <InsightCardSkeleton label="Cost" />
-          <InsightCardSkeleton label="Top model" />
+          <InsightCardSkeleton label={t('insights.tokens')} />
+          <InsightCardSkeleton label={t('insights.cacheHit')} />
+          <InsightCardSkeleton label={costMetricLabel} />
+          <InsightCardSkeleton label={t('insights.topModel')} />
         </> : <>
-          <InsightCard label="Tokens" value={fmtTokens(totals.total_tokens)} detail={`${fmtTokens(totals.input)} in · ${fmtTokens(totals.output)} out`} />
-          <InsightCard label="Cache hit" value={fmtPercent(totals.cache_hit_rate)} detail={`${fmtTokens(totals.cache_read)} read · ${fmtTokens(totals.cache_write)} write`} />
-          <InsightCard label={costMetricLabel} value={fmtCost(totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd)} detail={totals.unpriced_tokens ? `${fmtTokens(totals.unpriced_tokens)} unpriced · ${totals.api_calls || 0} API calls` : `${totals.sessions || 0} sessions · ${totals.api_calls || 0} API calls`} />
-          <InsightCard label="Top model" value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || 'No usage'} />
+          <InsightCard label={t('insights.tokens')} value={fmtTokens(totals.total_tokens)} detail={tf('insights.inputOutputDetail', fmtTokens(totals.input), fmtTokens(totals.output))} />
+          <InsightCard label={t('insights.cacheHit')} value={fmtPercent(totals.cache_hit_rate)} detail={tf('insights.cacheDetail', fmtTokens(totals.cache_read), fmtTokens(totals.cache_write))} />
+          <InsightCard label={costMetricLabel} value={fmtCost(totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd)} detail={totals.unpriced_tokens ? tf('insights.unpricedApiCalls', fmtTokens(totals.unpriced_tokens), totals.api_calls || 0) : tf('insights.sessionsApiCalls', totals.sessions || 0, totals.api_calls || 0)} />
+          <InsightCard label={t('insights.topModel')} value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || t('insights.noUsage')} />
         </>}
       </div>
       <section className="insights-chart-card">
-        <div className="insights-card-head"><div><h2>{metricLabels[props.metric]} by model</h2><p>{isSingleDay ? `Last ${periodLabel} distribution by model` : `Recent ${periodLabel} trend with cache/input/output usage`}</p></div>{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? 'Show unstacked chart' : 'Show stacked chart'} title={chartStacked ? 'Show unstacked chart' : 'Show stacked chart'} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button>}</div>
+        <div className="insights-card-head"><div><h2>{tf('insights.byModel', usageMetricLabel(props.metric))}</h2><p>{isSingleDay ? tf('insights.lastDistribution', periodLabel) : tf('insights.recentTrend', periodLabel)}</p></div>{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} title={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button>}</div>
         {showSkeleton ? <UsageChartSkeleton /> : isSingleDay ? <UsageShareBar models={models} metric={props.metric} /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} stacked={chartStacked} />}
       </section>
       <div className="insights-grid">
-        <section className="insights-panel"><h2>Models</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
-        <section className="insights-panel"><h2>Other signals</h2>{showSkeleton ? <SignalSkeletonList /> : <><SignalRow name="Reasoning" value={fmtTokens(totals.reasoning)} /><SignalRow name="Tools" value={`${totals.tool_calls || 0}`} /><SignalRow name="Avg/session" value={fmtTokens(totals.avg_tokens_per_session)} /><SourceSignalList sources={(props.insights?.sources || []).slice(0, 6)} /></>}</section>
+        <section className="insights-panel"><h2>{t('insights.models')}</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">{t('insights.noWindowUsage')}</p>}</section>
+        <section className="insights-panel"><h2>{t('insights.otherSignals')}</h2>{showSkeleton ? <SignalSkeletonList /> : <><SignalRow name={t('insights.reasoning')} value={fmtTokens(totals.reasoning)} /><SignalRow name={t('insights.tools')} value={`${totals.tool_calls || 0}`} /><SignalRow name={t('insights.avgSession')} value={fmtTokens(totals.avg_tokens_per_session)} /><SourceSignalList sources={(props.insights?.sources || []).slice(0, 6)} /></>}</section>
       </div>
     </section>
   </main>;
@@ -1577,7 +1584,7 @@ function InsightCardSkeleton({ label }: { label: string }) {
   return <article className="insight-card insight-card-skeleton" aria-busy="true" aria-label={`${label} loading`}><span>{label}</span><strong><i className="skeleton-block skeleton-number" /></strong><p><i className="skeleton-block skeleton-detail" /></p></article>;
 }
 function UsageChartSkeleton() {
-  return <div className="usage-chart usage-chart-loading" aria-busy="true" aria-label="Loading chart"><div className="chart-loading-grid" aria-hidden="true">{[0, 1, 2, 3].map((item) => <span key={item} />)}</div><div className="chart-loading-line" aria-hidden="true" /><div className="chart-loading-line secondary" aria-hidden="true" /><div className="chart-loading-badge">Loading</div></div>;
+  return <div className="usage-chart usage-chart-loading" aria-busy="true" aria-label={t('insights.loadingChart')}><div className="chart-loading-grid" aria-hidden="true">{[0, 1, 2, 3].map((item) => <span key={item} />)}</div><div className="chart-loading-line" aria-hidden="true" /><div className="chart-loading-line secondary" aria-hidden="true" /><div className="chart-loading-badge">{t('insights.loading')}</div></div>;
 }
 function ModelUsageSkeletonList() {
   return <div className="model-skeleton-list" aria-busy="true">{[0, 1, 2, 3, 4].map((item) => <article className="model-usage-row model-usage-skeleton" key={item}><div><b><i className="skeleton-block skeleton-rank" /></b><span><i className="skeleton-block skeleton-title" /></span></div><strong><i className="skeleton-block skeleton-value" /></strong><p><i className="skeleton-block skeleton-detail" /></p><div className="model-bar skeleton-bar"><i /></div></article>)}</div>;
@@ -1589,18 +1596,18 @@ function SignalRow({ name, value }: { name: string; value: string }) {
   return <div className="signal-row"><span>{name}</span><strong>{value}</strong></div>;
 }
 function SourceSignalList({ sources }: { sources: UsageSource[] }) {
-  return <div className="signal-row signal-row-sources"><span>Sources</span><div className="source-channel-list">{sources.length ? sources.map((item) => <span className="source-channel-chip" key={item.source}><b>{item.source}</b><em>{fmtTokens(item.totals.total_tokens)}</em></span>) : <span className="source-channel-empty">—</span>}</div></div>;
+  return <div className="signal-row signal-row-sources"><span>{t('insights.sources')}</span><div className="source-channel-list">{sources.length ? sources.map((item) => <span className="source-channel-chip" key={item.source}><b>{item.source}</b><em>{fmtTokens(item.totals.total_tokens)}</em></span>) : <span className="source-channel-empty">—</span>}</div></div>;
 }
 function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: UsageTotals }; rank: number }) {
   const max = Math.max(1, model.periodTotals.total_tokens);
   const cache = Math.min(100, Math.round((model.periodTotals.cache_read / max) * 100));
-  return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{fmtTokens(model.periodTotals.input)} input · {fmtTokens(model.periodTotals.output)} output · {fmtPercent(model.periodTotals.cache_hit_rate)} cache</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
+  return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{tf('insights.modelRowDetail', fmtTokens(model.periodTotals.input), fmtTokens(model.periodTotals.output), fmtPercent(model.periodTotals.cache_hit_rate))}</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
 }
 function UsageShareBar({ models, metric }: { models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
   const slices = models.slice(0, 6).map((model, index) => ({ model: model.model, index, value: Number(model.periodTotals[metric] || 0) })).filter((item) => item.value > 0);
   const total = slices.reduce((sum, item) => sum + item.value, 0);
-  if (!slices.length || total <= 0) return <div className="usage-share-chart"><p className="insights-empty">No model usage for this metric.</p></div>;
-  return <div className="usage-share-chart" role="img" aria-label={`${metricLabels[metric]} model share`}>
+  if (!slices.length || total <= 0) return <div className="usage-share-chart"><p className="insights-empty">{t('insights.noMetricUsage')}</p></div>;
+  return <div className="usage-share-chart" role="img" aria-label={tf('insights.modelShare', usageMetricLabel(metric))}>
     <div className="usage-share-bar">{slices.map((item) => { const pct = (item.value / total) * 100; return <span key={item.model} className="usage-share-segment" title={`${item.model} · ${formatMetricValue(metric, item.value)} · ${Math.round(pct)}%`} style={{ width: `${pct}%`, background: `var(--chart-${item.index})` }} />; })}</div>
     <div className="usage-share-indicators">{slices.map((item) => { const pct = item.value / total; return <span key={item.model} className="usage-share-indicator"><i style={{ background: `var(--chart-${item.index})` }} /><b title={item.model}>{item.model}</b><em>{fmtPercent(pct)}</em></span>; })}</div>
   </div>;
@@ -1625,7 +1632,7 @@ function UsageAreaChart({ days, models, metric, stacked }: { days: UsageDay[]; m
     ? stackedSeries.map((item) => ({ model: item.model, index: item.index, values: item.values, pointValues: item.upper }))
     : series.map((item) => ({ model: item.model, index: item.index, values: item.values, pointValues: item.values }));
   return <div className={`usage-chart ${stacked ? 'stacked' : 'unstacked'}`} data-series-count={series.length}>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Usage trend chart" preserveAspectRatio="none">
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('insights.trendChart')} preserveAspectRatio="none">
       <defs>{series.map((item) => <linearGradient key={item.model} id={`insight-grad-${item.index}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={`var(--chart-${item.index})`} stopOpacity=".52" /><stop offset="100%" stopColor={`var(--chart-${item.index})`} stopOpacity=".06" /></linearGradient>)}</defs>
       <g className="chart-grid" aria-hidden="true">{yTicks.map((tick, tickIndex) => { const y = chartPoint(0, tick.value, 1, width, height, pad, maxValue).y; return <line key={`${tickIndex}-${tick.label}`} x1={pad.left} x2={width - pad.right} y1={y} y2={y} />; })}</g>
       {!stacked && <path className="usage-total-area" d={areaPath(totalValues, width, height, pad, maxValue)} />}
@@ -1636,9 +1643,9 @@ function UsageAreaChart({ days, models, metric, stacked }: { days: UsageDay[]; m
       {stacked && <path className="usage-total-line" d={linePath(totalValues, width, height, pad, maxValue)} />}
     </svg>
     <div className="chart-y-axis" aria-hidden="true">{yTicks.map((tick, tickIndex) => <span key={`${tickIndex}-${tick.label}`} style={{ top: `${tick.pct}%` }}>{tick.label}</span>)}</div>
-    <div className="chart-points">{pointSeries.map((item) => item.values.map((value, pointIndex) => { const day = days[pointIndex]; const point = chartPoint(pointIndex, item.pointValues[pointIndex], item.values.length, width, height, pad, maxValue); const label = chartTooltipLabel(item.model, day?.label || '', value, metricLabels[metric], formatMetricValue(metric, value)); return <span key={`${item.model}-${day?.date || pointIndex}`} className="chart-point-hit" tabIndex={0} aria-label={label} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{label}</span></span>; }))}</div>
+    <div className="chart-points">{pointSeries.map((item) => item.values.map((value, pointIndex) => { const day = days[pointIndex]; const point = chartPoint(pointIndex, item.pointValues[pointIndex], item.values.length, width, height, pad, maxValue); const label = chartTooltipLabel(item.model, day?.label || '', value, usageMetricLabel(metric), formatMetricValue(metric, value)); return <span key={`${item.model}-${day?.date || pointIndex}`} className="chart-point-hit" tabIndex={0} aria-label={label} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{label}</span></span>; }))}</div>
     <div className="chart-axis">{days.map((day, index) => <span key={day.date} style={{ left: `${days.length === 1 ? 50 : (index / (days.length - 1)) * 100}%` }}>{index === 0 || index === days.length - 1 || days.length <= 7 ? day.label : ''}</span>)}</div>
-    <div className="chart-legend">{series.map((item) => <span key={item.model}><i style={{ background: `var(--chart-${item.index})` }} />{item.model}</span>)}{stacked && <span><i className="total" />Total</span>}</div>
+    <div className="chart-legend">{series.map((item) => <span key={item.model}><i style={{ background: `var(--chart-${item.index})` }} />{item.model}</span>)}{stacked && <span><i className="total" />{t('insights.total')}</span>}</div>
   </div>;
 }
 function ChatSidebar(props: { filter: string; setFilter: (v: string) => void; startDraftSession: () => void; pinnedSessions: Session[]; normalSessions: Session[]; activeSessionId: string; setActiveSessionId: (v: string) => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void; pinnedIds: Set<string>; togglePin: (id: string) => void; openSessionMenu: (session: Session, event: React.MouseEvent) => void; openSessionMenuAt: (session: Session, x: number, y: number) => void }) {
@@ -1907,7 +1914,7 @@ function FollowUpQueueView({ items, onSteer, onEdit, onReorder }: { items: Follo
 }
 
 function WorkspaceAside(props: any) {
-  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label="Expand workspace" onClick={() => props.setCollapsed(false)}><ChevronLeft /></button></div></aside>;
+  if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label={t('workspace.expand')} onClick={() => props.setCollapsed(false)}><ChevronLeft /></button></div></aside>;
   return <aside className="workspace"><WorkspaceBrowser rootEntries={props.rootEntries} workspaceTree={props.workspaceTree} expandedWorkspacePaths={props.expandedWorkspacePaths} toggleWorkspaceFolder={props.toggleWorkspaceFolder} openWorkspaceEntry={props.openWorkspaceEntry} downloadEntry={props.downloadEntry} preview={props.preview} setPreview={props.setPreview} compact setCollapsed={props.setCollapsed} openWorkspaceMenu={props.openWorkspaceMenu} /></aside>;
 }
 function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: any) {
@@ -1919,12 +1926,12 @@ function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, 
     const children = expanded ? (workspaceTree[entry.path] || []) : [];
     return <React.Fragment key={entry.path}>
       <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry)} onContextMenu={(ev) => openWorkspaceMenu?.(entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title="download" onClick={(ev) => { ev.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(ev) => { ev.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
       </div>
       {expanded && children.length > 0 && renderRows(children, depth + 1)}
     </React.Fragment>;
   });
-  return <><div className="workspace-sidebar-head"><div><h2>Workspace</h2><p>File tree</p></div></div><div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div></>;
+  return <><div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div></div><div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div></>;
 }
 function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, filter, setFilter, expandedCats, setExpandedCats, closeMobileSidebar }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; filter: string; setFilter: (v: string) => void; expandedCats: Set<string>; setExpandedCats: (v: Set<string>) => void; closeMobileSidebar: () => void }) {
   const grouped = skills.reduce<Record<string, Skill[]>>((acc, skill) => { const cat = skill.category || 'uncategorized'; if (cat === '.archive') return acc; (acc[cat] ||= []).push(skill); return acc; }, {});
@@ -1963,14 +1970,14 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
     setSaving(true);
     try {
       const res = await fetch(`/workspace/file?path=${encodeURIComponent(preview.path)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: editContent }) });
-      if (!res.ok) { alert(`Save failed: ${res.status}`); return; }
+      if (!res.ok) { alert(tf('workspace.saveFailed', res.status)); return; }
       setPreview({ ...preview, content: editContent });
       setEditMode(false);
       setEditContent('');
     } finally { setSaving(false); }
   };
   if (preview.kind === 'none') { const Icon = emptyIcon || Folder; return <section className="workspace-editor-preview empty"><div className="empty-state"><Icon className="big-mark" /><h2>{emptyTitle || t('workspace.selectFile')}</h2><p>{emptyDesc || t('workspace.selectFileDesc')}</p></div></section>; }
-  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label="Edit" onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label="Cancel edit" onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label="Close preview" onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview"><pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} /></div>}</section>;
+  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview"><pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} /></div>}</section>;
 }
 function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, preview, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
@@ -1978,45 +1985,45 @@ function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, 
     const children = expanded ? (workspaceTree[entry.path] || []) : [];
     return <React.Fragment key={entry.path}>
       <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry, compact ? { route: false } : undefined)} onContextMenu={(ev) => openWorkspaceMenu?.(entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry, compact ? { route: false } : undefined); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title="download" onClick={(ev) => { ev.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(ev) => { ev.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
       </div>
       {expanded && children.length > 0 && renderRows(children, depth + 1)}
     </React.Fragment>;
   });
   return <>
-    <header className="workspace-head"><span className="panel-title">WORKSPACE</span><span>{compact ? 'MAIN' : 'FULL'}</span><button aria-label={compact ? t('workspace.collapse') : undefined} onClick={() => compact ? setCollapsed(true) : setPreview({ path: '', content: '', kind: 'none' })}><X /></button></header>
+    <header className="workspace-head"><span className="panel-title">{t('workspace.title')}</span><span>{compact ? t('workspace.main') : t('workspace.full')}</span><button aria-label={compact ? t('workspace.collapse') : t('workspace.closePreview')} onClick={() => compact ? setCollapsed(true) : setPreview({ path: '', content: '', kind: 'none' })}><X /></button></header>
     <div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div>
-    {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions"><button className="icon-btn" aria-label={t('workspace.openFullPreview')} title={t('workspace.openFullPreview')} onClick={() => { window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path }); }}><Maximize2 /></button><button className="icon-btn" aria-label="Close preview" onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div></div>{preview.kind === 'image' ? <img src={preview.url} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />}</div>}
+    {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions"><button className="icon-btn" aria-label={t('workspace.openFullPreview')} title={t('workspace.openFullPreview')} onClick={() => { window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path }); }}><Maximize2 /></button><button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div></div>{preview.kind === 'image' ? <img src={preview.url} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />}</div>}
   </>;
 }
 function AdminMain({ mode, setStatus, theme, setTheme, onNavigateToSettings }: { mode: Extract<Mode, 'memory'>; apiBase: string; headers: (json?: boolean) => Record<string, string>; setStatus: (v: string) => void; theme: Theme; setTheme: (v: Theme) => void; onNavigateToSettings: () => void }) {
   return <main className={`main-panel admin-main ${mode === 'memory' ? 'memory-main' : ''}`}><header className="chat-header header-no-drawer"><div><h1>{t('memory.title')}</h1><span>{t('memory.subtitle')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><MemoryPanel setStatus={setStatus} /></main>;
 }
 function CronSidebar({ jobs, editingId, beginCronEdit, resetCronForm, writeHashRoute, closeMobileSidebar }: { jobs: Job[]; editingId: string; beginCronEdit: (job: Job) => void; resetCronForm: () => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void }) {
-  return <><div className="cron-sidebar-head"><div><h2>Cron jobs</h2><p>{jobs.length} scheduled jobs</p></div><button className="new-chat-btn" aria-label={t('cron.newJob')} title={t('cron.newJob')} onClick={() => { resetCronForm(); writeHashRoute({ mode: 'cron' }); closeMobileSidebar(); }}><Plus /></button></div><div className="cron-sidebar-list">{jobs.map((j) => <button type="button" data-route={buildHashRoute({ mode: 'cron', jobId: jobId(j) })} className={`cron-sidebar-row ${jobId(j) === editingId ? 'active' : ''}`} key={jobId(j)} onClick={() => { beginCronEdit(j); closeMobileSidebar(); }}>
-    <span className="session-icon"><CalendarClock /></span><span className="session-text"><span className="session-title">{j.name || jobId(j)}</span><span className="session-preview">{jobSchedule(j.schedule)} · {jobState(j)}{j.script ? ` · ${j.script}` : ''}</span></span>
+  return <><div className="cron-sidebar-head"><div><h2>{t('cron.jobs')}</h2><p>{jobs.length} {t('cron.scheduled')}</p></div><button className="new-chat-btn" aria-label={t('cron.newJob')} title={t('cron.newJob')} onClick={() => { resetCronForm(); writeHashRoute({ mode: 'cron' }); closeMobileSidebar(); }}><Plus /></button></div><div className="cron-sidebar-list">{jobs.map((j) => <button type="button" data-route={buildHashRoute({ mode: 'cron', jobId: jobId(j) })} className={`cron-sidebar-row ${jobId(j) === editingId ? 'active' : ''}`} key={jobId(j)} onClick={() => { beginCronEdit(j); closeMobileSidebar(); }}>
+    <span className="session-icon"><CalendarClock /></span><span className="session-text"><span className="session-title">{j.name || jobId(j)}</span><span className="session-preview">{jobSchedule(j.schedule)} · {jobStateLabel(j)}{j.script ? ` · ${j.script}` : ''}</span></span>
   </button>)}</div></>;
 }
 function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
   const deliverDisplay = (d: string) => {
     if (!d) return '—';
-    if (d === 'origin') return 'origin (reply to chat)';
-    if (d === 'local') return 'local only';
-    if (d === 'all') return 'all connected channels';
+    if (d === 'origin') return t('cron.deliverOrigin');
+    if (d === 'local') return t('cron.deliverLocal');
+    if (d === 'all') return t('cron.deliverAll');
     return d;
   };
   return <main className="main-panel cron-main">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{t('cron.jobs')}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></header>
     <section className="cron-detail-wrap"><div className="cron-detail">
-      <label className="cron-field"><span>Name</span><input value={props.name} onChange={(e) => props.setName(e.target.value)} placeholder="Job name" /></label>
-      <label className="cron-field"><span>Schedule</span><input value={props.schedule} onChange={(e) => props.setSchedule(e.target.value)} placeholder="Schedule, e.g. 0 9 * * *" /></label>
-      <label className="cron-field cron-prompt"><span>Prompt</span><textarea value={props.prompt} onChange={(e) => props.setPrompt(e.target.value)} placeholder="Prompt" /></label>
-      <label className="cron-field cron-script"><span>Script</span><textarea value={props.script} onChange={(e) => props.setScript(e.target.value)} placeholder="Script (optional)" /></label>
-      {props.editingId && <label className="cron-field cron-fullwidth"><span>Delivery target</span><input value={deliverDisplay(props.deliver)} readOnly /></label>}
+      <label className="cron-field"><span>{t('cron.name')}</span><input value={props.name} onChange={(e) => props.setName(e.target.value)} placeholder={t('cron.placeholderName')} /></label>
+      <label className="cron-field"><span>{t('cron.schedule')}</span><input value={props.schedule} onChange={(e) => props.setSchedule(e.target.value)} placeholder={t('cron.placeholderSchedule')} /></label>
+      <label className="cron-field cron-prompt"><span>{t('cron.prompt')}</span><textarea value={props.prompt} onChange={(e) => props.setPrompt(e.target.value)} placeholder={t('cron.placeholderPrompt')} /></label>
+      <label className="cron-field cron-script"><span>{t('cron.script')}</span><textarea value={props.script} onChange={(e) => props.setScript(e.target.value)} placeholder={t('cron.placeholderScript')} /></label>
+      {props.editingId && <label className="cron-field cron-fullwidth"><span>{t('cron.deliver')}</span><input value={deliverDisplay(props.deliver)} readOnly /></label>}
       <div className="cron-detail-actions">
-        <button aria-label="save cron job" className="mobile-icon-only" onClick={props.saveCronJob}><Save /> <span className="btn-label">Save</span></button>
-        <button aria-label="run cron job" className="mobile-icon-only" disabled={!props.editingId} onClick={props.runCronJob}><PlayMark /> <span className="btn-label">Run</span></button>
-        <button aria-label="delete cron job" className="danger mobile-icon-only" disabled={!props.editingId} onClick={props.deleteCronJob}><Trash2 /> <span className="btn-label">Delete</span></button>
+        <button aria-label={t('cron.saveAria')} className="mobile-icon-only" onClick={props.saveCronJob}><Save /> <span className="btn-label">{t('cron.save')}</span></button>
+        <button aria-label={t('cron.runAria')} className="mobile-icon-only" disabled={!props.editingId} onClick={props.runCronJob}><PlayMark /> <span className="btn-label">{t('cron.runShort')}</span></button>
+        <button aria-label={t('cron.deleteAria')} className="danger mobile-icon-only" disabled={!props.editingId} onClick={props.deleteCronJob}><Trash2 /> <span className="btn-label">{t('cron.delete')}</span></button>
       </div>
     </div></section>
   </main>;

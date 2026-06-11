@@ -37,7 +37,7 @@ describe('workspace page file tree layout', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('workspace-collapsed-actions');
-    expect(source).toContain('aria-label="Expand workspace"');
+    expect(source).toContain("aria-label={t('workspace.expand')}");
     expect(source).not.toContain('aria-label="Open workspace page"');
     expect(styles).toContain('.workspace-collapsed-actions');
     expect(styles).toContain('.workspace-rail-btn');
@@ -47,7 +47,7 @@ describe('workspace page file tree layout', () => {
     const source = app();
     const styles = css();
     const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));
-    expect(browser).toContain("aria-label={compact ? t('workspace.collapse') : undefined}");
+    expect(browser).toContain("aria-label={compact ? t('workspace.collapse') : t('workspace.closePreview')}");
     expect(browser).toContain('onClick={() => compact ? setCollapsed(true) : setPreview');
     expect(browser).not.toContain('workspace-collapse-btn');
     expect(styles).not.toContain('workspace-collapse-btn');
@@ -69,7 +69,7 @@ describe('workspace page file tree layout', () => {
     expect(source).toContain("'workspace.openFullPreview'");
     expect(browser).toContain('aria-label={t(\'workspace.openFullPreview\')}');
     expect(browser).toContain("window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path });");
-    expect(browser).toContain('aria-label="Close preview"');
+    expect(browser).toContain("aria-label={t('workspace.closePreview')}");
   });
 
   test('chat right workspace previews files in place without changing to workspace route', () => {
