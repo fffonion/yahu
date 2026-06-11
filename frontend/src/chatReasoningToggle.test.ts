@@ -15,7 +15,7 @@ describe('chat reasoning display toggle', () => {
     const source = app();
     expect(source).toContain("showReasoning={showReasoning}");
     expect(source).toContain("setShowReasoning={setShowReasoning}");
-    expect(source).toContain("className={`icon-btn reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`}");
+    expect(source).toContain("className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`}");
     expect(source).toContain("aria-pressed={props.showReasoning}");
     expect(source).toContain('<Lightbulb /></button>');
     expect(source).not.toContain('reasoning-view-toggle ${props.showReasoning ? \'active\' : \'\'}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t(\'chat.hideThinking\') : t(\'chat.showThinking\')} title={props.showReasoning ? t(\'chat.hideThinking\') : t(\'chat.showThinking\')} onClick={() => props.setShowReasoning(!props.showReasoning)}><Eye /></button>');
@@ -23,9 +23,24 @@ describe('chat reasoning display toggle', () => {
 
   test('assistant messages render reasoning only when the toggle is enabled', () => {
     const source = app();
-    expect(source).toContain("<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />");
+    expect(source).toContain("<MessageView message={m} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} assistantName={sessionModel || undefined} />");
     expect(source).toContain("message.reasoning && showReasoning");
     expect(source).toContain("className=\"msg-reasoning\"");
+  });
+
+  test('composer has a persisted tool-call visibility toggle', () => {
+    const source = app();
+    const i18n = readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
+    expect(source).toContain('const SHOW_TOOL_CALLS_KEY = \'showToolCalls\';');
+    expect(source).toContain("const [showToolCalls, setShowToolCalls] = useState(() => localStorage.getItem(SHOW_TOOL_CALLS_KEY) !== '0');");
+    expect(source).toContain("localStorage.setItem(SHOW_TOOL_CALLS_KEY, showToolCalls ? '1' : '0')");
+    expect(source).toContain("showToolCalls={showToolCalls}");
+    expect(source).toContain("setShowToolCalls={setShowToolCalls}");
+    expect(source).toContain("className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`}");
+    expect(source).toContain("aria-pressed={props.showToolCalls}");
+    expect(source).toContain('<Terminal /></button>');
+    expect(i18n).toContain("'chat.showToolCalls'");
+    expect(i18n).toContain("'chat.hideToolCalls'");
   });
 
   test('assistant message title uses the responding model name instead of generic Hermes Agent', () => {
@@ -38,8 +53,8 @@ describe('chat reasoning display toggle', () => {
 
   test('reasoning block and toggle have compact themed styles', () => {
     const styles = css();
-    expect(styles).toContain('.reasoning-view-toggle{justify-content:center;padding:0}');
-    expect(styles).toContain('.reasoning-view-toggle.active');
+    expect(styles).toContain('.composer-view-toggle{box-sizing:border-box;width:38px;height:38px;min-width:38px;max-width:38px;justify-content:center;padding:0;flex:0 0 38px}');
+    expect(styles).toContain('.reasoning-view-toggle.active,.tool-call-view-toggle.active');
     expect(styles).toContain('.msg-reasoning');
     expect(styles).toContain('.msg-reasoning pre');
     expect(cssRule(styles, '.msg-reasoning')).not.toContain('var(--accent');

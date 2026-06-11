@@ -118,7 +118,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('onFocus={() => props.setComposerCompact(false)}');
     expect(styles).toContain('.composer-footer .send-btn{margin-left:auto}');
     expect(styles).toContain('.composer-wrap.composer-compact .attachments{display:none}');
-    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control,.composer-wrap.composer-compact .composer-footer .reasoning-view-toggle{display:none}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control,.composer-wrap.composer-compact .composer-footer .reasoning-view-toggle,.composer-wrap.composer-compact .composer-footer .tool-call-view-toggle{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{height:48px;min-height:48px;max-height:48px;overflow:hidden;padding:10px 56px 10px 14px}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:12px;width:auto;border-top:0;background:transparent;padding:0}');
     expect(styles).toContain('.composer-wrap.composer-compact{padding:8px 18px}');

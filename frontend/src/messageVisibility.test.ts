@@ -17,4 +17,11 @@ describe('chat message visibility', () => {
     expect(shouldRenderMessage(msg, false)).toBe(false);
     expect(shouldRenderMessage(msg, true)).toBe(true);
   });
+
+  test('tool call messages follow the tool-call visibility flag', () => {
+    const msg = { role: 'tool', content: 'terminal output', pending: false };
+    expect(shouldRenderMessage(msg)).toBe(true);
+    expect(shouldRenderMessage(msg, false, true)).toBe(true);
+    expect(shouldRenderMessage(msg, false, false)).toBe(false);
+  });
 });

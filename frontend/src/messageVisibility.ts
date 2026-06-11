@@ -5,8 +5,8 @@ export type MessageVisibilityInput = {
   pending?: boolean;
 };
 
-export function shouldRenderMessage(message: MessageVisibilityInput, showReasoning = false): boolean {
-  if (message.role === 'tool') return true;
+export function shouldRenderMessage(message: MessageVisibilityInput, showReasoning = false, showToolCalls = true): boolean {
+  if (message.role === 'tool') return showToolCalls;
   if (message.pending) return true;
   if (String(message.content || '').trim()) return true;
   if (showReasoning && String(message.reasoning || '').trim()) return true;
