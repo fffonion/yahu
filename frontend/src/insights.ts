@@ -31,14 +31,13 @@ export type UsageInsights = {
   periods: UsagePeriod[];
 };
 
-export type UsageMetric = 'total_tokens' | 'input' | 'output' | 'cache_read' | 'cache_write' | 'reasoning' | 'cost_usd';
+export type UsageMetric = 'total_tokens' | 'input' | 'output' | 'cache_read' | 'reasoning' | 'cost_usd';
 
 export const metricLabels: Record<UsageMetric, string> = {
   total_tokens: 'Total',
   input: 'Input',
   output: 'Output',
   cache_read: 'Cache read',
-  cache_write: 'Cache write',
   reasoning: 'Reasoning',
   cost_usd: 'Cost',
 };

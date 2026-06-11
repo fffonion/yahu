@@ -86,8 +86,10 @@ describe('insights helpers', () => {
     expect(totals.unpriced_tokens).toBe(10);
   });
 
-  test('includes cost as a chart metric option', () => {
+  test('includes cost as a chart metric option and omits cache write from selectable metrics', () => {
     expect(metricLabels.cost_usd).toBe('Cost');
+    expect(Object.keys(metricLabels)).not.toContain('cache_write');
+    expect(Object.values(metricLabels)).not.toContain('Cache write');
   });
 
   test('formats costs as USD regardless of language or exchange-rate data', () => {
