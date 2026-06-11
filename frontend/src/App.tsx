@@ -10,7 +10,7 @@ import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelPeriodTotals, periodSlice, stackedAreaPath, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
-import { isToolLikeMessage, shouldRenderMessage } from './messageVisibility';
+import { isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
 import { shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
@@ -1851,7 +1851,7 @@ function ChatMain(props: any) {
   const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
-  const visibleMessages = dedupeVisibleChatMessages(props.messages);
+  const visibleMessages = renderableMessages(dedupeVisibleChatMessages(props.messages), props.showReasoning, props.showToolCalls);
   return <main className="main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>

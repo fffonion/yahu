@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { isToolLikeMessage, shouldRenderMessage } from './messageVisibility';
+import { readFileSync } from 'node:fs';
+import { isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
+
+const appSource = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 
 describe('chat message visibility', () => {
   test('hides completed assistant messages that have no visible content', () => {
@@ -35,5 +38,21 @@ describe('chat message visibility', () => {
     expect(shouldRenderMessage(patchMessage, false, false)).toBe(false);
     expect(shouldRenderMessage(terminalMessage, false, false)).toBe(false);
     expect(shouldRenderMessage(namedToolMessage, false, false)).toBe(false);
+  });
+
+  test('filters already-rendered tool frames out of the chat list when tool visibility is disabled', () => {
+    const messages = [
+      { role: 'user', content: 'run date', pending: false },
+      { role: 'tool', content: 'Fri Jun 12', pending: false },
+      { role: 'assistant', content: 'done', pending: false },
+    ];
+    expect(renderableMessages(messages, false, true).map((message) => message.role)).toEqual(['user', 'tool', 'assistant']);
+    expect(renderableMessages(messages, false, false).map((message) => message.role)).toEqual(['user', 'assistant']);
+  });
+
+  test('ChatMain filters visible messages before mapping so hidden tool frames are unmounted', () => {
+    const source = appSource();
+    expect(source).toContain("import { isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';");
+    expect(source).toContain('const visibleMessages = renderableMessages(dedupeVisibleChatMessages(props.messages), props.showReasoning, props.showToolCalls);');
   });
 });

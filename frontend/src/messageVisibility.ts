@@ -41,3 +41,7 @@ export function shouldRenderMessage(message: MessageVisibilityInput, showReasoni
   if (showReasoning && String(message.reasoning || '').trim()) return true;
   return false;
 }
+
+export function renderableMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): T[] {
+  return messages.filter((message) => shouldRenderMessage(message, showReasoning, showToolCalls));
+}
