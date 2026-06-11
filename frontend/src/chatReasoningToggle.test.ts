@@ -23,9 +23,17 @@ describe('chat reasoning display toggle', () => {
 
   test('assistant messages render reasoning only when the toggle is enabled', () => {
     const source = app();
-    expect(source).toContain("<MessageView message={m} showReasoning={props.showReasoning} />");
+    expect(source).toContain("<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />");
     expect(source).toContain("message.reasoning && showReasoning");
     expect(source).toContain("className=\"msg-reasoning\"");
+  });
+
+  test('assistant message title uses the responding model name instead of generic Hermes Agent', () => {
+    const source = app();
+    expect(source).toContain("type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; model?: string; provider?: string };");
+    expect(source).toContain("function messageRoleName(message: ChatMessage, assistantName?: string) { return message.role === 'assistant' ? (message.model || assistantName || 'Hermes Agent') : roleName(message.role); }");
+    expect(source).toContain("const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, model: sessionModel, provider: sessionProvider };");
+    expect(source).toContain('<span>{messageRoleName(message, assistantName)}</span>');
   });
 
   test('reasoning block and toggle have compact themed styles', () => {

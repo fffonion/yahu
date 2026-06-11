@@ -19,7 +19,7 @@ type Role = 'user' | 'assistant' | 'system' | 'tool';
 type FollowUpBehaviour = 'queue' | 'steer';
 type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; model?: string; provider?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
@@ -134,6 +134,7 @@ function parseSseBlock(block: string) {
   return { event, data: data.join('\n') };
 }
 function roleName(role: Role) { return role === 'assistant' ? 'Hermes Agent' : role === 'tool' ? 'Tool' : role === 'system' ? 'System' : 'You'; }
+function messageRoleName(message: ChatMessage, assistantName?: string) { return message.role === 'assistant' ? (message.model || assistantName || 'Hermes Agent') : roleName(message.role); }
 function markdownText(text: string) {
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return escaped
@@ -260,7 +261,7 @@ function asRecordish(value: unknown): Record<string, unknown> | null {
 }
 function normalizeMessage(raw: any): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);
-  return {
+  const msg: ChatMessage = {
     id: String(raw.id || uid('m')),
     role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',
     content: parts.content,
@@ -269,6 +270,9 @@ function normalizeMessage(raw: any): ChatMessage {
     toolName: rawToolName(raw),
     toolInput: rawToolInput(raw),
   };
+  if (typeof raw.model === 'string' && raw.model.trim()) msg.model = raw.model.trim();
+  if (typeof raw.provider === 'string' && raw.provider.trim()) msg.provider = raw.provider.trim();
+  return msg;
 }
 function isLocalStreamAssistant(message: ChatMessage) {
   return message.role === 'assistant' && message.id.startsWith('assistant_');
@@ -1142,15 +1146,15 @@ export default function App() {
       return;
     }
     const userText = text || payloadAttachments.map((a) => a.name).join(', ');
+    const sessionModel = realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model || '';
+    const sessionProvider = providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || '';
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
-    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true };
+    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, model: sessionModel, provider: sessionProvider };
     const payloadInput = buildPayload(text, payloadAttachments);
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
     setHasNewer(false);
-    const sessionModel = realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model || '';
-    const sessionProvider = providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || '';
     if (clearComposer) { setInput(''); setAttachments([]); }
     setStatus('Running');
     if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
@@ -1704,7 +1708,7 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
   </article>;
 }
 
-function MessageView({ message, showReasoning = false }: { message: ChatMessage; showReasoning?: boolean }) {
+function MessageView({ message, showReasoning = false, assistantName }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string }) {
   if (!shouldRenderMessage(message, showReasoning)) return null;
   if (message.role === 'tool') return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
@@ -1715,7 +1719,7 @@ function MessageView({ message, showReasoning = false }: { message: ChatMessage;
       <div className="avatar">{message.role === 'assistant' ? <Bot /> : <UserRound />}</div>
       <div className="msg-content">
         <div className="msg-meta">
-          <span>{roleName(message.role)}</span>
+          <span>{messageRoleName(message, assistantName)}</span>
           <time>{message.timestamp ? new Date(Number(message.timestamp) * (Number(message.timestamp) < 1e12 ? 1000 : 1)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
           {isPending && <span className="stream-state" aria-label="streaming"><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">streaming</span></span>}
         </div>
@@ -1836,7 +1840,7 @@ function ChatMain(props: any) {
         return visibleMessages.map((m: ChatMessage, i: number) => (
           <React.Fragment key={m.id}>
             {i === splitIdx && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-            <MessageView message={m} showReasoning={props.showReasoning} />
+            <MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />
           </React.Fragment>
         ));
       })()}
