@@ -1,4 +1,4 @@
-# yahu — Yet Another Hermes UI
+# <img src="frontend/public/icon.svg" alt="yahu logo" width="36" height="36" align="center" /> yahu — Yet Another Hermes UI
 
 A lightweight web interface for [Hermes Agent](https://github.com/NousResearch/hermes-agent), packaged as one Rust binary with an embedded React frontend.
 
