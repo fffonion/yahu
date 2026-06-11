@@ -11,6 +11,7 @@ import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute
 import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelPeriodTotals, periodSlice, stackedAreaPath, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
 import { shouldRenderMessage } from './messageVisibility';
+import { shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, type Lang } from './i18n';
 
@@ -1826,9 +1827,13 @@ function ChatMain(props: any) {
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
     if (isMobile && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
-    if (el.scrollTop < 80 && props.hasOlder && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'older');
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 80 && props.hasNewer && !props.loadingMessages) props.loadMessageWindow(props.activeSessionId, 'newer');
+    if (shouldLoadOlderFromScroll(el, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
+    if (shouldLoadNewerFromScroll(el, props.hasNewer, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'newer');
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 120 && props.newMessageCount > 0) props.onClearNewMessages();
+  };
+  const onWheel = (e: React.WheelEvent<HTMLElement>) => {
+    collapseComposerForHistory();
+    if (shouldLoadOlderFromWheel(e.currentTarget, e.deltaY, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
   };
   const sessionModel = realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id || '';
   const sessionProvider = String(props.selectedModelProvider || active?.provider || props.activeSessionDetail?.provider || '').trim();
@@ -1842,7 +1847,7 @@ function ChatMain(props: any) {
   const visibleMessages = dedupeVisibleChatMessages(props.messages);
   return <main className="main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
-    <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={collapseComposerForHistory}>
+    <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {(() => {

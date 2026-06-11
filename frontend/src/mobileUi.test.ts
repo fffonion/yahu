@@ -112,7 +112,9 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('activeElement.blur();');
     expect(source).toContain('onPointerDown={collapseComposerForHistory}');
     expect(source).toContain('onTouchStart={collapseComposerForHistory}');
-    expect(source).toContain('onWheel={collapseComposerForHistory}');
+    expect(source).toContain('onWheel={onWheel}');
+    expect(source).toContain('const onWheel = (e: React.WheelEvent<HTMLElement>) => {');
+    expect(source).toContain('collapseComposerForHistory();');
     expect(source).toContain('!props.composerRef.current?.contains(document.activeElement)');
     expect(source).toContain('props.setComposerCompact(true)');
     expect(source).toContain('onFocus={() => props.setComposerCompact(false)}');
