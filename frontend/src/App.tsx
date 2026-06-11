@@ -1531,6 +1531,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   const topModel = models[0];
   const activeDays = periodSlice(props.insights?.daily || [], props.period);
   const periodLabel = `${props.period}d`;
+  const isSingleDay = props.period === 1;
   const showSkeleton = props.loading;
   const fmtCost = (value: number | undefined) => fmtMoney(value);
   const costMetricLabel = metricLabels.cost_usd;
@@ -1558,8 +1559,8 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         </>}
       </div>
       <section className="insights-chart-card">
-        <div className="insights-card-head"><div><h2>{metricLabels[props.metric]} by model</h2><p>Recent {periodLabel} trend with cache/input/output usage</p></div><button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? 'Show unstacked chart' : 'Show stacked chart'} title={chartStacked ? 'Show unstacked chart' : 'Show stacked chart'} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button></div>
-        {showSkeleton ? <UsageChartSkeleton /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} stacked={chartStacked} />}
+        <div className="insights-card-head"><div><h2>{metricLabels[props.metric]} by model</h2><p>{isSingleDay ? `Last ${periodLabel} distribution by model` : `Recent ${periodLabel} trend with cache/input/output usage`}</p></div>{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? 'Show unstacked chart' : 'Show stacked chart'} title={chartStacked ? 'Show unstacked chart' : 'Show stacked chart'} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button>}</div>
+        {showSkeleton ? <UsageChartSkeleton /> : isSingleDay ? <UsageShareBar models={models} metric={props.metric} /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} stacked={chartStacked} />}
       </section>
       <div className="insights-grid">
         <section className="insights-panel"><h2>Models</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">No model usage in this window.</p>}</section>
@@ -1593,6 +1594,15 @@ function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: Us
   const max = Math.max(1, model.periodTotals.total_tokens);
   const cache = Math.min(100, Math.round((model.periodTotals.cache_read / max) * 100));
   return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{fmtTokens(model.periodTotals.input)} input · {fmtTokens(model.periodTotals.output)} output · {fmtPercent(model.periodTotals.cache_hit_rate)} cache</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
+}
+function UsageShareBar({ models, metric }: { models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
+  const slices = models.slice(0, 6).map((model, index) => ({ model: model.model, index, value: Number(model.periodTotals[metric] || 0) })).filter((item) => item.value > 0);
+  const total = slices.reduce((sum, item) => sum + item.value, 0);
+  if (!slices.length || total <= 0) return <div className="usage-share-chart"><p className="insights-empty">No model usage for this metric.</p></div>;
+  return <div className="usage-share-chart" role="img" aria-label={`${metricLabels[metric]} model share`}>
+    <div className="usage-share-bar">{slices.map((item) => { const pct = (item.value / total) * 100; return <span key={item.model} className="usage-share-segment" title={`${item.model} · ${formatMetricValue(metric, item.value)} · ${Math.round(pct)}%`} style={{ width: `${pct}%`, background: `var(--chart-${item.index})` }} />; })}</div>
+    <div className="usage-share-indicators">{slices.map((item) => { const pct = item.value / total; return <span key={item.model} className="usage-share-indicator"><i style={{ background: `var(--chart-${item.index})` }} /><b title={item.model}>{item.model}</b><em>{fmtPercent(pct)}</em></span>; })}</div>
+  </div>;
 }
 function UsageAreaChart({ days, models, metric, stacked }: { days: UsageDay[]; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric; stacked: boolean }) {
   const width = 720;
