@@ -25,4 +25,9 @@ describe('tool message structured layout css', () => {
     expect(source).toContain('title="Result"');
     expect(styles).toContain('.tool-detail-section{display:grid;gap:7px}');
   });
+
+  test('tool names render one step smaller than surrounding chat text', () => {
+    const styles = css();
+    expect(styles).toContain('.tool-title{font-size:13px;font-weight:500;color:var(--accent);white-space:nowrap}');
+  });
 });
