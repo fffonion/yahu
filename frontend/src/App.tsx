@@ -47,7 +47,6 @@ const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
 const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const SHOW_REASONING_KEY = 'showReasoning';
-const SHOW_TOOL_CALLS_KEY = 'showToolCalls';
 const THEME_OPTIONS: Array<{ id: Theme; label: string }> = [
   { id: 'hermes-light', label: 'Hermes Light' },
   { id: 'hermes-dark', label: 'Hermes Dark' },
@@ -503,7 +502,7 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || '' : '');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [showReasoning, setShowReasoning] = useState(() => localStorage.getItem(SHOW_REASONING_KEY) === '1');
-  const [showToolCalls, setShowToolCalls] = useState(() => localStorage.getItem(SHOW_TOOL_CALLS_KEY) !== '0');
+  const [showToolCalls, setShowToolCalls] = useState(true);
   const [hasOlder, setHasOlder] = useState(false);
   const [hasNewer, setHasNewer] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -634,7 +633,6 @@ export default function App() {
   useEffect(() => localStorage.setItem(COMPOSER_ENTER_MODE_KEY, composerEnterMode), [composerEnterMode]);
   useEffect(() => localStorage.setItem('effort', effort), [effort]);
   useEffect(() => localStorage.setItem(SHOW_REASONING_KEY, showReasoning ? '1' : '0'), [showReasoning]);
-  useEffect(() => localStorage.setItem(SHOW_TOOL_CALLS_KEY, showToolCalls ? '1' : '0'), [showToolCalls]);
   useEffect(() => localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds))), [pinnedIds]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || (activeSessionDetail?.id === activeSessionId ? activeSessionDetail : undefined);

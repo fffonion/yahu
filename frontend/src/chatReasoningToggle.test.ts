@@ -28,12 +28,12 @@ describe('chat reasoning display toggle', () => {
     expect(source).toContain("className=\"msg-reasoning\"");
   });
 
-  test('composer has a persisted tool-call visibility toggle', () => {
+  test('composer has a session-only tool-call visibility toggle that defaults visible', () => {
     const source = app();
     const i18n = readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
-    expect(source).toContain('const SHOW_TOOL_CALLS_KEY = \'showToolCalls\';');
-    expect(source).toContain("const [showToolCalls, setShowToolCalls] = useState(() => localStorage.getItem(SHOW_TOOL_CALLS_KEY) !== '0');");
-    expect(source).toContain("localStorage.setItem(SHOW_TOOL_CALLS_KEY, showToolCalls ? '1' : '0')");
+    expect(source).toContain('const [showToolCalls, setShowToolCalls] = useState(true);');
+    expect(source).not.toContain('SHOW_TOOL_CALLS_KEY');
+    expect(source).not.toContain('localStorage.setItem(SHOW_TOOL_CALLS_KEY');
     expect(source).toContain("showToolCalls={showToolCalls}");
     expect(source).toContain("setShowToolCalls={setShowToolCalls}");
     expect(source).toContain("className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`}");
