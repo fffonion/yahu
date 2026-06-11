@@ -12,6 +12,7 @@ import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, 
 import { normalizeMessageParts } from './messageReasoning';
 import { isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
 import { shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
+import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 
@@ -513,6 +514,7 @@ export default function App() {
   const setStatus = useCallback((_value: string) => {}, []);
   const [busy, setBusy] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
+  const [newMessageBoundaryId, setNewMessageBoundaryId] = useState('');
   const [workspacePath, setWorkspacePath] = useState('');
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
   const [skillList, setSkillList] = useState<Skill[]>([]);
@@ -548,13 +550,21 @@ export default function App() {
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const messageRequestRef = useRef(0);
   const activeSessionIdRef = useRef(activeSessionId);
   const searchVersionRef = useRef(0);
   const modelRef = useRef(model);
   const providerRef = useRef(selectedModelProvider);
+  const showReasoningRef = useRef(showReasoning);
+  const showToolCallsRef = useRef(showToolCalls);
+  const newMessageBoundaryIdRef = useRef(newMessageBoundaryId);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { providerRef.current = selectedModelProvider; }, [selectedModelProvider]);
+  useEffect(() => { showReasoningRef.current = showReasoning; }, [showReasoning]);
+  useEffect(() => { showToolCallsRef.current = showToolCalls; }, [showToolCalls]);
+  useEffect(() => { newMessageBoundaryIdRef.current = newMessageBoundaryId; }, [newMessageBoundaryId]);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
   useEffect(() => {
     setMessages((prev) => {
@@ -580,6 +590,11 @@ export default function App() {
   const requestConfirm = useCallback((title: string, message: string, danger = false) => new Promise<boolean>((resolve) => {
     setDialog({ variant: 'confirm', title, message, danger, resolve });
   }), []);
+  const clearNewMessages = useCallback(() => {
+    newMessageBoundaryIdRef.current = '';
+    setNewMessageBoundaryId('');
+    setNewMessageCount(0);
+  }, []);
 
   const writeHashRoute = useCallback((route: HashRoute) => {
     const nextHash = buildHashRoute(route);
@@ -983,34 +998,36 @@ export default function App() {
   useEffect(() => { if (activeSessionId) { loadSessionDetail(activeSessionId); if (skipNextHistoryLoadRef.current === activeSessionId) { skipNextHistoryLoadRef.current = ''; return; } loadMessageWindow(activeSessionId, 'latest'); } }, [activeSessionId]);
   useEffect(() => {
     if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
-    setNewMessageCount(0);
+    clearNewMessages();
     if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
     const es = new EventSource(`/chat/watch/${encodeURIComponent(activeSessionId)}`);
     watchSourceRef.current = es;
-    const scrollToBottom = () => { if (chatScrollRef.current && isNearBottom(chatScrollRef.current)) { chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; } };
     es.onmessage = (ev) => {
       try {
         const raw = JSON.parse(ev.data);
         const msg = normalizeMessage(raw);
-        let didAppend = false;
-        setMessages((prev) => {
-          const next = mergeWatchedMessage(prev, msg);
-          didAppend = next.length > prev.length || (next.length === prev.length && next[next.length - 1]?.id !== prev[prev.length - 1]?.id);
-          return next;
-        });
-        const wasNearBottom = chatScrollRef.current && isNearBottom(chatScrollRef.current);
-        scrollToBottom();
+        const wasNearBottom = !!chatScrollRef.current && isNearBottom(chatScrollRef.current);
+        const prev = messagesRef.current;
+        const next = mergeWatchedMessage(prev, msg);
+        messagesRef.current = next;
         if (wasNearBottom) {
-          setNewMessageCount(0);
-        } else if (didAppend) {
-          setNewMessageCount((n) => n + 1);
+          scrollLatestAfterRenderRef.current = true;
+          clearNewMessages();
+        } else {
+          const previousVisible = renderableMessages(dedupeVisibleChatMessages(prev), showReasoningRef.current, showToolCallsRef.current);
+          const nextVisible = renderableMessages(dedupeVisibleChatMessages(next), showReasoningRef.current, showToolCallsRef.current);
+          const marker = computeNewMessageMarker(previousVisible, nextVisible, newMessageBoundaryIdRef.current);
+          newMessageBoundaryIdRef.current = marker.firstId;
+          setNewMessageBoundaryId(marker.firstId);
+          setNewMessageCount(marker.count);
         }
+        setMessages(next);
         setStatus(t('chat.streamingOther'));
       } catch { /* ignore */ }
     };
     es.onerror = () => { watchSourceRef.current = null; };
     return () => { es.close(); watchSourceRef.current = null; };
-  }, [activeSessionId]);
+  }, [activeSessionId, clearNewMessages]);
   useEffect(() => {
     if (!sessionMenu && !workspaceMenu) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setWorkspaceMenu(null); } };
@@ -1249,7 +1266,7 @@ export default function App() {
   const sendMessage = async () => {
     const text = input.trim();
     if (!text && attachments.length === 0) return;
-    setNewMessageCount(0);
+    clearNewMessages();
     if (busy) {
       if (!text) return;
       if (followUpBehaviour === 'steer') await steerFollowUp(text);
@@ -1440,7 +1457,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} onClearNewMessages={() => { setNewMessageCount(0); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -1858,7 +1875,7 @@ function ChatMain(props: any) {
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {(() => {
-        const splitIdx = props.newMessageCount > 0 ? Math.max(0, visibleMessages.length - props.newMessageCount) : -1;
+        const splitIdx = findNewMessageSplitIndex(visibleMessages, props.newMessageBoundaryId);
         return visibleMessages.map((m: ChatMessage, i: number) => (
           <React.Fragment key={m.id}>
             {i === splitIdx && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
