@@ -46,18 +46,8 @@ async fn proxy_hermes(
     {
         builder = builder.bearer_auth(key);
     }
-    let cron_output_job_id = proxied_cron_latest_output_job_id(&path, &method).map(str::to_string);
     match builder.send().await {
-        Ok(resp) => {
-            let status =
-                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-            if status == StatusCode::NOT_FOUND
-                && let Some(job_id) = cron_output_job_id.as_deref()
-            {
-                return local_cron_latest_output_response(&state, job_id).await;
-            }
-            response_from_reqwest(state, stream_session_id, resp).await
-        }
+        Ok(resp) => response_from_reqwest(state, stream_session_id, resp).await,
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
             &format!("Hermes API proxy failed: {err}"),
@@ -132,86 +122,6 @@ fn proxied_chat_stream_session_id(path: &str, method: &Method) -> Option<String>
         return Some(parts[2].to_string());
     }
     None
-}
-
-fn proxied_cron_latest_output_job_id<'a>(path: &'a str, method: &Method) -> Option<&'a str> {
-    if method != Method::GET {
-        return None;
-    }
-    let parts: Vec<&str> = path.split('/').collect();
-    if parts.len() == 5
-        && parts[0] == "api"
-        && parts[1] == "jobs"
-        && parts[3] == "output"
-        && parts[4] == "latest"
-        && is_safe_cron_job_id(parts[2])
-    {
-        return Some(parts[2]);
-    }
-    None
-}
-
-fn is_safe_cron_job_id(job_id: &str) -> bool {
-    !job_id.is_empty()
-        && job_id
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
-}
-
-async fn local_cron_latest_output_response(state: &AppState, job_id: &str) -> Response<Body> {
-    match local_cron_latest_output_value(&state.hermes_home, job_id).await {
-        Ok(output) => Json(serde_json::json!({ "output": output })).into_response(),
-        Err(err) => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("cannot read cron output: {err}"),
-        ),
-    }
-}
-
-async fn local_cron_latest_output_value(
-    hermes_home: &Path,
-    job_id: &str,
-) -> anyhow::Result<Option<serde_json::Value>> {
-    if !is_safe_cron_job_id(job_id) {
-        anyhow::bail!("invalid job id");
-    }
-    let dir = hermes_home.join("cron").join("output").join(job_id);
-    let mut reader = match fs::read_dir(&dir).await {
-        Ok(reader) => reader,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err.into()),
-    };
-    let mut latest: Option<String> = None;
-    while let Some(entry) = reader.next_entry().await? {
-        let file_name = entry.file_name().to_string_lossy().to_string();
-        if !file_name.ends_with(".md") || !entry.file_type().await?.is_file() {
-            continue;
-        }
-        if latest
-            .as_deref()
-            .is_none_or(|current| file_name.as_str() > current)
-        {
-            latest = Some(file_name);
-        }
-    }
-    let Some(filename) = latest else {
-        return Ok(None);
-    };
-    let path = dir.join(&filename);
-    let bytes = fs::read(&path).await?;
-    let size_bytes = bytes.len();
-    let truncated = size_bytes > 200_000;
-    let visible = if truncated { &bytes[..200_000] } else { &bytes };
-    let content = String::from_utf8_lossy(visible).to_string();
-    let timestamp = filename.trim_end_matches(".md").to_string();
-    Ok(Some(serde_json::json!({
-        "job_id": job_id,
-        "timestamp": timestamp,
-        "filename": filename,
-        "content": content,
-        "size_bytes": size_bytes,
-        "truncated": truncated,
-    })))
 }
 
 fn chat_stream_run_id() -> String {
