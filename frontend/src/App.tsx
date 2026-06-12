@@ -9,6 +9,7 @@ import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelPeriodTotals, periodSlice, stackedAreaPath, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
+import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
 import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
@@ -22,7 +23,7 @@ type Role = 'user' | 'assistant' | 'system' | 'tool';
 type FollowUpBehaviour = 'queue' | 'steer';
 type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; model?: string; provider?: string };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
@@ -151,6 +152,10 @@ function parseSseBlock(block: string) {
 }
 function roleName(role: Role) { return role === 'assistant' ? 'Hermes Agent' : role === 'tool' ? 'Tool' : role === 'system' ? 'System' : 'You'; }
 function messageRoleName(message: ChatMessage, assistantName?: string) { return message.role === 'assistant' ? (message.model || assistantName || 'Hermes Agent') : roleName(message.role); }
+function messageSenderLabel(message: ChatMessage, assistantName?: string) {
+  if (message.role === 'user' && message.platformSenderName) return { name: message.platformSenderName, id: message.platformSenderId };
+  return { name: messageRoleName(message, assistantName) };
+}
 function escapeHtml(text: string) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -269,15 +274,18 @@ function asRecordish(value: unknown): Record<string, unknown> | null {
 }
 function normalizeMessage(raw: any): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);
+  const platformSender = raw.role === 'user' ? parsePlatformSenderMessage(parts.content) : { content: parts.content };
   const msg: ChatMessage = {
     id: String(raw.id || uid('m')),
     role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',
-    content: parts.content,
+    content: platformSender.content,
     reasoning: parts.reasoning,
     timestamp: raw.timestamp,
     toolName: rawToolName(raw),
     toolInput: rawToolInput(raw),
   };
+  if (platformSender.senderName) msg.platformSenderName = platformSender.senderName;
+  if (platformSender.senderId) msg.platformSenderId = platformSender.senderId;
   if (typeof raw.model === 'string' && raw.model.trim()) msg.model = raw.model.trim();
   if (typeof raw.provider === 'string' && raw.provider.trim()) msg.provider = raw.provider.trim();
   return msg;
@@ -1739,13 +1747,14 @@ function MessageView({ message, showReasoning = false, showToolCalls = true, ass
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
   const fallback = isPending ? '…' : '';
+  const senderLabel = messageSenderLabel(message, assistantName);
   const html = markdownText(message.content || fallback);
   return (
     <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}`}>
       <div className="avatar">{message.role === 'assistant' ? <Bot /> : <UserRound />}</div>
       <div className="msg-content">
         <div className="msg-meta">
-          <span>{messageRoleName(message, assistantName)}</span>
+          <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>
           <time>{message.timestamp ? new Date(Number(message.timestamp) * (Number(message.timestamp) < 1e12 ? 1000 : 1)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
           {isPending && <span className="stream-state" aria-label="streaming"><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">streaming</span></span>}
         </div>
