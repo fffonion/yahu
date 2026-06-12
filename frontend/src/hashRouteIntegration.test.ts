@@ -42,7 +42,7 @@ describe('hash route integration', () => {
   test('nav clicks and item opens write canonical hash routes', () => {
     const source = app();
     expect(source).toContain('writeHashRoute(route);');
-    expect(source).toContain("buildHashRoute({ mode: 'chat', sessionId: id })");
+    expect(source).toContain("props.writeHashRoute({ mode: 'chat', sessionId: id });");
     expect(source).toContain("buildHashRoute({ mode: 'cron', jobId: jobId(j) })");
     expect(source).toContain("buildHashRoute({ mode: 'images', imageFilename: item.filename })");
     expect(source).toContain("buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path })");

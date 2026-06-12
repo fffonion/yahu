@@ -262,4 +262,11 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).not.toContain('if (sessionId === DRAFT_SESSION_ID || loadingMessages) return;');
     expect(source).toContain("if (loadingMessagesRef.current && direction !== 'latest') return;");
   });
+
+  test('tapping the active mobile history row closes the drawer without resetting the current chat', () => {
+    const source = app();
+    expect(source).toContain("if (id === props.activeSessionId) {");
+    expect(source).toContain("props.writeHashRoute({ mode: 'chat', sessionId: id });");
+    expect(source).toContain('props.closeMobileSidebar();\n      return;');
+  });
 });

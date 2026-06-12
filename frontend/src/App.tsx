@@ -1858,7 +1858,15 @@ function UsageAreaChart({ buckets, models, metric, stacked }: { buckets: Array<U
   </div>;
 }
 function ChatSidebar(props: { filter: string; setFilter: (v: string) => void; startDraftSession: () => void; pinnedSessions: Session[]; normalSessions: Session[]; activeSessionId: string; setActiveSessionId: (v: string) => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void; pinnedIds: Set<string>; togglePin: (id: string) => void; openSessionMenu: (session: Session, event: React.MouseEvent) => void; openSessionMenuAt: (session: Session, x: number, y: number) => void }) {
-  const activateSession = (id: string) => { props.setActiveSessionId(id); props.writeHashRoute({ mode: 'chat', sessionId: id }); buildHashRoute({ mode: 'chat', sessionId: id }); props.closeMobileSidebar(); };
+  const activateSession = (id: string) => {
+    props.writeHashRoute({ mode: 'chat', sessionId: id });
+    if (id === props.activeSessionId) {
+      props.closeMobileSidebar();
+      return;
+    }
+    props.setActiveSessionId(id);
+    props.closeMobileSidebar();
+  };
   return <><div className="session-searchbar"><button className="new-chat-btn" aria-label={t('chat.new')} title={t('chat.new')} onClick={() => { props.startDraftSession(); props.closeMobileSidebar(); }}><Plus /></button><input className="filter" placeholder={t('chat.search')} value={props.filter} onChange={(e) => props.setFilter(e.target.value)} /></div><div className="sessions">{props.pinnedSessions.length > 0 && <div className="section-label"><ChevronRight /> {t('chat.pinned')}</div>}{props.pinnedSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}<div className="section-label"><ChevronRight /> {t('chat.recent')}</div>{props.normalSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}</div></>;
 }
 function SessionRow({ session, active, pinned, onClick, onTogglePin, onContextMenu, onLongPress }: { session: Session; active: boolean; pinned: boolean; onClick: () => void; onTogglePin: () => void; onContextMenu: (event: React.MouseEvent) => void; onLongPress: (x: number, y: number) => void }) {
