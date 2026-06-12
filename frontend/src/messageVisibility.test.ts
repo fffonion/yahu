@@ -63,8 +63,27 @@ describe('chat message visibility', () => {
 
   test('ChatMain filters visible messages before mapping so hidden tool frames are unmounted', () => {
     const source = appSource();
-    expect(source).toContain("import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';");
+    expect(source).toContain("import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages } from './messageVisibility';");
     expect(source).toContain('const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);');
+    expect(source).toContain('<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />');
+    expect(source).not.toContain('if (!shouldRenderMessage(message, showReasoning, showToolCalls)) return null;');
+    expect(source).not.toContain('showToolCalls?: boolean');
+  });
+
+  test('session changes clear old message data before loading the new window', () => {
+    const source = appSource();
+    expect(source).toContain('messageRequestRef.current += 1;\n    messagesRef.current = [];\n    setMessages([]);');
+    expect(source).toContain("loadMessageWindow(activeSessionId, 'latest');");
+  });
+
+  test('visibility toggles preserve a message scroll anchor instead of shifting the viewport', () => {
+    const source = appSource();
+    expect(source).toContain("import { captureMessageScrollAnchor, restoreMessageScrollAnchor } from './chatScrollAnchor';");
+    expect(source).toContain('const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {');
+    expect(source).toContain('const nextVisibleIds = new Set(nextVisibleMessages.map((message) => String(message.id || \'\')).filter(Boolean));');
+    expect(source).toContain('restoreMessageScrollAnchor(scroller, anchor);');
+    expect(source).not.toContain('onClick={() => props.setShowReasoning(!props.showReasoning)}');
+    expect(source).not.toContain('onClick={() => props.setShowToolCalls(!props.showToolCalls)}');
   });
 
   test('raw history window is larger than the rendered message target so hidden tool pages do not evict visible rows', () => {

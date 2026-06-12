@@ -11,8 +11,9 @@ import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelPeriodTotals, periodSlice, stackedAreaPath, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
-import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
+import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages } from './messageVisibility';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
+import { captureMessageScrollAnchor, restoreMessageScrollAnchor } from './chatScrollAnchor';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
@@ -991,7 +992,20 @@ export default function App() {
       else setCronEditingId(route.jobId);
     }
   }, [cronJobs, beginCronEdit]);
-  useEffect(() => { if (activeSessionId) { loadSessionDetail(activeSessionId); if (skipNextHistoryLoadRef.current === activeSessionId) { skipNextHistoryLoadRef.current = ''; return; } loadMessageWindow(activeSessionId, 'latest'); } }, [activeSessionId]);
+  useEffect(() => {
+    if (!activeSessionId) return;
+    loadSessionDetail(activeSessionId);
+    if (skipNextHistoryLoadRef.current === activeSessionId) {
+      skipNextHistoryLoadRef.current = '';
+      return;
+    }
+    messageRequestRef.current += 1;
+    messagesRef.current = [];
+    setMessages([]);
+    setHasOlder(false);
+    setHasNewer(false);
+    loadMessageWindow(activeSessionId, 'latest');
+  }, [activeSessionId]);
   useEffect(() => {
     if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
     clearNewMessages();
@@ -1726,7 +1740,7 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
   const summary = useMemo(() => summarizeToolMessage(message.content, message.toolName, message.toolInput), [message.content, message.toolName, message.toolInput]);
   const toolName = summary.toolName;
   const isError = summary.status !== 'ok';
-  return <article className={`msg-row tool${isError ? ' tool-error' : ''}`}>
+  return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={message.id || undefined}>
     <div className="avatar">{getToolIcon(toolName)}</div>
     <div className="msg-content tool-card">
       <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
@@ -1743,15 +1757,14 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
   </article>;
 }
 
-function MessageView({ message, showReasoning = false, showToolCalls = true, assistantName }: { message: ChatMessage; showReasoning?: boolean; showToolCalls?: boolean; assistantName?: string }) {
-  if (!shouldRenderMessage(message, showReasoning, showToolCalls)) return null;
+function MessageView({ message, showReasoning = false, assistantName }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string }) {
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
   const fallback = isPending ? '…' : '';
   const senderLabel = messageSenderLabel(message, assistantName);
   const html = markdownText(message.content || fallback);
   return (
-    <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}`}>
+    <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}`} data-message-id={message.id || undefined}>
       <div className="avatar">{message.role === 'assistant' ? <Bot /> : <UserRound />}</div>
       <div className="msg-content">
         <div className="msg-meta">
@@ -1870,6 +1883,18 @@ function ChatMain(props: any) {
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
+  const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
+    const scroller = props.chatScrollRef.current;
+    const nextVisibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), nextShowReasoning, nextShowToolCalls);
+    const nextVisibleIds = new Set(nextVisibleMessages.map((message) => String(message.id || '')).filter(Boolean));
+    const anchor = captureMessageScrollAnchor(scroller, nextVisibleIds);
+    apply();
+    const restore = () => restoreMessageScrollAnchor(scroller, anchor);
+    requestAnimationFrame(restore);
+    window.setTimeout(restore, 60);
+  };
+  const toggleReasoningVisibility = () => preserveChatScrollForVisibilityChange(!props.showReasoning, props.showToolCalls, () => props.setShowReasoning(!props.showReasoning));
+  const toggleToolCallVisibility = () => preserveChatScrollForVisibilityChange(props.showReasoning, !props.showToolCalls, () => props.setShowToolCalls(!props.showToolCalls));
   const lastAutoOlderRequestRef = useRef('');
   useEffect(() => {
     const scroller = props.chatScrollRef.current;
@@ -1891,7 +1916,7 @@ function ChatMain(props: any) {
         return visibleMessages.map((m: ChatMessage, i: number) => (
           <React.Fragment key={m.id}>
             {i === splitIdx && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-            <MessageView message={m} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} assistantName={sessionModel || undefined} />
+            <MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />
           </React.Fragment>
         ));
       })()}
@@ -1907,8 +1932,8 @@ function ChatMain(props: any) {
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
           <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
-          <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={() => props.setShowReasoning(!props.showReasoning)}><Lightbulb /></button>
-          <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={() => props.setShowToolCalls(!props.showToolCalls)}><Terminal /></button>
+          <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
+          <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
           <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? 'Queue follow-up' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Queue' : 'Send'}</span></button>
         </div>
       </div>
