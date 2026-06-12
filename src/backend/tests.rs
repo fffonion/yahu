@@ -11,6 +11,25 @@ mod tests {
     }
 
     #[test]
+    fn session_token_is_jwt() {
+        let token = make_session_token("webui-secret");
+        let parts: Vec<_> = token.split('.').collect();
+
+        assert_eq!(parts.len(), 3);
+        let header: serde_json::Value =
+            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[0]).unwrap()).unwrap();
+        let claims: serde_json::Value =
+            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[1]).unwrap()).unwrap();
+
+        assert_eq!(header["alg"], "HS256");
+        assert_eq!(header["typ"], "JWT");
+        assert_eq!(claims["iss"], "yahu");
+        let iat = claims["iat"].as_u64().unwrap();
+        let exp = claims["exp"].as_u64().unwrap();
+        assert_eq!(exp - iat, SESSION_TTL);
+    }
+
+    #[test]
     fn frontmatter_value_reads_yaml_after_opening_blank_line() {
         let text =
             "---\nname: hermes-dashboard-webui\ndescription: \"Dashboard UI\"\n---\n# Body\n";

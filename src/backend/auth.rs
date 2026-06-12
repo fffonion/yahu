@@ -111,30 +111,73 @@ fn valid_cookie(headers: &HeaderMap, state: &AppState) -> bool {
 }
 
 fn make_session_token(key: &str) -> String {
-    let ts = SystemTime::now()
+    let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
         .as_secs();
-    let payload = ts.to_string();
-    let sig = sign(key, &payload);
-    format!("{}.{}", payload, sig)
+    let exp = iat.saturating_add(SESSION_TTL);
+    let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"HS256","typ":"JWT"}"#);
+    let claims = URL_SAFE_NO_PAD.encode(
+        serde_json::json!({
+            "iss": "yahu",
+            "iat": iat,
+            "exp": exp,
+        })
+        .to_string(),
+    );
+    let signing_input = format!("{header}.{claims}");
+    let sig = sign(key, &signing_input);
+    format!("{signing_input}.{sig}")
 }
 
 fn verify_session_token(token: &str, key: &str) -> bool {
-    let Some((payload, sig)) = token.split_once('.') else {
+    let mut parts = token.split('.');
+    let Some(header) = parts.next() else {
         return false;
     };
-    let Ok(ts) = payload.parse::<u64>() else {
+    let Some(claims) = parts.next() else {
+        return false;
+    };
+    let Some(sig) = parts.next() else {
+        return false;
+    };
+    if parts.next().is_some() {
+        return false;
+    }
+
+    let signing_input = format!("{header}.{claims}");
+    if sign(key, &signing_input) != sig {
+        return false;
+    }
+
+    let Some(header_json) = decode_json_segment(header) else {
+        return false;
+    };
+    if header_json.get("alg").and_then(|v| v.as_str()) != Some("HS256")
+        || header_json.get("typ").and_then(|v| v.as_str()) != Some("JWT")
+    {
+        return false;
+    }
+
+    let Some(claims_json) = decode_json_segment(claims) else {
+        return false;
+    };
+    if claims_json.get("iss").and_then(|v| v.as_str()) != Some("yahu") {
+        return false;
+    }
+    let Some(exp) = claims_json.get("exp").and_then(|v| v.as_u64()) else {
         return false;
     };
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
         .as_secs();
-    if now.saturating_sub(ts) > SESSION_TTL {
-        return false;
-    }
-    sign(key, payload) == sig
+    now <= exp
+}
+
+fn decode_json_segment(segment: &str) -> Option<serde_json::Value> {
+    let bytes = URL_SAFE_NO_PAD.decode(segment.as_bytes()).ok()?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 fn sign(key: &str, payload: &str) -> String {
