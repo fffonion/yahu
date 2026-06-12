@@ -223,6 +223,8 @@ const translations: Record<string, Record<string, string>> = {
   'settings.theme': { en: 'Theme', 'zh-CN': '主题', 'zh-TW': '主題', ja: 'テーマ' },
   'settings.followUpBehaviour': { en: 'Follow-up behaviour', 'zh-CN': '追问行为', 'zh-TW': '追問行為', ja: 'フォローアップ動作' },
   'settings.composerEnterMode': { en: 'Composer Enter key', 'zh-CN': '输入框回车键', 'zh-TW': '輸入框 Enter 鍵', ja: '入力欄のEnterキー' },
+  'settings.save': { en: 'Save settings', 'zh-CN': '保存设置', 'zh-TW': '儲存設定', ja: '設定を保存' },
+  'settings.saved': { en: 'Settings saved', 'zh-CN': '设置已保存', 'zh-TW': '設定已儲存', ja: '設定を保存しました' },
   'settings.enterSend': { en: 'Enter sends; Ctrl+Enter inserts newline', 'zh-CN': 'Enter 发送；Ctrl+Enter 换行', 'zh-TW': 'Enter 傳送；Ctrl+Enter 換行', ja: 'Enterで送信、Ctrl+Enterで改行' },
   'settings.enterNewline': { en: 'Enter inserts newline; Ctrl+Enter sends', 'zh-CN': 'Enter 换行；Ctrl+Enter 发送', 'zh-TW': 'Enter 換行；Ctrl+Enter 傳送', ja: 'Enterで改行、Ctrl+Enterで送信' },
   

@@ -489,6 +489,7 @@ export default function App() {
   const [composerCompact, setComposerCompact] = useState(false);
   const [filter, setFilter] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [toastMessage, setToastMessage] = useState('');
   const setStatus = useCallback((_value: string) => {}, []);
   const [busy, setBusy] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
@@ -530,6 +531,7 @@ export default function App() {
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageRequestRef = useRef(0);
   const loadingMessagesRef = useRef(false);
@@ -552,6 +554,13 @@ export default function App() {
   useEffect(() => { hasNewerRef.current = hasNewer; }, [hasNewer]);
   useEffect(() => { newMessageBoundaryIdRef.current = newMessageBoundaryId; }, [newMessageBoundaryId]);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
+  useEffect(() => () => { if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current); }, []);
+  const showToast = useCallback((message: string) => {
+    if (!message) return;
+    setToastMessage(message);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToastMessage(''), 2600);
+  }, []);
   useEffect(() => {
     setMessages((prev) => {
       const next = dedupeVisibleChatMessages(prev);
@@ -979,6 +988,7 @@ export default function App() {
       const id = jobId(created);
       if (id) setCronEditingId(id);
       setStatus(t('cron.saved'));
+      showToast(t('cron.saved'));
       await loadCronJobs();
       return;
     }
@@ -987,15 +997,17 @@ export default function App() {
     if (!res.ok) { setStatus(await res.text()); return; }
     await loadCronJobs();
     setStatus(t('cron.saved'));
-  }, [apiBase, cronEditingId, cronName, cronPrompt, cronSchedule, cronScript, headers, loadCronJobs]);
+    showToast(t('cron.saved'));
+  }, [apiBase, cronEditingId, cronName, cronPrompt, cronSchedule, cronScript, headers, loadCronJobs, showToast]);
   const runCronJob = useCallback(async () => {
     if (!cronEditingId) return;
     const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(cronEditingId)}/run`), { method: 'POST', headers: headers(false) });
     if (!res.ok) { setStatus(await res.text()); return; }
     await loadCronJobs();
     setStatus(t('cron.ran'));
+    showToast(t('cron.ran'));
     await loadCronOutput(cronEditingId);
-  }, [apiBase, cronEditingId, headers, loadCronJobs, loadCronOutput]);
+  }, [apiBase, cronEditingId, headers, loadCronJobs, loadCronOutput, showToast]);
   const deleteCronJob = useCallback(async () => {
     if (!cronEditingId) return;
     if (!await requestConfirm(t('cron.deleteTitle'), tf('cron.deleteConfirm', cronName || cronEditingId), true)) return;
@@ -1004,7 +1016,8 @@ export default function App() {
     resetCronForm();
     await loadCronJobs();
     setStatus(t('cron.deleted'));
-  }, [apiBase, cronEditingId, cronName, headers, loadCronJobs, requestConfirm, resetCronForm]);
+    showToast(t('cron.deleted'));
+  }, [apiBase, cronEditingId, cronName, headers, loadCronJobs, requestConfirm, resetCronForm, showToast]);
 
   useEffect(() => { loadModels(); loadWorkspace(''); }, []);
   useEffect(() => { if (mode === 'insights' && !usageInsights && !usageLoading) loadUsageInsights(); }, [mode, usageInsights, usageLoading, loadUsageInsights]);
@@ -1527,10 +1540,11 @@ export default function App() {
         <SkillWorkspaceAside skill={selectedSkill} skillFileTree={skillFileTree} expandedSkillPaths={expandedSkillPaths} toggleSkillFolder={toggleSkillFolder} openSkillFile={openSkillFile} />
       </>}
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
-      {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} showToast={showToast} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
-      {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} />}
+      {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} showToast={showToast} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
+      <StatusToast message={toastMessage} />
       <nav className="mobile-bottom-nav" aria-label={t('nav.mobile')}>
         <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} aria-label={t('nav.chat')}><MessageSquare /></button>
         <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label={t('nav.cron')}><CalendarClock /></button>
@@ -1541,6 +1555,11 @@ export default function App() {
       </nav>
     </div>
   );
+}
+
+function StatusToast({ message }: { message: string }) {
+  if (!message) return null;
+  return <div className="status-toast" role="status" aria-live="polite">{message}</div>;
 }
 
 function CustomDialog({ dialog, setDialog }: { dialog: DialogState; setDialog: (dialog: DialogState) => void }) {
@@ -2104,8 +2123,8 @@ function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, 
     {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions"><button className="icon-btn" aria-label={t('workspace.openFullPreview')} title={t('workspace.openFullPreview')} onClick={() => { window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path }); }}><Maximize2 /></button><button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div></div>{preview.kind === 'image' ? <img src={preview.url} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />}</div>}
   </>;
 }
-function AdminMain({ mode, setStatus, theme, setTheme, onNavigateToSettings }: { mode: Extract<Mode, 'memory'>; apiBase: string; headers: (json?: boolean) => Record<string, string>; setStatus: (v: string) => void; theme: Theme; setTheme: (v: Theme) => void; onNavigateToSettings: () => void }) {
-  return <main className={`main-panel admin-main ${mode === 'memory' ? 'memory-main' : ''}`}><header className="chat-header header-no-drawer"><div><h1>{t('memory.title')}</h1><span>{t('memory.subtitle')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><MemoryPanel setStatus={setStatus} /></main>;
+function AdminMain({ mode, setStatus, showToast, theme, setTheme, onNavigateToSettings }: { mode: Extract<Mode, 'memory'>; apiBase: string; headers: (json?: boolean) => Record<string, string>; setStatus: (v: string) => void; showToast: (v: string) => void; theme: Theme; setTheme: (v: Theme) => void; onNavigateToSettings: () => void }) {
+  return <main className={`main-panel admin-main ${mode === 'memory' ? 'memory-main' : ''}`}><header className="chat-header header-no-drawer"><div><h1>{t('memory.title')}</h1><span>{t('memory.subtitle')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><MemoryPanel setStatus={setStatus} showToast={showToast} /></main>;
 }
 function CronSidebar({ jobs, editingId, beginCronEdit, resetCronForm, writeHashRoute, closeMobileSidebar }: { jobs: Job[]; editingId: string; beginCronEdit: (job: Job) => void; resetCronForm: () => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void }) {
   return <><div className="cron-sidebar-head"><div><h2>{t('cron.jobs')}</h2><p>{jobs.length} {t('cron.scheduled')}</p></div><button className="new-chat-btn" aria-label={t('cron.newJob')} title={t('cron.newJob')} onClick={() => { resetCronForm(); writeHashRoute({ mode: 'cron' }); closeMobileSidebar(); }}><Plus /></button></div><div className="cron-sidebar-list">{jobs.map((j) => <button type="button" data-route={buildHashRoute({ mode: 'cron', jobId: jobId(j) })} className={`cron-sidebar-row ${jobId(j) === editingId ? 'active' : ''}`} key={jobId(j)} onClick={() => { beginCronEdit(j); closeMobileSidebar(); }}>
@@ -2132,18 +2151,18 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
     </div></section>
   </main>;
 }
-function MemoryPanel({ setStatus }: { setStatus: (v: string) => void }) {
+function MemoryPanel({ setStatus, showToast }: { setStatus: (v: string) => void; showToast: (v: string) => void }) {
   const [doc, setDoc] = useState<MemoryDoc>({ memory: '', user: '' });
   const load = useCallback(async () => { try { const res = await fetch('/memory'); if (!res.ok) throw new Error(await res.text()); setDoc(await res.json()); } catch (err: any) { setStatus(`Memory unavailable: ${err.message}`); } }, [setStatus]);
   useEffect(() => { load(); }, [load]);
-  const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); setStatus(res.ok ? t('memory.saved') : await res.text()); };
+  const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); if (res.ok) { setStatus(t('memory.saved')); showToast(t('memory.saved')); } else setStatus(await res.text()); };
   return <section className="admin-content memory-grid"><label><span>MEMORY.md</span><textarea value={doc.memory} onChange={(e) => setDoc({ ...doc, memory: e.target.value })}/></label><label><span>USER.md</span><textarea value={doc.user} onChange={(e) => setDoc({ ...doc, user: e.target.value })}/></label><button className="save-memory" onClick={save}>{t('memory.save')}</button></section>;
 }
 function GitHubIcon() {
   return <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.6 7.6 0 0 1 8 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" /></svg>;
 }
 
-function SettingsMain(props: { apiServerUrl: string; apiBase: string; setApiBase: (v: string) => void; apiKey: string; setApiKey: (v: string) => void; loadModels: () => void; loadSessions: () => void; theme: Theme; setTheme: (v: Theme) => void; lang: Lang; setLang: (v: Lang) => void; followUpBehaviour: FollowUpBehaviour; setFollowUpBehaviour: (v: FollowUpBehaviour) => void; composerEnterMode: ComposerEnterMode; setComposerEnterMode: (v: ComposerEnterMode) => void }) {
+function SettingsMain(props: { apiServerUrl: string; apiBase: string; setApiBase: (v: string) => void; apiKey: string; setApiKey: (v: string) => void; loadModels: () => void; loadSessions: () => void; theme: Theme; setTheme: (v: Theme) => void; lang: Lang; setLang: (v: Lang) => void; followUpBehaviour: FollowUpBehaviour; setFollowUpBehaviour: (v: FollowUpBehaviour) => void; composerEnterMode: ComposerEnterMode; setComposerEnterMode: (v: ComposerEnterMode) => void; showToast: (v: string) => void }) {
   const LANG_OPTIONS: Array<{ id: Lang; label: string }> = [
     { id: 'en', label: 'English' },
     { id: 'zh-CN', label: '简体中文' },
@@ -2165,6 +2184,7 @@ function SettingsMain(props: { apiServerUrl: string; apiBase: string; setApiBase
       setUpdateStatus('idle');
     } catch (e: any) { setUpdateStatus('error'); setUpdateError(e?.message || 'Check failed'); }
   };
+  const saveSettings = () => { localStorage.setItem('apiBase', props.apiBase); localStorage.setItem('apiKey', props.apiKey); localStorage.setItem('theme', props.theme); localStorage.setItem(FOLLOW_UP_BEHAVIOUR_KEY, props.followUpBehaviour); localStorage.setItem(COMPOSER_ENTER_MODE_KEY, props.composerEnterMode); setI18nLang(props.lang); props.showToast(t('settings.saved')); };
   const applyUpdate = async () => {
     setUpdateStatus('applying'); setUpdateError('');
     try {
@@ -2182,7 +2202,7 @@ function SettingsMain(props: { apiServerUrl: string; apiBase: string; setApiBase
       setTimeout(() => { window.location.reload(); }, 3000);
     } catch (e: any) { setUpdateStatus('error'); setUpdateError(e?.message || 'Update failed'); }
   };
-  return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>API, language, theme, and follow-ups</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={'settings' as Mode} /></header><section className="settings-content"><label><span>{t('settings.apiUrl')}</span><input value={props.apiServerUrl || '—'} readOnly /></label><label><span>{t('settings.apiProxyBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">Queue</option><option value="steer">Steer</option></select></label><label><span>{t('settings.composerEnterMode')}</span><select value={props.composerEnterMode} onChange={(e) => props.setComposerEnterMode(e.target.value as ComposerEnterMode)}><option value="enter-send">{t('settings.enterSend')}</option><option value="enter-newline">{t('settings.enterNewline')}</option></select></label><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button><div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}><h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('settings.update')}</h3><p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: 13 }}>{t('settings.version')}: <code>{currentVer || '...'}</code></p><div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><button className="btn-wide" onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'applying' || updateStatus === 'restarting'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-2)', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'checking' ? t('settings.checkingUpdate') : <><RefreshCw size={15} /> {t('settings.checkUpdate')}</>}</button>{updateInfo && <span style={{ fontSize: 13 }}>{updateInfo.available ? <span style={{ color: 'var(--green)' }}>{t('settings.updateAvailable')}: {updateInfo.latest}</span> : <span style={{ color: 'var(--muted)' }}>{t('settings.upToDate')}</span>}</span>}{updateInfo?.available && updateInfo.release_url && <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>{t('settings.viewRelease')}</a>}</div><div className="update-project-link-row"><a className="project-link" href="https://github.com/fffonion/yahu" target="_blank" rel="noopener noreferrer" aria-label="GitHub project"><GitHubIcon /> <span>GitHub · fffonion/yahu</span></a></div>{updateInfo?.available && <button className="btn-wide" onClick={applyUpdate} disabled={updateStatus === 'applying' || updateStatus === 'restarting'} style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--accent)', borderRadius: 12, background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'applying' ? t('settings.installingUpdate') : updateStatus === 'restarting' ? t('settings.restartingUpdate') : <><Download size={15} /> {t('settings.installUpdate')}</>}</button>}{updateStatus === 'error' && <p style={{ margin: '8px 0 0', color: 'var(--danger)', fontSize: 13 }}>{updateError}</p>}</div></section></main>;
+  return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>API, language, theme, and follow-ups</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={'settings' as Mode} /></header><section className="settings-content"><label><span>{t('settings.apiUrl')}</span><input value={props.apiServerUrl || '—'} readOnly /></label><label><span>{t('settings.apiProxyBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">Queue</option><option value="steer">Steer</option></select></label><label><span>{t('settings.composerEnterMode')}</span><select value={props.composerEnterMode} onChange={(e) => props.setComposerEnterMode(e.target.value as ComposerEnterMode)}><option value="enter-send">{t('settings.enterSend')}</option><option value="enter-newline">{t('settings.enterNewline')}</option></select></label><button className="mobile-icon-only settings-save-btn" aria-label={t('settings.save')} onClick={saveSettings}><Save /> <span className="btn-label">{t('settings.save')}</span></button><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button><div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}><h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('settings.update')}</h3><p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: 13 }}>{t('settings.version')}: <code>{currentVer || '...'}</code></p><div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><button className="btn-wide" onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'applying' || updateStatus === 'restarting'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-2)', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'checking' ? t('settings.checkingUpdate') : <><RefreshCw size={15} /> {t('settings.checkUpdate')}</>}</button>{updateInfo && <span style={{ fontSize: 13 }}>{updateInfo.available ? <span style={{ color: 'var(--green)' }}>{t('settings.updateAvailable')}: {updateInfo.latest}</span> : <span style={{ color: 'var(--muted)' }}>{t('settings.upToDate')}</span>}</span>}{updateInfo?.available && updateInfo.release_url && <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>{t('settings.viewRelease')}</a>}</div><div className="update-project-link-row"><a className="project-link" href="https://github.com/fffonion/yahu" target="_blank" rel="noopener noreferrer" aria-label="GitHub project"><GitHubIcon /> <span>GitHub · fffonion/yahu</span></a></div>{updateInfo?.available && <button className="btn-wide" onClick={applyUpdate} disabled={updateStatus === 'applying' || updateStatus === 'restarting'} style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--accent)', borderRadius: 12, background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'applying' ? t('settings.installingUpdate') : updateStatus === 'restarting' ? t('settings.restartingUpdate') : <><Download size={15} /> {t('settings.installUpdate')}</>}</button>}{updateStatus === 'error' && <p style={{ margin: '8px 0 0', color: 'var(--danger)', fontSize: 13 }}>{updateError}</p>}</div></section></main>;
 }
 
 function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute, mode, onNavigateToSettings }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void; mode?: Mode; onNavigateToSettings?: () => void }) {
