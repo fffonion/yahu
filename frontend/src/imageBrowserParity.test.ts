@@ -33,11 +33,19 @@ describe('image browser parity with standalone Hermes image browser', () => {
     expect(source).toContain('pageSizeForViewport(offset)');
     expect(source).toContain('const visibleRows = Math.max(1, Math.ceil(viewportH / (estimatedCardH + gap)));');
     expect(source).toContain('const rows = visibleRows + GALLERY_PRELOAD_ROWS;');
+    expect(source).toContain('const lazyPageSizeForViewport = () => window.innerWidth <= 760 ? initialPageSizeForViewport() : clamp(getGridColumnCount() * 2, 4, MAX_PAGE_SIZE);');
     expect(source).toContain('const pageSize = pageSizeForViewport(offset);');
     expect(source).toContain('limit=${pageSize}');
     expect(source).toContain('const more = chunk.length === pageSize;');
     expect(source).not.toContain('const PAGE_SIZE = 120;');
     expect(source).not.toContain('limit=${PAGE_SIZE}');
+  });
+
+  test('mobile gallery keeps loading while the sentinel remains near the viewport', () => {
+    const source = app();
+    expect(source).toContain('const maybeLoadImagesNearViewport = () => {');
+    expect(source).toContain('if (el.scrollHeight - el.scrollTop - el.clientHeight < preloadDistancePx()) loadImages(false);');
+    expect(source).toContain('window.requestAnimationFrame(maybeLoadImagesNearViewport);');
   });
 
   test('top summary formats bytes as KB MB GB TB and action buttons match selection mode', () => {

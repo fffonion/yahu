@@ -2175,7 +2175,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     const rows = visibleRows + GALLERY_PRELOAD_ROWS;
     return clamp(cols * rows, cols * 2, MAX_PAGE_SIZE);
   };
-  const lazyPageSizeForViewport = () => clamp(getGridColumnCount() * 2, 4, MAX_PAGE_SIZE);
+  const lazyPageSizeForViewport = () => window.innerWidth <= 760 ? initialPageSizeForViewport() : clamp(getGridColumnCount() * 2, 4, MAX_PAGE_SIZE);
   const pageSizeForViewport = (offset: number) => offset === 0 ? initialPageSizeForViewport() : lazyPageSizeForViewport();
   const preloadDistancePx = () => Math.max(MIN_PRELOAD_DISTANCE_PX, Math.round(window.innerHeight * 2.5));
   const MODAL_ANIM_MS = 230;
@@ -2328,9 +2328,16 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       if (reloadQueuedRef.current) {
         reloadQueuedRef.current = false;
         loadImages(true);
+      } else {
+        window.requestAnimationFrame(maybeLoadImagesNearViewport);
       }
     }
   }, [loadStats]);
+  const maybeLoadImagesNearViewport = () => {
+    const el = scrollRef.current;
+    if (!el || loadingRef.current || !hasMoreRef.current) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < preloadDistancePx()) loadImages(false);
+  };
   const refreshIncremental = useCallback(async () => {
     if (refreshBusyRef.current) return;
     refreshBusyRef.current = true;
