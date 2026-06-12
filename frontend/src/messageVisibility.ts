@@ -1,4 +1,5 @@
 export type MessageVisibilityInput = {
+  id?: string;
   role: string;
   content?: string | null;
   reasoning?: string | null;
@@ -40,6 +41,47 @@ export function shouldRenderMessage(message: MessageVisibilityInput, showReasoni
   if (String(message.content || '').trim()) return true;
   if (showReasoning && String(message.reasoning || '').trim()) return true;
   return false;
+}
+
+function isLocalStreamAssistantMessage(message: MessageVisibilityInput): boolean {
+  return message.role === 'assistant' && String(message.id || '').startsWith('assistant_');
+}
+
+export function dedupeVisibleChatMessages<T extends MessageVisibilityInput>(messages: T[]): T[] {
+  const result: T[] = [];
+  const assistantByTurnContent = new Map<string, number>();
+  let turn = 0;
+  let lastUserResultIndex = -1;
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      turn += 1;
+      assistantByTurnContent.clear();
+      lastUserResultIndex = result.length;
+      result.push(msg);
+      continue;
+    }
+    const isAssistantAnswer = msg.role === 'assistant' && String(msg.content || '').trim() && !isToolLikeMessage(msg);
+    if (isAssistantAnswer) {
+      const fuzzyExisting = result.findIndex((m, i) => i > lastUserResultIndex && m.role === 'assistant' && !isToolLikeMessage(m));
+      if (fuzzyExisting >= 0) {
+        const previous = result[fuzzyExisting];
+        const preferCurrent = (isLocalStreamAssistantMessage(previous) && !isLocalStreamAssistantMessage(msg)) || String(msg.content || '').length > String(previous.content || '').length;
+        result[fuzzyExisting] = preferCurrent ? { ...previous, ...msg, pending: Boolean(previous.pending && msg.pending) } : { ...previous, pending: Boolean(previous.pending && msg.pending) };
+        continue;
+      }
+      const key = `${turn}\u0000${String(msg.content || '').trim()}`;
+      const existing = assistantByTurnContent.get(key);
+      if (existing !== undefined) {
+        const previous = result[existing];
+        const preferCurrent = isLocalStreamAssistantMessage(previous) && !isLocalStreamAssistantMessage(msg);
+        result[existing] = preferCurrent ? { ...previous, ...msg, pending: Boolean(previous.pending && msg.pending) } : { ...previous, pending: Boolean(previous.pending && msg.pending) };
+        continue;
+      }
+      assistantByTurnContent.set(key, result.length);
+    }
+    result.push(msg);
+  }
+  return result;
 }
 
 export function renderableMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): T[] {

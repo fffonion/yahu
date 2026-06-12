@@ -34,7 +34,7 @@ describe('draft session lifecycle', () => {
   test('draft sessions are not fetched as backend sessions or auto-replaced by list refresh', () => {
     const source = app();
     expect(source).toContain("if (sessionId === DRAFT_SESSION_ID) return");
-    expect(source).toContain("if (loadingMessages && direction !== 'latest') return;");
+    expect(source).toContain("if (loadingMessagesRef.current && direction !== 'latest') return;");
     expect(source).toContain('if (!activeSessionIdRef.current && list.length) setActiveSessionId(list[0].id)');
     expect(source).toContain('useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);');
     const start = source.indexOf('const loadSessions = useCallback');

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
+import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
 
 const appSource = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 
@@ -50,9 +50,29 @@ describe('chat message visibility', () => {
     expect(renderableMessages(messages, false, false).map((message) => message.role)).toEqual(['user', 'assistant']);
   });
 
+  test('does not merge assistant-shaped tool output into the final assistant answer', () => {
+    const messages = [
+      { id: 'u1', role: 'user', content: 'check files', pending: false },
+      { id: 'a-tool', role: 'assistant', content: '<untrusted_tool_result source="search_files">matches</untrusted_tool_result>', pending: false },
+      { id: 'a-final', role: 'assistant', content: 'I found the files.', pending: false },
+    ];
+    const deduped = dedupeVisibleChatMessages(messages);
+    expect(deduped.map((message) => message.id)).toEqual(['u1', 'a-tool', 'a-final']);
+    expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['u1', 'a-final']);
+  });
+
   test('ChatMain filters visible messages before mapping so hidden tool frames are unmounted', () => {
     const source = appSource();
-    expect(source).toContain("import { isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';");
-    expect(source).toContain('const visibleMessages = renderableMessages(dedupeVisibleChatMessages(props.messages), props.showReasoning, props.showToolCalls);');
+    expect(source).toContain("import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';");
+    expect(source).toContain('const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);');
+  });
+
+  test('raw history window is larger than the rendered message target so hidden tool pages do not evict visible rows', () => {
+    const source = appSource();
+    expect(source).toContain('const RAW_MESSAGE_WINDOW = MESSAGE_WINDOW * 4;');
+    expect(source).toContain('setMessages((old) => [...chunk, ...old].slice(0, RAW_MESSAGE_WINDOW));');
+    expect(source).toContain('setMessages((old) => [...old, ...chunk].slice(-RAW_MESSAGE_WINDOW));');
+    expect(source).toContain('const loadingMessagesRef = useRef(false);');
+    expect(source).toContain("if (loadingMessagesRef.current && direction !== 'latest') return;");
   });
 });

@@ -10,8 +10,8 @@ import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelPeriodTotals, periodSlice, stackedAreaPath, type UsageDay, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { normalizeMessageParts } from './messageReasoning';
-import { isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
-import { shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
+import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
+import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
@@ -82,6 +82,7 @@ const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';
 const MESSAGE_PAGE = 24;
 const MESSAGE_WINDOW = 120;
+const RAW_MESSAGE_WINDOW = MESSAGE_WINDOW * 4;
 const OTHER_PLATFORM_PENDING_ID = 'other-platform-pending';
 const initialRoute = getCurrentHashRoute();
 
@@ -365,41 +366,7 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
   }
   return next.slice(-MESSAGE_WINDOW);
 }
-function dedupeVisibleChatMessages(messages: ChatMessage[]) {
-  const result: ChatMessage[] = [];
-  const assistantByTurnContent = new Map<string, number>();
-  let turn = 0;
-  let lastUserResultIndex = -1;
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      turn += 1;
-      assistantByTurnContent.clear();
-      lastUserResultIndex = result.length;
-      result.push(msg);
-      continue;
-    }
-    if (msg.role === 'assistant' && msg.content.trim()) {
-      const fuzzyExisting = result.findIndex((m, i) => i > lastUserResultIndex && m.role === 'assistant');
-      if (fuzzyExisting >= 0) {
-        const previous = result[fuzzyExisting];
-        const preferCurrent = (isLocalStreamAssistant(previous) && !isLocalStreamAssistant(msg)) || msg.content.length > previous.content.length;
-        result[fuzzyExisting] = preferCurrent ? { ...previous, ...msg, pending: previous.pending && msg.pending } : { ...previous, pending: previous.pending && msg.pending };
-        continue;
-      }
-      const key = `${turn}\u0000${msg.content.trim()}`;
-      const existing = assistantByTurnContent.get(key);
-      if (existing !== undefined) {
-        const previous = result[existing];
-        const preferCurrent = isLocalStreamAssistant(previous) && !isLocalStreamAssistant(msg);
-        result[existing] = preferCurrent ? { ...previous, ...msg, pending: previous.pending && msg.pending } : { ...previous, pending: previous.pending && msg.pending };
-        continue;
-      }
-      assistantByTurnContent.set(key, result.length);
-    }
-    result.push(msg);
-  }
-  return result;
-}
+
 function isNearBottom(el: HTMLElement | null, px = 120) {
   if (!el) return true;
   return el.scrollHeight - el.scrollTop - el.clientHeight < px;
@@ -554,6 +521,7 @@ export default function App() {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageRequestRef = useRef(0);
+  const loadingMessagesRef = useRef(false);
   const activeSessionIdRef = useRef(activeSessionId);
   const searchVersionRef = useRef(0);
   const modelRef = useRef(model);
@@ -566,6 +534,7 @@ export default function App() {
   useEffect(() => { providerRef.current = selectedModelProvider; }, [selectedModelProvider]);
   useEffect(() => { showReasoningRef.current = showReasoning; }, [showReasoning]);
   useEffect(() => { showToolCallsRef.current = showToolCalls; }, [showToolCalls]);
+  useEffect(() => { loadingMessagesRef.current = loadingMessages; }, [loadingMessages]);
   useEffect(() => { newMessageBoundaryIdRef.current = newMessageBoundaryId; }, [newMessageBoundaryId]);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
   useEffect(() => {
@@ -792,10 +761,11 @@ export default function App() {
   const loadMessageWindow = useCallback(async (sessionId: string, direction: 'latest' | 'older' | 'newer' = 'latest') => {
     if (sessionId === DRAFT_SESSION_ID) return;
     if (!sessionId) return;
-    if (loadingMessages && direction !== 'latest') return;
+    if (loadingMessagesRef.current && direction !== 'latest') return;
     const scroller = chatScrollRef.current;
     const oldHeight = scroller?.scrollHeight || 0;
     const req = ++messageRequestRef.current;
+    loadingMessagesRef.current = true;
     setLoadingMessages(true);
     try {
       const params = new URLSearchParams({ limit: String(MESSAGE_PAGE) });
@@ -815,14 +785,14 @@ export default function App() {
       if (req !== messageRequestRef.current) return;
       const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
       if (direction === 'older') {
-        setMessages((old) => [...chunk, ...old].slice(0, MESSAGE_WINDOW));
+        setMessages((old) => [...chunk, ...old].slice(0, RAW_MESSAGE_WINDOW));
         setHasOlder(page.has_older);
         setHasNewer(true);
         requestAnimationFrame(() => {
           if (scroller) scroller.scrollTop += scroller.scrollHeight - oldHeight;
         });
       } else if (direction === 'newer') {
-        setMessages((old) => [...old, ...chunk].slice(-MESSAGE_WINDOW));
+        setMessages((old) => [...old, ...chunk].slice(-RAW_MESSAGE_WINDOW));
         setHasNewer(page.has_newer);
         setHasOlder(true);
       } else {
@@ -832,7 +802,7 @@ export default function App() {
         setHasNewer(page.has_newer);
       }
     } catch (err: any) { setStatus(`Messages unavailable: ${err.message}`); }
-    finally { setLoadingMessages(false); }
+    finally { loadingMessagesRef.current = false; setLoadingMessages(false); }
   }, [loadingMessages, messages]);
 
   const fetchWorkspaceEntries = useCallback(async (path = '') => {
@@ -1889,7 +1859,18 @@ function ChatMain(props: any) {
   const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
-  const visibleMessages = renderableMessages(dedupeVisibleChatMessages(props.messages), props.showReasoning, props.showToolCalls);
+  const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
+  const lastAutoOlderRequestRef = useRef('');
+  useEffect(() => {
+    const scroller = props.chatScrollRef.current;
+    const firstRawId = props.messages[0]?.id || '';
+    if (!scroller || !firstRawId || !props.activeSessionId) return;
+    if (!shouldAutoLoadOlderForHiddenHistory(scroller, props.hasOlder, props.loadingMessages)) return;
+    const requestKey = `${props.activeSessionId}:${firstRawId}:${props.showReasoning ? 'r1' : 'r0'}:${props.showToolCalls ? 't1' : 't0'}`;
+    if (lastAutoOlderRequestRef.current === requestKey) return;
+    lastAutoOlderRequestRef.current = requestKey;
+    props.loadMessageWindow(props.activeSessionId, 'older');
+  }, [visibleMessages.length, props.messages[0]?.id, props.activeSessionId, props.hasOlder, props.loadingMessages, props.showReasoning, props.showToolCalls]);
   return <main className="main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>

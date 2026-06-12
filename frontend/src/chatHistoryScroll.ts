@@ -23,3 +23,7 @@ export function shouldLoadOlderFromWheel(metrics: ChatScrollMetrics, deltaY: num
   const cannotMoveScrollTop = metrics.scrollHeight <= metrics.clientHeight + 1;
   return atTop || cannotMoveScrollTop;
 }
+
+export function shouldAutoLoadOlderForHiddenHistory(metrics: ChatScrollMetrics, hasOlder: boolean, loading: boolean): boolean {
+  return hasOlder && !loading && metrics.scrollHeight <= metrics.clientHeight + 1;
+}

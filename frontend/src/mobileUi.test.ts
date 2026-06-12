@@ -249,6 +249,6 @@ describe('mobile WebUI layout and touch affordances', () => {
   test('switching sessions on mobile still loads the new session while a previous history request is in flight', () => {
     const source = app();
     expect(source).not.toContain('if (sessionId === DRAFT_SESSION_ID || loadingMessages) return;');
-    expect(source).toContain("if (loadingMessages && direction !== 'latest') return;");
+    expect(source).toContain("if (loadingMessagesRef.current && direction !== 'latest') return;");
   });
 });
