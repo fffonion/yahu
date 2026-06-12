@@ -1596,12 +1596,8 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         </>}
       </div>
       <section className="insights-chart-card">
-        <div className="insights-card-head"><div><h2>{tf('insights.byModel', usageMetricLabel(props.metric))}</h2><p>{isSingleDay ? tf('insights.recentTrend', periodLabel) : tf('insights.recentTrend', periodLabel)}</p></div>{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} title={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button>}</div>
-        {showSkeleton ? <UsageChartSkeleton /> : isSingleDay ? <UsageAreaChart buckets={activeHours} models={models} metric={props.metric} stacked={false} fillArea={false} /> : <UsageAreaChart buckets={activeDays} models={models} metric={props.metric} stacked={chartStacked} />}
-      </section>
-      <section className="insights-chart-card insights-share-card">
-        <div className="insights-card-head"><div><h2>{tf('insights.modelShare', usageMetricLabel(props.metric))}</h2><p>{tf('insights.lastDistribution', periodLabel)}</p></div></div>
-        {showSkeleton ? <UsageChartSkeleton /> : <UsageShareBar models={models} metric={props.metric} />}
+        <div className="insights-card-head"><div><h2>{tf('insights.byModel', usageMetricLabel(props.metric))}</h2><p>{tf('insights.recentTrend', periodLabel)}</p></div><button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} title={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button></div>
+        {showSkeleton ? <UsageChartSkeleton /> : <><UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} /><UsageShareBar models={models} metric={props.metric} /></>}
       </section>
       <div className="insights-grid">
         <section className="insights-panel"><h2>{t('insights.models')}</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">{t('insights.noWindowUsage')}</p>}</section>
@@ -1649,7 +1645,7 @@ function UsageShareBar({ models, metric }: { models: Array<UsageModel & { period
     </div>
   </div>;
 }
-function UsageAreaChart({ buckets, models, metric, stacked, fillArea = true }: { buckets: Array<UsageDay | UsageHour>; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric; stacked: boolean; fillArea?: boolean }) {
+function UsageAreaChart({ buckets, models, metric, stacked }: { buckets: Array<UsageDay | UsageHour>; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric; stacked: boolean }) {
   const width = 720;
   const height = 260;
   const pad = { top: 14, right: 18, bottom: 28, left: 58 };
@@ -1674,18 +1670,16 @@ function UsageAreaChart({ buckets, models, metric, stacked, fillArea = true }: {
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('insights.trendChart')} preserveAspectRatio="none">
       <defs>{series.map((item) => <linearGradient key={item.model} id={`insight-grad-${item.index}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={`var(--chart-${item.index})`} stopOpacity=".52" /><stop offset="100%" stopColor={`var(--chart-${item.index})`} stopOpacity=".06" /></linearGradient>)}</defs>
       <g className="chart-grid" aria-hidden="true">{yTicks.map((tick, tickIndex) => { const y = chartPoint(0, tick.value, 1, width, height, pad, maxValue).y; return <line key={`${tickIndex}-${tick.label}`} x1={pad.left} x2={width - pad.right} y1={y} y2={y} />; })}</g>
-      {!stacked && fillArea && <path className="usage-total-area" d={areaPath(totalValues, width, height, pad, maxValue)} />}
+      {!stacked && <path className="usage-total-area" d={areaPath(totalValues, width, height, pad, maxValue)} />}
       {stacked ? stackedSeries.map((item) => <path key={item.model} className="usage-stack-area" d={stackedAreaPath(item.lower, item.upper, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />) : series.map((item) => <g key={item.model} className={`usage-series usage-series-${item.index}`}>
-        {fillArea && <path className="usage-area" d={areaPath(item.values, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />}
+        <path className="usage-area" d={areaPath(item.values, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />
         <path className="usage-line" d={linePath(item.values, width, height, pad, maxValue)} />
       </g>)}
-      {!fillArea && <path className="usage-line usage-total-hour-line" d={linePath(totalValues, width, height, pad, maxValue)} />}
       {stacked && <path className="usage-total-line" d={linePath(totalValues, width, height, pad, maxValue)} />}
     </svg>
     <div className="chart-y-axis" aria-hidden="true">{yTicks.map((tick, tickIndex) => <span key={`${tickIndex}-${tick.label}`} style={{ top: `${tick.pct}%` }}>{tick.label}</span>)}</div>
     <div className="chart-points">{pointSeries.map((item) => item.values.map((value, pointIndex) => { const bucket = buckets[pointIndex]; const point = chartPoint(pointIndex, item.pointValues[pointIndex], item.values.length, width, height, pad, maxValue); const label = chartTooltipLabel(item.model, bucket?.label || '', value, usageMetricLabel(metric), formatMetricValue(metric, value)); const tooltipPlacement = chartTooltipPlacement(point.y, height); const tooltipAlign = chartTooltipAlignment(point.x, width); return <span key={`${item.model}-${isHourlyBucket(bucket) ? bucket.hour : bucket?.date || pointIndex}`} className={`chart-point-hit tooltip-${tooltipPlacement} tooltip-align-${tooltipAlign}`} tabIndex={0} aria-label={label} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{label}</span></span>; }))}</div>
     <div className="chart-axis">{buckets.map((bucket, index) => <span key={isHourlyBucket(bucket) ? bucket.hour : bucket.date} style={{ left: `${buckets.length === 1 ? 50 : (index / (buckets.length - 1)) * 100}%` }}>{axisLabelVisible(index) ? bucket.label : ''}</span>)}</div>
-    <div className="chart-legend">{series.map((item) => <span key={item.model}><i style={{ background: `var(--chart-${item.index})` }} />{item.model}</span>)}{(stacked || !fillArea) && <span><i className="total" />{t('insights.total')}</span>}</div>
   </div>;
 }
 function ChatSidebar(props: { filter: string; setFilter: (v: string) => void; startDraftSession: () => void; pinnedSessions: Session[]; normalSessions: Session[]; activeSessionId: string; setActiveSessionId: (v: string) => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void; pinnedIds: Set<string>; togglePin: (id: string) => void; openSessionMenu: (session: Session, event: React.MouseEvent) => void; openSessionMenuAt: (session: Session, x: number, y: number) => void }) {

@@ -88,7 +88,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('{chartStacked ? <LineChart /> : <Layers />}');
     expect(app).not.toContain("{chartStacked ? 'Unstack' : 'Stack'}");
     expect(app).toContain('aria-pressed={chartStacked}');
-    expect(app).toContain('isSingleDay ? <UsageAreaChart buckets={activeHours} models={models} metric={props.metric} stacked={false} fillArea={false} /> : <UsageAreaChart buckets={activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
+    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
     expect(app).toContain('className={`usage-chart ${stacked ? \'stacked\' : \'unstacked\'}`}');
     expect(app).toContain('isHourlyBucket(buckets[0]) ? modelHourlyMetricValues(model, buckets as UsageHour[], metric) : modelDailyMetricValues(model, buckets as UsageDay[], metric)');
     expect(app).toContain('className="usage-stack-area"');
@@ -106,16 +106,18 @@ describe('insights chart UI', () => {
     expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.425;');
   });
 
-  test('renders one-day usage as an hourly line chart and moves model share bar to all periods', () => {
+  test('renders one-day usage as an hourly chart with stack and fill, and embeds the share bar under the chart', () => {
     const app = appSource();
     const css = cssSource();
     expect(app).toContain('const isSingleDay = props.period === 1');
     expect(app).toContain('const activeHours = props.insights?.hourly || []');
-    expect(app).toContain('{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn"');
-    expect(app).toContain('fillArea={false}');
-    expect(app).toContain('!fillArea && <path className="usage-line usage-total-hour-line"');
+    expect(app).toContain('<button type="button" className="chart-stack-toggle icon-btn"');
+    expect(app).not.toContain('{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn"');
+    expect(app).not.toContain('fillArea={false}');
+    expect(app).not.toContain('usage-total-hour-line');
     expect(app).toContain('function UsageShareBar');
-    expect(app).toContain('<section className="insights-chart-card insights-share-card">');
+    expect(app).not.toContain('<section className="insights-chart-card insights-share-card">');
+    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
     expect(app).toContain('<UsageShareBar models={models} metric={props.metric} />');
     expect(app).toContain('className="usage-share-map"');
     expect(app).toContain('className="usage-share-bar"');
@@ -124,10 +126,11 @@ describe('insights chart UI', () => {
     expect(app).toContain('className="usage-share-indicator"');
     expect(app).toContain('style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }}');
     expect(app).toContain("'--share-start': `${item.start}%`");
-    expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 54px;');
-    expect(css).toContain('.usage-share-bar{height:42px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
-    expect(css).toContain('.usage-share-indicators{position:relative;height:54px;');
-    expect(css).toContain('.usage-share-indicator::after{content:"";position:absolute;right:0;top:-24px;height:14px;');
+    expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;');
+    expect(css).toContain('.usage-share-bar{height:9px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
+    expect(css).toContain('.usage-share-indicators{position:relative;height:42px;');
+    expect(css).toContain('.usage-share-indicator::after{content:"";position:absolute;right:0;top:-16px;height:9px;');
+    expect(app).not.toContain('className="chart-legend"');
   });
 
   test('other signal sources are selected from the active period totals', () => {

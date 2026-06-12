@@ -190,13 +190,14 @@ export function chartTooltipAlignment(pointX: number, chartWidth: number, edgeCl
   return 'center';
 }
 
-export function linePath(values: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
-  if (!values.length) return '';
-  const points = values.map((value, index) => chartPoint(index, value, values.length, width, height, pad, maxValue || chartMax(values)));
-  if (points.length === 1) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
-  if (points.length === 2) return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
+type ChartPoint = ReturnType<typeof chartPoint>;
+
+function smoothPointPath(points: ChartPoint[], firstCommand: 'M' | 'L' = 'M'): string {
+  if (!points.length) return '';
+  if (points.length === 1) return `${firstCommand} ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  if (points.length === 2) return points.map((point, index) => `${index === 0 ? firstCommand : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
   const [first, ...rest] = points;
-  let path = `M ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
+  let path = `${firstCommand} ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
   for (let index = 0; index < rest.length; index += 1) {
     const start = points[index];
     const end = points[index + 1];
@@ -204,6 +205,12 @@ export function linePath(values: number[], width: number, height: number, pad: C
     path += ` C ${(start.x + dx).toFixed(2)} ${start.y.toFixed(2)}, ${(end.x - dx).toFixed(2)} ${end.y.toFixed(2)}, ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
   }
   return path;
+}
+
+export function linePath(values: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
+  if (!values.length) return '';
+  const points = values.map((value, index) => chartPoint(index, value, values.length, width, height, pad, maxValue || chartMax(values)));
+  return smoothPointPath(points);
 }
 
 export function areaPath(values: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
@@ -218,13 +225,8 @@ export function areaPath(values: number[], width: number, height: number, pad: C
 export function stackedAreaPath(lowerValues: number[], upperValues: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
   if (!lowerValues.length || !upperValues.length) return '';
   const count = Math.min(lowerValues.length, upperValues.length);
-  const upper = upperValues.slice(0, count).map((value, index) => {
-    const { x, y } = chartPoint(index, value, count, width, height, pad, maxValue || chartMax(upperValues));
-    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-  }).join(' ');
-  const lower = lowerValues.slice(0, count).map((value, index) => {
-    const { x, y } = chartPoint(index, value, count, width, height, pad, maxValue || chartMax(upperValues));
-    return `L ${x.toFixed(2)} ${y.toFixed(2)}`;
-  }).reverse().join(' ');
-  return `${upper} ${lower} Z`;
+  const max = maxValue || chartMax(upperValues);
+  const upperPoints = upperValues.slice(0, count).map((value, index) => chartPoint(index, value, count, width, height, pad, max));
+  const lowerPoints = lowerValues.slice(0, count).map((value, index) => chartPoint(index, value, count, width, height, pad, max)).reverse();
+  return `${smoothPointPath(upperPoints)} ${smoothPointPath(lowerPoints, 'L')} Z`;
 }

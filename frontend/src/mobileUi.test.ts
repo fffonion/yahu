@@ -191,7 +191,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6');
     expect(styles).toContain('.usage-area{opacity:.78;transform-origin:center bottom;animation:chart-fill .55s ease both}');
     expect(styles).toContain('.usage-line{fill:none;stroke-width:.4');
-    expect(styles).toContain('.usage-share-bar{height:42px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
+    expect(styles).toContain('.usage-share-bar{height:9px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
     expect(styles).toContain('@media (max-width:760px){.mobile-bottom-nav .rail-btn.nav-insights.active');
     expect(styles).toContain('.insights-content{padding:10px 10px calc(86px + env(safe-area-inset-bottom,0px));gap:10px');
     expect(styles).toContain('.usage-chart{min-height:230px;padding-bottom:46px;overflow:visible}');

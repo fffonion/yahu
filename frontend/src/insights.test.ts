@@ -28,10 +28,12 @@ describe('insights helpers', () => {
     expect(smooth).not.toContain(' L 150.00 60.00 L ');
   });
 
-  test('builds stacked area band paths between lower and upper model totals', () => {
+  test('builds smooth stacked area band paths between lower and upper model totals', () => {
     const band = stackedAreaPath([0, 20, 40], [10, 50, 100], 300, 120, 12, 100);
-    expect(band).toContain('M 12.00 98.40 L 150.00 60.00 L 288.00 12.00');
-    expect(band).toContain('L 288.00 69.60 L 150.00 88.80 L 12.00 108.00 Z');
+    expect(band).toContain('M 12.00 98.40 C');
+    expect(band).toContain('C 242.00 69.60, 196.00 88.80, 150.00 88.80');
+    expect(band).not.toContain('M 12.00 98.40 L 150.00 60.00 L 288.00 12.00');
+    expect(band.endsWith('Z')).toBe(true);
   });
 
   test('model chart series uses zero for dates missing from that model', () => {
