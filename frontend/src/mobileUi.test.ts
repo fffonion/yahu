@@ -90,7 +90,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box{width:100%;border:0;border-radius:0;box-shadow:none;background:transparent}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{display:block;width:100%;height:48px;min-height:48px;max-height:20dvh;padding:12px 14px;border:0;border-radius:0;box-shadow:none;background:var(--surface);resize:none;overflow-y:hidden}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea:focus{border:0;box-shadow:none}');
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:static;display:flex;gap:6px;width:100%;padding:8px 10px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:6px;width:100%;padding:24px 10px 8px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))');
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer .attach-btn,.composer-wrap:not(.composer-compact) .composer-footer .send-btn,.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control{width:100%;min-width:0;height:44px}');
   });
@@ -119,7 +119,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('props.setComposerCompact(true)');
     expect(source).toContain('onFocus={() => props.setComposerCompact(false)}');
     expect(styles).toContain('.context-window-meter{margin-left:auto');
-    expect(styles).toContain('.composer-footer .send-btn{margin-left:0}');
+    expect(styles).toContain('.composer-footer .send-btn{margin-left:0;flex:0 0 auto}');
     expect(styles).toContain('.composer-wrap.composer-compact .attachments{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control,.composer-wrap.composer-compact .composer-footer .reasoning-view-toggle,.composer-wrap.composer-compact .composer-footer .tool-call-view-toggle{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{height:48px;min-height:48px;max-height:48px;overflow:hidden;padding:10px 56px 10px 14px}');
@@ -130,10 +130,10 @@ describe('mobile WebUI layout and touch affordances', () => {
 
   test('compact composer send button keeps the same right inset as expanded composer', () => {
     const styles = css();
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:static;display:flex;gap:6px;width:100%;padding:8px 10px;border-top:0;background:transparent');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:6px;width:100%;padding:24px 10px 8px;border-top:0;background:transparent');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:12px;');
     expect(styles).toContain('.context-window-meter{margin-left:auto');
-    expect(styles).toContain('.composer-footer .send-btn{margin-left:0}');
+    expect(styles).toContain('.composer-footer .send-btn{margin-left:0;flex:0 0 auto}');
   });
 
   test('mobile bottom nav paints above the composer reserved area but below open dropdown menus', () => {
@@ -192,11 +192,13 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('linearGradient');
     expect(styles).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6');
     expect(styles).toContain('.usage-area{opacity:.78;transform-origin:center bottom;animation:chart-fill .55s ease both}');
-    expect(styles).toContain('.usage-line{fill:none;stroke-width:.5');
+    expect(styles).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.265');
+    expect(styles).toContain('.usage-line{fill:none;stroke-width:.25');
     expect(styles).toContain('.usage-share-bar{height:9px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
     expect(styles).toContain('@media (max-width:760px){.mobile-bottom-nav .rail-btn.nav-insights.active');
     expect(styles).toContain('.insights-content{padding:10px 10px calc(86px + env(safe-area-inset-bottom,0px));gap:10px');
     expect(styles).toContain('.usage-chart{min-height:230px;padding-bottom:46px;overflow:visible}');
+    expect(styles).toContain('.usage-line{stroke-width:.235}');
     expect(styles).toContain('.chart-y-axis{left:2px;bottom:46px;width:28px;font-size:10px}.chart-y-axis span{right:2px}');
     expect(styles).toContain('.insights-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}');
   });

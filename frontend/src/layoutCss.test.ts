@@ -45,6 +45,7 @@ describe('sidebar session list css', () => {
     expect(css).toContain('padding:14px 18px');
     expect(css).toContain('.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:5px}');
     expect(css).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{box-sizing:border-box;padding-bottom:var(--composer-textarea-pad-bottom)}');
-    expect(css).toContain('@media (max-width:760px){.context-window-meter{max-width:120px;min-width:92px;gap:5px}.context-window-track{min-width:34px}.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:12px}}');
+    expect(css).toContain('@media (max-width:760px){.composer-wrap:not(.composer-compact) .context-window-meter{position:absolute;right:10px;top:2px;width:120px;min-width:0;max-width:120px;margin-left:0;pointer-events:none}');
+    expect(css).toContain('.context-window-track{min-width:34px}.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:12px}}');
   });
 });

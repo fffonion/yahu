@@ -25,7 +25,7 @@ type Role = 'user' | 'assistant' | 'system' | 'tool';
 type FollowUpBehaviour = 'queue' | 'steer';
 type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
@@ -275,9 +275,14 @@ function asRecordish(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
 }
+function readTokenCount(raw: any): number | undefined {
+  const value = Number(raw?.token_count ?? raw?.tokenCount ?? 0);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
 function normalizeMessage(raw: any): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);
   const platformSender = raw.role === 'user' ? parsePlatformSenderMessage(parts.content) : { content: parts.content };
+  const tokenCount = readTokenCount(raw);
   const msg: ChatMessage = {
     id: String(raw.id || uid('m')),
     role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',
@@ -288,6 +293,7 @@ function normalizeMessage(raw: any): ChatMessage {
     toolInput: rawToolInput(raw),
     toolCalls: raw.toolCalls ?? raw.tool_calls,
   };
+  if (tokenCount !== undefined) msg.tokenCount = tokenCount;
   if (platformSender.senderName) msg.platformSenderName = platformSender.senderName;
   if (platformSender.senderId) msg.platformSenderId = platformSender.senderId;
   if (typeof raw.model === 'string' && raw.model.trim()) msg.model = raw.model.trim();
@@ -468,14 +474,10 @@ function flattenModelOptions(body: any): ModelOption[] {
   return out;
 }
 
-function roughTokenCount(value: unknown): number {
-  const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
-  return Math.ceil(text.length / 4);
-}
-function estimateContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[]): number {
-  const messageTokens = messages.reduce((sum, message) => sum + roughTokenCount(message.content) + roughTokenCount(message.reasoning) + roughTokenCount(message.toolInput) + roughTokenCount(message.toolCalls) + 4, 0);
-  const attachmentTokens = attachments.reduce((sum, attachment) => sum + roughTokenCount(attachment.text || attachment.name) + (attachment.kind === 'image' ? 512 : 0), 0);
-  return Math.max(0, messageTokens + roughTokenCount(input) + attachmentTokens);
+function exactContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[], hasUnloadedHistory: boolean): number | undefined {
+  if (input.trim() || attachments.length || hasUnloadedHistory) return undefined;
+  if (!messages.length || messages.some((message) => message.pending || message.tokenCount === undefined)) return undefined;
+  return messages.reduce((sum, message) => sum + (message.tokenCount || 0), 0);
 }
 function fallbackContextWindowForModel(modelId: string): number {
   const id = modelId.toLowerCase();
@@ -492,13 +494,15 @@ function formatContextTokens(value: number): string {
   if (value >= 1000) return `${Math.round(value / 1000)}k`;
   return String(Math.max(0, Math.round(value)));
 }
-function ContextWindowMeter({ used, total }: { used: number; total: number }) {
+function ContextWindowMeter({ used, total }: { used?: number; total?: number }) {
   if (!total) return null;
-  const safeUsed = Math.max(0, used || 0);
   const safeTotal = Math.max(1, total || 1);
-  const pct = Math.min(100, Math.round(safeUsed / safeTotal * 100));
-  const label = `${formatContextTokens(safeUsed)} / ${formatContextTokens(safeTotal)}`;
-  return <div className="context-window-meter" title={`Context window ${label}`} aria-label={`Context window ${label}`}>
+  const hasUsed = typeof used === 'number' && Number.isFinite(used) && used >= 0;
+  const safeUsed = hasUsed ? Math.max(0, used || 0) : undefined;
+  const pct = safeUsed === undefined ? 0 : Math.min(100, Math.round(safeUsed / safeTotal * 100));
+  const label = `${safeUsed === undefined ? '—' : formatContextTokens(safeUsed)} / ${formatContextTokens(safeTotal)}`;
+  const ariaLabel = safeUsed === undefined ? `Context window usage unavailable / ${formatContextTokens(safeTotal)}` : `Context window ${label}`;
+  return <div className="context-window-meter" role="meter" aria-valuemin={0} aria-valuemax={safeTotal} aria-valuenow={safeUsed} title={ariaLabel} aria-label={ariaLabel}>
     <span className="context-window-track"><span className="context-window-fill" style={{ width: `${pct}%` }} /></span>
     <span className="context-window-label">{label}</span>
   </div>;
@@ -2002,7 +2006,7 @@ function ChatMain(props: any) {
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
   const contextWindowTotal = currentModelOption?.contextLength || fallbackContextWindowForModel(currentModel);
-  const contextWindowUsed = estimateContextWindowTokens(visibleMessages, props.input, props.attachments);
+  const contextWindowUsed = exactContextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
     const scroller = props.chatScrollRef.current;
     const nextVisibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), nextShowReasoning, nextShowToolCalls);
