@@ -35,7 +35,7 @@ describe('draft session lifecycle', () => {
     const source = app();
     expect(source).toContain("if (sessionId === DRAFT_SESSION_ID) return");
     expect(source).toContain("if (loadingMessagesRef.current && direction !== 'latest') return;");
-    expect(source).toContain('if (!activeSessionIdRef.current && list.length) setActiveSessionId(list[0].id)');
+    expect(source).toContain('if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id)');
     expect(source).toContain('useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);');
     const start = source.indexOf('const loadSessions = useCallback');
     const end = source.indexOf('const loadSessionDetail = useCallback', start);

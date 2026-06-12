@@ -84,7 +84,7 @@ describe('chat message visibility', () => {
 
   test('session changes clear old message data before loading the new window', () => {
     const source = appSource();
-    expect(source).toContain('messageRequestRef.current += 1;\n    messagesRef.current = [];\n    setMessages([]);');
+    expect(source).toContain('messageRequestRef.current += 1;\n    messagesRef.current = [];\n    hasOlderRef.current = false;\n    hasNewerRef.current = false;\n    pendingHistoryScrollAnchorRef.current = null;\n    setMessages([]);');
     expect(source).toContain("loadMessageWindow(activeSessionId, 'latest');");
   });
 
@@ -101,8 +101,8 @@ describe('chat message visibility', () => {
   test('raw history window is larger than the rendered message target so hidden tool pages do not evict visible rows', () => {
     const source = appSource();
     expect(source).toContain('const RAW_MESSAGE_WINDOW = MESSAGE_WINDOW * 4;');
-    expect(source).toContain('setMessages((old) => [...chunk, ...old].slice(0, RAW_MESSAGE_WINDOW));');
-    expect(source).toContain('setMessages((old) => [...old, ...chunk].slice(-RAW_MESSAGE_WINDOW));');
+    expect(source).toContain("import { mergeMessageWindow } from './chatMessageWindow';");
+    expect(source).toContain('limit: RAW_MESSAGE_WINDOW,');
     expect(source).toContain('const loadingMessagesRef = useRef(false);');
     expect(source).toContain("if (loadingMessagesRef.current && direction !== 'latest') return;");
   });

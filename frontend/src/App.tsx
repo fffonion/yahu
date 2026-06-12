@@ -14,6 +14,7 @@ import { normalizeMessageParts } from './messageReasoning';
 import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages } from './messageVisibility';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
+import { mergeMessageWindow } from './chatMessageWindow';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
@@ -532,6 +533,8 @@ export default function App() {
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageRequestRef = useRef(0);
   const loadingMessagesRef = useRef(false);
+  const hasOlderRef = useRef(false);
+  const hasNewerRef = useRef(false);
   const activeSessionIdRef = useRef(activeSessionId);
   const searchVersionRef = useRef(0);
   const modelRef = useRef(model);
@@ -545,6 +548,8 @@ export default function App() {
   useEffect(() => { showReasoningRef.current = showReasoning; }, [showReasoning]);
   useEffect(() => { showToolCallsRef.current = showToolCalls; }, [showToolCalls]);
   useEffect(() => { loadingMessagesRef.current = loadingMessages; }, [loadingMessages]);
+  useEffect(() => { hasOlderRef.current = hasOlder; }, [hasOlder]);
+  useEffect(() => { hasNewerRef.current = hasNewer; }, [hasNewer]);
   useEffect(() => { newMessageBoundaryIdRef.current = newMessageBoundaryId; }, [newMessageBoundaryId]);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
   useEffect(() => {
@@ -582,6 +587,20 @@ export default function App() {
     const nextHash = buildHashRoute(route);
     if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash);
   }, []);
+  const switchActiveSession = useCallback((sessionId: string) => {
+    activeSessionIdRef.current = sessionId;
+    messageRequestRef.current += 1;
+    messagesRef.current = [];
+    hasOlderRef.current = false;
+    hasNewerRef.current = false;
+    pendingHistoryScrollAnchorRef.current = null;
+    if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
+    setMessages([]);
+    setHasOlder(false);
+    setHasNewer(false);
+    clearNewMessages();
+    setActiveSessionId(sessionId);
+  }, [clearNewMessages]);
   const clearSelectedSkill = useCallback(() => {
     setSelectedSkillName('');
     setSkillRouteTarget('');
@@ -593,13 +612,13 @@ export default function App() {
     setMode(route.mode);
     setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'settings');
     if (route.mode !== 'chat' && route.mode !== 'cron') setMobileSidebarOpen(false);
-    if (route.mode === 'chat' && route.sessionId) setActiveSessionId(route.sessionId);
+    if (route.mode === 'chat' && route.sessionId) switchActiveSession(route.sessionId);
     if (route.mode === 'cron' && route.jobId) setCronEditingId(route.jobId);
     if (route.mode === 'skills' && route.skillName) setSkillRouteTarget(route.skillName);
     if (route.mode === 'skills' && !route.skillName) clearSelectedSkill();
     if (route.mode === 'images') setInitialImageFilename(route.imageFilename || '');
     if (route.mode === 'workspace' && route.workspaceKind) setWorkspaceRouteTarget({ workspaceKind: route.workspaceKind, workspacePath: route.workspacePath || '' });
-  }, [clearSelectedSkill]);
+  }, [clearSelectedSkill, switchActiveSession]);
   useEffect(() => {
     const applyCurrentHashRoute = () => applyHashRoute(getCurrentHashRoute());
     window.addEventListener('hashchange', applyCurrentHashRoute);
@@ -686,10 +705,10 @@ export default function App() {
       if (version !== searchVersionRef.current) return;
       const list: Session[] = body.data || [];
       setSessions(list);
-      if (!activeSessionIdRef.current && list.length) setActiveSessionId(list[0].id);
+      if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
     } catch (err: any) { setStatus(`Sessions unavailable: ${err.message}`); }
-  }, [filter, headers]);
+  }, [filter, headers, switchActiveSession]);
 
   const loadSessionDetail = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
@@ -733,6 +752,7 @@ export default function App() {
     if (!effectiveSessionId || previousSessionId === effectiveSessionId) return previousSessionId;
     skipNextHistoryLoadRef.current = effectiveSessionId;
     const effectiveSession = createdSession ? { ...createdSession, id: effectiveSessionId } : { id: effectiveSessionId };
+    activeSessionIdRef.current = effectiveSessionId;
     setActiveSessionId(effectiveSessionId);
     setActiveSessionDetail(effectiveSession);
     setSessions((old) => [effectiveSession, ...old.filter((s) => s.id !== previousSessionId && s.id !== effectiveSessionId)]);
@@ -757,6 +777,12 @@ export default function App() {
   const startDraftSession = useCallback(() => {
     const sessionModel = realModelOrEmpty(model) || models[0]?.id || '';
     messageRequestRef.current += 1;
+    activeSessionIdRef.current = DRAFT_SESSION_ID;
+    messagesRef.current = [];
+    hasOlderRef.current = false;
+    hasNewerRef.current = false;
+    pendingHistoryScrollAnchorRef.current = null;
+    if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
     setActiveSessionId(DRAFT_SESSION_ID);
     setActiveSessionDetail({ id: DRAFT_SESSION_ID, model: sessionModel, provider: selectedModelProvider });
     setMessages([]);
@@ -781,37 +807,45 @@ export default function App() {
     try {
       const params = new URLSearchParams({ limit: String(MESSAGE_PAGE) });
       if (direction === 'older') {
-        const before = numericId(messages[0]?.id);
-        if (!before) return;
+        const before = numericId(messagesRef.current[0]?.id);
+        if (!before) { pendingHistoryScrollAnchorRef.current = null; return; }
         params.set('before', before);
       }
       if (direction === 'newer') {
-        const after = numericId(messages[messages.length - 1]?.id);
+        const after = numericId(messagesRef.current[messagesRef.current.length - 1]?.id);
         if (!after) return;
         params.set('after', after);
       }
       const res = await fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${params}`);
       if (!res.ok) throw new Error(await res.text());
       const page: MessagePage = await res.json();
-      if (req !== messageRequestRef.current) return;
+      if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
       const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
-      if (direction === 'older') {
-        setMessages((old) => [...chunk, ...old].slice(0, RAW_MESSAGE_WINDOW));
-        setHasOlder(page.has_older);
-        setHasNewer(true);
-      } else if (direction === 'newer') {
-        setMessages((old) => [...old, ...chunk].slice(-RAW_MESSAGE_WINDOW));
-        setHasNewer(page.has_newer);
-        setHasOlder(true);
-      } else {
-        scrollLatestAfterRenderRef.current = true;
-        setMessages(chunk);
-        setHasOlder(page.has_older);
-        setHasNewer(page.has_newer);
-      }
+      const merged = mergeMessageWindow<ChatMessage>({
+        current: direction === 'latest' ? [] : messagesRef.current,
+        chunk,
+        direction,
+        limit: RAW_MESSAGE_WINDOW,
+        hasOlder: hasOlderRef.current,
+        hasNewer: hasNewerRef.current,
+        pageHasOlder: Boolean(page.has_older),
+        pageHasNewer: Boolean(page.has_newer),
+      });
+      messagesRef.current = merged.messages;
+      setMessages(merged.messages);
+      hasOlderRef.current = merged.hasOlder;
+      hasNewerRef.current = merged.hasNewer;
+      setHasOlder(merged.hasOlder);
+      setHasNewer(merged.hasNewer);
+      if (direction === 'latest') scrollLatestAfterRenderRef.current = true;
     } catch (err: any) { setStatus(`Messages unavailable: ${err.message}`); }
-    finally { loadingMessagesRef.current = false; setLoadingMessages(false); }
-  }, [loadingMessages, messages]);
+    finally {
+      if (req === messageRequestRef.current) {
+        loadingMessagesRef.current = false;
+        setLoadingMessages(false);
+      }
+    }
+  }, []);
 
   const fetchWorkspaceEntries = useCallback(async (path = '') => {
     const res = await fetch(`/workspace/list?path=${encodeURIComponent(path || '')}`);
@@ -1000,6 +1034,9 @@ export default function App() {
     }
     messageRequestRef.current += 1;
     messagesRef.current = [];
+    hasOlderRef.current = false;
+    hasNewerRef.current = false;
+    pendingHistoryScrollAnchorRef.current = null;
     setMessages([]);
     setHasOlder(false);
     setHasNewer(false);
@@ -1009,10 +1046,12 @@ export default function App() {
     if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
     clearNewMessages();
     if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
-    const es = new EventSource(`/chat/watch/${encodeURIComponent(activeSessionId)}`);
+    const watchedSessionId = activeSessionId;
+    const es = new EventSource(`/chat/watch/${encodeURIComponent(watchedSessionId)}`);
     watchSourceRef.current = es;
     es.onmessage = (ev) => {
       try {
+        if (activeSessionIdRef.current !== watchedSessionId) return;
         const raw = JSON.parse(ev.data);
         const msg = normalizeMessage(raw);
         const wasNearBottom = !!chatScrollRef.current && isNearBottom(chatScrollRef.current);
@@ -1175,6 +1214,7 @@ export default function App() {
         sessionId = createdSession.id;
         effectiveSessionId = sessionId;
         skipNextHistoryLoadRef.current = sessionId;
+        activeSessionIdRef.current = sessionId;
         setActiveSessionId(sessionId);
         setActiveSessionDetail(createdSession);
         setSessions((old) => old.some((s) => s.id === sessionId) ? old.map((s) => s.id === sessionId ? { ...s, ...createdSession } : s) : [createdSession!, ...old]);
@@ -1384,7 +1424,7 @@ export default function App() {
     setPinnedIds((old) => { const next = new Set(old); next.delete(session.id); return next; });
     setSessions((old) => {
       const next = old.filter((item) => item.id !== session.id);
-      if (activeSessionId === session.id) setActiveSessionId(next[0]?.id || '');
+      if (activeSessionId === session.id) switchActiveSession(next[0]?.id || '');
       return next;
     });
     if (activeSessionId === session.id) { setMessages([]); setActiveSessionDetail(null); }
@@ -1461,7 +1501,7 @@ export default function App() {
           <button className={`rail-btn nav-settings ${mode === 'settings' ? 'active' : ''}`} onClick={() => setNavMode('settings')} title={t('nav.settings')}><Settings /></button>
         </div>
         {!sidebarCollapsed && <div className="left-body">
-          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} startDraftSession={startDraftSession} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={setActiveSessionId} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} closeMobileSidebar={closeMobileSidebar} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
+          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} startDraftSession={startDraftSession} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={switchActiveSession} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} closeMobileSidebar={closeMobileSidebar} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
         </div>}
         {!sidebarCollapsed && <ThemeCard theme={theme} setTheme={setTheme} />}
       </aside>

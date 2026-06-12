@@ -15,7 +15,7 @@ describe('hash route integration', () => {
   test('chat and cron deep links select the requested item', () => {
     const source = app();
     expect(source).toContain("route.mode === 'chat'");
-    expect(source).toContain('setActiveSessionId(route.sessionId)');
+    expect(source).toContain('switchActiveSession(route.sessionId)');
     expect(source).toContain("route.mode === 'cron'");
     expect(source).toContain('setCronEditingId(route.jobId)');
     expect(source).toContain('beginCronEdit(selectedJob)');
