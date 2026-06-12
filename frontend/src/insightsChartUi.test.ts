@@ -88,9 +88,9 @@ describe('insights chart UI', () => {
     expect(app).toContain('{chartStacked ? <LineChart /> : <Layers />}');
     expect(app).not.toContain("{chartStacked ? 'Unstack' : 'Stack'}");
     expect(app).toContain('aria-pressed={chartStacked}');
-    expect(app).toContain('isSingleDay ? <UsageShareBar models={models} metric={props.metric} /> : <UsageAreaChart days={activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
+    expect(app).toContain('isSingleDay ? <UsageAreaChart buckets={activeHours} models={models} metric={props.metric} stacked={false} fillArea={false} /> : <UsageAreaChart buckets={activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
     expect(app).toContain('className={`usage-chart ${stacked ? \'stacked\' : \'unstacked\'}`}');
-    expect(app).toContain('modelDailyMetricValues(model, days, metric)');
+    expect(app).toContain('isHourlyBucket(buckets[0]) ? modelHourlyMetricValues(model, buckets as UsageHour[], metric) : modelDailyMetricValues(model, buckets as UsageDay[], metric)');
     expect(app).toContain('className="usage-stack-area"');
     expect(app).toContain('className="usage-total-line"');
     expect(app).not.toContain('<LineChart /></div>');
@@ -106,12 +106,17 @@ describe('insights chart UI', () => {
     expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.425;');
   });
 
-  test('renders one-day model usage as a proportional share bar with model indicators', () => {
+  test('renders one-day usage as an hourly line chart and moves model share bar to all periods', () => {
     const app = appSource();
     const css = cssSource();
     expect(app).toContain('const isSingleDay = props.period === 1');
+    expect(app).toContain('const activeHours = props.insights?.hourly || []');
     expect(app).toContain('{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn"');
+    expect(app).toContain('fillArea={false}');
+    expect(app).toContain('!fillArea && <path className="usage-line usage-total-hour-line"');
     expect(app).toContain('function UsageShareBar');
+    expect(app).toContain('<section className="insights-chart-card insights-share-card">');
+    expect(app).toContain('<UsageShareBar models={models} metric={props.metric} />');
     expect(app).toContain('className="usage-share-map"');
     expect(app).toContain('className="usage-share-bar"');
     expect(app).toContain('className="usage-share-segment"');
@@ -123,6 +128,13 @@ describe('insights chart UI', () => {
     expect(css).toContain('.usage-share-bar{height:42px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
     expect(css).toContain('.usage-share-indicators{position:relative;height:54px;');
     expect(css).toContain('.usage-share-indicator::after{content:"";position:absolute;right:0;top:-24px;height:14px;');
+  });
+
+  test('other signal sources are selected from the active period totals', () => {
+    const app = appSource();
+    expect(app).toContain('const activeSources = periodSources(props.insights?.periods || [], props.insights?.sources || [], props.period);');
+    expect(app).toContain('<SourceSignalList sources={activeSources.slice(0, 6)} />');
+    expect(app).not.toContain('<SourceSignalList sources={(props.insights?.sources || []).slice(0, 6)} />');
   });
 
   test('keeps metric card glow away from rounded corners in light themes', () => {

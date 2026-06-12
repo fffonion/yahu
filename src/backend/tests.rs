@@ -415,6 +415,12 @@ mod tests {
         let one_day = body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 1).unwrap();
         assert_eq!(one_day["totals"]["input"], 100);
         assert!(one_day["totals"]["cache_hit_rate"].as_f64().unwrap() > 0.89);
+        assert_eq!(one_day["sources"][0]["source"], "telegram");
+        assert_eq!(one_day["sources"][0]["totals"]["input"], 100);
+        let seven_day = body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 7).unwrap();
+        assert_eq!(seven_day["sources"].as_array().unwrap().len(), 2);
+        assert_eq!(seven_day["sources"][0]["source"], "telegram");
+        assert_eq!(seven_day["sources"][1]["source"], "api_server");
     }
 
     #[test]

@@ -447,10 +447,33 @@ fn aggregate_usage_insights_with_prices(
                 })
                 .filter(|value| value["totals"]["total_tokens"].as_i64().unwrap_or(0) > 0)
                 .collect();
+            let mut period_sources: HashMap<String, UsageTotals> = HashMap::new();
+            for row in rows {
+                let Some(row_day) = usage_day_key(session_usage_timestamp(row)) else { continue };
+                if !period_dates.contains(&row_day) {
+                    continue;
+                }
+                let source_name = row
+                    .get("source")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("unknown")
+                    .to_string();
+                period_sources.entry(source_name).or_default().add_row(row, prices);
+            }
+            let source_rows = {
+                let mut rows: Vec<_> = period_sources.into_iter().collect();
+                rows.sort_by(|a, b| b.1.total_tokens().cmp(&a.1.total_tokens()).then(a.0.cmp(&b.0)));
+                rows.into_iter()
+                    .map(|(source, totals)| serde_json::json!({"source": source, "totals": totals.to_json()}))
+                    .collect::<Vec<_>>()
+            };
             serde_json::json!({
                 "days": period,
                 "totals": period_total.to_json(),
                 "models": model_totals,
+                "sources": source_rows,
             })
         })
         .collect::<Vec<_>>();

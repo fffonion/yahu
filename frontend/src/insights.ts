@@ -19,8 +19,8 @@ export type UsageTotals = {
 export type UsageDay = { date: string; label: string; totals: UsageTotals };
 export type UsageHour = { hour: string; label: string; totals: UsageTotals };
 export type UsageModel = { model: string; totals: UsageTotals; daily: UsageDay[]; hourly?: UsageHour[] };
-export type UsagePeriod = { days: number; totals: UsageTotals; models: UsageModel[] };
 export type UsageSource = { source: string; totals: UsageTotals };
+export type UsagePeriod = { days: number; totals: UsageTotals; models: UsageModel[]; sources?: UsageSource[] };
 export type UsageInsights = {
   object: string;
   generated_at: number;
@@ -114,8 +114,8 @@ export function emptyTotals(): UsageTotals {
   return { sessions: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, api_calls: 0, tool_calls: 0, estimated_cost_usd: 0, actual_cost_usd: 0, cost_usd: 0, unpriced_tokens: 0, total_tokens: 0, cache_hit_rate: 0, avg_tokens_per_session: 0 };
 }
 
-export function metricValue(day: UsageDay, metric: UsageMetric): number {
-  return Number(day?.totals?.[metric] || 0);
+export function metricValue(bucket: UsageDay | UsageHour, metric: UsageMetric): number {
+  return Number(bucket?.totals?.[metric] || 0);
 }
 
 export function modelDailyMetricValues(model: UsageModel, days: UsageDay[], metric: UsageMetric): number[] {
@@ -123,6 +123,17 @@ export function modelDailyMetricValues(model: UsageModel, days: UsageDay[], metr
     const modelDay = (model.daily || []).find((item) => item.date === day.date);
     return modelDay ? metricValue(modelDay, metric) : 0;
   });
+}
+
+export function modelHourlyMetricValues(model: UsageModel, hours: UsageHour[], metric: UsageMetric): number[] {
+  return hours.map((hour) => {
+    const modelHour = (model.hourly || []).find((item) => item.hour === hour.hour);
+    return modelHour ? metricValue(modelHour, metric) : 0;
+  });
+}
+
+export function periodSources(periods: UsagePeriod[], sources: UsageSource[], period: number): UsageSource[] {
+  return periods.find((item) => item.days === period)?.sources || sources;
 }
 
 export type ChartPadding = number | { top: number; right: number; bottom: number; left: number };

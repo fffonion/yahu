@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelDailyMetricValues, modelPeriodTotals, stackedAreaPath, type UsageModel } from './insights';
+import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSources, stackedAreaPath, type UsageModel } from './insights';
 
 describe('insights helpers', () => {
   test('formats token and percent metrics compactly', () => {
@@ -45,6 +45,27 @@ describe('insights helpers', () => {
       daily: [{ date: '2026-06-08', label: '06/08', totals: { ...emptyTotals(), total_tokens: 25 } }],
     };
     expect(modelDailyMetricValues(model, days, 'total_tokens')).toEqual([0, 25]);
+  });
+
+  test('one-day chart series uses hourly buckets with zero for missing hours', () => {
+    const hours = [
+      { hour: '2026-06-09T10:00:00Z', label: '10:00', totals: { ...emptyTotals(), total_tokens: 100 } },
+      { hour: '2026-06-09T11:00:00Z', label: '11:00', totals: { ...emptyTotals(), total_tokens: 200 } },
+    ];
+    const model: UsageModel = {
+      model: 'partial-model',
+      totals: emptyTotals(),
+      daily: [],
+      hourly: [{ hour: '2026-06-09T11:00:00Z', label: '11:00', totals: { ...emptyTotals(), total_tokens: 25 } }],
+    };
+    expect(modelHourlyMetricValues(model, hours, 'total_tokens')).toEqual([0, 25]);
+  });
+
+  test('period source signals prefer the selected period instead of global sources', () => {
+    const allSources = [{ source: 'telegram', totals: { ...emptyTotals(), total_tokens: 300 } }];
+    const periods = [{ days: 1, totals: emptyTotals(), models: [], sources: [{ source: 'telegram', totals: { ...emptyTotals(), total_tokens: 120 } }] }];
+    expect(periodSources(periods, allSources, 1)[0].totals.total_tokens).toBe(120);
+    expect(periodSources(periods, allSources, 7)[0].totals.total_tokens).toBe(300);
   });
 
   test('uses left-side axis padding and common max for chart coordinates', () => {
