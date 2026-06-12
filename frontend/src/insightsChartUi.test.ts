@@ -123,13 +123,15 @@ describe('insights chart UI', () => {
     expect(app).toContain('className="usage-share-bar"');
     expect(app).toContain('className="usage-share-segment"');
     expect(app).toContain('className="usage-share-indicators"');
-    expect(app).toContain('className="usage-share-indicator"');
     expect(app).toContain('style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }}');
+    expect(app).toContain('className="usage-share-indicator"');
     expect(app).toContain("'--share-start': `${item.start}%`");
-    expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;');
+    expect(css).toContain('.usage-share-chart{display:grid;gap:0;min-height:64px;align-content:center;padding:6px 0 0}');
+    expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:58px;margin-right:18px}');
     expect(css).toContain('.usage-share-bar{height:9px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
-    expect(css).toContain('.usage-share-indicators{position:relative;height:42px;');
-    expect(css).toContain('.usage-share-indicator::after{content:"";position:absolute;right:0;top:-16px;height:9px;');
+    expect(css).toContain('.usage-share-indicators{display:flex;flex-wrap:wrap;gap:6px 12px;min-width:0;max-width:100%}');
+    expect(css).toContain('.usage-share-indicator{position:relative;max-width:min(220px,100%);min-width:0;display:inline-grid;');
+    expect(css).toContain('.usage-share-indicator::before,.usage-share-indicator::after{display:none}');
     expect(app).not.toContain('className="chart-legend"');
   });
 
