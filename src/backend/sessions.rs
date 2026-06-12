@@ -267,6 +267,200 @@ fn session_message_items(body: &serde_json::Value) -> Vec<serde_json::Value> {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Serialize)]
+struct ContextWindowUsage {
+    used: i64,
+    approximate: bool,
+    compressed: bool,
+    compression_boundary_id: Option<serde_json::Value>,
+    counted_messages: usize,
+    total_messages: usize,
+}
+
+fn numeric_json_field(value: &serde_json::Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|v| i64::try_from(v).ok()))
+        .or_else(|| value.as_f64().map(|v| v.round() as i64))
+        .or_else(|| value.as_str().and_then(|v| v.trim().parse::<i64>().ok()))
+        .filter(|v| *v > 0)
+}
+
+fn message_token_count(message: &serde_json::Value) -> Option<i64> {
+    message
+        .get("token_count")
+        .or_else(|| message.get("tokenCount"))
+        .or_else(|| message.get("tokens"))
+        .and_then(numeric_json_field)
+        .or_else(|| {
+            message
+                .get("usage")
+                .and_then(|usage| usage.get("total_tokens"))
+                .and_then(numeric_json_field)
+        })
+}
+
+fn collect_json_text(value: &serde_json::Value, out: &mut String) {
+    match value {
+        serde_json::Value::String(text) => {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(text);
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_json_text(item, out);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for key in ["text", "content", "value", "message", "summary", "reasoning"] {
+                if let Some(item) = map.get(key) {
+                    collect_json_text(item, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn message_context_text(message: &serde_json::Value) -> String {
+    let mut text = String::new();
+    if let Some(content) = message.get("content") {
+        collect_json_text(content, &mut text);
+    }
+    if let Some(reasoning) = message.get("reasoning").or_else(|| message.get("thinking")) {
+        collect_json_text(reasoning, &mut text);
+    }
+    text
+}
+
+fn rough_context_token_count(text: &str) -> i64 {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+    let mut cjk = 0i64;
+    let mut rest = 0i64;
+    for ch in trimmed.chars() {
+        if ('\u{3040}'..='\u{30ff}').contains(&ch)
+            || ('\u{3400}'..='\u{9fff}').contains(&ch)
+            || ('\u{f900}'..='\u{faff}').contains(&ch)
+        {
+            cjk += 1;
+        } else {
+            rest += 1;
+        }
+    }
+    ((cjk as f64 * 1.5) + (rest as f64 / 4.0)).ceil().max(1.0) as i64
+}
+
+fn message_estimated_token_count(message: &serde_json::Value) -> i64 {
+    rough_context_token_count(&message_context_text(message))
+}
+
+fn truthy_field(message: &serde_json::Value, keys: &[&str]) -> bool {
+    keys.iter().any(|key| {
+        message
+            .get(*key)
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    })
+}
+
+fn is_context_compression_summary(message: &serde_json::Value) -> bool {
+    if truthy_field(
+        message,
+        &[
+            "compression_summary",
+            "compressed_context",
+            "context_compressed",
+            "is_compression_summary",
+        ],
+    ) {
+        return true;
+    }
+    let mut marker = String::new();
+    for key in ["type", "event", "kind", "name", "summary_type"] {
+        if let Some(text) = message.get(key).and_then(|value| value.as_str()) {
+            marker.push_str(text);
+            marker.push('\n');
+        }
+    }
+    marker.push_str(&message_context_text(message));
+    let lower = marker.to_lowercase();
+    lower.contains("context compressed")
+        || lower.contains("compressed context")
+        || lower.contains("compressed conversation")
+        || lower.contains("conversation summary")
+        || lower.contains("compression summary")
+        || lower.contains("上下文压缩")
+        || lower.contains("压缩摘要")
+}
+
+fn latest_context_compression_boundary(messages: &[serde_json::Value]) -> Option<usize> {
+    messages.iter().rposition(is_context_compression_summary)
+}
+
+fn estimate_context_window_usage(messages: &[serde_json::Value]) -> ContextWindowUsage {
+    let boundary = latest_context_compression_boundary(messages);
+    let start = boundary.unwrap_or(0);
+    let counted = &messages[start..];
+    let mut used = 0i64;
+    let mut missing_tokens = false;
+    for message in counted {
+        if let Some(tokens) = message_token_count(message) {
+            used += tokens;
+        } else {
+            missing_tokens = true;
+            used += message_estimated_token_count(message);
+        }
+    }
+    ContextWindowUsage {
+        used,
+        approximate: missing_tokens || boundary.is_some(),
+        compressed: boundary.is_some(),
+        compression_boundary_id: boundary.and_then(|idx| messages[idx].get("id").cloned()),
+        counted_messages: counted.len(),
+        total_messages: messages.len(),
+    }
+}
+
+async fn fetch_all_session_messages_for_context(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let mut req = state.client.get(format!(
+        "{}/api/sessions/{}/messages",
+        state.api_url,
+        path_segment(session_id)
+    ));
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        req = req.bearer_auth(key);
+    }
+    let resp = req.send().await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("message context request failed: {}", resp.status());
+    }
+    let body = resp.json::<serde_json::Value>().await?;
+    Ok(session_message_items(&body))
+}
+
+async fn chat_context_window(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response<Body> {
+    match fetch_all_session_messages_for_context(&state, &session_id).await {
+        Ok(messages) => Json(estimate_context_window_usage(&messages)).into_response(),
+        Err(err) => json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("message context request failed: {err}"),
+        ),
+    }
+}
+
 fn session_message_id(message: &serde_json::Value) -> Option<i64> {
     message.get("id").and_then(|id| id.as_i64()).or_else(|| {
         message

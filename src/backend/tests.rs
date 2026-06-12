@@ -231,6 +231,42 @@ mod tests {
         assert!(!name.contains(".."));
     }
 
+    #[test]
+    fn context_window_usage_counts_from_latest_compression_summary() {
+        let messages = vec![
+            serde_json::json!({"id": 1, "role": "user", "content": "old history", "token_count": 1000}),
+            serde_json::json!({"id": 2, "role": "assistant", "content": "Context compressed summary: old history", "token_count": 75, "compression_summary": true}),
+            serde_json::json!({"id": 3, "role": "user", "content": "new turn", "tokenCount": 8}),
+            serde_json::json!({"id": 4, "role": "assistant", "content": "reply without token"}),
+        ];
+
+        let usage = estimate_context_window_usage(&messages);
+
+        assert_eq!(usage.used, 75 + 8 + rough_context_token_count("reply without token"));
+        assert!(usage.approximate);
+        assert!(usage.compressed);
+        assert_eq!(usage.compression_boundary_id, Some(serde_json::json!(2)));
+        assert_eq!(usage.counted_messages, 3);
+        assert_eq!(usage.total_messages, 4);
+    }
+
+    #[test]
+    fn context_window_usage_is_exact_when_every_counted_message_has_tokens() {
+        let messages = vec![
+            serde_json::json!({"id": 1, "role": "user", "content": "hello", "token_count": 6}),
+            serde_json::json!({"id": 2, "role": "assistant", "content": "world", "tokenCount": 9}),
+        ];
+
+        let usage = estimate_context_window_usage(&messages);
+
+        assert_eq!(usage.used, 15);
+        assert!(!usage.approximate);
+        assert!(!usage.compressed);
+        assert_eq!(usage.compression_boundary_id, None);
+        assert_eq!(usage.counted_messages, 2);
+        assert_eq!(usage.total_messages, 2);
+    }
+
     fn test_app_state(api_url: String, root: &Path) -> AppState {
         let (updates, _) = broadcast::channel::<String>(1);
         let (deletes, _) = broadcast::channel::<String>(1);

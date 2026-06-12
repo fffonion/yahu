@@ -44,6 +44,7 @@ type ImageMetadata = { filename: string; dimensions?: { width: number; height: n
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
 type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: boolean };
+type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: boolean; compressed?: boolean };
 
 const DEFAULT_API_BASE = '/hermes';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
@@ -493,15 +494,22 @@ function estimateContextWindowTokens(messages: ChatMessage[], input: string, att
     if (message.tokenCount !== undefined) return sum + message.tokenCount;
     return sum + roughTokenCount(message.content) + roughTokenCount(message.reasoning || '');
   }, 0);
+  return messageTokens + estimateDraftContextTokens(input, attachments);
+}
+function estimateDraftContextTokens(input: string, attachments: Attachment[]): number {
   const inputTokens = roughTokenCount(input);
   const attachmentTokens = attachments.reduce((sum, attachment) => {
     if (attachment.text) return sum + roughTokenCount(attachment.text);
     if (attachment.kind === 'image') return sum + 85;
     return sum + Math.max(1, Math.ceil((attachment.size || 0) / 1024));
   }, 0);
-  return messageTokens + inputTokens + attachmentTokens;
+  return inputTokens + attachmentTokens;
 }
-function contextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[], hasUnloadedHistory: boolean): { used: number; approximate: boolean } {
+function contextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[], hasUnloadedHistory: boolean, serverUsage?: { used?: number; approximate?: boolean }): { used: number; approximate: boolean } {
+  if (serverUsage && typeof serverUsage.used === 'number' && Number.isFinite(serverUsage.used)) {
+    const draftTokens = estimateDraftContextTokens(input, attachments);
+    return { used: Math.max(0, serverUsage.used) + draftTokens, approximate: Boolean(serverUsage.approximate || draftTokens > 0) };
+  }
   if (!input.trim() && !attachments.length && !hasUnloadedHistory && messages.length && messages.every((message) => !message.pending && message.tokenCount !== undefined)) {
     return { used: exactContextWindowTokens(messages), approximate: false };
   }
@@ -556,6 +564,7 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || '' : '');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [contextWindowSnapshot, setContextWindowSnapshot] = useState<ContextWindowSnapshot | null>(null);
   const [showReasoning, setShowReasoning] = useState(() => localStorage.getItem(SHOW_REASONING_KEY) === '1');
   const [showToolCalls, setShowToolCalls] = useState(true);
   const [hasOlder, setHasOlder] = useState(false);
@@ -610,6 +619,7 @@ export default function App() {
   const toastTimerRef = useRef<number | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageRequestRef = useRef(0);
+  const contextWindowRequestRef = useRef(0);
   const loadingMessagesRef = useRef(false);
   const hasOlderRef = useRef(false);
   const hasNewerRef = useRef(false);
@@ -808,6 +818,21 @@ export default function App() {
     } catch (err: any) { setStatus(`Session detail unavailable: ${err.message}`); }
   }, [apiBase, headers]);
 
+  const loadContextWindowSnapshot = useCallback(async (sessionId: string) => {
+    const req = ++contextWindowRequestRef.current;
+    if (!sessionId || sessionId === DRAFT_SESSION_ID) {
+      setContextWindowSnapshot(null);
+      return;
+    }
+    try {
+      const res = await fetch(`/chat/context-window/${encodeURIComponent(sessionId)}`);
+      if (!res.ok) throw new Error(await res.text());
+      const body = await res.json();
+      if (req !== contextWindowRequestRef.current || activeSessionIdRef.current !== sessionId) return;
+      const used = Number(body.used);
+      setContextWindowSnapshot(Number.isFinite(used) ? { sessionId, used, approximate: Boolean(body.approximate), compressed: Boolean(body.compressed) } : null);
+    } catch { if (req === contextWindowRequestRef.current) setContextWindowSnapshot(null); }
+  }, []);
 
   const changeSessionModel = useCallback((nextModel: string, option?: ModelOption) => {
     const resolvedModel = realModelOrEmpty(nextModel);
@@ -1127,10 +1152,12 @@ export default function App() {
     hasNewerRef.current = false;
     pendingHistoryScrollAnchorRef.current = null;
     setMessages([]);
+    setContextWindowSnapshot(null);
     setHasOlder(false);
     setHasNewer(false);
     loadMessageWindow(activeSessionId, 'latest');
-  }, [activeSessionId]);
+    loadContextWindowSnapshot(activeSessionId);
+  }, [activeSessionId, loadContextWindowSnapshot]);
   useEffect(() => {
     if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
     clearNewMessages();
@@ -1159,12 +1186,13 @@ export default function App() {
           setNewMessageCount(marker.count);
         }
         setMessages(next);
+        loadContextWindowSnapshot(watchedSessionId);
         setStatus(t('chat.streamingOther'));
       } catch { /* ignore */ }
     };
     es.onerror = () => { watchSourceRef.current = null; };
     return () => { es.close(); watchSourceRef.current = null; };
-  }, [activeSessionId, clearNewMessages]);
+  }, [activeSessionId, clearNewMessages, loadContextWindowSnapshot]);
   useEffect(() => {
     if (!sessionMenu && !workspaceMenu) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setWorkspaceMenu(null); } };
@@ -1607,7 +1635,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2035,7 +2063,7 @@ function ChatMain(props: any) {
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
   const contextWindowTotal = currentModelOption?.contextLength || fallbackContextWindowForModel(currentModel);
-  const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer);
+  const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
     const scroller = props.chatScrollRef.current;
     const nextVisibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), nextShowReasoning, nextShowToolCalls);
