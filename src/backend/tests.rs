@@ -66,6 +66,49 @@ mod tests {
     }
 
     #[test]
+    fn cron_output_proxy_path_accepts_only_latest_output_route() {
+        assert_eq!(
+            proxied_cron_latest_output_job_id("api/jobs/abc123/output/latest", &Method::GET),
+            Some("abc123")
+        );
+        assert_eq!(
+            proxied_cron_latest_output_job_id("api/jobs/../bad/output/latest", &Method::GET),
+            None
+        );
+        assert_eq!(
+            proxied_cron_latest_output_job_id("api/jobs/abc123/output/latest", &Method::POST),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn local_cron_latest_output_value_returns_newest_markdown_file() {
+        let root = std::env::temp_dir().join(format!(
+            "yahu-cron-output-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_nanos()
+        ));
+        let out_dir = root.join("cron").join("output").join("job123");
+        std::fs::create_dir_all(&out_dir).unwrap();
+        std::fs::write(out_dir.join("2026-06-11_10-00-00.md"), "old").unwrap();
+        std::fs::write(out_dir.join("2026-06-12_10-00-00.md"), "new").unwrap();
+
+        let output = local_cron_latest_output_value(&root, "job123")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(output["job_id"], "job123");
+        assert_eq!(output["filename"], "2026-06-12_10-00-00.md");
+        assert_eq!(output["timestamp"], "2026-06-12_10-00-00");
+        assert_eq!(output["content"], "new");
+        assert_eq!(output["truncated"], false);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn frontmatter_value_reads_yaml_after_opening_blank_line() {
         let text =
             "---\nname: hermes-dashboard-webui\ndescription: \"Dashboard UI\"\n---\n# Body\n";
