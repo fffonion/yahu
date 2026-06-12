@@ -225,10 +225,12 @@ fn json_error(status: StatusCode, message: &str) -> Response<Body> {
 fn login_html(message: &str) -> String {
     format!(
         r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hermes WebUI Login</title><style>
+        *,*::before,*::after{{box-sizing:border-box}}
         body{{margin:0;height:100vh;display:grid;place-items:center;background:#232529;color:#dedfe3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}}
         form{{width:min(420px,calc(100vw - 40px));background:#2b2d32;border:1px solid #3b3e45;border-radius:18px;padding:28px;box-shadow:0 18px 48px rgba(0,0,0,.28)}}
         h1{{margin:0 0 8px;font-size:24px}}p{{color:#999ba7}}input{{width:100%;height:44px;border-radius:12px;border:1px solid #565a64;background:#232529;color:#fff;padding:0 14px;font-size:16px}}
         button{{margin-top:14px;width:100%;height:44px;border:0;border-radius:12px;background:#7ea8ff;color:#101318;font-weight:800;font-size:15px}}.err{{color:#f04e71}}
+        @media(max-width:760px){{form{{width:min(420px,calc(100vw - 24px));padding:24px}}input{{height:48px;font-size:18px}}button{{height:48px;font-size:16px}}p{{font-size:15px;line-height:1.45}}}}
         </style></head><body><form method="post" action="/login"><h1>Hermes WebUI</h1><p>Enter the WebUI login key.</p><input name="password" type="password" autofocus autocomplete="current-password"/><button>Login</button><p class="err">{}</p></form></body></html>"#,
         html_escape(message)
     )

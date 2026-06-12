@@ -55,6 +55,17 @@ mod tests {
     }
 
     #[test]
+    fn login_html_uses_larger_mobile_input_text() {
+        let html = login_html("");
+
+        assert!(html.contains("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"));
+        assert!(html.contains("@media(max-width:760px)"));
+        assert!(html.contains("*,*::before,*::after{box-sizing:border-box}"));
+        assert!(html.contains("input{height:48px;font-size:18px}"));
+        assert!(html.contains("button{height:48px;font-size:16px}"));
+    }
+
+    #[test]
     fn frontmatter_value_reads_yaml_after_opening_blank_line() {
         let text =
             "---\nname: hermes-dashboard-webui\ndescription: \"Dashboard UI\"\n---\n# Body\n";
