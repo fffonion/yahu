@@ -1657,7 +1657,7 @@ function UsageShareBar({ models, metric }: { models: Array<UsageModel & { period
 function UsageAreaChart({ buckets, models, metric, stacked }: { buckets: Array<UsageDay | UsageHour>; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric; stacked: boolean }) {
   const width = 720;
   const height = 260;
-  const pad = { top: 14, right: 18, bottom: 28, left: 58 };
+  const pad = { top: 14, right: 18, bottom: 28, left: 42 };
   const compactAxisLabels = useMediaQuery('(max-width: 760px)');
   const isHourly = isHourlyBucket(buckets[0]);
   const series = models.slice(0, 4).map((model, index) => ({ model: model.model, index, values: isHourlyBucket(buckets[0]) ? modelHourlyMetricValues(model, buckets as UsageHour[], metric) : modelDailyMetricValues(model, buckets as UsageDay[], metric) }));

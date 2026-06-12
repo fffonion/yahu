@@ -33,15 +33,23 @@ describe('insights chart UI', () => {
     expect(css).toContain('.chart-point-hit:hover::after,.chart-point-hit:focus-visible::after{opacity:1;transform:scale(1.12)}');
   });
 
-  test('keeps chart axis and tooltips styled inside the chart card', () => {
+  test('keeps chart plot aligned to the share bar with a compact left gutter', () => {
+    const app = appSource();
     const css = cssSource();
-    expect(css).toContain('.chart-y-axis{position:absolute;left:0;top:0;bottom:48px;width:52px;');
+    expect(app).toContain('const pad = { top: 14, right: 18, bottom: 28, left: 42 };');
+    expect(css).toContain('--insights-plot-left:5.8333%;--insights-plot-right:2.5%');
+    expect(css).toContain('.chart-y-axis{position:absolute;left:0;top:0;bottom:48px;width:40px;');
+    expect(css).toContain('.chart-axis{position:absolute;left:var(--insights-plot-left);right:var(--insights-plot-right);bottom:32px;height:18px;color:var(--muted);font-size:11px}');
+    expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
+  });
+
+  test('keeps chart tooltips styled inside the chart card', () => {
+    const css = cssSource();
     expect(css).toContain('.chart-point-hit:hover .chart-tooltip,.chart-point-hit:focus .chart-tooltip,.chart-point-hit:focus-visible .chart-tooltip{opacity:1;transform:translate(-50%,-8px);pointer-events:auto}');
     expect(css).toContain('.chart-point-hit.tooltip-below .chart-tooltip{top:22px;bottom:auto}');
     expect(css).toContain('.chart-point-hit.tooltip-align-start .chart-tooltip{left:50%;transform:translate(0,0)}');
     expect(css).toContain('.chart-point-hit.tooltip-align-end .chart-tooltip{left:auto;right:50%;transform:translate(0,0)}');
     expect(css).toContain('.chart-point-hit.tooltip-below:hover .chart-tooltip,.chart-point-hit.tooltip-below:focus .chart-tooltip,.chart-point-hit.tooltip-below:focus-visible .chart-tooltip{transform:translate(-50%,8px)}');
-    expect(css).toContain('.chart-axis{position:absolute;left:var(--insights-plot-left);right:var(--insights-plot-right);bottom:32px;height:18px;color:var(--muted);font-size:11px}');
   });
 
   test('renders dedicated loading placeholders for cards chart and model rows', () => {
@@ -132,7 +140,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }}');
     expect(app).toContain('className="usage-share-indicator"');
     expect(app).toContain("'--share-start': `${item.start}%`");
-    expect(css).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6;--chart-1:#8b5cf6;--chart-2:#f59e0b;--chart-3:#38bdf8;--chart-4:#ec4899;--chart-5:#84cc16;--insights-plot-left:8.0556%;--insights-plot-right:2.5%}');
+    expect(css).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6;--chart-1:#8b5cf6;--chart-2:#f59e0b;--chart-3:#38bdf8;--chart-4:#ec4899;--chart-5:#84cc16;--insights-plot-left:5.8333%;--insights-plot-right:2.5%}');
     expect(css).toContain('.usage-share-chart{display:grid;gap:0;min-height:64px;align-content:center;padding:6px 0 0}');
     expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
     expect(css).toContain('.usage-share-bar{height:9px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
