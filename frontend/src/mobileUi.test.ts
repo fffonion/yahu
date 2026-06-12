@@ -123,7 +123,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('!props.composerRef.current?.contains(document.activeElement)');
     expect(source).toContain('props.setComposerCompact(true)');
     expect(source).toContain('onFocus={() => props.setComposerCompact(false)}');
-    expect(styles).toContain('.context-window-meter{margin-left:auto');
+    expect(styles).toContain('.chat-header-actions .context-window-meter{margin-left:0');
     expect(styles).toContain('.composer-footer .send-btn{margin-left:0;flex:0 0 auto}');
     expect(styles).toContain('.composer-wrap.composer-compact .attachments{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control,.composer-wrap.composer-compact .composer-footer .reasoning-view-toggle,.composer-wrap.composer-compact .composer-footer .tool-call-view-toggle{display:none}');
@@ -137,7 +137,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     const styles = css();
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:0;width:100%;padding:24px 10px 8px;border-top:0;background:transparent');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:12px;');
-    expect(styles).toContain('.context-window-meter{margin-left:auto');
+    expect(styles).toContain('.chat-header-actions .context-window-meter{margin-left:0');
     expect(styles).toContain('.composer-footer .send-btn{margin-left:0;flex:0 0 auto}');
   });
 
@@ -186,6 +186,8 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.image-actions>button{width:30px;height:30px}');
     expect(styles).toContain('.mobile-header-drawer{display:inline-grid;width:30px;height:30px;min-width:30px;border-radius:10px;flex:0 0 30px}');
     expect(styles).toContain('.chat-header .header-theme-control>button,.image-toolbar .header-theme-control>button{height:30px;min-width:30px');
+    expect(styles).toContain('@media (max-width:760px){.chat-header-actions .context-window-meter{width:116px;min-width:0;max-width:116px;flex:0 1 116px}.chat-header-actions .context-window-track{min-width:30px}');
+    expect(styles).toContain('.chat-header-actions .header-theme-control{margin-left:0}');
     expect(styles).toContain('.chat-header.header-no-drawer>div:first-of-type,.image-toolbar.header-no-drawer>div:first-of-type{margin-left:36px}');
   });
 
