@@ -40,6 +40,17 @@ describe('cron manager split editor layout', () => {
     expect(source).not.toContain('aria-label={paused ? \'resume\' : \'pause\'}');
   });
 
+  test('delete action requires a dangerous confirmation dialog before calling the delete API', () => {
+    const source = app();
+    const deleteStart = source.indexOf('const deleteCronJob = useCallback(async () => {');
+    const deleteEnd = source.indexOf('useEffect(() => { loadModels();', deleteStart);
+    const deleteBlock = source.slice(deleteStart, deleteEnd);
+    expect(deleteBlock).toContain("requestConfirm(t('cron.deleteTitle'), tf('cron.deleteConfirm', cronName || cronEditingId), true)");
+    expect(deleteBlock.indexOf("requestConfirm(t('cron.deleteTitle')")).toBeLessThan(deleteBlock.indexOf("method: 'DELETE'"));
+    expect(source).toContain("'cron.deleteTitle'");
+    expect(source).toContain("'cron.deleteConfirm'");
+  });
+
   test('loads latest cron output through the Hermes API server proxy', () => {
     const source = app();
     const styles = css();

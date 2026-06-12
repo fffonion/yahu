@@ -964,12 +964,13 @@ export default function App() {
   }, [apiBase, cronEditingId, headers, loadCronJobs, loadCronOutput]);
   const deleteCronJob = useCallback(async () => {
     if (!cronEditingId) return;
+    if (!await requestConfirm(t('cron.deleteTitle'), tf('cron.deleteConfirm', cronName || cronEditingId), true)) return;
     const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(cronEditingId)}`), { method: 'DELETE', headers: headers(false) });
     if (!res.ok) { setStatus(await res.text()); return; }
     resetCronForm();
     await loadCronJobs();
     setStatus(t('cron.deleted'));
-  }, [apiBase, cronEditingId, headers, loadCronJobs, resetCronForm]);
+  }, [apiBase, cronEditingId, cronName, headers, loadCronJobs, requestConfirm, resetCronForm]);
 
   useEffect(() => { loadModels(); loadWorkspace(''); }, []);
   useEffect(() => { if (mode === 'insights' && !usageInsights && !usageLoading) loadUsageInsights(); }, [mode, usageInsights, usageLoading, loadUsageInsights]);

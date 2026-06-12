@@ -50,6 +50,8 @@ const translations: Record<string, Record<string, string>> = {
   'cron.save': { en: 'Save', 'zh-CN': '保存', 'zh-TW': '儲存', ja: '保存' },
   'cron.run': { en: 'Run now', 'zh-CN': '立即运行', 'zh-TW': '立即執行', ja: '今すぐ実行' },
   'cron.delete': { en: 'Delete', 'zh-CN': '删除', 'zh-TW': '刪除', ja: '削除' },
+  'cron.deleteTitle': { en: 'Delete cron job', 'zh-CN': '删除定时任务', 'zh-TW': '刪除定時任務', ja: 'cronジョブを削除' },
+  'cron.deleteConfirm': { en: 'Delete cron job “{0}”? This cannot be undone.', 'zh-CN': '确定删除定时任务“{0}”？此操作不可撤销。', 'zh-TW': '確定刪除定時任務「{0}」？此操作不可撤銷。', ja: 'cronジョブ「{0}」を削除しますか？元に戻せません。' },
   'cron.saving': { en: 'Saving...', 'zh-CN': '保存中...', 'zh-TW': '儲存中...', ja: '保存中...' },
   'cron.running': { en: 'Running...', 'zh-CN': '运行中...', 'zh-TW': '執行中...', ja: '実行中...' },
   'cron.deleting': { en: 'Deleting...', 'zh-CN': '删除中...', 'zh-TW': '刪除中...', ja: '削除中...' },
