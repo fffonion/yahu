@@ -61,6 +61,18 @@ describe('chat message visibility', () => {
     expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['u1', 'a-final']);
   });
 
+  test('keeps assistant tool-call placeholders from becoming final-answer dedupe targets', () => {
+    const messages = [
+      { id: 'a-tool-call', role: 'assistant', content: '', pending: false, toolCalls: [{ function: { name: 'web_extract' } }] },
+      { id: 'tool-result', role: 'tool', content: 'tool output', pending: false },
+      { id: 'a-final', role: 'assistant', content: 'final answer', pending: false },
+    ];
+    const deduped = dedupeVisibleChatMessages(messages);
+    expect(isToolLikeMessage(messages[0])).toBe(true);
+    expect(deduped.map((message) => message.id)).toEqual(['a-tool-call', 'tool-result', 'a-final']);
+    expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['a-final']);
+  });
+
   test('ChatMain filters visible messages before mapping so hidden tool frames are unmounted', () => {
     const source = appSource();
     expect(source).toContain("import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages } from './messageVisibility';");

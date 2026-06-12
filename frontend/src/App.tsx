@@ -24,7 +24,7 @@ type Role = 'user' | 'assistant' | 'system' | 'tool';
 type FollowUpBehaviour = 'queue' | 'steer';
 type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
@@ -285,6 +285,7 @@ function normalizeMessage(raw: any): ChatMessage {
     timestamp: raw.timestamp,
     toolName: rawToolName(raw),
     toolInput: rawToolInput(raw),
+    toolCalls: raw.toolCalls ?? raw.tool_calls,
   };
   if (platformSender.senderName) msg.platformSenderName = platformSender.senderName;
   if (platformSender.senderId) msg.platformSenderId = platformSender.senderId;

@@ -6,6 +6,7 @@ export type MessageVisibilityInput = {
   pending?: boolean;
   toolName?: string | null;
   toolInput?: unknown;
+  toolCalls?: unknown;
 };
 
 function recordLooksToolLike(value: unknown): boolean {
@@ -31,6 +32,8 @@ export function isToolLikeMessage(message: MessageVisibilityInput): boolean {
   if (message.role === 'tool') return true;
   if (String(message.toolName || '').trim()) return true;
   if (message.toolInput !== undefined && message.toolInput !== null) return true;
+  if (Array.isArray(message.toolCalls) && message.toolCalls.length > 0) return true;
+  if (message.toolCalls !== undefined && message.toolCalls !== null && !Array.isArray(message.toolCalls)) return true;
   if (message.role !== 'user' && contentLooksToolLike(message.content)) return true;
   return false;
 }
