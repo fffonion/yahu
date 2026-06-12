@@ -362,9 +362,8 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
       ? prev.findIndex((m) => m.role === 'tool' && !isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || ''))
       : -1;
     if (samePersistedToolIdx >= 0) return prev;
-    if (!isLocalStreamTool(msg)) {
-      const withoutMatchingLocalTools = prev.filter((m) => !(isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '')));
-      if (withoutMatchingLocalTools.length !== prev.length) return [...withoutMatchingLocalTools, msg].slice(-MESSAGE_WINDOW);
+    if (!isLocalStreamTool(msg) && prev.some((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || ''))) {
+      return prev.map((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '') ? { ...m, ...msg, pending: false } : m);
     }
   }
   const withoutStalePending = msg.role === 'assistant'

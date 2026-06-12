@@ -16,7 +16,6 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain('m.content === msg.content || !isLocalStreamAssistant(msg)');
     expect(app).toContain('function isLocalStreamTool(message: ChatMessage)');
     expect(app).toContain('sameFinalIdx >= 0');
-    expect(app).toContain('withoutMatchingLocalTools');
     expect(app).toContain('function findUnreconciledLocalAssistantIndex(prev: ChatMessage[])');
     expect(app).toContain('const turnLocalStreamIdx = findUnreconciledLocalAssistantIndex(prev);');
     expect(app).toContain('i === turnLocalStreamIdx ? { ...m, ...msg, pending: false } : m');
@@ -26,5 +25,11 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain('computeNewMessageMarker(previousVisible, nextVisible, newMessageBoundaryIdRef.current)');
     expect(app).toContain('newMessageBoundaryId={newMessageBoundaryId}');
     expect(app).toContain('findNewMessageSplitIndex(visibleMessages, props.newMessageBoundaryId)');
+  });
+
+  test('persisted tool events replace local streaming tool cards in place', () => {
+    const app = source();
+    expect(app).toContain("return prev.map((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '') ? { ...m, ...msg, pending: false } : m);");
+    expect(app).not.toContain('return [...withoutMatchingLocalTools, msg].slice(-MESSAGE_WINDOW);');
   });
 });
