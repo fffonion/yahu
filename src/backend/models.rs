@@ -55,7 +55,21 @@ import json, os, sys
 agent_dir = os.environ.get('HERMES_AGENT_DIR')
 sys.path.insert(0, agent_dir)
 from hermes_cli.inventory import build_models_payload, load_picker_context
+from agent.model_metadata import get_model_context_length
 payload = build_models_payload(load_picker_context(), max_models=80, capabilities=True)
+for provider in payload.get('providers', []):
+    provider_id = provider.get('slug') or provider.get('provider') or provider.get('id') or provider.get('name') or ''
+    caps = provider.setdefault('capabilities', {})
+    for model_id in provider.get('models', []):
+        if not isinstance(model_id, str):
+            continue
+        model_caps = caps.setdefault(model_id, {})
+        try:
+            context_length = get_model_context_length(model_id, provider=provider_id or None)
+        except Exception:
+            context_length = None
+        if context_length:
+            model_caps['context_length'] = int(context_length)
 print(json.dumps(payload))
 "#;
     let output = timeout(

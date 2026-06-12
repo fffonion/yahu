@@ -25,8 +25,8 @@ fn api_server_model_fallback_is_flattened_and_filters_hermes_agent_placeholder()
         "object": "list",
         "data": [
             {"id": "hermes-agent", "object": "model"},
-            {"id": "MiniMax-M3", "object": "model", "provider": "minimax-cn"},
-            {"id": "openrouter/gpt-oss-120b", "object": "model", "provider": "openrouter", "label": "OpenRouter · openrouter/gpt-oss-120b"}
+            {"id": "MiniMax-M3", "object": "model", "provider": "minimax-cn", "context_length": 1000000},
+            {"id": "openrouter/gpt-oss-120b", "object": "model", "provider": "openrouter", "label": "OpenRouter · openrouter/gpt-oss-120b", "limit": {"context": 131072}}
         ]
     });
 
@@ -37,6 +37,28 @@ fn api_server_model_fallback_is_flattened_and_filters_hermes_agent_placeholder()
     assert_eq!(data.len(), 2);
     assert!(data.iter().all(|row| row["id"] != "hermes-agent"));
     assert_eq!(data[0]["id"], "MiniMax-M3");
+    assert_eq!(data[0]["context_length"], 1000000);
+    assert_eq!(data[1]["context_length"], 131072);
+}
+
+#[test]
+fn hermes_inventory_context_lengths_are_preserved_from_capabilities() {
+    let payload = json!({
+        "providers": [
+            {
+                "slug": "openrouter",
+                "name": "OpenRouter",
+                "models": ["anthropic/claude-sonnet-4.6"],
+                "capabilities": {
+                    "anthropic/claude-sonnet-4.6": {"context_length": 200000}
+                }
+            }
+        ]
+    });
+
+    let flattened = yet_another_hermes_ui::flatten_model_options(&payload);
+
+    assert_eq!(flattened[0]["context_length"], 200000);
 }
 
 #[test]

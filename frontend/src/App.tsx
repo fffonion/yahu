@@ -27,7 +27,7 @@ type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
 type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
-type ModelOption = { id: string; label: string; provider?: string };
+type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
@@ -438,26 +438,70 @@ function findModelOption(options: ModelOption[], modelId: string, provider = '')
     || options.find((item) => item.id === id)
     || undefined;
 }
+function readContextLength(row: any): number | undefined {
+  const raw = row?.context_length ?? row?.contextWindow ?? row?.context_window ?? row?.limit?.context;
+  const value = Number(raw || 0);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
 function flattenModelOptions(body: any): ModelOption[] {
   const seen = new Set<string>();
   const out: ModelOption[] = [];
-  const push = (id: unknown, label?: unknown, provider?: unknown) => {
+  const push = (id: unknown, label?: unknown, provider?: unknown, contextLength?: number) => {
     const modelId = String(id || '').trim();
     const providerName = String(provider || '').trim();
     const key = `${providerName}\u0000${modelId}`;
     if (!modelId || modelId === 'hermes-agent' || seen.has(key)) return;
     seen.add(key);
-    out.push({ id: modelId, label: String(label || (providerName ? `${providerName} · ${modelId}` : modelId)), provider: providerName || undefined });
+    out.push(contextLength ? { id: modelId, label: String(label || (providerName ? `${providerName} · ${modelId}` : modelId)), provider: providerName || undefined, contextLength } : { id: modelId, label: String(label || (providerName ? `${providerName} · ${modelId}` : modelId)), provider: providerName || undefined });
   };
   if (Array.isArray(body?.providers)) {
     for (const provider of body.providers) {
       const providerId = provider?.slug || provider?.provider || provider?.id || provider?.name || '';
       const providerLabel = provider?.name || providerId;
-      for (const modelId of provider?.models || []) push(modelId, `${providerLabel} · ${modelId}`, providerId);
+      for (const modelId of provider?.models || []) push(modelId, `${providerLabel} · ${modelId}`, providerId, readContextLength(provider?.capabilities?.[modelId]));
     }
   }
-  for (const modelRow of body?.data || []) push(modelRow?.id || modelRow, modelRow?.label || modelRow?.id, modelRow?.provider);
+  for (const modelRow of body?.data || []) {
+    const contextLength = readContextLength(modelRow);
+    push(modelRow?.id || modelRow, modelRow?.label || modelRow?.id, modelRow?.provider, contextLength);
+  }
   return out;
+}
+
+function roughTokenCount(value: unknown): number {
+  const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
+  return Math.ceil(text.length / 4);
+}
+function estimateContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[]): number {
+  const messageTokens = messages.reduce((sum, message) => sum + roughTokenCount(message.content) + roughTokenCount(message.reasoning) + roughTokenCount(message.toolInput) + roughTokenCount(message.toolCalls) + 4, 0);
+  const attachmentTokens = attachments.reduce((sum, attachment) => sum + roughTokenCount(attachment.text || attachment.name) + (attachment.kind === 'image' ? 512 : 0), 0);
+  return Math.max(0, messageTokens + roughTokenCount(input) + attachmentTokens);
+}
+function fallbackContextWindowForModel(modelId: string): number {
+  const id = modelId.toLowerCase();
+  if (!id) return 128000;
+  if (id.includes('gpt-5.5') || id.includes('gpt-5.4')) return 1047576;
+  if (id.includes('claude')) return 200000;
+  if (id.includes('grok-4')) return 256000;
+  if (id.includes('minimax-m3') || id.includes('minimax-m2')) return 1000000;
+  if (id.includes('gemini')) return 1000000;
+  return 128000;
+}
+function formatContextTokens(value: number): string {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(value % 1000000 === 0 ? 0 : 1)}M`;
+  if (value >= 1000) return `${Math.round(value / 1000)}k`;
+  return String(Math.max(0, Math.round(value)));
+}
+function ContextWindowMeter({ used, total }: { used: number; total: number }) {
+  if (!total) return null;
+  const safeUsed = Math.max(0, used || 0);
+  const safeTotal = Math.max(1, total || 1);
+  const pct = Math.min(100, Math.round(safeUsed / safeTotal * 100));
+  const label = `${formatContextTokens(safeUsed)} / ${formatContextTokens(safeTotal)}`;
+  return <div className="context-window-meter" title={`Context window ${label}`} aria-label={`Context window ${label}`}>
+    <span className="context-window-track"><span className="context-window-fill" style={{ width: `${pct}%` }} /></span>
+    <span className="context-window-label">{label}</span>
+  </div>;
 }
 
 export default function App() {
@@ -1953,9 +1997,12 @@ function ChatMain(props: any) {
   const headerTimes = sessionHeaderTimes(active, props.messages);
   const exactCurrentOption = currentModel ? findModelOption(props.models, currentModel, sessionProvider) : undefined;
   const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;
+  const currentModelOption = exactCurrentOption || currentOption;
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
+  const contextWindowTotal = currentModelOption?.contextLength || fallbackContextWindowForModel(currentModel);
+  const contextWindowUsed = estimateContextWindowTokens(visibleMessages, props.input, props.attachments);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
     const scroller = props.chatScrollRef.current;
     const nextVisibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), nextShowReasoning, nextShowToolCalls);
@@ -2007,6 +2054,7 @@ function ChatMain(props: any) {
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
           <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
+          <ContextWindowMeter used={contextWindowUsed} total={contextWindowTotal} />
           <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? 'Queue follow-up' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Queue' : 'Send'}</span></button>
         </div>
       </div>

@@ -118,7 +118,8 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('!props.composerRef.current?.contains(document.activeElement)');
     expect(source).toContain('props.setComposerCompact(true)');
     expect(source).toContain('onFocus={() => props.setComposerCompact(false)}');
-    expect(styles).toContain('.composer-footer .send-btn{margin-left:auto}');
+    expect(styles).toContain('.context-window-meter{margin-left:auto');
+    expect(styles).toContain('.composer-footer .send-btn{margin-left:0}');
     expect(styles).toContain('.composer-wrap.composer-compact .attachments{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control,.composer-wrap.composer-compact .composer-footer .reasoning-view-toggle,.composer-wrap.composer-compact .composer-footer .tool-call-view-toggle{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{height:48px;min-height:48px;max-height:48px;overflow:hidden;padding:10px 56px 10px 14px}');
@@ -131,7 +132,8 @@ describe('mobile WebUI layout and touch affordances', () => {
     const styles = css();
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:static;display:flex;gap:6px;width:100%;padding:8px 10px;border-top:0;background:transparent');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:12px;');
-    expect(styles).toContain('.composer-footer .send-btn{margin-left:auto}');
+    expect(styles).toContain('.context-window-meter{margin-left:auto');
+    expect(styles).toContain('.composer-footer .send-btn{margin-left:0}');
   });
 
   test('mobile bottom nav paints above the composer reserved area but below open dropdown menus', () => {

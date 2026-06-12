@@ -1,4 +1,4 @@
-export type ModelOption = { id: string; label: string; provider?: string };
+export type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 
 const PROVIDER_LABELS: Record<string, string> = {
   'openai-codex': 'Codex',

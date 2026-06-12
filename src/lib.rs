@@ -43,7 +43,18 @@ pub fn flatten_model_options(body: &Value) -> Vec<Value> {
             if let Some(models) = provider.get("models").and_then(Value::as_array) {
                 for model in models {
                     if let Some(model_id) = model.as_str() {
-                        push_model(&mut out, &mut seen, model_id, provider_id, provider_label);
+                        let context_length = provider
+                            .get("capabilities")
+                            .and_then(|caps| caps.get(model_id))
+                            .and_then(read_context_length);
+                        push_model(
+                            &mut out,
+                            &mut seen,
+                            model_id,
+                            provider_id,
+                            provider_label,
+                            context_length,
+                        );
                     }
                 }
             }
@@ -59,7 +70,14 @@ pub fn flatten_model_options(body: &Value) -> Vec<Value> {
                 .unwrap_or("");
             let provider = row.get("provider").and_then(Value::as_str).unwrap_or("");
             let label = row.get("label").and_then(Value::as_str).unwrap_or(id);
-            push_model_with_label(&mut out, &mut seen, id, provider, label);
+            push_model_with_label(
+                &mut out,
+                &mut seen,
+                id,
+                provider,
+                label,
+                read_context_length(row),
+            );
         }
     }
 
@@ -72,13 +90,23 @@ fn push_model(
     model_id: &str,
     provider_id: &str,
     provider_label: &str,
+    context_length: Option<i64>,
 ) {
     let label = if provider_label.is_empty() {
         model_id.to_string()
     } else {
         format!("{provider_label} · {model_id}")
     };
-    push_model_with_label(out, seen, model_id, provider_id, &label);
+    push_model_with_label(out, seen, model_id, provider_id, &label, context_length);
+}
+
+fn read_context_length(row: &Value) -> Option<i64> {
+    row.get("context_length")
+        .or_else(|| row.get("context_window"))
+        .or_else(|| row.get("contextWindow"))
+        .or_else(|| row.get("limit").and_then(|limit| limit.get("context")))
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0)
 }
 
 fn push_model_with_label(
@@ -87,16 +115,21 @@ fn push_model_with_label(
     model_id: &str,
     provider_id: &str,
     label: &str,
+    context_length: Option<i64>,
 ) {
     let id = model_id.trim();
     if id.is_empty() || id == "hermes-agent" || !seen.insert(id.to_string()) {
         return;
     }
-    out.push(json!({
+    let mut row = json!({
         "id": id,
         "object": "model",
         "owned_by": provider_id,
         "provider": provider_id,
         "label": label,
-    }));
+    });
+    if let Some(context_length) = context_length {
+        row["context_length"] = json!(context_length);
+    }
+    out.push(row);
 }
