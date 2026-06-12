@@ -78,7 +78,7 @@ describe('chat message visibility', () => {
 
   test('visibility toggles preserve a message scroll anchor instead of shifting the viewport', () => {
     const source = appSource();
-    expect(source).toContain("import { captureMessageScrollAnchor, restoreMessageScrollAnchor } from './chatScrollAnchor';");
+    expect(source).toContain("import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';");
     expect(source).toContain('const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {');
     expect(source).toContain('const nextVisibleIds = new Set(nextVisibleMessages.map((message) => String(message.id || \'\')).filter(Boolean));');
     expect(source).toContain('restoreMessageScrollAnchor(scroller, anchor);');

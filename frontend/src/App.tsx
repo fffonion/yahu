@@ -13,7 +13,7 @@ import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
 import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages } from './messageVisibility';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
-import { captureMessageScrollAnchor, restoreMessageScrollAnchor } from './chatScrollAnchor';
+import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
@@ -553,6 +553,7 @@ export default function App() {
     });
   }, [messages]);
   const scrollLatestAfterRenderRef = useRef(false);
+  const pendingHistoryScrollAnchorRef = useRef<MessageScrollAnchor | null>(null);
   const titleRefreshDoneRef = useRef<Set<string>>(new Set());
   const skipNextHistoryLoadRef = useRef('');
   const watchSourceRef = useRef<EventSource | null>(null);
@@ -772,7 +773,7 @@ export default function App() {
     if (!sessionId) return;
     if (loadingMessagesRef.current && direction !== 'latest') return;
     const scroller = chatScrollRef.current;
-    const oldHeight = scroller?.scrollHeight || 0;
+    if (direction === 'older') pendingHistoryScrollAnchorRef.current = captureMessageScrollAnchor(scroller);
     const req = ++messageRequestRef.current;
     loadingMessagesRef.current = true;
     setLoadingMessages(true);
@@ -797,9 +798,6 @@ export default function App() {
         setMessages((old) => [...chunk, ...old].slice(0, RAW_MESSAGE_WINDOW));
         setHasOlder(page.has_older);
         setHasNewer(true);
-        requestAnimationFrame(() => {
-          if (scroller) scroller.scrollTop += scroller.scrollHeight - oldHeight;
-        });
       } else if (direction === 'newer') {
         setMessages((old) => [...old, ...chunk].slice(-RAW_MESSAGE_WINDOW));
         setHasNewer(page.has_newer);
@@ -1064,6 +1062,17 @@ export default function App() {
     requestAnimationFrame(scrollBottom);
     window.setTimeout(scrollBottom, 60);
   }, [messages, activeSessionId]);
+  useLayoutEffect(() => {
+    const anchor = pendingHistoryScrollAnchorRef.current;
+    if (!anchor) return;
+    pendingHistoryScrollAnchorRef.current = null;
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    const restore = () => restoreMessageScrollAnchor(scroller, anchor);
+    restoreMessageScrollAnchor(scroller, anchor);
+    requestAnimationFrame(restore);
+    window.setTimeout(restore, 60);
+  }, [messages]);
 
   const onFiles = async (files: FileList | null) => {
     if (!files?.length) return;
