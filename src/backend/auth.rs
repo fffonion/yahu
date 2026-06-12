@@ -18,8 +18,14 @@ async fn require_auth(
     if state.insecure || path == "/health" || path == "/login" || path == "/manifest.json" || path == "/sw.js" || path == "/icon.svg" || path == "/icon-192.png" || path == "/icon-512.png" {
         return next.run(req).await;
     }
-    if valid_cookie(req.headers(), &state) {
-        return next.run(req).await;
+    if let Some(session) = valid_session(req.headers(), &state) {
+        let mut response = next.run(req).await;
+        if let Some(cookie) = session.refresh_cookie
+            && let Ok(value) = HeaderValue::from_str(&cookie)
+        {
+            response.headers_mut().append(header::SET_COOKIE, value);
+        }
+        return response;
     }
     if path.starts_with("/hermes")
         || path.starts_with("/workspace")
@@ -63,10 +69,7 @@ async fn login_submit(State(state): State<Arc<AppState>>, req: Request<Body>) ->
         return Html(login_html("Wrong key")).into_response();
     }
     let token = make_session_token(expected);
-    let cookie = format!(
-        "{}={}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax",
-        SESSION_COOKIE, token, SESSION_TTL
-    );
+    let cookie = session_cookie(&token);
     Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(header::LOCATION, "/")
@@ -90,10 +93,14 @@ async fn logout() -> Response<Body> {
         .unwrap()
 }
 
-fn valid_cookie(headers: &HeaderMap, state: &AppState) -> bool {
+struct ValidSession {
+    refresh_cookie: Option<String>,
+}
+
+fn valid_session(headers: &HeaderMap, state: &AppState) -> Option<ValidSession> {
     let key = match state.auth_key.as_deref() {
         Some(key) if !key.is_empty() => key,
-        _ => return false,
+        _ => return None,
     };
     let cookie_header = headers
         .get(header::COOKIE)
@@ -104,17 +111,34 @@ fn valid_cookie(headers: &HeaderMap, state: &AppState) -> bool {
         if let Some(token) = trimmed.strip_prefix(&format!("{}=", SESSION_COOKIE))
             && verify_session_token(token, key)
         {
-            return true;
+            return Some(ValidSession {
+                refresh_cookie: session_token_refresh_cookie(token, key),
+            });
         }
     }
-    false
+    None
+}
+
+fn session_token_refresh_cookie(token: &str, key: &str) -> Option<String> {
+    let claims = verified_session_claims(token, key)?;
+    if now_secs().saturating_sub(claims.iat) <= SESSION_REFRESH_AFTER {
+        return None;
+    }
+    Some(session_cookie(&make_session_token(key)))
+}
+
+fn session_cookie(token: &str) -> String {
+    format!(
+        "{}={}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax",
+        SESSION_COOKIE, token, SESSION_TTL
+    )
 }
 
 fn make_session_token(key: &str) -> String {
-    let iat = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_secs();
+    make_session_token_at(key, now_secs())
+}
+
+fn make_session_token_at(key: &str, iat: u64) -> String {
     let exp = iat.saturating_add(SESSION_TTL);
     let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"HS256","typ":"JWT"}"#);
     let claims = URL_SAFE_NO_PAD.encode(
@@ -131,48 +155,51 @@ fn make_session_token(key: &str) -> String {
 }
 
 fn verify_session_token(token: &str, key: &str) -> bool {
+    verified_session_claims(token, key).is_some()
+}
+
+struct SessionClaims {
+    iat: u64,
+}
+
+fn verified_session_claims(token: &str, key: &str) -> Option<SessionClaims> {
     let mut parts = token.split('.');
-    let Some(header) = parts.next() else {
-        return false;
-    };
-    let Some(claims) = parts.next() else {
-        return false;
-    };
-    let Some(sig) = parts.next() else {
-        return false;
-    };
+    let header = parts.next()?;
+    let claims = parts.next()?;
+    let sig = parts.next()?;
     if parts.next().is_some() {
-        return false;
+        return None;
     }
 
     let signing_input = format!("{header}.{claims}");
     if sign(key, &signing_input) != sig {
-        return false;
+        return None;
     }
 
-    let Some(header_json) = decode_json_segment(header) else {
-        return false;
-    };
+    let header_json = decode_json_segment(header)?;
     if header_json.get("alg").and_then(|v| v.as_str()) != Some("HS256")
         || header_json.get("typ").and_then(|v| v.as_str()) != Some("JWT")
     {
-        return false;
+        return None;
     }
 
-    let Some(claims_json) = decode_json_segment(claims) else {
-        return false;
-    };
+    let claims_json = decode_json_segment(claims)?;
     if claims_json.get("iss").and_then(|v| v.as_str()) != Some("yahu") {
-        return false;
+        return None;
     }
-    let Some(exp) = claims_json.get("exp").and_then(|v| v.as_u64()) else {
-        return false;
-    };
-    let now = SystemTime::now()
+    let iat = claims_json.get("iat").and_then(|v| v.as_u64())?;
+    let exp = claims_json.get("exp").and_then(|v| v.as_u64())?;
+    if now_secs() > exp {
+        return None;
+    }
+    Some(SessionClaims { iat })
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
-        .as_secs();
-    now <= exp
+        .as_secs()
 }
 
 fn decode_json_segment(segment: &str) -> Option<serde_json::Value> {

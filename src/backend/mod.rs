@@ -55,6 +55,7 @@ static ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/dist");
 const SESSION_COOKIE: &str = "hermes_webui_session";
 const MAX_PROXY_BODY: usize = 32 * 1024 * 1024;
 const SESSION_TTL: u64 = 7 * 24 * 60 * 60;
+const SESSION_REFRESH_AFTER: u64 = SESSION_TTL / 2;
 
 fn path_segment(value: &str) -> String {
     utf8_percent_encode(value, NON_ALPHANUMERIC)

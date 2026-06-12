@@ -30,6 +30,31 @@ mod tests {
     }
 
     #[test]
+    fn old_session_token_gets_refresh_cookie() {
+        let old_iat = now_secs().saturating_sub(SESSION_REFRESH_AFTER + 1);
+        let old_token = make_session_token_at("webui-secret", old_iat);
+
+        let cookie = session_token_refresh_cookie(&old_token, "webui-secret").unwrap();
+        let refreshed_token = cookie
+            .strip_prefix(&format!("{}=", SESSION_COOKIE))
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap();
+
+        assert!(cookie.contains(&format!("Max-Age={}", SESSION_TTL)));
+        assert!(verify_session_token(refreshed_token, "webui-secret"));
+        assert!(session_token_refresh_cookie(refreshed_token, "webui-secret").is_none());
+    }
+
+    #[test]
+    fn fresh_session_token_does_not_refresh() {
+        let token = make_session_token("webui-secret");
+
+        assert!(session_token_refresh_cookie(&token, "webui-secret").is_none());
+    }
+
+    #[test]
     fn frontmatter_value_reads_yaml_after_opening_blank_line() {
         let text =
             "---\nname: hermes-dashboard-webui\ndescription: \"Dashboard UI\"\n---\n# Body\n";
