@@ -22,18 +22,21 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain('className="cron-detail"');
     expect(source).toContain('className="cron-field cron-prompt"');
     expect(source).toContain('className="cron-field cron-script"');
-    expect(styles).toContain('.cron-field.cron-prompt,.cron-field.cron-script,.cron-detail-actions{grid-column:1/-1}');
+    expect(styles).toContain('.cron-field.cron-prompt,.cron-field.cron-script{grid-column:1/-1}');
     expect(styles).toContain('.cron-main .cron-prompt{min-height:0;height:100%;grid-template-rows:auto minmax(0,1fr)}');
     expect(styles).toContain('.cron-main .cron-prompt textarea{min-height:0;height:100%;resize:vertical}');
     expect(styles).toContain('.cron-script textarea{min-height:96px;height:96px');
   });
 
-  test('right detail pane exposes save run and delete actions together', () => {
+  test('header exposes save run and delete actions with standard header icon buttons', () => {
     const source = app();
-    expect(source).toContain('className="cron-detail-actions"');
+    expect(source).toContain('className="header-actions cron-header-actions"');
+    expect(source).toContain('className="icon-btn cron-action-btn"');
+    expect(source).toContain('className="icon-btn cron-action-btn danger"');
     expect(source).toContain("aria-label={t('cron.saveAria')}");
     expect(source).toContain("aria-label={t('cron.runAria')}");
     expect(source).toContain("aria-label={t('cron.deleteAria')}");
+    expect(source).not.toContain('className="cron-detail-actions"');
     expect(source).not.toContain('aria-label={paused ? \'resume\' : \'pause\'}');
   });
 

@@ -190,7 +190,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('linearGradient');
     expect(styles).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6');
     expect(styles).toContain('.usage-area{opacity:.78;transform-origin:center bottom;animation:chart-fill .55s ease both}');
-    expect(styles).toContain('.usage-line{fill:none;stroke-width:.8');
+    expect(styles).toContain('.usage-line{fill:none;stroke-width:.4');
     expect(styles).toContain('.usage-share-bar{height:42px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
     expect(styles).toContain('@media (max-width:760px){.mobile-bottom-nav .rail-btn.nav-insights.active');
     expect(styles).toContain('.insights-content{padding:10px 10px calc(86px + env(safe-area-inset-bottom,0px));gap:10px');
@@ -212,7 +212,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     const styles = css();
     expect(styles).toContain('.btn-label{display:none}');
     expect(styles).toContain('.mobile-icon-only .btn-label');
-    expect(styles).toContain('.send-btn,.files-chip,.image-actions button,.modalbar button,.cron-detail-actions button,.settings-content button');
+    expect(styles).toContain('.send-btn,.files-chip,.image-actions button,.modalbar button,.settings-content button');
   });
 
   test('mobile agent replies adapt to the viewport while tool icons live inside full-width cards', () => {

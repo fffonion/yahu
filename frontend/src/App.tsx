@@ -2051,7 +2051,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
     return d;
   };
   return <main className="main-panel cron-main">
-    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{t('cron.jobs')}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></header>
+    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{t('cron.jobs')}</span></div><div className="header-actions cron-header-actions"><button type="button" aria-label={t('cron.saveAria')} title={t('cron.save')} className="icon-btn cron-action-btn" onClick={props.saveCronJob}><Save /></button><button type="button" aria-label={t('cron.runAria')} title={t('cron.runShort')} className="icon-btn cron-action-btn" disabled={!props.editingId} onClick={props.runCronJob}><PlayMark /></button><button type="button" aria-label={t('cron.deleteAria')} title={t('cron.delete')} className="icon-btn cron-action-btn danger" disabled={!props.editingId} onClick={props.deleteCronJob}><Trash2 /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <section className="cron-detail-wrap"><div className="cron-detail">
       <label className="cron-field"><span>{t('cron.name')}</span><input value={props.name} onChange={(e) => props.setName(e.target.value)} placeholder={t('cron.placeholderName')} /></label>
       <label className="cron-field"><span>{t('cron.schedule')}</span><input value={props.schedule} onChange={(e) => props.setSchedule(e.target.value)} placeholder={t('cron.placeholderSchedule')} /></label>
@@ -2059,11 +2059,6 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
       <label className="cron-field cron-script"><span>{t('cron.script')}</span><textarea value={props.script} onChange={(e) => props.setScript(e.target.value)} placeholder={t('cron.placeholderScript')} /></label>
       {props.editingId && <label className="cron-field cron-fullwidth"><span>{t('cron.deliver')}</span><input value={deliverDisplay(props.deliver)} readOnly /></label>}
       {props.editingId && <section className="cron-output-panel cron-fullwidth"><div className="cron-output-head"><span>{t('cron.lastOutput')}</span><button type="button" className="mobile-icon-only" onClick={props.refreshCronOutput} disabled={props.cronOutputLoading}><RefreshCw /> <span className="btn-label">{t('cron.refreshOutput')}</span></button></div><pre>{props.cronOutputLoading ? t('cron.loadingOutput') : props.cronOutput?.content ? `${props.cronOutput.content}${props.cronOutput.truncated ? `\n\n${t('cron.outputTruncated')}` : ''}` : t('cron.noOutput')}</pre>{props.cronOutput?.timestamp && <small>{props.cronOutput.timestamp}</small>}</section>}
-      <div className="cron-detail-actions">
-        <button aria-label={t('cron.saveAria')} className="mobile-icon-only" onClick={props.saveCronJob}><Save /> <span className="btn-label">{t('cron.save')}</span></button>
-        <button aria-label={t('cron.runAria')} className="mobile-icon-only" disabled={!props.editingId} onClick={props.runCronJob}><PlayMark /> <span className="btn-label">{t('cron.runShort')}</span></button>
-        <button aria-label={t('cron.deleteAria')} className="danger mobile-icon-only" disabled={!props.editingId} onClick={props.deleteCronJob}><Trash2 /> <span className="btn-label">{t('cron.delete')}</span></button>
-      </div>
     </div></section>
   </main>;
 }
