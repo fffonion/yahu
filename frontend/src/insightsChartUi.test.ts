@@ -97,9 +97,9 @@ describe('insights chart UI', () => {
 
   test('uses half-width strokes for desktop mobile and stacked total lines', () => {
     const css = cssSource();
-    expect(css).toContain('.usage-line{fill:none;stroke-width:.8;');
-    expect(css).toContain('.usage-line{stroke-width:.75}');
-    expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.85;');
+    expect(css).toContain('.usage-line{fill:none;stroke-width:.4;');
+    expect(css).toContain('.usage-line{stroke-width:.375}');
+    expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.425;');
   });
 
   test('renders one-day model usage as a proportional share bar with model indicators', () => {
@@ -108,14 +108,17 @@ describe('insights chart UI', () => {
     expect(app).toContain('const isSingleDay = props.period === 1');
     expect(app).toContain('{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn"');
     expect(app).toContain('function UsageShareBar');
+    expect(app).toContain('className="usage-share-map"');
     expect(app).toContain('className="usage-share-bar"');
     expect(app).toContain('className="usage-share-segment"');
     expect(app).toContain('className="usage-share-indicators"');
     expect(app).toContain('className="usage-share-indicator"');
-    expect(app).toContain('style={{ width: `${pct}%`, background: `var(--chart-${item.index})` }}');
+    expect(app).toContain('style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }}');
+    expect(app).toContain("'--share-start': `${item.start}%`");
+    expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 54px;');
     expect(css).toContain('.usage-share-bar{height:42px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
-    expect(css).toContain('.usage-share-indicators{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));');
-    expect(css).toContain('.usage-share-indicator{display:grid;grid-template-columns:auto minmax(0,1fr) auto;');
+    expect(css).toContain('.usage-share-indicators{position:relative;height:54px;');
+    expect(css).toContain('.usage-share-indicator::after{content:"";position:absolute;right:0;top:-24px;height:14px;');
   });
 
   test('keeps metric card glow away from rounded corners in light themes', () => {

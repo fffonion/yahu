@@ -37,6 +37,16 @@ describe('cron manager split editor layout', () => {
     expect(source).not.toContain('aria-label={paused ? \'resume\' : \'pause\'}');
   });
 
+  test('loads latest cron output through the Hermes API server proxy', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("/api/jobs/${encodeURIComponent(id)}/output/latest");
+    expect(source).toContain('className="cron-output-panel cron-fullwidth"');
+    expect(source).toContain("{t('cron.lastOutput')}");
+    expect(styles).toContain('.cron-output-panel{display:grid;gap:8px;border:1px solid var(--border);');
+    expect(styles).toContain('.cron-output-panel pre{max-height:240px;margin:0;overflow:auto;white-space:pre-wrap;');
+  });
+
   test('mobile cron editor adapts prompt height to the viewport instead of using fixed rows', () => {
     const styles = css();
     expect(styles).toContain('.cron-main .cron-detail{height:100%;min-height:0;grid-template-columns:1fr;grid-template-rows:auto auto minmax(96px,1fr) auto auto auto;align-content:stretch;overflow:auto}');

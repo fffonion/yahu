@@ -33,6 +33,7 @@ type Skill = { name: string; description?: string; category?: string; enabled?: 
 type WorkspaceContextMenu = { entry: WorkspaceEntry; x: number; y: number } | null;
 type DialogState = { variant: 'prompt' | 'confirm'; title: string; message: string; value?: string; danger?: boolean; resolve: (value: any) => void } | null;
 type Job = { job_id?: string; id?: string; name?: string; schedule?: string | { display?: string; expr?: string }; prompt?: string; script?: string | null; status?: string; paused?: boolean; enabled?: boolean; next_run?: string; last_run?: string; deliver?: string };
+type CronOutput = { job_id?: string; timestamp?: string; filename?: string; content?: string; size_bytes?: number; truncated?: boolean };
 type MemoryDoc = { memory: string; user: string };
 type ImageEntry = { filename: string; heic_filename?: string | null; image_url: string; png_url: string; heic_url?: string | null; heic_status: 'available' | 'missing' | 'not_applicable' | string; download_filename: string; download_url: string; download_label: string; created_at: number; modified_at: number; size: number };
 type ImageStats = { total_images: number; total_bytes: number };
@@ -535,6 +536,8 @@ export default function App() {
   const [cronPrompt, setCronPrompt] = useState('');
   const [cronScript, setCronScript] = useState('');
   const [cronDeliver, setCronDeliver] = useState('');
+  const [cronOutput, setCronOutput] = useState<CronOutput | null>(null);
+  const [cronOutputLoading, setCronOutputLoading] = useState(false);
   const [cronEditingId, setCronEditingId] = useState(initialRoute.mode === 'cron' ? initialRoute.jobId || '' : '');
   const [skillFilter, setSkillFilter] = useState('');
   const [skillRouteTarget, setSkillRouteTarget] = useState(initialRoute.mode === 'skills' ? initialRoute.skillName || '' : '');
@@ -918,7 +921,7 @@ export default function App() {
     } catch (err: any) { setStatus(`Skill folder unavailable: ${err.message}`); }
   }, [expandedSkillPaths, loadSkillFiles, selectedSkill]);
 
-  const resetCronForm = useCallback(() => { setCronName(''); setCronSchedule('0 9 * * *'); setCronPrompt(''); setCronScript(''); setCronDeliver(''); setCronEditingId(''); }, []);
+  const resetCronForm = useCallback(() => { setCronName(''); setCronSchedule('0 9 * * *'); setCronPrompt(''); setCronScript(''); setCronDeliver(''); setCronOutput(null); setCronEditingId(''); }, []);
   const loadCronJobs = useCallback(async () => {
     try {
       const res = await fetch(apiJoin(apiBase, '/api/jobs'), { headers: headers(false) });
@@ -929,6 +932,20 @@ export default function App() {
       if (cronEditingId && !nextJobs.some((job: Job) => jobId(job) === cronEditingId)) resetCronForm();
     } catch (err: any) { setStatus(tf('cron.jobsUnavailable', err.message)); }
   }, [apiBase, cronEditingId, headers, resetCronForm]);
+  const loadCronOutput = useCallback(async (id = cronEditingId) => {
+    if (!id) { setCronOutput(null); return; }
+    setCronOutputLoading(true);
+    try {
+      const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(id)}/output/latest`), { headers: headers(false) });
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      const body = await res.json();
+      setCronOutput((body.output || body.data || null) as CronOutput | null);
+    } catch (err: any) {
+      setCronOutput({ content: tf('cron.outputUnavailable', err.message || String(err)) });
+    } finally {
+      setCronOutputLoading(false);
+    }
+  }, [apiBase, cronEditingId, headers]);
   const beginCronEdit = useCallback((job: Job) => {
     const values = cronEditableValues(job);
     setCronEditingId(jobId(job));
@@ -965,7 +982,8 @@ export default function App() {
     if (!res.ok) { setStatus(await res.text()); return; }
     await loadCronJobs();
     setStatus(t('cron.ran'));
-  }, [apiBase, cronEditingId, headers, loadCronJobs]);
+    await loadCronOutput(cronEditingId);
+  }, [apiBase, cronEditingId, headers, loadCronJobs, loadCronOutput]);
   const deleteCronJob = useCallback(async () => {
     if (!cronEditingId) return;
     const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(cronEditingId)}`), { method: 'DELETE', headers: headers(false) });
@@ -979,6 +997,7 @@ export default function App() {
   useEffect(() => { if (mode === 'insights' && !usageInsights && !usageLoading) loadUsageInsights(); }, [mode, usageInsights, usageLoading, loadUsageInsights]);
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
+  useEffect(() => { if (mode === 'cron' && cronEditingId) loadCronOutput(cronEditingId); else setCronOutput(null); }, [mode, cronEditingId, loadCronOutput]);
   useEffect(() => { if (mode === 'skills') loadSkills(); }, [mode, loadSkills]);
   useEffect(() => {
     if (mode !== 'skills' || !skillRouteTarget || !skillList.length) return;
@@ -1464,7 +1483,7 @@ export default function App() {
         <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
         <SkillWorkspaceAside skill={selectedSkill} skillFileTree={skillFileTree} expandedSkillPaths={expandedSkillPaths} toggleSkillFolder={toggleSkillFolder} openSkillFile={openSkillFile} />
       </>}
-      {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} />}
@@ -1619,12 +1638,16 @@ function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: Us
   return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{tf('insights.modelRowDetail', fmtTokens(model.periodTotals.input), fmtTokens(model.periodTotals.output), fmtPercent(model.periodTotals.cache_hit_rate))}</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
 }
 function UsageShareBar({ models, metric }: { models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
-  const slices = models.slice(0, 6).map((model, index) => ({ model: model.model, index, value: Number(model.periodTotals[metric] || 0) })).filter((item) => item.value > 0);
-  const total = slices.reduce((sum, item) => sum + item.value, 0);
-  if (!slices.length || total <= 0) return <div className="usage-share-chart"><p className="insights-empty">{t('insights.noMetricUsage')}</p></div>;
+  const rawSlices = models.slice(0, 6).map((model, index) => ({ model: model.model, index, value: Number(model.periodTotals[metric] || 0) })).filter((item) => item.value > 0);
+  const total = rawSlices.reduce((sum, item) => sum + item.value, 0);
+  if (!rawSlices.length || total <= 0) return <div className="usage-share-chart"><p className="insights-empty">{t('insights.noMetricUsage')}</p></div>;
+  let cursor = 0;
+  const slices = rawSlices.map((item) => { const pct = (item.value / total) * 100; const start = cursor; cursor += pct; return { ...item, pct, start }; });
   return <div className="usage-share-chart" role="img" aria-label={tf('insights.modelShare', usageMetricLabel(metric))}>
-    <div className="usage-share-bar">{slices.map((item) => { const pct = (item.value / total) * 100; return <span key={item.model} className="usage-share-segment" title={`${item.model} · ${formatMetricValue(metric, item.value)} · ${Math.round(pct)}%`} style={{ width: `${pct}%`, background: `var(--chart-${item.index})` }} />; })}</div>
-    <div className="usage-share-indicators">{slices.map((item) => { const pct = item.value / total; return <span key={item.model} className="usage-share-indicator"><i style={{ background: `var(--chart-${item.index})` }} /><b title={item.model}>{item.model}</b><em>{fmtPercent(pct)}</em></span>; })}</div>
+    <div className="usage-share-map">
+      <div className="usage-share-bar">{slices.map((item) => <span key={item.model} className="usage-share-segment" title={`${item.model} · ${formatMetricValue(metric, item.value)} · ${Math.round(item.pct)}%`} style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }} />)}</div>
+      <div className="usage-share-indicators">{slices.map((item) => { const pct = item.value / total; return <span key={item.model} className="usage-share-indicator" style={{ '--share-start': `${item.start}%`, '--share-width': `${Math.max(item.pct, 0.8)}%` } as React.CSSProperties}><i style={{ background: `var(--chart-${item.index})` }} /><b title={item.model}>{item.model}</b><em>{fmtPercent(pct)}</em></span>; })}</div>
+    </div>
   </div>;
 }
 function UsageAreaChart({ days, models, metric, stacked }: { days: UsageDay[]; models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric; stacked: boolean }) {
@@ -2019,7 +2042,7 @@ function CronSidebar({ jobs, editingId, beginCronEdit, resetCronForm, writeHashR
     <span className="session-icon"><CalendarClock /></span><span className="session-text"><span className="session-title">{j.name || jobId(j)}</span><span className="session-preview">{jobSchedule(j.schedule)} · {jobStateLabel(j)}{j.script ? ` · ${j.script}` : ''}</span></span>
   </button>)}</div></>;
 }
-function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
+function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; cronOutput: CronOutput | null; cronOutputLoading: boolean; refreshCronOutput: () => void; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
   const deliverDisplay = (d: string) => {
     if (!d) return '—';
     if (d === 'origin') return t('cron.deliverOrigin');
@@ -2035,6 +2058,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
       <label className="cron-field cron-prompt"><span>{t('cron.prompt')}</span><textarea value={props.prompt} onChange={(e) => props.setPrompt(e.target.value)} placeholder={t('cron.placeholderPrompt')} /></label>
       <label className="cron-field cron-script"><span>{t('cron.script')}</span><textarea value={props.script} onChange={(e) => props.setScript(e.target.value)} placeholder={t('cron.placeholderScript')} /></label>
       {props.editingId && <label className="cron-field cron-fullwidth"><span>{t('cron.deliver')}</span><input value={deliverDisplay(props.deliver)} readOnly /></label>}
+      {props.editingId && <section className="cron-output-panel cron-fullwidth"><div className="cron-output-head"><span>{t('cron.lastOutput')}</span><button type="button" className="mobile-icon-only" onClick={props.refreshCronOutput} disabled={props.cronOutputLoading}><RefreshCw /> <span className="btn-label">{t('cron.refreshOutput')}</span></button></div><pre>{props.cronOutputLoading ? t('cron.loadingOutput') : props.cronOutput?.content ? `${props.cronOutput.content}${props.cronOutput.truncated ? `\n\n${t('cron.outputTruncated')}` : ''}` : t('cron.noOutput')}</pre>{props.cronOutput?.timestamp && <small>{props.cronOutput.timestamp}</small>}</section>}
       <div className="cron-detail-actions">
         <button aria-label={t('cron.saveAria')} className="mobile-icon-only" onClick={props.saveCronJob}><Save /> <span className="btn-label">{t('cron.save')}</span></button>
         <button aria-label={t('cron.runAria')} className="mobile-icon-only" disabled={!props.editingId} onClick={props.runCronJob}><PlayMark /> <span className="btn-label">{t('cron.runShort')}</span></button>

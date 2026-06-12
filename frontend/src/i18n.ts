@@ -71,6 +71,12 @@ const translations: Record<string, Record<string, string>> = {
   'cron.deleteAria': { en: 'delete cron job', 'zh-CN': '删除定时任务', 'zh-TW': '刪除定時任務', ja: 'cronジョブを削除' },
   'cron.runShort': { en: 'Run', 'zh-CN': '运行', 'zh-TW': '執行', ja: '実行' },
   'cron.jobsUnavailable': { en: 'Jobs unavailable: {0}', 'zh-CN': '任务不可用：{0}', 'zh-TW': '任務不可用：{0}', ja: 'ジョブが利用できません: {0}' },
+  'cron.lastOutput': { en: 'Last output', 'zh-CN': '上次运行结果', 'zh-TW': '上次執行結果', ja: '前回の実行結果' },
+  'cron.refreshOutput': { en: 'Refresh', 'zh-CN': '刷新', 'zh-TW': '重新整理', ja: '更新' },
+  'cron.loadingOutput': { en: 'Loading output…', 'zh-CN': '正在加载结果…', 'zh-TW': '正在載入結果…', ja: '結果を読み込み中…' },
+  'cron.noOutput': { en: 'No saved output yet.', 'zh-CN': '还没有保存的运行结果。', 'zh-TW': '尚未保存執行結果。', ja: '保存済みの実行結果はまだありません。' },
+  'cron.outputUnavailable': { en: 'Output unavailable: {0}', 'zh-CN': '运行结果不可用：{0}', 'zh-TW': '執行結果不可用：{0}', ja: '実行結果を取得できません: {0}' },
+  'cron.outputTruncated': { en: '[Output truncated]', 'zh-CN': '【结果已截断】', 'zh-TW': '【結果已截斷】', ja: '【結果は省略されました】' },
 
   // Memory
   'memory.title': { en: 'Memory manager', 'zh-CN': '记忆管理器', 'zh-TW': '記憶管理器', ja: 'メモリ管理' },
