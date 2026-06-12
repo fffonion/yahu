@@ -24,6 +24,41 @@ function placeholder(index: number) {
   return `${PLACEHOLDER_OPEN}${index}${PLACEHOLDER_CLOSE}`;
 }
 
+function splitTableRow(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed.includes('|')) return null;
+  let body = trimmed;
+  if (body.startsWith('|')) body = body.slice(1);
+  if (body.endsWith('|')) body = body.slice(0, -1);
+  const cells: string[] = [];
+  let current = '';
+  for (let i = 0; i < body.length; i += 1) {
+    const char = body[i];
+    if (char === '\\' && body[i + 1] === '|') {
+      current += '|';
+      i += 1;
+    } else if (char === '|') {
+      cells.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function isTableSeparator(line: string) {
+  const cells = splitTableRow(line);
+  return !!cells?.length && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, '')));
+}
+
+function renderTable(headers: string[], rows: string[][]) {
+  const width = headers.length;
+  const normalizedRows = rows.map((row) => Array.from({ length: width }, (_value, index) => row[index] || ''));
+  return `<div class="md-table-wrap"><table><thead><tr>${headers.map((cell) => `<th>${markdownInline(cell)}</th>`).join('')}</tr></thead><tbody>${normalizedRows.map((row) => `<tr>${row.map((cell) => `<td>${markdownInline(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
 export function markdownInline(text: string) {
   const tokens: string[] = [];
   const withCode = text.replace(/`([^`\n]+)`/g, (_match, code) => {
@@ -85,6 +120,22 @@ export function markdownText(text: string) {
 
     if (!trimmed) {
       flushLoose();
+      continue;
+    }
+
+    const tableHeader = splitTableRow(line);
+    if (tableHeader && tableHeader.length > 1 && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      flushLoose();
+      const rows: string[][] = [];
+      i += 2;
+      while (i < lines.length) {
+        const row = splitTableRow(lines[i]);
+        if (!row || row.length < 2 || !lines[i].trim() || isTableSeparator(lines[i])) break;
+        rows.push(row);
+        i += 1;
+      }
+      i -= 1;
+      out.push(renderTable(tableHeader, rows));
       continue;
     }
 
