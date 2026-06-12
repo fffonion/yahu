@@ -26,8 +26,10 @@ describe('insights chart UI', () => {
     expect(app).not.toContain('className="usage-dot"');
     expect(css).not.toContain('.usage-dot{');
     expect(css).toContain('.chart-points{position:absolute;left:0;right:0;top:0;height:260px;z-index:4;pointer-events:auto}');
-    expect(css).toContain('.chart-point-hit{position:absolute;display:block;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:999px;pointer-events:auto;cursor:crosshair}');
-    expect(css).toContain('.chart-point-hit::after{content:"";position:absolute;inset:9px;border-radius:999px;background:var(--point-color,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--surface) 80%,transparent);opacity:0;');
+    expect(app).toContain('const pointHitWidthPct = buckets.length > 1 ? (((width - pad.left - pad.right) / (buckets.length - 1)) * 0.8 / width) * 100 : (24 / width) * 100;');
+    expect(app).toContain("'--hit-width': `${pointHitWidthPct}%`");
+    expect(css).toContain('.chart-point-hit{position:absolute;display:block;width:var(--hit-width,24px);height:24px;margin:-12px 0 0 calc(var(--hit-width,24px) * -.5);border-radius:999px;pointer-events:auto;cursor:crosshair}');
+    expect(css).toContain('.chart-point-hit::after{content:"";position:absolute;width:6px;height:6px;left:50%;top:50%;margin:-3px 0 0 -3px;border-radius:999px;background:var(--point-color,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--surface) 80%,transparent);opacity:0;');
     expect(css).toContain('.chart-point-hit:hover::after,.chart-point-hit:focus-visible::after{opacity:1;transform:scale(1.12)}');
   });
 
@@ -36,10 +38,10 @@ describe('insights chart UI', () => {
     expect(css).toContain('.chart-y-axis{position:absolute;left:0;top:0;bottom:48px;width:52px;');
     expect(css).toContain('.chart-point-hit:hover .chart-tooltip,.chart-point-hit:focus .chart-tooltip,.chart-point-hit:focus-visible .chart-tooltip{opacity:1;transform:translate(-50%,-8px);pointer-events:auto}');
     expect(css).toContain('.chart-point-hit.tooltip-below .chart-tooltip{top:22px;bottom:auto}');
-    expect(css).toContain('.chart-point-hit.tooltip-align-start .chart-tooltip{left:0;transform:translate(0,0)}');
-    expect(css).toContain('.chart-point-hit.tooltip-align-end .chart-tooltip{left:auto;right:0;transform:translate(0,0)}');
+    expect(css).toContain('.chart-point-hit.tooltip-align-start .chart-tooltip{left:50%;transform:translate(0,0)}');
+    expect(css).toContain('.chart-point-hit.tooltip-align-end .chart-tooltip{left:auto;right:50%;transform:translate(0,0)}');
     expect(css).toContain('.chart-point-hit.tooltip-below:hover .chart-tooltip,.chart-point-hit.tooltip-below:focus .chart-tooltip,.chart-point-hit.tooltip-below:focus-visible .chart-tooltip{transform:translate(-50%,8px)}');
-    expect(css).toContain('.usage-chart svg{width:100%;height:260px;display:block;overflow:visible;position:relative;z-index:1}');
+    expect(css).toContain('.chart-axis{position:absolute;left:var(--insights-plot-left);right:var(--insights-plot-right);bottom:32px;height:18px;color:var(--muted);font-size:11px}');
   });
 
   test('renders dedicated loading placeholders for cards chart and model rows', () => {
@@ -126,8 +128,9 @@ describe('insights chart UI', () => {
     expect(app).toContain('style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }}');
     expect(app).toContain('className="usage-share-indicator"');
     expect(app).toContain("'--share-start': `${item.start}%`");
+    expect(css).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6;--chart-1:#8b5cf6;--chart-2:#f59e0b;--chart-3:#38bdf8;--chart-4:#ec4899;--chart-5:#84cc16;--insights-plot-left:8.0556%;--insights-plot-right:2.5%}');
     expect(css).toContain('.usage-share-chart{display:grid;gap:0;min-height:64px;align-content:center;padding:6px 0 0}');
-    expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:58px;margin-right:18px}');
+    expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
     expect(css).toContain('.usage-share-bar{height:9px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
     expect(css).toContain('.usage-share-indicators{display:flex;flex-wrap:wrap;gap:6px 12px;min-width:0;max-width:100%}');
     expect(css).toContain('.usage-share-indicator{position:relative;max-width:min(220px,100%);min-width:0;display:inline-grid;');
@@ -157,6 +160,8 @@ describe('insights chart UI', () => {
     expect(css).toContain('.header-actions .icon-btn svg{display:block;flex:0 0 auto}');
     expect(css).toContain('.header-actions .insights-refresh{width:38px}');
     expect(css).toContain('.header-actions .insights-refresh{width:30px;height:30px;min-width:30px;padding:0}');
-    expect(css).toContain('@media (max-width:760px){.mobile-bottom-nav .rail-btn.nav-insights.active{background:transparent;color:#14b8a6;box-shadow:none}.insights-header .header-actions{gap:6px}');
+    expect(css).toContain('.usage-share-map{grid-template-rows:auto auto;gap:7px;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
+    expect(css).toContain('.chart-axis{left:var(--insights-plot-left);right:var(--insights-plot-right)}');
+    expect(css).not.toContain('.chart-axis{left:52px;right:16px}');
   });
 });
