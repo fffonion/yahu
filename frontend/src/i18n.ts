@@ -47,6 +47,8 @@ const translations: Record<string, Record<string, string>> = {
   'cron.prompt': { en: 'PROMPT', 'zh-CN': '提示词', 'zh-TW': '提示詞', ja: 'プロンプト' },
   'cron.script': { en: 'SCRIPT', 'zh-CN': '脚本', 'zh-TW': '腳本', ja: 'スクリプト' },
   'cron.deliver': { en: 'Delivery target', 'zh-CN': '发送渠道', 'zh-TW': '發送渠道', ja: '配信先' },
+  'cron.enabledTools': { en: 'Enabled tools', 'zh-CN': '启用工具', 'zh-TW': '啟用工具', ja: '有効なツール' },
+  'cron.allDefaultTools': { en: 'all default tools', 'zh-CN': '默认全部工具', 'zh-TW': '預設全部工具', ja: '既定の全ツール' },
   'cron.save': { en: 'Save', 'zh-CN': '保存', 'zh-TW': '儲存', ja: '保存' },
   'cron.run': { en: 'Run now', 'zh-CN': '立即运行', 'zh-TW': '立即執行', ja: '今すぐ実行' },
   'cron.delete': { en: 'Delete', 'zh-CN': '删除', 'zh-TW': '刪除', ja: '削除' },

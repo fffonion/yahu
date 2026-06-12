@@ -35,7 +35,7 @@ type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' 
 type Skill = { name: string; description?: string; category?: string; enabled?: boolean };
 type WorkspaceContextMenu = { entry: WorkspaceEntry; x: number; y: number } | null;
 type DialogState = { variant: 'prompt' | 'confirm'; title: string; message: string; value?: string; danger?: boolean; resolve: (value: any) => void } | null;
-type Job = { job_id?: string; id?: string; name?: string; schedule?: string | { display?: string; expr?: string }; prompt?: string; script?: string | null; status?: string; paused?: boolean; enabled?: boolean; next_run?: string; last_run?: string; deliver?: string };
+type Job = { job_id?: string; id?: string; name?: string; schedule?: string | { display?: string; expr?: string }; prompt?: string; script?: string | null; status?: string; paused?: boolean; enabled?: boolean; enabled_toolsets?: string[]; enabledToolsets?: string[]; next_run?: string; last_run?: string; deliver?: string };
 type CronOutput = { job_id?: string; timestamp?: string; filename?: string; content?: string; size_bytes?: number; truncated?: boolean };
 type MemoryDoc = { memory: string; user: string };
 type ImageEntry = { filename: string; heic_filename?: string | null; image_url: string; png_url: string; heic_url?: string | null; heic_status: 'available' | 'missing' | 'not_applicable' | string; download_filename: string; download_url: string; download_label: string; created_at: number; modified_at: number; size: number };
@@ -116,6 +116,10 @@ const jobStateLabel = (job: Job) => {
   if (state === 'active') return t('cron.active');
   return state;
 };
+function cronEnabledToolsets(job?: Job | null): string[] {
+  const raw = Array.isArray(job?.enabled_toolsets) ? job?.enabled_toolsets : Array.isArray(job?.enabledToolsets) ? job?.enabledToolsets : [];
+  return Array.from(new Set((raw || []).map((item) => String(item || '').trim()).filter(Boolean)));
+}
 const usageMetricLabel = (metric: UsageMetric) => t(`insights.metric.${metric}`);
 function isHourlyBucket(bucket: UsageDay | UsageHour | undefined): bucket is UsageHour { return !!bucket && 'hour' in bucket; }
 const navLabel = (mode: Mode) => t(`nav.${mode}`);
@@ -1546,6 +1550,7 @@ export default function App() {
     writeHashRoute(route);
   };
   const wideMode = mode !== 'chat';
+  const activeCronJob = cronJobs.find((job) => jobId(job) === cronEditingId) || null;
 
   return (
     <div className={`app-shell ${wideMode ? 'wide-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''}`}>
@@ -1587,7 +1592,7 @@ export default function App() {
         <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
         <SkillWorkspaceAside skill={selectedSkill} skillFileTree={skillFileTree} expandedSkillPaths={expandedSkillPaths} toggleSkillFolder={toggleSkillFolder} openSkillFile={openSkillFile} />
       </>}
-      {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} currentJob={activeCronJob} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} showToast={showToast} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} showToast={showToast} />}
@@ -2183,7 +2188,7 @@ function CronSidebar({ jobs, editingId, beginCronEdit, resetCronForm, writeHashR
     <span className="session-icon"><CalendarClock /></span><span className="session-text"><span className="session-title">{j.name || jobId(j)}</span><span className="session-preview">{jobSchedule(j.schedule)} · {jobStateLabel(j)}{j.script ? ` · ${j.script}` : ''}</span></span>
   </button>)}</div></>;
 }
-function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; cronOutput: CronOutput | null; cronOutputLoading: boolean; refreshCronOutput: () => void; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
+function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; editingId: string; currentJob: Job | null; cronOutput: CronOutput | null; cronOutputLoading: boolean; refreshCronOutput: () => void; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
   const deliverDisplay = (d: string) => {
     if (!d) return '—';
     if (d === 'origin') return t('cron.deliverOrigin');
@@ -2199,6 +2204,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
       <label className="cron-field cron-prompt"><span>{t('cron.prompt')}</span><textarea value={props.prompt} onChange={(e) => props.setPrompt(e.target.value)} placeholder={t('cron.placeholderPrompt')} /></label>
       <label className="cron-field cron-script"><span>{t('cron.script')}</span><textarea value={props.script} onChange={(e) => props.setScript(e.target.value)} placeholder={t('cron.placeholderScript')} /></label>
       {props.editingId && <label className="cron-field cron-fullwidth"><span>{t('cron.deliver')}</span><input value={deliverDisplay(props.deliver)} readOnly /></label>}
+      {props.editingId && <section className="cron-tools-field cron-fullwidth"><span>{t('cron.enabledTools')}</span><div className="cron-tool-list">{cronEnabledToolsets(props.currentJob).map((toolset) => <span className="cron-tool-chip" key={toolset}>{toolset}</span>)}{!cronEnabledToolsets(props.currentJob).length && <span className="cron-tool-chip muted">{t('cron.allDefaultTools')}</span>}</div></section>}
       {props.editingId && <section className="cron-output-panel cron-fullwidth"><div className="cron-output-head"><div className="cron-output-title">{props.cronOutput?.timestamp && <time className="cron-output-timestamp" dateTime={props.cronOutput.timestamp}>{props.cronOutput.timestamp}</time>}<span>{t('cron.lastOutput')}</span></div><button type="button" className="mobile-icon-only" onClick={props.refreshCronOutput} disabled={props.cronOutputLoading}><RefreshCw /> <span className="btn-label">{t('cron.refreshOutput')}</span></button></div><pre>{props.cronOutputLoading ? t('cron.loadingOutput') : props.cronOutput?.content ? `${props.cronOutput.content}${props.cronOutput.truncated ? `\n\n${t('cron.outputTruncated')}` : ''}` : t('cron.noOutput')}</pre></section>}
     </div></section>
   </main>;

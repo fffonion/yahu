@@ -64,6 +64,22 @@ describe('cron manager split editor layout', () => {
     expect(styles).not.toContain('.cron-output-panel pre{margin:0;overflow:visible;white-space:pre-wrap;word-break:break-word;font:12px/1.45 var(--mono);color:var(--text);background:var(--surface);');
   });
 
+  test('selected cron detail shows the enabled toolsets from the API job row', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('enabled_toolsets?: string[]; enabledToolsets?: string[]');
+    expect(source).toContain('function cronEnabledToolsets(job?: Job | null): string[]');
+    expect(source).toContain('const activeCronJob = cronJobs.find((job) => jobId(job) === cronEditingId) || null;');
+    expect(source).toContain('currentJob={activeCronJob}');
+    expect(source).toContain('className="cron-tools-field cron-fullwidth"');
+    expect(source).toContain("{t('cron.enabledTools')}");
+    expect(source).toContain('cronEnabledToolsets(props.currentJob).map((toolset) => <span className="cron-tool-chip" key={toolset}>{toolset}</span>)');
+    expect(source).toContain("{!cronEnabledToolsets(props.currentJob).length && <span className=\"cron-tool-chip muted\">{t('cron.allDefaultTools')}</span>}");
+    expect(styles).toContain('.cron-tools-field{display:grid;gap:7px;min-width:0}');
+    expect(styles).toContain('.cron-tool-list{display:flex;flex-wrap:wrap;gap:6px;min-width:0}');
+    expect(styles).toContain('.cron-tool-chip{display:inline-flex;align-items:center;min-height:28px;padding:5px 9px;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);color:var(--text);font-size:12px;line-height:1.2}');
+  });
+
   test('places the latest output timestamp first and lets the page carry output scrolling', () => {
     const source = app();
     const styles = css();
