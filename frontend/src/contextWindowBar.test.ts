@@ -8,21 +8,23 @@ describe('chat composer context window meter', () => {
   test('composer renders an API-token context window bar immediately before send', () => {
     const source = app();
     expect(source).toContain('type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string }');
-    expect(source).toContain('function ContextWindowMeter({ used, total }: { used?: number; total?: number })');
+    expect(source).toContain('function ContextWindowMeter({ used, total, approximate = false }: { used?: number; total?: number; approximate?: boolean })');
     expect(source).toContain('const contextWindowTotal = currentModelOption?.contextLength || fallbackContextWindowForModel(currentModel);');
-    expect(source).toContain('const contextWindowUsed = exactContextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer);');
-    expect(source).toContain('<ContextWindowMeter used={contextWindowUsed} total={contextWindowTotal} />\n          <button className="send-btn mobile-icon-only"');
-    expect(source).not.toContain('function estimateContextWindowTokens');
-    expect(source).not.toContain('roughTokenCount');
+    expect(source).toContain('const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer);');
+    expect(source).toContain('<ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />\n          <button className="send-btn mobile-icon-only"');
+    expect(source).toContain('function estimateContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[]): number');
+    expect(source).toContain('function roughTokenCount(text: string): number');
   });
 
-  test('context window used value is sourced from API message token_count only', () => {
+  test('context window used value prefers API token_count and falls back to approximate frontend estimates', () => {
     const source = app();
     expect(source).toContain('const tokenCount = readTokenCount(raw);');
     expect(source).toContain('if (tokenCount !== undefined) msg.tokenCount = tokenCount;');
-    expect(source).toContain('function exactContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[], hasUnloadedHistory: boolean): number | undefined');
-    expect(source).toContain('if (input.trim() || attachments.length || hasUnloadedHistory) return undefined;');
-    expect(source).toContain('if (!messages.length || messages.some((message) => message.pending || message.tokenCount === undefined)) return undefined;');
+    expect(source).toContain('function contextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[], hasUnloadedHistory: boolean): { used: number; approximate: boolean }');
+    expect(source).toContain('if (!input.trim() && !attachments.length && !hasUnloadedHistory && messages.length && messages.every((message) => !message.pending && message.tokenCount !== undefined))');
+    expect(source).toContain('return { used: exactContextWindowTokens(messages), approximate: false };');
+    expect(source).toContain('return { used: estimateContextWindowTokens(messages, input, attachments), approximate: true };');
+    expect(source).toContain('const label = `${safeUsed === undefined ? \'~\' : `${approximate ? \'~\' : \'\'}${formatContextTokens(safeUsed)}`} / ${formatContextTokens(safeTotal)}`;');
   });
 
   test('context window meter parses model context and has compact layout styling', () => {

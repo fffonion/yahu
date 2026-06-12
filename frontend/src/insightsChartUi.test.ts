@@ -114,9 +114,9 @@ describe('insights chart UI', () => {
     const css = cssSource();
     expect(app).toContain('<path className="usage-line" pathLength={1} d={linePath(item.values, width, height, pad, maxValue)} />');
     expect(app).toContain('{stacked && <path className="usage-total-line" pathLength={1} d={linePath(totalValues, width, height, pad, maxValue)} />}');
-    expect(css).toContain('.usage-line{fill:none;stroke-width:.25;');
-    expect(css).toContain('.usage-line{stroke-width:.235}');
-    expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.265;');
+    expect(css).toContain('.usage-line{fill:none;stroke-width:.5;');
+    expect(css).toContain('.usage-line{stroke-width:.47}');
+    expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.53;');
     expect(css).toContain('stroke-dasharray:1;stroke-dashoffset:1;animation:chart-draw .8s ease forwards');
   });
 

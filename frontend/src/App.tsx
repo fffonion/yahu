@@ -478,10 +478,34 @@ function flattenModelOptions(body: any): ModelOption[] {
   return out;
 }
 
-function exactContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[], hasUnloadedHistory: boolean): number | undefined {
-  if (input.trim() || attachments.length || hasUnloadedHistory) return undefined;
-  if (!messages.length || messages.some((message) => message.pending || message.tokenCount === undefined)) return undefined;
+function exactContextWindowTokens(messages: ChatMessage[]): number {
   return messages.reduce((sum, message) => sum + (message.tokenCount || 0), 0);
+}
+function roughTokenCount(text: string): number {
+  const value = String(text || '').trim();
+  if (!value) return 0;
+  const cjk = value.match(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/g)?.length || 0;
+  const rest = Math.max(0, value.length - cjk);
+  return Math.max(1, Math.ceil(cjk * 1.5 + rest / 4));
+}
+function estimateContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[]): number {
+  const messageTokens = messages.reduce((sum, message) => {
+    if (message.tokenCount !== undefined) return sum + message.tokenCount;
+    return sum + roughTokenCount(message.content) + roughTokenCount(message.reasoning || '');
+  }, 0);
+  const inputTokens = roughTokenCount(input);
+  const attachmentTokens = attachments.reduce((sum, attachment) => {
+    if (attachment.text) return sum + roughTokenCount(attachment.text);
+    if (attachment.kind === 'image') return sum + 85;
+    return sum + Math.max(1, Math.ceil((attachment.size || 0) / 1024));
+  }, 0);
+  return messageTokens + inputTokens + attachmentTokens;
+}
+function contextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[], hasUnloadedHistory: boolean): { used: number; approximate: boolean } {
+  if (!input.trim() && !attachments.length && !hasUnloadedHistory && messages.length && messages.every((message) => !message.pending && message.tokenCount !== undefined)) {
+    return { used: exactContextWindowTokens(messages), approximate: false };
+  }
+  return { used: estimateContextWindowTokens(messages, input, attachments), approximate: true };
 }
 function fallbackContextWindowForModel(modelId: string): number {
   const id = modelId.toLowerCase();
@@ -498,14 +522,14 @@ function formatContextTokens(value: number): string {
   if (value >= 1000) return `${Math.round(value / 1000)}k`;
   return String(Math.max(0, Math.round(value)));
 }
-function ContextWindowMeter({ used, total }: { used?: number; total?: number }) {
+function ContextWindowMeter({ used, total, approximate = false }: { used?: number; total?: number; approximate?: boolean }) {
   if (!total) return null;
   const safeTotal = Math.max(1, total || 1);
   const hasUsed = typeof used === 'number' && Number.isFinite(used) && used >= 0;
   const safeUsed = hasUsed ? Math.max(0, used || 0) : undefined;
   const pct = safeUsed === undefined ? 0 : Math.min(100, Math.round(safeUsed / safeTotal * 100));
-  const label = `${safeUsed === undefined ? '—' : formatContextTokens(safeUsed)} / ${formatContextTokens(safeTotal)}`;
-  const ariaLabel = safeUsed === undefined ? `Context window usage unavailable / ${formatContextTokens(safeTotal)}` : `Context window ${label}`;
+  const label = `${safeUsed === undefined ? '~' : `${approximate ? '~' : ''}${formatContextTokens(safeUsed)}`} / ${formatContextTokens(safeTotal)}`;
+  const ariaLabel = approximate ? `Estimated context window ${label}` : safeUsed === undefined ? `Context window usage unavailable / ${formatContextTokens(safeTotal)}` : `Context window ${label}`;
   return <div className="context-window-meter" role="meter" aria-valuemin={0} aria-valuemax={safeTotal} aria-valuenow={safeUsed} title={ariaLabel} aria-label={ariaLabel}>
     <span className="context-window-track"><span className="context-window-fill" style={{ width: `${pct}%` }} /></span>
     <span className="context-window-label">{label}</span>
@@ -2011,7 +2035,7 @@ function ChatMain(props: any) {
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
   const contextWindowTotal = currentModelOption?.contextLength || fallbackContextWindowForModel(currentModel);
-  const contextWindowUsed = exactContextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer);
+  const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
     const scroller = props.chatScrollRef.current;
     const nextVisibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), nextShowReasoning, nextShowToolCalls);
@@ -2063,7 +2087,7 @@ function ChatMain(props: any) {
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
           <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
-          <ContextWindowMeter used={contextWindowUsed} total={contextWindowTotal} />
+          <ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
           <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? 'Queue follow-up' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Queue' : 'Send'}</span></button>
         </div>
       </div>
