@@ -90,8 +90,12 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box{width:100%;border:0;border-radius:0;box-shadow:none;background:transparent}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{display:block;width:100%;height:48px;min-height:48px;max-height:20dvh;padding:12px 14px;border:0;border-radius:0;box-shadow:none;background:var(--surface);resize:none;overflow-y:hidden}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea:focus{border:0;box-shadow:none}');
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:4px;width:100%;padding:24px 10px 8px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control.wide{min-width:64px}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:0;width:100%;padding:24px 10px 8px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control.wide{min-width:64px;margin-left:8px}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control.wide+.dropdown-control{margin-left:4px}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .reasoning-view-toggle{margin-left:8px}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .tool-call-view-toggle{margin-left:4px}');
+    expect(styles).toContain('.composer-footer .dropdown-trigger{border-radius:var(--radius-md)}');
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))');
     expect(styles).not.toContain('.composer-wrap:not(.composer-compact) .composer-footer .attach-btn,.composer-wrap:not(.composer-compact) .composer-footer .send-btn,.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control{width:100%;min-width:0;height:44px}');
   });
@@ -131,7 +135,7 @@ describe('mobile WebUI layout and touch affordances', () => {
 
   test('compact composer send button keeps the same right inset as expanded composer', () => {
     const styles = css();
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:4px;width:100%;padding:24px 10px 8px;border-top:0;background:transparent');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:0;width:100%;padding:24px 10px 8px;border-top:0;background:transparent');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:12px;');
     expect(styles).toContain('.context-window-meter{margin-left:auto');
     expect(styles).toContain('.composer-footer .send-btn{margin-left:0;flex:0 0 auto}');
