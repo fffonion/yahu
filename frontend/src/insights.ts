@@ -17,7 +17,8 @@ export type UsageTotals = {
 };
 
 export type UsageDay = { date: string; label: string; totals: UsageTotals };
-export type UsageModel = { model: string; totals: UsageTotals; daily: UsageDay[] };
+export type UsageHour = { hour: string; label: string; totals: UsageTotals };
+export type UsageModel = { model: string; totals: UsageTotals; daily: UsageDay[]; hourly?: UsageHour[] };
 export type UsagePeriod = { days: number; totals: UsageTotals; models: UsageModel[] };
 export type UsageSource = { source: string; totals: UsageTotals };
 export type UsageInsights = {
@@ -26,6 +27,7 @@ export type UsageInsights = {
   window_days: number;
   totals: UsageTotals;
   daily: UsageDay[];
+  hourly?: UsageHour[];
   models: UsageModel[];
   sources: UsageSource[];
   periods: UsagePeriod[];
@@ -162,10 +164,18 @@ export function chartTooltipLabel(model: string, dayLabel: string, value: number
 
 export function linePath(values: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
   if (!values.length) return '';
-  return values.map((value, index) => {
-    const { x, y } = chartPoint(index, value, values.length, width, height, pad, maxValue || chartMax(values));
-    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-  }).join(' ');
+  const points = values.map((value, index) => chartPoint(index, value, values.length, width, height, pad, maxValue || chartMax(values)));
+  if (points.length === 1) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  if (points.length === 2) return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
+  const [first, ...rest] = points;
+  let path = `M ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
+  for (let index = 0; index < rest.length; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const dx = (end.x - start.x) / 3;
+    path += ` C ${(start.x + dx).toFixed(2)} ${start.y.toFixed(2)}, ${(end.x - dx).toFixed(2)} ${end.y.toFixed(2)}, ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
+  }
+  return path;
 }
 
 export function areaPath(values: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {

@@ -1,4 +1,5 @@
 const INSIGHTS_DAYS: usize = 30;
+const INSIGHTS_HOURS: usize = 24;
 const INSIGHTS_PAGE_SIZE: usize = 200;
 const INSIGHTS_SCAN_LIMIT: usize = 5_000;
 const INSIGHTS_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -224,10 +225,17 @@ struct DailyUsage {
 }
 
 #[derive(Clone)]
+struct HourlyUsage {
+    hour: String,
+    label: String,
+}
+
+#[derive(Clone)]
 struct ModelUsage {
     model: String,
     totals: UsageTotals,
     daily: BTreeMap<String, UsageTotals>,
+    hourly: BTreeMap<String, UsageTotals>,
 }
 
 async fn insights_usage(State(state): State<Arc<AppState>>) -> Response<Body> {
@@ -334,6 +342,8 @@ fn aggregate_usage_insights_with_prices(
     prices: &ModelPriceCatalog,
 ) -> serde_json::Value {
     let days = insight_days(now);
+    let hours = insight_hours(now);
+    let hour_keys: HashSet<String> = hours.iter().map(|item| item.hour.clone()).collect();
     let mut totals = UsageTotals::default();
     let mut models: HashMap<String, ModelUsage> = HashMap::new();
     let mut sources: HashMap<String, UsageTotals> = HashMap::new();
@@ -344,6 +354,7 @@ fn aggregate_usage_insights_with_prices(
         if !days.iter().any(|item| item.date == day) {
             continue;
         }
+        let hour = usage_hour_key(ts).filter(|value| hour_keys.contains(value));
         totals.add_row(row, prices);
         let model_name = row
             .get("model")
@@ -366,9 +377,16 @@ fn aggregate_usage_insights_with_prices(
                 .iter()
                 .map(|item| (item.date.clone(), UsageTotals::default()))
                 .collect(),
+            hourly: hours
+                .iter()
+                .map(|item| (item.hour.clone(), UsageTotals::default()))
+                .collect(),
         });
         model.totals.add_row(row, prices);
         model.daily.entry(day.clone()).or_default().add_row(row, prices);
+        if let Some(hour) = hour {
+            model.hourly.entry(hour).or_default().add_row(row, prices);
+        }
         sources.entry(source_name).or_default().add_row(row, prices);
     }
 
@@ -387,6 +405,21 @@ fn aggregate_usage_insights_with_prices(
             "date": item.date,
             "label": item.label,
             "totals": day_total.to_json(),
+        }));
+    }
+
+    let mut hourly_totals: Vec<serde_json::Value> = Vec::new();
+    for item in &hours {
+        let mut hour_total = UsageTotals::default();
+        for model in &model_rows {
+            if let Some(value) = model.hourly.get(&item.hour) {
+                hour_total.add_totals(value);
+            }
+        }
+        hourly_totals.push(serde_json::json!({
+            "hour": item.hour,
+            "label": item.label,
+            "totals": hour_total.to_json(),
         }));
     }
 
@@ -436,6 +469,7 @@ fn aggregate_usage_insights_with_prices(
         "window_days": INSIGHTS_DAYS,
         "totals": totals.to_json(),
         "daily": daily_totals,
+        "hourly": hourly_totals,
         "models": model_rows.into_iter().map(|model| serde_json::json!({
             "model": model.model,
             "totals": model.totals.to_json(),
@@ -443,6 +477,11 @@ fn aggregate_usage_insights_with_prices(
                 let empty = UsageTotals::default();
                 let totals = model.daily.get(&item.date).unwrap_or(&empty);
                 serde_json::json!({"date": item.date, "label": item.label, "totals": totals.to_json()})
+            }).collect::<Vec<_>>(),
+            "hourly": hours.iter().map(|item| {
+                let empty = UsageTotals::default();
+                let totals = model.hourly.get(&item.hour).unwrap_or(&empty);
+                serde_json::json!({"hour": item.hour, "label": item.label, "totals": totals.to_json()})
             }).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
         "sources": source_rows,
@@ -466,6 +505,23 @@ fn insight_days(now: f64) -> Vec<DailyUsage> {
         .collect()
 }
 
+fn insight_hours(now: f64) -> Vec<HourlyUsage> {
+    let current_hour = ((now as i64).div_euclid(3600)) * 3600;
+    (0..INSIGHTS_HOURS)
+        .rev()
+        .filter_map(|offset| {
+            chrono::DateTime::<chrono::Utc>::from_timestamp(
+                current_hour - (offset as i64 * 3600),
+                0,
+            )
+            .map(|hour| HourlyUsage {
+                hour: hour.format("%Y-%m-%dT%H:00:00Z").to_string(),
+                label: hour.format("%H:00").to_string(),
+            })
+        })
+        .collect()
+}
+
 fn unix_now_seconds() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -476,6 +532,11 @@ fn unix_now_seconds() -> f64 {
 fn usage_day_key(ts: f64) -> Option<String> {
     chrono::DateTime::<chrono::Utc>::from_timestamp(ts as i64, 0)
         .map(|date| date.date_naive().format("%Y-%m-%d").to_string())
+}
+
+fn usage_hour_key(ts: f64) -> Option<String> {
+    chrono::DateTime::<chrono::Utc>::from_timestamp(ts as i64, 0)
+        .map(|date| date.format("%Y-%m-%dT%H:00:00Z").to_string())
 }
 
 fn session_usage_timestamp(row: &serde_json::Value) -> f64 {

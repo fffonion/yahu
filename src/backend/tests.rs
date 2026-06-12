@@ -418,6 +418,32 @@ mod tests {
     }
 
     #[test]
+    fn insights_returns_recent_hourly_usage_buckets() {
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 30, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![
+            serde_json::json!({"id":"s1","source":"telegram","model":"minimax/m3","last_active":ts,"input_tokens":100,"output_tokens":20}),
+            serde_json::json!({"id":"s2","source":"telegram","model":"minimax/m3","last_active":ts - 3600.0,"input_tokens":50,"output_tokens":10}),
+        ];
+
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &ModelPriceCatalog::new());
+        let hourly = body["hourly"].as_array().unwrap();
+        let model_hourly = body["models"][0]["hourly"].as_array().unwrap();
+
+        assert_eq!(hourly.len(), 24);
+        assert_eq!(hourly.last().unwrap()["hour"], "2026-06-09T12:00:00Z");
+        assert_eq!(hourly.last().unwrap()["label"], "12:00");
+        assert_eq!(hourly.last().unwrap()["totals"]["input"], 100);
+        assert_eq!(hourly[22]["hour"], "2026-06-09T11:00:00Z");
+        assert_eq!(hourly[22]["totals"]["output"], 10);
+        assert_eq!(model_hourly.last().unwrap()["totals"]["total_tokens"], 120);
+    }
+
+    #[test]
     fn insights_estimates_cost_from_models_dev_catalog_when_api_rows_have_no_cost() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()

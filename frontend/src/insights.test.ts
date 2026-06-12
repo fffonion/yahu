@@ -15,10 +15,17 @@ describe('insights helpers', () => {
   });
 
   test('builds animated svg line and gradient area paths from usage values', () => {
-    expect(linePath([0, 50, 100], 300, 120)).toContain('L');
+    expect(linePath([0, 50, 100], 300, 120)).toContain('C');
     const area = areaPath([0, 50, 100], 300, 120);
     expect(area.endsWith('Z')).toBe(true);
     expect(area).toContain('L 288.00 108.00');
+  });
+
+  test('builds straight paths for two points and smooth cubic paths for longer series', () => {
+    expect(linePath([10, 20], 300, 120)).toContain('L');
+    const smooth = linePath([0, 50, 100], 300, 120);
+    expect(smooth).toContain('C 58.00 108.00, 104.00 60.00, 150.00 60.00');
+    expect(smooth).not.toContain(' L 150.00 60.00 L ');
   });
 
   test('builds stacked area band paths between lower and upper model totals', () => {
@@ -44,7 +51,7 @@ describe('insights helpers', () => {
     const point = chartPoint(1, 50, 3, 300, 120, { top: 10, right: 20, bottom: 30, left: 60 }, 100);
     expect(point.x).toBeCloseTo(170, 2);
     expect(point.y).toBeCloseTo(50, 2);
-    expect(linePath([0, 50, 100], 300, 120, { top: 10, right: 20, bottom: 30, left: 60 }, 200)).toContain('L 170.00 70.00');
+    expect(linePath([0, 50, 100], 300, 120, { top: 10, right: 20, bottom: 30, left: 60 }, 200)).toContain('170.00 70.00');
   });
 
   test('creates readable y-axis ticks and point tooltip labels', () => {
