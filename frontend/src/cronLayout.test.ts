@@ -46,9 +46,11 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain("/api/jobs/${encodeURIComponent(id)}/output/latest");
     expect(source).toContain('className="cron-output-panel cron-fullwidth"');
     expect(source).toContain("{t('cron.lastOutput')}");
-    expect(styles).toContain('.cron-output-panel{display:grid;gap:8px;border:1px solid var(--border);');
-    expect(styles).toContain('.cron-output-panel pre{margin:0;overflow:visible;white-space:pre-wrap;');
+    expect(styles).toContain('.cron-output-panel{display:grid;gap:7px;min-width:0}');
+    expect(styles).toContain('.cron-output-panel pre{margin:0;overflow:visible;white-space:pre-wrap;word-break:break-word;font:12px/1.45 var(--mono);color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 12px}');
+    expect(styles).not.toContain('.cron-output-panel{display:grid;gap:8px;border:1px solid var(--border);');
     expect(styles).not.toContain('.cron-output-panel pre{max-height:240px');
+    expect(styles).not.toContain('.cron-output-panel pre{margin:0;overflow:visible;white-space:pre-wrap;word-break:break-word;font:12px/1.45 var(--mono);color:var(--text);background:var(--surface);');
   });
 
   test('places the latest output timestamp first and lets the page carry output scrolling', () => {
