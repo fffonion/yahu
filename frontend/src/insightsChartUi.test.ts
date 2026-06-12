@@ -36,9 +36,9 @@ describe('insights chart UI', () => {
   test('keeps chart plot aligned to the share bar with a compact left gutter', () => {
     const app = appSource();
     const css = cssSource();
-    expect(app).toContain('const pad = { top: 14, right: 18, bottom: 28, left: 42 };');
-    expect(css).toContain('--insights-plot-left:5.8333%;--insights-plot-right:2.5%');
-    expect(css).toContain('.chart-y-axis{position:absolute;left:0;top:0;bottom:48px;width:40px;');
+    expect(app).toContain('const pad = { top: 14, right: 18, bottom: 28, left: 30 };');
+    expect(css).toContain('--insights-plot-left:4.1667%;--insights-plot-right:2.5%');
+    expect(css).toContain('.chart-y-axis{position:absolute;left:0;top:0;bottom:48px;width:34px;');
     expect(css).toContain('.chart-axis{position:absolute;left:var(--insights-plot-left);right:var(--insights-plot-right);bottom:32px;height:18px;color:var(--muted);font-size:11px}');
     expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
   });
@@ -140,7 +140,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }}');
     expect(app).toContain('className="usage-share-indicator"');
     expect(app).toContain("'--share-start': `${item.start}%`");
-    expect(css).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6;--chart-1:#8b5cf6;--chart-2:#f59e0b;--chart-3:#38bdf8;--chart-4:#ec4899;--chart-5:#84cc16;--insights-plot-left:5.8333%;--insights-plot-right:2.5%}');
+    expect(css).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6;--chart-1:#8b5cf6;--chart-2:#f59e0b;--chart-3:#38bdf8;--chart-4:#ec4899;--chart-5:#84cc16;--insights-plot-left:4.1667%;--insights-plot-right:2.5%}');
     expect(css).toContain('.usage-share-chart{display:grid;gap:0;min-height:64px;align-content:center;padding:6px 0 0}');
     expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
     expect(css).toContain('.usage-share-bar{height:9px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
