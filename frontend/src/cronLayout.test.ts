@@ -47,15 +47,27 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain('className="cron-output-panel cron-fullwidth"');
     expect(source).toContain("{t('cron.lastOutput')}");
     expect(styles).toContain('.cron-output-panel{display:grid;gap:8px;border:1px solid var(--border);');
-    expect(styles).toContain('.cron-output-panel pre{max-height:240px;margin:0;overflow:auto;white-space:pre-wrap;');
+    expect(styles).toContain('.cron-output-panel pre{margin:0;overflow:visible;white-space:pre-wrap;');
+    expect(styles).not.toContain('.cron-output-panel pre{max-height:240px');
+  });
+
+  test('places the latest output timestamp first and lets the page carry output scrolling', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('className="cron-output-title"');
+    expect(source).toContain('className="cron-output-timestamp"');
+    expect(source.indexOf('className="cron-output-timestamp"')).toBeLessThan(source.indexOf("{t('cron.lastOutput')}"));
+    expect(source).not.toContain('{props.cronOutput?.timestamp && <small>{props.cronOutput.timestamp}</small>}');
+    expect(styles).toContain('.cron-detail-wrap{min-height:0;overflow:auto;padding:22px}');
+    expect(styles).toContain('.cron-main .cron-detail{height:auto;min-height:100%;grid-template-rows:auto minmax(460px,1fr) auto auto;overflow:visible}');
   });
 
   test('mobile cron editor adapts prompt height to the viewport instead of using fixed rows', () => {
     const styles = css();
-    expect(styles).toContain('.cron-main .cron-detail{height:100%;min-height:0;grid-template-columns:1fr;grid-template-rows:auto auto minmax(96px,1fr) auto auto auto;align-content:stretch;overflow:auto}');
+    expect(styles).toContain('.cron-main .cron-detail{height:auto;min-height:100%;grid-template-columns:1fr;grid-template-rows:auto auto minmax(96px,1fr) auto auto auto;align-content:stretch;overflow:visible}');
     expect(styles).toContain('.cron-main .cron-prompt{min-height:0;height:100%;grid-template-rows:auto minmax(0,1fr)}');
     expect(styles).toContain('.cron-main .cron-prompt textarea{min-height:96px;height:100%;resize:none}');
     expect(styles).toContain('.cron-main .cron-script textarea{min-height:64px;height:64px}');
-    expect(styles).toContain('.cron-detail-wrap{height:100%;min-height:0;overflow:hidden;padding:8px 10px calc(var(--mobile-bottom-nav-height) + 10px + env(safe-area-inset-bottom,0px))}');
+    expect(styles).toContain('.cron-detail-wrap{height:100%;min-height:0;overflow:auto;padding:8px 10px calc(var(--mobile-bottom-nav-height) + 10px + env(safe-area-inset-bottom,0px))}');
   });
 });
