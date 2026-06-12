@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { areaPath, chartPoint, chartTooltipLabel, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelDailyMetricValues, modelPeriodTotals, stackedAreaPath, type UsageModel } from './insights';
+import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelDailyMetricValues, modelPeriodTotals, stackedAreaPath, type UsageModel } from './insights';
 
 describe('insights helpers', () => {
   test('formats token and percent metrics compactly', () => {
@@ -62,6 +62,15 @@ describe('insights helpers', () => {
       { value: 0, label: '0', pct: 100 },
     ]);
     expect(chartTooltipLabel('minimax-m3', '06/09', 1532, 'Input')).toBe('minimax-m3 · 06/09 · Input 1.5K');
+  });
+
+  test('places high datapoint tooltips below the point to stay inside the chart', () => {
+    expect(chartTooltipPlacement(14, 260)).toBe('below');
+    expect(chartTooltipPlacement(64, 260)).toBe('above');
+    expect(chartTooltipPlacement(230, 260)).toBe('above');
+    expect(chartTooltipAlignment(58, 720)).toBe('start');
+    expect(chartTooltipAlignment(360, 720)).toBe('center');
+    expect(chartTooltipAlignment(702, 720)).toBe('end');
   });
 
   test('summarizes a model over the selected period and recomputes derived metrics', () => {

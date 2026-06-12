@@ -162,6 +162,23 @@ export function chartTooltipLabel(model: string, dayLabel: string, value: number
   return `${model} · ${dayLabel} · ${metricLabel} ${displayValue}`;
 }
 
+export type ChartTooltipPlacement = 'above' | 'below';
+export type ChartTooltipAlignment = 'start' | 'center' | 'end';
+
+export function chartTooltipPlacement(pointY: number, chartHeight: number, topClearance = 44): ChartTooltipPlacement {
+  const y = Number(pointY || 0);
+  const height = Number(chartHeight || 0);
+  return y < Math.min(topClearance, Math.max(0, height / 2)) ? 'below' : 'above';
+}
+
+export function chartTooltipAlignment(pointX: number, chartWidth: number, edgeClearance = 96): ChartTooltipAlignment {
+  const x = Number(pointX || 0);
+  const width = Number(chartWidth || 0);
+  if (x < edgeClearance) return 'start';
+  if (x > Math.max(edgeClearance, width - edgeClearance)) return 'end';
+  return 'center';
+}
+
 export function linePath(values: number[], width: number, height: number, pad: ChartPadding = 12, maxValue?: number): string {
   if (!values.length) return '';
   const points = values.map((value, index) => chartPoint(index, value, values.length, width, height, pad, maxValue || chartMax(values)));

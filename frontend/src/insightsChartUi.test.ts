@@ -8,7 +8,7 @@ describe('insights chart UI', () => {
   test('renders left value axis and hoverable datapoint tooltips', () => {
     const app = appSource();
     expect(app).toContain('className="chart-y-axis"');
-    expect(app).toContain('className="chart-point-hit"');
+    expect(app).toContain('className={`chart-point-hit tooltip-${tooltipPlacement} tooltip-align-${tooltipAlign}`}');
     expect(app).toContain('className="chart-tooltip"');
     expect(app).toContain('aria-label={label}');
   });
@@ -35,6 +35,10 @@ describe('insights chart UI', () => {
     const css = cssSource();
     expect(css).toContain('.chart-y-axis{position:absolute;left:0;top:0;bottom:48px;width:52px;');
     expect(css).toContain('.chart-point-hit:hover .chart-tooltip,.chart-point-hit:focus .chart-tooltip,.chart-point-hit:focus-visible .chart-tooltip{opacity:1;transform:translate(-50%,-8px);pointer-events:auto}');
+    expect(css).toContain('.chart-point-hit.tooltip-below .chart-tooltip{top:22px;bottom:auto}');
+    expect(css).toContain('.chart-point-hit.tooltip-align-start .chart-tooltip{left:0;transform:translate(0,0)}');
+    expect(css).toContain('.chart-point-hit.tooltip-align-end .chart-tooltip{left:auto;right:0;transform:translate(0,0)}');
+    expect(css).toContain('.chart-point-hit.tooltip-below:hover .chart-tooltip,.chart-point-hit.tooltip-below:focus .chart-tooltip,.chart-point-hit.tooltip-below:focus-visible .chart-tooltip{transform:translate(-50%,8px)}');
     expect(css).toContain('.usage-chart svg{width:100%;height:260px;display:block;overflow:visible;position:relative;z-index:1}');
   });
 
