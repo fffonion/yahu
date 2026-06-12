@@ -1674,9 +1674,9 @@ function UsageAreaChart({ buckets, models, metric, stacked }: { buckets: Array<U
       {!stacked && <path className="usage-total-area" d={areaPath(totalValues, width, height, pad, maxValue)} />}
       {stacked ? stackedSeries.map((item) => <path key={item.model} className="usage-stack-area" d={stackedAreaPath(item.lower, item.upper, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />) : series.map((item) => <g key={item.model} className={`usage-series usage-series-${item.index}`}>
         <path className="usage-area" d={areaPath(item.values, width, height, pad, maxValue)} fill={`url(#insight-grad-${item.index})`} />
-        <path className="usage-line" d={linePath(item.values, width, height, pad, maxValue)} />
+        <path className="usage-line" pathLength={1} d={linePath(item.values, width, height, pad, maxValue)} />
       </g>)}
-      {stacked && <path className="usage-total-line" d={linePath(totalValues, width, height, pad, maxValue)} />}
+      {stacked && <path className="usage-total-line" pathLength={1} d={linePath(totalValues, width, height, pad, maxValue)} />}
     </svg>
     <div className="chart-y-axis" aria-hidden="true">{yTicks.map((tick, tickIndex) => <span key={`${tickIndex}-${tick.label}`} style={{ top: `${tick.pct}%` }}>{tick.label}</span>)}</div>
     <div className="chart-points">{pointSeries.map((item) => item.values.map((value, pointIndex) => { const bucket = buckets[pointIndex]; const point = chartPoint(pointIndex, item.pointValues[pointIndex], item.values.length, width, height, pad, maxValue); const label = chartTooltipLabel(item.model, bucket?.label || '', value, usageMetricLabel(metric), formatMetricValue(metric, value)); const tooltipPlacement = chartTooltipPlacement(point.y, height); const tooltipAlign = chartTooltipAlignment(point.x, width); return <span key={`${item.model}-${isHourlyBucket(bucket) ? bucket.hour : bucket?.date || pointIndex}`} className={`chart-point-hit tooltip-${tooltipPlacement} tooltip-align-${tooltipAlign}`} tabIndex={0} aria-label={label} style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%`, '--hit-width': `${pointHitWidthPct}%`, '--point-color': `var(--chart-${item.index})` } as React.CSSProperties}><span className="chart-tooltip" aria-hidden="true">{label}</span></span>; }))}</div>

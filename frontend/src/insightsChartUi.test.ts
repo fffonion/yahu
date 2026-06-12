@@ -101,11 +101,15 @@ describe('insights chart UI', () => {
     expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);');
   });
 
-  test('uses half-width strokes for desktop mobile and stacked total lines', () => {
+  test('uses slightly thicker strokes and normalized draw animation for chart lines', () => {
+    const app = appSource();
     const css = cssSource();
-    expect(css).toContain('.usage-line{fill:none;stroke-width:.4;');
-    expect(css).toContain('.usage-line{stroke-width:.375}');
-    expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.425;');
+    expect(app).toContain('<path className="usage-line" pathLength={1} d={linePath(item.values, width, height, pad, maxValue)} />');
+    expect(app).toContain('{stacked && <path className="usage-total-line" pathLength={1} d={linePath(totalValues, width, height, pad, maxValue)} />}');
+    expect(css).toContain('.usage-line{fill:none;stroke-width:.5;');
+    expect(css).toContain('.usage-line{stroke-width:.47}');
+    expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:.53;');
+    expect(css).toContain('stroke-dasharray:1;stroke-dashoffset:1;animation:chart-draw .8s ease forwards');
   });
 
   test('renders one-day usage as an hourly chart with stack and fill, and embeds the share bar under the chart', () => {
