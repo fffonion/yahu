@@ -77,3 +77,4 @@ select,input,textarea{border-radius:var(--radius-md)}
 
 /* Floating new messages bubble */
 .new-messages-bubble{position:absolute;left:50%;transform:translateX(-50%);bottom:100%;margin-bottom:6px;z-index:160;padding:6px 16px;border:1px solid var(--accent);border-radius:999px;background:var(--accent);color:#fff;font-size:13px;font-weight:500;cursor:pointer;box-shadow:0 4px 16px color-mix(in srgb,var(--accent) 30%,transparent);transition:opacity .2s,transform .2s;white-space:nowrap}.new-messages-bubble:hover{opacity:.9;transform:translateX(-50%) translateY(-2px)}
+@media (max-width:760px){.session-item .pin-hit{opacity:1;pointer-events:auto;transition:none}}

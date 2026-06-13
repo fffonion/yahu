@@ -219,6 +219,11 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('pointerType === \'mouse\'');
   });
 
+  test('mobile session rows avoid hover-only pin reveal so the first tap activates the row', () => {
+    const styles = css();
+    expect(styles).toContain('@media (max-width:760px){.session-item .pin-hit{opacity:1;pointer-events:auto;transition:none}');
+  });
+
   test('mobile buttons that have icon and copy hide copy while keeping labels for accessibility', () => {
     const styles = css();
     expect(styles).toContain('.btn-label{display:none}');
