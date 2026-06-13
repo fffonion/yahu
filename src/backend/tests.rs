@@ -441,22 +441,38 @@ mod tests {
             serde_json::json!({"id":"s2","source":"api_server","model":"gpt-5.5","last_active":ts - 86400.0,"input_tokens":50,"output_tokens":10,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"api_call_count":1,"tool_call_count":0,"estimated_cost_usd":0.02}),
         ];
 
-        let body = aggregate_usage_insights_with_prices(&rows, ts, &ModelPriceCatalog::new());
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &ModelPriceCatalog::new(), 7);
 
+        assert_eq!(body["window_days"], 7);
         assert_eq!(body["totals"]["input"], 150);
         assert_eq!(body["totals"]["output"], 30);
         assert_eq!(body["totals"]["cache_read"], 900);
+        assert_eq!(body["daily"].as_array().unwrap().len(), 7);
         assert_eq!(body["models"][0]["model"], "minimax/m3");
-        assert_eq!(body["periods"].as_array().unwrap().len(), 3);
-        let one_day = body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 1).unwrap();
-        assert_eq!(one_day["totals"]["input"], 100);
-        assert!(one_day["totals"]["cache_hit_rate"].as_f64().unwrap() > 0.89);
-        assert_eq!(one_day["sources"][0]["source"], "telegram");
-        assert_eq!(one_day["sources"][0]["totals"]["input"], 100);
+        assert_eq!(body["periods"].as_array().unwrap().len(), 1);
         let seven_day = body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 7).unwrap();
         assert_eq!(seven_day["sources"].as_array().unwrap().len(), 2);
         assert_eq!(seven_day["sources"][0]["source"], "telegram");
         assert_eq!(seven_day["sources"][1]["source"], "api_server");
+
+        let one_day_body = aggregate_usage_insights_with_prices(&rows, ts, &ModelPriceCatalog::new(), 1);
+        assert_eq!(one_day_body["window_days"], 1);
+        assert_eq!(one_day_body["daily"].as_array().unwrap().len(), 1);
+        assert_eq!(one_day_body["periods"].as_array().unwrap().len(), 1);
+        let one_day = one_day_body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 1).unwrap();
+        assert_eq!(one_day["totals"]["input"], 100);
+        assert!(one_day["totals"]["cache_hit_rate"].as_f64().unwrap() > 0.89);
+        assert_eq!(one_day["sources"][0]["source"], "telegram");
+        assert_eq!(one_day["sources"][0]["totals"]["input"], 100);
+    }
+
+    #[test]
+    fn insights_defaults_to_seven_day_period_and_accepts_only_ui_periods() {
+        assert_eq!(normalize_insights_period(None), 7);
+        assert_eq!(normalize_insights_period(Some(7)), 7);
+        assert_eq!(normalize_insights_period(Some(1)), 1);
+        assert_eq!(normalize_insights_period(Some(30)), 30);
+        assert_eq!(normalize_insights_period(Some(2)), 7);
     }
 
     #[test]
@@ -472,7 +488,7 @@ mod tests {
             serde_json::json!({"id":"s2","source":"telegram","model":"minimax/m3","last_active":ts - 3600.0,"input_tokens":50,"output_tokens":10}),
         ];
 
-        let body = aggregate_usage_insights_with_prices(&rows, ts, &ModelPriceCatalog::new());
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &ModelPriceCatalog::new(), 1);
         let hourly = body["hourly"].as_array().unwrap();
         let model_hourly = body["models"][0]["hourly"].as_array().unwrap();
 
@@ -511,7 +527,7 @@ mod tests {
         });
         let catalog = model_price_catalog_from_models_dev(&models_dev);
 
-        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog);
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog, 1);
         let totals = &body["totals"];
 
         assert!((totals["estimated_cost_usd"].as_f64().unwrap() - 3.84).abs() < 0.000001);
@@ -535,7 +551,7 @@ mod tests {
         ];
         let catalog = model_price_catalog_from_models_dev(&serde_json::json!({}));
 
-        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog);
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog, 1);
 
         assert_eq!(body["totals"]["cost_usd"], 0.0);
         assert_eq!(body["totals"]["unpriced_tokens"], 60);

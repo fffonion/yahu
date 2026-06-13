@@ -1,4 +1,5 @@
-const INSIGHTS_DAYS: usize = 30;
+const INSIGHTS_DEFAULT_DAYS: usize = 7;
+const INSIGHTS_MAX_DAYS: usize = 30;
 const INSIGHTS_HOURS: usize = 24;
 const INSIGHTS_PAGE_SIZE: usize = 200;
 const INSIGHTS_SCAN_LIMIT: usize = 5_000;
@@ -238,9 +239,28 @@ struct ModelUsage {
     hourly: BTreeMap<String, UsageTotals>,
 }
 
-async fn insights_usage(State(state): State<Arc<AppState>>) -> Response<Body> {
+#[derive(Default, Deserialize)]
+struct InsightsUsageQuery {
+    period: Option<usize>,
+    days: Option<usize>,
+}
+
+fn normalize_insights_period(value: Option<usize>) -> usize {
+    match value {
+        Some(1) => 1,
+        Some(7) => 7,
+        Some(30) => 30,
+        _ => INSIGHTS_DEFAULT_DAYS,
+    }
+}
+
+async fn insights_usage(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<InsightsUsageQuery>,
+) -> Response<Body> {
     let now = unix_now_seconds();
-    match fetch_recent_sessions_for_insights(&state, now).await {
+    let period_days = normalize_insights_period(query.period.or(query.days));
+    match fetch_recent_sessions_for_insights(&state, now, period_days).await {
         Ok(rows) => {
             let prices = match fetch_models_dev_price_catalog(&state).await {
                 Ok(prices) => prices,
@@ -249,7 +269,7 @@ async fn insights_usage(State(state): State<Arc<AppState>>) -> Response<Body> {
                     ModelPriceCatalog::new()
                 }
             };
-            Json(aggregate_usage_insights_with_prices(&rows, now, &prices)).into_response()
+            Json(aggregate_usage_insights_with_prices(&rows, now, &prices, period_days)).into_response()
         }
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
@@ -287,8 +307,9 @@ async fn fetch_models_dev_price_catalog(state: &AppState) -> anyhow::Result<Mode
 async fn fetch_recent_sessions_for_insights(
     state: &AppState,
     now: f64,
+    window_days: usize,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
-    let min_ts = now - (INSIGHTS_DAYS as f64 * 86_400.0);
+    let min_ts = now - (window_days as f64 * 86_400.0);
     let mut rows = Vec::new();
     let mut offset = 0usize;
     loop {
@@ -340,8 +361,9 @@ fn aggregate_usage_insights_with_prices(
     rows: &[serde_json::Value],
     now: f64,
     prices: &ModelPriceCatalog,
+    period_days: usize,
 ) -> serde_json::Value {
-    let days = insight_days(now);
+    let days = insight_days(now, period_days);
     let hours = insight_hours(now);
     let hour_keys: HashSet<String> = hours.iter().map(|item| item.hour.clone()).collect();
     let mut totals = UsageTotals::default();
@@ -423,7 +445,7 @@ fn aggregate_usage_insights_with_prices(
         }));
     }
 
-    let periods = [30usize, 7, 1]
+    let periods = [period_days]
         .into_iter()
         .map(|period| {
             let period_dates: HashSet<String> = days
@@ -489,7 +511,7 @@ fn aggregate_usage_insights_with_prices(
     serde_json::json!({
         "object": "yahu.insights.usage",
         "generated_at": now,
-        "window_days": INSIGHTS_DAYS,
+        "window_days": period_days,
         "totals": totals.to_json(),
         "daily": daily_totals,
         "hourly": hourly_totals,
@@ -512,11 +534,11 @@ fn aggregate_usage_insights_with_prices(
     })
 }
 
-fn insight_days(now: f64) -> Vec<DailyUsage> {
+fn insight_days(now: f64, window_days: usize) -> Vec<DailyUsage> {
     let today = chrono::DateTime::<chrono::Utc>::from_timestamp(now as i64, 0)
         .unwrap_or_else(chrono::Utc::now)
         .date_naive();
-    (0..INSIGHTS_DAYS)
+    (0..window_days.min(INSIGHTS_MAX_DAYS).max(1))
         .rev()
         .map(|offset| {
             let date = today - chrono::Duration::days(offset as i64);

@@ -176,4 +176,12 @@ describe('insights chart UI', () => {
     expect(css).toContain('.chart-axis{left:var(--insights-plot-left);right:var(--insights-plot-right)}');
     expect(css).not.toContain('.chart-axis{left:52px;right:16px}');
   });
+
+  test('requests only the selected Insights period instead of all periods by default', () => {
+    const app = appSource();
+    expect(app).toContain('const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod) => {');
+    expect(app).toContain('const usageRes = await fetch(`/insights/usage?period=${period}`);');
+    expect(app).toContain("useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);");
+    expect(app).not.toContain("fetch('/insights/usage')");
+  });
 });

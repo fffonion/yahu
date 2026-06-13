@@ -776,11 +776,11 @@ export default function App() {
     } catch (err: any) { setStatus(`Models unavailable: ${err.message}`); }
   }, [activeSession?.model, activeSession?.provider, model, selectedModelProvider, setStatus]);
 
-  const loadUsageInsights = useCallback(async () => {
+  const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod) => {
     setUsageLoading(true);
     setUsageError('');
     try {
-      const usageRes = await fetch('/insights/usage');
+      const usageRes = await fetch(`/insights/usage?period=${period}`);
       if (!usageRes.ok) throw new Error(await usageRes.text());
       setUsageInsights(await usageRes.json());
     } catch (err: any) {
@@ -788,7 +788,7 @@ export default function App() {
     } finally {
       setUsageLoading(false);
     }
-  }, []);
+  }, [usagePeriod]);
 
   const loadSessions = useCallback(async (query = filter) => {
     const version = ++searchVersionRef.current;
@@ -1122,7 +1122,7 @@ export default function App() {
   }, [apiBase, cronEditingId, cronName, headers, loadCronJobs, requestConfirm, resetCronForm, showToast]);
 
   useEffect(() => { loadModels(); loadWorkspace(''); }, []);
-  useEffect(() => { if (mode === 'insights' && !usageInsights && !usageLoading) loadUsageInsights(); }, [mode, usageInsights, usageLoading, loadUsageInsights]);
+  useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
   useEffect(() => { if (mode === 'cron' && cronEditingId) loadCronOutput(cronEditingId); else setCronOutput(null); }, [mode, cronEditingId, loadCronOutput]);
