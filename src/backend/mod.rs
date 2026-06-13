@@ -56,6 +56,8 @@ const SESSION_COOKIE: &str = "hermes_webui_session";
 const MAX_PROXY_BODY: usize = 32 * 1024 * 1024;
 const SESSION_TTL: u64 = 7 * 24 * 60 * 60;
 const SESSION_REFRESH_AFTER: u64 = SESSION_TTL / 2;
+const API_MESSAGE_WATCH_WINDOW: usize = 80;
+const CHAT_STREAM_BROADCAST_CAPACITY: usize = 32;
 
 fn path_segment(value: &str) -> String {
     utf8_percent_encode(value, NON_ALPHANUMERIC)
@@ -228,7 +230,7 @@ pub async fn run() -> anyhow::Result<()> {
     let image_dir = image_dir.canonicalize().unwrap_or(image_dir);
     let (updates, _) = broadcast::channel::<String>(128);
     let (deletes, _) = broadcast::channel::<String>(128);
-    let (chat_streams, _) = broadcast::channel::<String>(256);
+    let (chat_streams, _) = broadcast::channel::<String>(CHAT_STREAM_BROADCAST_CAPACITY);
     let (fs_tx, fs_rx) = mpsc::unbounded_channel::<PathBuf>();
     let _image_watcher = start_image_watcher(&image_dir, fs_tx)?;
     tokio::spawn(process_fs_events(image_dir.clone(), fs_rx, updates.clone()));

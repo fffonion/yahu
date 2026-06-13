@@ -267,6 +267,15 @@ fn session_message_items(body: &serde_json::Value) -> Vec<serde_json::Value> {
         .unwrap_or_default()
 }
 
+fn watch_message_window(mut items: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    if items.len() <= API_MESSAGE_WATCH_WINDOW {
+        return items;
+    }
+    let split_at = items.len().saturating_sub(API_MESSAGE_WATCH_WINDOW);
+    items.drain(..split_at);
+    items
+}
+
 #[derive(Debug, Serialize)]
 struct ContextWindowUsage {
     used: i64,
@@ -574,7 +583,7 @@ async fn fetch_session_messages_for_watch(
         anyhow::bail!("message watch request failed: {}", resp.status());
     }
     let body = resp.json::<serde_json::Value>().await?;
-    Ok(session_message_items(&body))
+    Ok(watch_message_window(session_message_items(&body)))
 }
 
 async fn chat_watch(

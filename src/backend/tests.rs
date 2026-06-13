@@ -379,6 +379,27 @@ mod tests {
         assert_eq!(state.last_id, 20);
     }
 
+    #[test]
+    fn session_watch_keeps_only_recent_message_fingerprints() {
+        let items: Vec<_> = (0..(API_MESSAGE_WATCH_WINDOW + 25))
+            .map(|id| serde_json::json!({"id": id, "role": "assistant", "content": format!("message {id}")}))
+            .collect();
+
+        let watched = watch_message_window(items.clone());
+        let state = session_message_watch_state(&watched);
+
+        assert_eq!(watched.len(), API_MESSAGE_WATCH_WINDOW);
+        assert_eq!(watched[0]["id"], 25);
+        assert_eq!(state.fingerprints.len(), API_MESSAGE_WATCH_WINDOW);
+        assert!(!state.fingerprints.contains_key(&0));
+        assert!(state.fingerprints.contains_key(&((API_MESSAGE_WATCH_WINDOW + 24) as i64)));
+    }
+
+    #[test]
+    fn chat_stream_broadcast_ring_is_small_because_payloads_are_full_snapshots() {
+        assert!(CHAT_STREAM_BROADCAST_CAPACITY <= 32);
+    }
+
     #[tokio::test]
     async fn session_search_uses_api_server_messages_when_list_preview_does_not_match() {
         use std::collections::HashMap;
