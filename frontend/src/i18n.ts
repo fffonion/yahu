@@ -215,6 +215,11 @@ const translations: Record<string, Record<string, string>> = {
 'skills.selectHint': { en: 'Select a skill from the sidebar to view its files.', 'zh-CN': '从侧边栏选择一个技能查看文件。', 'zh-TW': '從側邊欄選擇一個技能查看檔案。', ja: 'サイドバーからスキルを選択してファイルを表示。' },
   'skills.enabled': { en: 'Enabled skill', 'zh-CN': '已启用技能', 'zh-TW': '已啟用技能', ja: 'スキルを有効化' },
   'skills.disabled': { en: 'Disabled skill', 'zh-CN': '已禁用技能', 'zh-TW': '已停用技能', ja: 'スキルを無効化' },
+  'skills.delete': { en: 'Delete skill', 'zh-CN': '删除技能', 'zh-TW': '刪除技能', ja: 'スキルを削除' },
+  'skills.deleteTitle': { en: 'Delete skill', 'zh-CN': '删除技能', 'zh-TW': '刪除技能', ja: 'スキルを削除' },
+  'skills.deleteConfirm': { en: 'Delete skill {0}? This removes its directory.', 'zh-CN': '删除技能 {0}？这会移除它的目录。', 'zh-TW': '刪除技能 {0}？這會移除它的目錄。', ja: 'スキル {0} を削除しますか？ディレクトリも削除されます。' },
+  'skills.deleteFailed': { en: 'Skill delete failed: {0}', 'zh-CN': '技能删除失败：{0}', 'zh-TW': '技能刪除失敗：{0}', ja: 'スキル削除に失敗しました: {0}' },
+  'skills.deleted': { en: 'Skill deleted', 'zh-CN': '技能已删除', 'zh-TW': '技能已刪除', ja: 'スキルを削除しました' },
 
   // Settings
   'settings.title': { en: 'Settings', 'zh-CN': '设置', 'zh-TW': '設定', ja: '設定' },

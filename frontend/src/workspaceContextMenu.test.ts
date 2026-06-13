@@ -48,7 +48,7 @@ describe('workspace collapse and context menu', () => {
   test('workspace context menus close on outside pointer down', () => {
     const source = app();
     expect(source).toContain("window.addEventListener('pointerdown', onPointerDown, true)");
-    expect(source).toContain("target?.closest('.session-context-menu,.workspace-context-menu')");
+    expect(source).toContain("target?.closest('.session-context-menu,.skill-context-menu,.workspace-context-menu')");
   });
 
   test('backend exposes workspace item rename and delete routes', () => {

@@ -34,6 +34,19 @@ describe('skills UI', () => {
     expect(source).toContain('className="skill-enable-toggle"');
   });
 
+  test('skill rows expose a right-click delete menu with confirmation', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('type SkillContextMenu = { skill: Skill; x: number; y: number } | null;');
+    expect(source).toContain('const [skillMenu, setSkillMenu] = useState<SkillContextMenu>(null);');
+    expect(source).toContain('openSkillMenu(skill, ev)');
+    expect(source).toContain('className="skill-context-menu"');
+    expect(source).toContain('deleteSkill(skillMenu.skill)');
+    expect(source).toContain("fetch(`/skills/${encodeURIComponent(skill.name)}`, { method: 'DELETE' })");
+    expect(source).toContain("requestConfirm(t('skills.deleteTitle'), tf('skills.deleteConfirm', skill.name), true)");
+    expect(styles).toContain('.skill-context-menu');
+  });
+
   test('skills are opened only from explicit selection or skill hash routes', () => {
     const source = app();
     expect(source).toContain("const [skillRouteTarget, setSkillRouteTarget] = useState(initialRoute.mode === 'skills' ? initialRoute.skillName || '' : '')");
@@ -77,6 +90,10 @@ describe('skills backend API', () => {
     expect(source).toContain('.route("/skills/files", get(skill_files))');
     expect(source).toContain('.route("/skills/file", get(skill_file))');
     expect(source).toContain('.route("/skills/toggle/{name}", post(skill_toggle))');
+    expect(source).toContain('.route("/skills/{name}", delete(skill_delete))');
+    expect(source).toContain('async fn skill_delete');
+    expect(source).toContain('delete_skill_dir');
+    expect(source).toContain('skill directory is not user-deletable');
     expect(source).toContain('find_skill_dir');
     expect(source).toContain('resolve_skill_file_path');
     expect(source).toContain('skills_config import get_disabled_skills, save_disabled_skills');

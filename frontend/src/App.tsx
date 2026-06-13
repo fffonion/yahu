@@ -31,6 +31,7 @@ type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
+type SkillContextMenu = { skill: Skill; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
 type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'none'; url?: string; editRequest?: number };
 type Skill = { name: string; description?: string; category?: string; enabled?: boolean };
@@ -594,6 +595,7 @@ export default function App() {
   const [activeSessionDetail, setActiveSessionDetail] = useState<Session | null>(null);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(readPinnedIds);
   const [sessionMenu, setSessionMenu] = useState<SessionContextMenu>(null);
+  const [skillMenu, setSkillMenu] = useState<SkillContextMenu>(null);
   const [workspaceMenu, setWorkspaceMenu] = useState<WorkspaceContextMenu>(null);
   const [cronJobs, setCronJobs] = useState<Job[]>([]);
   const [cronName, setCronName] = useState('');
@@ -1036,6 +1038,27 @@ export default function App() {
     setSkillList((old) => old.map((item) => item.name === skill.name ? { ...item, enabled } : item));
     setStatus(`${enabled ? 'Enabled' : 'Disabled'} skill: ${skill.name}`);
   }, []);
+  const openSkillMenu = (skill: Skill, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const x = Math.min(event.clientX, window.innerWidth - 190);
+    const y = Math.min(event.clientY, window.innerHeight - 112);
+    setSkillMenu({ skill, x: Math.max(8, x), y: Math.max(8, y) });
+  };
+  const deleteSkill = async (skill: Skill) => {
+    setSkillMenu(null);
+    if (!await requestConfirm(t('skills.deleteTitle'), tf('skills.deleteConfirm', skill.name), true)) return;
+    const res = await fetch(`/skills/${encodeURIComponent(skill.name)}`, { method: 'DELETE' });
+    if (!res.ok) { setStatus(tf('skills.deleteFailed', await res.text())); return; }
+    setSkillList((old) => old.filter((item) => item.name !== skill.name));
+    if (selectedSkillName === skill.name) {
+      clearSelectedSkill();
+      writeHashRoute({ mode: 'skills' });
+    }
+    await loadSkills();
+    setStatus(t('skills.deleted'));
+    showToast(t('skills.deleted'));
+  };
   const toggleSkillFolder = useCallback(async (entry: WorkspaceEntry) => {
     if (!selectedSkill || entry.kind !== 'dir') return;
     const path = entry.path || '';
@@ -1200,12 +1223,13 @@ export default function App() {
     return () => { es.close(); watchSourceRef.current = null; };
   }, [activeSessionId, clearNewMessages, loadContextWindowSnapshot]);
   useEffect(() => {
-    if (!sessionMenu && !workspaceMenu) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setWorkspaceMenu(null); } };
+    if (!sessionMenu && !skillMenu && !workspaceMenu) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setSkillMenu(null); setWorkspaceMenu(null); } };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
-      if (target?.closest('.session-context-menu,.workspace-context-menu')) return;
+      if (target?.closest('.session-context-menu,.skill-context-menu,.workspace-context-menu')) return;
       setSessionMenu(null);
+      setSkillMenu(null);
       setWorkspaceMenu(null);
     };
     window.addEventListener('keydown', onKey);
@@ -1214,7 +1238,7 @@ export default function App() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onPointerDown, true);
     };
-  }, [sessionMenu, workspaceMenu]);
+  }, [sessionMenu, skillMenu, workspaceMenu]);
   useLayoutEffect(() => {
     if (!scrollLatestAfterRenderRef.current) return;
     scrollLatestAfterRenderRef.current = false;
@@ -1625,7 +1649,7 @@ export default function App() {
           <button className={`rail-btn nav-settings ${mode === 'settings' ? 'active' : ''}`} onClick={() => setNavMode('settings')} title={t('nav.settings')}><Settings /></button>
         </div>
         {!sidebarCollapsed && <div className="left-body">
-          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} startDraftSession={startDraftSession} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={switchActiveSession} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} closeMobileSidebar={closeMobileSidebar} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
+          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} startDraftSession={startDraftSession} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={switchActiveSession} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} openSkillMenu={openSkillMenu} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} closeMobileSidebar={closeMobileSidebar} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
         </div>}
         {!sidebarCollapsed && <ThemeCard theme={theme} setTheme={setTheme} />}
       </aside>
@@ -1633,6 +1657,9 @@ export default function App() {
       {sessionMenu && <div className="session-context-menu" role="menu" style={{ left: sessionMenu.x, top: sessionMenu.y }} onContextMenu={(event) => event.preventDefault()}>
         <button type="button" role="menuitem" onClick={() => renameSession(sessionMenu.session)}><Pencil /> {t('chat.rename')}</button>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSession(sessionMenu.session)}><Trash2 /> {t('chat.delete')}</button>
+      </div>}
+      {skillMenu && <div className="skill-context-menu" role="menu" style={{ left: skillMenu.x, top: skillMenu.y }} onContextMenu={(event) => event.preventDefault()}>
+        <button type="button" role="menuitem" className="danger" onClick={() => deleteSkill(skillMenu.skill)}><Trash2 /> {t('skills.delete')}</button>
       </div>}
       {workspaceMenu && <div className="workspace-context-menu" role="menu" style={{ left: workspaceMenu.x, top: workspaceMenu.y }} onContextMenu={(event) => event.preventDefault()}>
         {workspaceMenu.entry.kind === 'file' && <><button type="button" role="menuitem" onClick={() => viewWorkspaceEntry(workspaceMenu.entry)}><Eye /> {t('workspace.viewItem')}</button><button type="button" role="menuitem" onClick={() => editWorkspaceEntryPage(workspaceMenu.entry)}><Pencil /> {t('workspace.editItemPage')}</button></>}
@@ -2183,14 +2210,14 @@ function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, 
   });
   return <><div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div></div><div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div></>;
 }
-function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, filter, setFilter, expandedCats, setExpandedCats, closeMobileSidebar }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; filter: string; setFilter: (v: string) => void; expandedCats: Set<string>; setExpandedCats: (v: Set<string>) => void; closeMobileSidebar: () => void }) {
+function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, openSkillMenu, filter, setFilter, expandedCats, setExpandedCats, closeMobileSidebar }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; openSkillMenu: (skill: Skill, event: React.MouseEvent) => void; filter: string; setFilter: (v: string) => void; expandedCats: Set<string>; setExpandedCats: (v: Set<string>) => void; closeMobileSidebar: () => void }) {
   const grouped = skills.reduce<Record<string, Skill[]>>((acc, skill) => { const cat = skill.category || 'uncategorized'; if (cat === '.archive') return acc; (acc[cat] ||= []).push(skill); return acc; }, {});
   const cats = Object.keys(grouped).sort();
   const query = filter.trim().toLowerCase();
   const filteredCats = query ? cats.filter((cat) => grouped[cat].some((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query))) : cats;
   const filteredSkills = (cat: string) => query ? grouped[cat].filter((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query)) : grouped[cat];
   const toggleCat = (cat: string) => setExpandedCats(new Set(expandedCats.has(cat) ? [...expandedCats].filter((c) => c !== cat) : [...expandedCats, cat]));
-  return <><div className="cron-sidebar-head"><div><h2>Skills</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
+  return <><div className="cron-sidebar-head"><div><h2>Skills</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
 function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
   return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} /></main>;

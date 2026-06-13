@@ -21,7 +21,7 @@ use axum::{
         Html, IntoResponse,
         sse::{Event as SseEvent, KeepAlive, Sse},
     },
-    routing::{any, get, patch, post},
+    routing::{any, delete, get, patch, post},
 };
 use base64::{
     Engine as _,
@@ -272,6 +272,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/skills/files", get(skill_files))
         .route("/skills/file", get(skill_file))
         .route("/skills/toggle/{name}", post(skill_toggle))
+        .route("/skills/{name}", delete(skill_delete))
         .route("/memory", get(memory_get).put(memory_put))
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))

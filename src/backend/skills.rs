@@ -123,6 +123,42 @@ async fn skill_toggle(
         ),
     }
 }
+
+async fn skill_delete(
+    State(state): State<Arc<AppState>>,
+    AxumPath(name): AxumPath<String>,
+) -> Response<Body> {
+    match delete_skill_dir(&state, &name).await {
+        Ok(path) => Json(serde_json::json!({"ok": true, "name": name, "deleted_path": path.display().to_string()})).into_response(),
+        Err(err) => {
+            let message = err.to_string();
+            let status = if message.contains("skill not found") {
+                StatusCode::NOT_FOUND
+            } else if message.contains("skill directory is not user-deletable") {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            json_error(status, &message)
+        }
+    }
+}
+
+async fn delete_skill_dir(state: &AppState, name: &str) -> anyhow::Result<PathBuf> {
+    let dir = find_skill_dir(state, name)?;
+    let user_root_raw = state.hermes_home.join("skills");
+    let user_root = user_root_raw.canonicalize().unwrap_or(user_root_raw);
+    let canonical = dir.canonicalize()?;
+    if !canonical.starts_with(&user_root) {
+        anyhow::bail!("skill directory is not user-deletable");
+    }
+    if !canonical.join("SKILL.md").is_file() {
+        anyhow::bail!("skill directory is invalid");
+    }
+    fs::remove_dir_all(&canonical).await?;
+    let _ = set_skill_enabled(state, name, true).await;
+    Ok(canonical)
+}
 fn skill_roots(state: &AppState) -> Vec<PathBuf> {
     let mut roots = vec![state.hermes_home.join("skills")];
     let agent_dir = env::var("HERMES_AGENT_DIR")

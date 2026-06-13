@@ -292,6 +292,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skill_delete_removes_user_skill_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let skill_dir = temp.path().join("skills/dev/demo-skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo-skill\ndescription: Demo\n---\n# Demo\n",
+        )
+        .unwrap();
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let expected = skill_dir.canonicalize().unwrap();
+
+        let deleted = delete_skill_dir(&state, "demo-skill").await.unwrap();
+
+        assert_eq!(deleted, expected);
+        assert!(!skill_dir.exists());
+    }
+
+    #[tokio::test]
+    async fn skill_delete_rejects_bundled_optional_skills() {
+        let temp = tempfile::tempdir().unwrap();
+        let skill_dir = temp.path().join("hermes-agent/optional-skills/demo-bundled");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo-bundled\ndescription: Demo\n---\n# Demo\n",
+        )
+        .unwrap();
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        let err = delete_skill_dir(&state, "demo-bundled").await.unwrap_err();
+
+        assert!(err.to_string().contains("skill directory is not user-deletable"));
+        assert!(skill_dir.join("SKILL.md").exists());
+    }
+
+    #[tokio::test]
     async fn session_search_uses_api_server_list_endpoint_without_state_db() {
         use std::collections::HashMap;
 
