@@ -2509,10 +2509,10 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const mergeImage = (entry: ImageEntry) => updateImages([entry, ...imagesRef.current.filter((x) => x.filename !== entry.filename)]);
   const openImageModal = (item: ImageEntry) => { setModal(item); setModalMetadataOpen(false); writeHashRoute({ mode: 'images', imageFilename: item.filename }); buildHashRoute({ mode: 'images', imageFilename: item.filename }); };
   const closeImageModal = () => { setModal(null); setModalMetadataOpen(false); writeHashRoute({ mode: 'images' }); };
-  const removeImages = (names: string[]) => {
+  const removeImages = (names: string[], modalReplacement?: ImageEntry | null) => {
     const gone = new Set(names.filter(Boolean));
     const currentModal = modal;
-    const nextModal = currentModal ? nextImageAfterRemoval(imagesRef.current, Array.from(gone), currentModal.filename) : null;
+    const nextModal = modalReplacement !== undefined ? modalReplacement : currentModal ? nextImageAfterRemoval(imagesRef.current, Array.from(gone), currentModal.filename) : null;
     const nextImages = imagesRef.current.filter((x) => !gone.has(x.filename));
     updateImages(nextImages);
     setSelected((old) => new Set(Array.from(old).filter((x) => !gone.has(x))));
@@ -2802,10 +2802,11 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   };
   const deleteNames = async (names: string[]) => {
     if (!names.length) return;
+    const nextModalAfterDelete = modal && names.includes(modal.filename) ? nextImageAfterRemoval(imagesRef.current, names, modal.filename) : null;
     if (!await requestConfirm('Delete images', `Delete ${names.length} image(s)? This cannot be undone.`, true)) return;
     const res = await fetch('/image-api/batch-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filenames: names }) });
     if (!res.ok) { setNotice(await res.text()); return; }
-    removeImages(names); setSelecting(false); await loadStats();
+    removeImages(names, nextModalAfterDelete); setSelecting(false); await loadStats();
   };
   const downloadSelectedFiles = async (names: string[]) => {
     if (!names.length) return;
