@@ -220,6 +220,16 @@ const translations: Record<string, Record<string, string>> = {
   'skills.deleteConfirm': { en: 'Delete skill {0}? This removes its directory.', 'zh-CN': '删除技能 {0}？这会移除它的目录。', 'zh-TW': '刪除技能 {0}？這會移除它的目錄。', ja: 'スキル {0} を削除しますか？ディレクトリも削除されます。' },
   'skills.deleteFailed': { en: 'Skill delete failed: {0}', 'zh-CN': '技能删除失败：{0}', 'zh-TW': '技能刪除失敗：{0}', ja: 'スキル削除に失敗しました: {0}' },
   'skills.deleted': { en: 'Skill deleted', 'zh-CN': '技能已删除', 'zh-TW': '技能已刪除', ja: 'スキルを削除しました' },
+  'skills.renameFile': { en: 'Rename', 'zh-CN': '重命名', 'zh-TW': '重新命名', ja: '名前変更' },
+  'skills.renameFileTitle': { en: 'Rename skill file', 'zh-CN': '重命名技能文件', 'zh-TW': '重新命名技能檔案', ja: 'スキルファイル名を変更' },
+  'skills.renameFileMessage': { en: 'Enter the new name.', 'zh-CN': '输入新名称。', 'zh-TW': '輸入新名稱。', ja: '新しい名前を入力してください。' },
+  'skills.renameFileFailed': { en: 'Skill file rename failed: {0}', 'zh-CN': '技能文件重命名失败：{0}', 'zh-TW': '技能檔案重新命名失敗：{0}', ja: 'スキルファイル名の変更に失敗しました: {0}' },
+  'skills.renamedFile': { en: 'Skill file renamed', 'zh-CN': '技能文件已重命名', 'zh-TW': '技能檔案已重新命名', ja: 'スキルファイル名を変更しました' },
+  'skills.deleteFile': { en: 'Delete', 'zh-CN': '删除', 'zh-TW': '刪除', ja: '削除' },
+  'skills.deleteFileTitle': { en: 'Delete skill file', 'zh-CN': '删除技能文件', 'zh-TW': '刪除技能檔案', ja: 'スキルファイルを削除' },
+  'skills.deleteFileConfirm': { en: 'Delete {0} {1}?', 'zh-CN': '删除 {0} {1}？', 'zh-TW': '刪除 {0} {1}？', ja: '{0} {1} を削除しますか？' },
+  'skills.deleteFileFailed': { en: 'Skill file delete failed: {0}', 'zh-CN': '技能文件删除失败：{0}', 'zh-TW': '技能檔案刪除失敗：{0}', ja: 'スキルファイル削除に失敗しました: {0}' },
+  'skills.deletedFile': { en: 'Skill file deleted', 'zh-CN': '技能文件已删除', 'zh-TW': '技能檔案已刪除', ja: 'スキルファイルを削除しました' },
 
   // Settings
   'settings.title': { en: 'Settings', 'zh-CN': '设置', 'zh-TW': '設定', ja: '設定' },

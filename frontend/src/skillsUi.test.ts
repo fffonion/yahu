@@ -74,6 +74,19 @@ describe('skills UI', () => {
     expect(styles).toContain('.skill-workspace');
   });
 
+  test('skill file workspace rows expose right-click rename and delete actions', () => {
+    const source = app();
+    expect(source).toContain('type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y: number } | null;');
+    expect(source).toContain('const [skillFileMenu, setSkillFileMenu] = useState<SkillFileContextMenu>(null);');
+    expect(source).toContain('openSkillFileMenu(skill, entry, ev)');
+    expect(source).toContain('className="skill-file-context-menu"');
+    expect(source).toContain('renameSkillFileEntry(skillFileMenu.skill, skillFileMenu.entry)');
+    expect(source).toContain('deleteSkillFileEntry(skillFileMenu.skill, skillFileMenu.entry)');
+    expect(source).toContain("fetch(`/skills/item?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(entry.path)}`, { method: 'PATCH'");
+    expect(source).toContain("fetch(`/skills/item?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(entry.path)}`, { method: 'DELETE' })");
+    expect(source).toContain("requestConfirm(t('skills.deleteFileTitle'), tf('skills.deleteFileConfirm', entry.kind, entry.name), true)");
+  });
+
   test('hash routes support skills mode', () => {
     const source = routes();
     expect(source).toContain("mode === 'skills'");
@@ -90,7 +103,12 @@ describe('skills backend API', () => {
     expect(source).toContain('.route("/skills/files", get(skill_files))');
     expect(source).toContain('.route("/skills/file", get(skill_file))');
     expect(source).toContain('.route("/skills/toggle/{name}", post(skill_toggle))');
+    expect(source).toContain('.route("/skills/item", patch(skill_item_rename).delete(skill_item_delete))');
     expect(source).toContain('.route("/skills/{name}", delete(skill_delete))');
+    expect(source).toContain('async fn skill_item_rename');
+    expect(source).toContain('async fn skill_item_delete');
+    expect(source).toContain('skill_item_destination_path');
+    expect(source).toContain('skill item not found');
     expect(source).toContain('async fn skill_delete');
     expect(source).toContain('delete_skill_dir');
     expect(source).toContain('skill directory is not user-deletable');

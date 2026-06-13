@@ -328,6 +328,43 @@ mod tests {
         assert!(skill_dir.join("SKILL.md").exists());
     }
 
+    #[test]
+    fn skill_item_destination_keeps_rename_inside_parent_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "hermes-webui-skill-item-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_nanos()
+        ));
+        let nested = root.join("references");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("old.md"), "hello").unwrap();
+
+        let target = skill_item_destination_path(&root, "references/old.md", "new.md").unwrap();
+
+        assert_eq!(target, nested.join("new.md"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn skill_item_destination_rejects_path_like_new_names() {
+        let root = std::env::temp_dir().join(format!(
+            "hermes-webui-skill-item-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("old.md"), "hello").unwrap();
+
+        let err = skill_item_destination_path(&root, "old.md", "../bad.md").unwrap_err();
+
+        assert!(err.to_string().contains("new name must be a single file name"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
     #[tokio::test]
     async fn session_search_uses_api_server_list_endpoint_without_state_db() {
         use std::collections::HashMap;

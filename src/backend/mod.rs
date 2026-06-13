@@ -272,6 +272,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/skills/files", get(skill_files))
         .route("/skills/file", get(skill_file))
         .route("/skills/toggle/{name}", post(skill_toggle))
+        .route("/skills/item", patch(skill_item_rename).delete(skill_item_delete))
         .route("/skills/{name}", delete(skill_delete))
         .route("/memory", get(memory_get).put(memory_put))
         .route("/models-cache", get(models_cached))

@@ -124,6 +124,92 @@ async fn skill_toggle(
     }
 }
 
+async fn skill_item_rename(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SkillQuery>,
+    Json(payload): Json<WorkspaceRenamePayload>,
+) -> Response<Body> {
+    let name = query.name.unwrap_or_default();
+    let rel = query.path.unwrap_or_default();
+    if rel.trim().is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "path is required");
+    }
+    let root = match user_skill_dir(&state, &name) {
+        Ok(path) => path,
+        Err(err) => return skill_mutation_error(err),
+    };
+    let source = match resolve_skill_file_path(&root, &rel) {
+        Ok(path) => path,
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
+    };
+    if fs::metadata(&source).await.is_err() {
+        return json_error(StatusCode::NOT_FOUND, "skill item not found");
+    }
+    let target = match skill_item_destination_path(&root, &rel, &payload.name) {
+        Ok(path) => path,
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
+    };
+    if fs::metadata(&target).await.is_ok() {
+        return json_error(StatusCode::CONFLICT, "target already exists");
+    }
+    if let Err(err) = fs::rename(&source, &target).await {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("cannot rename skill item: {err}"),
+        );
+    }
+    let parent = rel_parent(&rel);
+    let path = rel_join(&parent, &payload.name);
+    Json(serde_json::json!({"ok": true, "path": path, "name": payload.name})).into_response()
+}
+
+async fn skill_item_delete(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SkillQuery>,
+) -> Response<Body> {
+    let name = query.name.unwrap_or_default();
+    let rel = query.path.unwrap_or_default();
+    if rel.trim().is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "path is required");
+    }
+    let root = match user_skill_dir(&state, &name) {
+        Ok(path) => path,
+        Err(err) => return skill_mutation_error(err),
+    };
+    let path = match resolve_skill_file_path(&root, &rel) {
+        Ok(path) => path,
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
+    };
+    let meta = match fs::metadata(&path).await {
+        Ok(meta) => meta,
+        Err(_) => return json_error(StatusCode::NOT_FOUND, "skill item not found"),
+    };
+    let result = if meta.is_dir() {
+        fs::remove_dir_all(&path).await
+    } else {
+        fs::remove_file(&path).await
+    };
+    if let Err(err) = result {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("cannot delete skill item: {err}"),
+        );
+    }
+    Json(serde_json::json!({"ok": true, "path": rel})).into_response()
+}
+
+fn skill_mutation_error(err: anyhow::Error) -> Response<Body> {
+    let message = err.to_string();
+    let status = if message.contains("skill not found") {
+        StatusCode::NOT_FOUND
+    } else if message.contains("skill directory is not user-deletable") {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+    json_error(status, &message)
+}
+
 async fn skill_delete(
     State(state): State<Arc<AppState>>,
     AxumPath(name): AxumPath<String>,
@@ -145,6 +231,13 @@ async fn skill_delete(
 }
 
 async fn delete_skill_dir(state: &AppState, name: &str) -> anyhow::Result<PathBuf> {
+    let canonical = user_skill_dir(state, name)?;
+    fs::remove_dir_all(&canonical).await?;
+    let _ = set_skill_enabled(state, name, true).await;
+    Ok(canonical)
+}
+
+fn user_skill_dir(state: &AppState, name: &str) -> anyhow::Result<PathBuf> {
     let dir = find_skill_dir(state, name)?;
     let user_root_raw = state.hermes_home.join("skills");
     let user_root = user_root_raw.canonicalize().unwrap_or(user_root_raw);
@@ -155,9 +248,28 @@ async fn delete_skill_dir(state: &AppState, name: &str) -> anyhow::Result<PathBu
     if !canonical.join("SKILL.md").is_file() {
         anyhow::bail!("skill directory is invalid");
     }
-    fs::remove_dir_all(&canonical).await?;
-    let _ = set_skill_enabled(state, name, true).await;
     Ok(canonical)
+}
+
+fn skill_item_destination_path(root: &Path, rel: &str, new_name: &str) -> anyhow::Result<PathBuf> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        anyhow::bail!("new name must be a single file name");
+    }
+    let mut components = Path::new(trimmed).components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(_)), None) => {}
+        _ => anyhow::bail!("new name must be a single file name"),
+    }
+    let source = resolve_skill_file_path(root, rel)?;
+    let parent = source
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("skill item has no parent"))?;
+    let target = parent.join(trimmed);
+    if !target.starts_with(root) {
+        anyhow::bail!("skill file path escapes root");
+    }
+    Ok(target)
 }
 fn skill_roots(state: &AppState) -> Vec<PathBuf> {
     let mut roots = vec![state.hermes_home.join("skills")];

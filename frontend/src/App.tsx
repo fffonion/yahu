@@ -35,6 +35,7 @@ type SkillContextMenu = { skill: Skill; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
 type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'none'; url?: string; editRequest?: number };
 type Skill = { name: string; description?: string; category?: string; enabled?: boolean };
+type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y: number } | null;
 type WorkspaceContextMenu = { entry: WorkspaceEntry; x: number; y: number } | null;
 type DialogState = { variant: 'prompt' | 'confirm'; title: string; message: string; value?: string; danger?: boolean; resolve: (value: any) => void } | null;
 type Job = { job_id?: string; id?: string; name?: string; schedule?: string | { display?: string; expr?: string }; prompt?: string; script?: string | null; status?: string; paused?: boolean; enabled?: boolean; enabled_toolsets?: string[]; enabledToolsets?: string[]; next_run?: string; last_run?: string; deliver?: string };
@@ -596,6 +597,7 @@ export default function App() {
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(readPinnedIds);
   const [sessionMenu, setSessionMenu] = useState<SessionContextMenu>(null);
   const [skillMenu, setSkillMenu] = useState<SkillContextMenu>(null);
+  const [skillFileMenu, setSkillFileMenu] = useState<SkillFileContextMenu>(null);
   const [workspaceMenu, setWorkspaceMenu] = useState<WorkspaceContextMenu>(null);
   const [cronJobs, setCronJobs] = useState<Job[]>([]);
   const [cronName, setCronName] = useState('');
@@ -1059,6 +1061,35 @@ export default function App() {
     setStatus(t('skills.deleted'));
     showToast(t('skills.deleted'));
   };
+  const skillEntryParentPath = (path: string) => path.split('/').filter(Boolean).slice(0, -1).join('/');
+  const openSkillFileMenu = (skill: Skill, entry: WorkspaceEntry, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const x = Math.min(event.clientX, window.innerWidth - 190);
+    const y = Math.min(event.clientY, window.innerHeight - 160);
+    setSkillFileMenu({ skill, entry, x: Math.max(8, x), y: Math.max(8, y) });
+  };
+  const renameSkillFileEntry = async (skill: Skill, entry: WorkspaceEntry) => {
+    setSkillFileMenu(null);
+    const nextName = await requestPrompt(t('skills.renameFileTitle'), t('skills.renameFileMessage'), entry.name);
+    if (nextName === null) return;
+    const res = await fetch(`/skills/item?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(entry.path)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nextName }) });
+    if (!res.ok) { setStatus(tf('skills.renameFileFailed', await res.text())); return; }
+    setSkillPreview((old) => old.path === entry.path || old.path.startsWith(`${entry.path}/`) ? { path: '', content: '', kind: 'none' } : old);
+    await loadSkillFiles(skill, skillEntryParentPath(entry.path));
+    setStatus(t('skills.renamedFile'));
+    showToast(t('skills.renamedFile'));
+  };
+  const deleteSkillFileEntry = async (skill: Skill, entry: WorkspaceEntry) => {
+    setSkillFileMenu(null);
+    if (!await requestConfirm(t('skills.deleteFileTitle'), tf('skills.deleteFileConfirm', entry.kind, entry.name), true)) return;
+    const res = await fetch(`/skills/item?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(entry.path)}`, { method: 'DELETE' });
+    if (!res.ok) { setStatus(tf('skills.deleteFileFailed', await res.text())); return; }
+    setSkillPreview((old) => old.path === entry.path || old.path.startsWith(`${entry.path}/`) ? { path: '', content: '', kind: 'none' } : old);
+    await loadSkillFiles(skill, skillEntryParentPath(entry.path));
+    setStatus(t('skills.deletedFile'));
+    showToast(t('skills.deletedFile'));
+  };
   const toggleSkillFolder = useCallback(async (entry: WorkspaceEntry) => {
     if (!selectedSkill || entry.kind !== 'dir') return;
     const path = entry.path || '';
@@ -1223,13 +1254,14 @@ export default function App() {
     return () => { es.close(); watchSourceRef.current = null; };
   }, [activeSessionId, clearNewMessages, loadContextWindowSnapshot]);
   useEffect(() => {
-    if (!sessionMenu && !skillMenu && !workspaceMenu) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setSkillMenu(null); setWorkspaceMenu(null); } };
+    if (!sessionMenu && !skillMenu && !skillFileMenu && !workspaceMenu) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setSkillMenu(null); setSkillFileMenu(null); setWorkspaceMenu(null); } };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
-      if (target?.closest('.session-context-menu,.skill-context-menu,.workspace-context-menu')) return;
+      if (target?.closest('.session-context-menu,.skill-context-menu,.skill-file-context-menu,.workspace-context-menu')) return;
       setSessionMenu(null);
       setSkillMenu(null);
+      setSkillFileMenu(null);
       setWorkspaceMenu(null);
     };
     window.addEventListener('keydown', onKey);
@@ -1238,7 +1270,7 @@ export default function App() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onPointerDown, true);
     };
-  }, [sessionMenu, skillMenu, workspaceMenu]);
+  }, [sessionMenu, skillMenu, skillFileMenu, workspaceMenu]);
   useLayoutEffect(() => {
     if (!scrollLatestAfterRenderRef.current) return;
     scrollLatestAfterRenderRef.current = false;
@@ -1661,6 +1693,10 @@ export default function App() {
       {skillMenu && <div className="skill-context-menu" role="menu" style={{ left: skillMenu.x, top: skillMenu.y }} onContextMenu={(event) => event.preventDefault()}>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSkill(skillMenu.skill)}><Trash2 /> {t('skills.delete')}</button>
       </div>}
+      {skillFileMenu && <div className="skill-file-context-menu" role="menu" style={{ left: skillFileMenu.x, top: skillFileMenu.y }} onContextMenu={(event) => event.preventDefault()}>
+        <button type="button" role="menuitem" onClick={() => renameSkillFileEntry(skillFileMenu.skill, skillFileMenu.entry)}><Pencil /> {t('skills.renameFile')}</button>
+        <button type="button" role="menuitem" className="danger" onClick={() => deleteSkillFileEntry(skillFileMenu.skill, skillFileMenu.entry)}><Trash2 /> {t('skills.deleteFile')}</button>
+      </div>}
       {workspaceMenu && <div className="workspace-context-menu" role="menu" style={{ left: workspaceMenu.x, top: workspaceMenu.y }} onContextMenu={(event) => event.preventDefault()}>
         {workspaceMenu.entry.kind === 'file' && <><button type="button" role="menuitem" onClick={() => viewWorkspaceEntry(workspaceMenu.entry)}><Eye /> {t('workspace.viewItem')}</button><button type="button" role="menuitem" onClick={() => editWorkspaceEntryPage(workspaceMenu.entry)}><Pencil /> {t('workspace.editItemPage')}</button></>}
         <button type="button" role="menuitem" onClick={() => renameWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.renameItem')}</button>
@@ -1675,7 +1711,7 @@ export default function App() {
       {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'skills' && <>
         <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
-        <SkillWorkspaceAside skill={selectedSkill} skillFileTree={skillFileTree} expandedSkillPaths={expandedSkillPaths} toggleSkillFolder={toggleSkillFolder} openSkillFile={openSkillFile} />
+        <SkillWorkspaceAside skill={selectedSkill} skillFileTree={skillFileTree} expandedSkillPaths={expandedSkillPaths} toggleSkillFolder={toggleSkillFolder} openSkillFile={openSkillFile} openSkillFileMenu={openSkillFileMenu} />
       </>}
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} currentJob={activeCronJob} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} showToast={showToast} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2222,12 +2258,12 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
 function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
   return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} /></main>;
 }
-function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void }) {
+function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile, openSkillFileMenu }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void; openSkillFileMenu: (skill: Skill, entry: WorkspaceEntry, event: React.MouseEvent) => void }) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.filter((e) => e.name !== '.archive').map((entry) => {
     const expanded = entry.kind === 'dir' && expandedSkillPaths.has(entry.path);
     const children = expanded ? (skillFileTree[entry.path] || []) : [];
     return <React.Fragment key={entry.path}>
-      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleSkillFolder(entry) : skill && openSkillFile(skill.name, entry.path)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleSkillFolder(entry) : skill && openSkillFile(skill.name, entry.path); } }}>
+      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleSkillFolder(entry) : skill && openSkillFile(skill.name, entry.path)} onContextMenu={(ev) => skill && openSkillFileMenu(skill, entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleSkillFolder(entry) : skill && openSkillFile(skill.name, entry.path); } }}>
         <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>
       </div>
       {expanded && renderRows(children, depth + 1)}
