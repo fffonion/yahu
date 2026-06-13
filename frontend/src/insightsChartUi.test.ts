@@ -38,7 +38,7 @@ describe('insights chart UI', () => {
     const css = cssSource();
     expect(app).toContain('const pad = { top: 14, right: 18, bottom: 28, left: 30 };');
     expect(css).toContain('--insights-plot-left:4.1667%;--insights-plot-right:2.5%');
-    expect(css).toContain('.chart-y-axis{position:absolute;left:0;top:0;bottom:48px;width:34px;');
+    expect(css).toContain('.chart-y-axis{position:absolute;left:16px;top:0;bottom:48px;width:30px;');
     expect(css).toContain('.chart-axis{position:absolute;left:var(--insights-plot-left);right:var(--insights-plot-right);bottom:32px;height:18px;color:var(--muted);font-size:11px}');
     expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
   });
