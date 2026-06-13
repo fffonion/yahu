@@ -609,6 +609,7 @@ export default function App() {
   const [expandedSkillCats, setExpandedSkillCats] = useState<Set<string>>(new Set());
   const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string; workspaceEdit?: boolean } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
   const [usageInsights, setUsageInsights] = useState<UsageInsights | null>(null);
+  const usageInsightsCacheRef = useRef<Partial<Record<1 | 7 | 30, UsageInsights>>>({});
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState('');
   const [usagePeriod, setUsagePeriod] = useState<1 | 7 | 30>(7);
@@ -776,13 +777,17 @@ export default function App() {
     } catch (err: any) { setStatus(`Models unavailable: ${err.message}`); }
   }, [activeSession?.model, activeSession?.provider, model, selectedModelProvider, setStatus]);
 
-  const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod) => {
+  const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod, force = false) => {
+    const cached = usageInsightsCacheRef.current[period];
+    if (cached && !force) { setUsageInsights(cached); setUsageError(''); return; }
     setUsageLoading(true);
     setUsageError('');
     try {
       const usageRes = await fetch(`/insights/usage?period=${period}`);
       if (!usageRes.ok) throw new Error(await usageRes.text());
-      setUsageInsights(await usageRes.json());
+      const nextInsights = await usageRes.json();
+      usageInsightsCacheRef.current[period] = nextInsights;
+      setUsageInsights(nextInsights);
     } catch (err: any) {
       setUsageError(err?.message || t('insights.unavailable'));
     } finally {
@@ -1647,7 +1652,7 @@ export default function App() {
       </>}
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} editingId={cronEditingId} currentJob={activeCronJob} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} showToast={showToast} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
-      {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={loadUsageInsights} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={() => loadUsageInsights(usagePeriod, true)} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} showToast={showToast} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
       <StatusToast message={toastMessage} />

@@ -179,9 +179,20 @@ describe('insights chart UI', () => {
 
   test('requests only the selected Insights period instead of all periods by default', () => {
     const app = appSource();
-    expect(app).toContain('const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod) => {');
+    expect(app).toContain('const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod');
     expect(app).toContain('const usageRes = await fetch(`/insights/usage?period=${period}`);');
     expect(app).toContain("useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);");
     expect(app).not.toContain("fetch('/insights/usage')");
+  });
+
+  test('caches loaded Insights periods and only refetches on explicit refresh', () => {
+    const app = appSource();
+    expect(app).toContain('const usageInsightsCacheRef = useRef<Partial<Record<1 | 7 | 30, UsageInsights>>>({});');
+    expect(app).toContain('force = false');
+    expect(app).toContain('const cached = usageInsightsCacheRef.current[period];');
+    expect(app).toContain('if (cached && !force) { setUsageInsights(cached); setUsageError(\'\'); return; }');
+    expect(app).toContain('const nextInsights = await usageRes.json();');
+    expect(app).toContain('usageInsightsCacheRef.current[period] = nextInsights;');
+    expect(app).toContain('refresh={() => loadUsageInsights(usagePeriod, true)}');
   });
 });
