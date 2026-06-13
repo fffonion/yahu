@@ -12,3 +12,10 @@ export function nextImageAfterRemoval<T extends ImageNavigationItem>(items: T[],
   if (nextAtSameIndex) return nextAtSameIndex;
   return remaining[remaining.length - 1] || null;
 }
+
+export function nextImageForPreload<T extends ImageNavigationItem>(items: T[], currentFilename?: string | null): T | null {
+  if (!currentFilename) return null;
+  const currentIndex = items.findIndex((item) => item.filename === currentFilename);
+  if (currentIndex < 0) return null;
+  return items[currentIndex + 1] || null;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { nextImageAfterRemoval } from './imageBrowserNavigation';
+import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
 
 const img = (filename: string) => ({ filename });
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
@@ -29,5 +29,23 @@ describe('image browser deletion navigation', () => {
     const source = app();
     expect(source).toContain('const nextModalAfterDelete = modal && names.includes(modal.filename) ? nextImageAfterRemoval(imagesRef.current, names, modal.filename) : null;');
     expect(source).toContain('removeImages(names, nextModalAfterDelete);');
+  });
+
+  test('preloads only the immediate next modal image', () => {
+    const images = [img('a.png'), img('b.png'), img('c.png')];
+    expect(nextImageForPreload(images, 'a.png')?.filename).toBe('b.png');
+    expect(nextImageForPreload(images, 'b.png')?.filename).toBe('c.png');
+    expect(nextImageForPreload(images, 'c.png')).toBeNull();
+    expect(nextImageForPreload(images, 'missing.png')).toBeNull();
+  });
+
+  test('modal image preloader removes the previous preload link before installing the next one', () => {
+    const source = app();
+    expect(source).toContain('modalPreloadLinkRef');
+    expect(source).toContain("link.rel = 'preload';");
+    expect(source).toContain("link.as = 'image';");
+    expect(source).toContain('nextImageForPreload(images, modal.filename)');
+    expect(source).toContain('modalPreloadLinkRef.current?.remove();');
+    expect(source).toContain('return removeModalPreloadLink;');
   });
 });

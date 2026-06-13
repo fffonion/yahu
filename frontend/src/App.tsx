@@ -16,7 +16,7 @@ import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldL
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
-import { nextImageAfterRemoval } from './imageBrowserNavigation';
+import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 
@@ -2344,6 +2344,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const gridRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const modalImgRef = useRef<HTMLImageElement>(null);
+  const modalPreloadLinkRef = useRef<HTMLLinkElement | null>(null);
   const modalSwipeStart = useRef<{ x: number; y: number; id: number; axis: 'x' | 'y' | null; dragged: boolean } | null>(null);
   const modalSwipeSuppressClick = useRef(false);
   const modalSwipeSuppressTimer = useRef<number | null>(null);
@@ -2634,7 +2635,27 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     fetch(`/image-api/images/${enc(modal.filename)}/metadata`, { cache: 'no-store' }).then((res) => res.ok ? res.json() : null).then(setMetadata).catch(() => setMetadata(null));
   }, [modal?.filename]);
   const modalImageUrl = (item: ImageEntry) => item.png_url || item.image_url;
+  const removeModalPreloadLink = () => {
+    modalPreloadLinkRef.current?.remove();
+    modalPreloadLinkRef.current = null;
+  };
   useEffect(() => { resetModalImageMotion(); }, [modal?.filename]);
+  useEffect(() => {
+    removeModalPreloadLink();
+    if (!modal) return;
+    const next = nextImageForPreload(images, modal.filename);
+    if (!next) return;
+    const href = modalImageUrl(next);
+    if (!href) return;
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'image';
+    link.href = href;
+    link.setAttribute('data-yahu-modal-preload', 'next');
+    document.head.appendChild(link);
+    modalPreloadLinkRef.current = link;
+    return removeModalPreloadLink;
+  }, [modal?.filename, images]);
   const modalIndex = modal ? images.findIndex((item) => item.filename === modal.filename) : -1;
   const navigateModal = useCallback(async (dir: -1 | 1) => {
     if (!modal) return;
