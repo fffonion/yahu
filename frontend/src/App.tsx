@@ -16,6 +16,7 @@ import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldL
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
+import { nextImageAfterRemoval } from './imageBrowserNavigation';
 import { markdownText } from './markdown';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 
@@ -2510,9 +2511,16 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const closeImageModal = () => { setModal(null); setModalMetadataOpen(false); writeHashRoute({ mode: 'images' }); };
   const removeImages = (names: string[]) => {
     const gone = new Set(names.filter(Boolean));
-    updateImages(imagesRef.current.filter((x) => !gone.has(x.filename)));
+    const currentModal = modal;
+    const nextModal = currentModal ? nextImageAfterRemoval(imagesRef.current, Array.from(gone), currentModal.filename) : null;
+    const nextImages = imagesRef.current.filter((x) => !gone.has(x.filename));
+    updateImages(nextImages);
     setSelected((old) => new Set(Array.from(old).filter((x) => !gone.has(x))));
-    setModal((old) => old && gone.has(old.filename) ? null : old);
+    if (currentModal && gone.has(currentModal.filename)) {
+      setModal(nextModal);
+      setModalMetadataOpen(false);
+      writeHashRoute(nextModal ? { mode: 'images', imageFilename: nextModal.filename } : { mode: 'images' });
+    }
   };
   useEffect(() => {
     if (!initialImageFilename) return;
