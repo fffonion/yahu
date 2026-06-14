@@ -23,6 +23,15 @@ describe('self update flow', () => {
     expect(source).toContain('download returned {}');
   });
 
+  test('release repo is fixed instead of exposed as a runtime argument', () => {
+    const backend = readFileSync(new URL('../../src/backend/mod.rs', import.meta.url), 'utf8');
+    const source = updateRs();
+    expect(source).toContain('const YAHU_RELEASE_REPO: &str = "fffonion/yahu"');
+    expect(source).toContain('let repo = YAHU_RELEASE_REPO');
+    expect(backend).not.toContain('YAHU_GITHUB_REPO');
+    expect(backend).not.toContain('github_repo');
+  });
+
   test('settings update buttons show explicit progress instead of ellipsis-only feedback', () => {
     const source = app();
     const translations = i18n();

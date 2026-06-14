@@ -1,6 +1,7 @@
 use std::env::current_exe;
 
 pub const YAHU_VERSION: &str = env!("YAHU_VERSION");
+const YAHU_RELEASE_REPO: &str = "fffonion/yahu";
 
 #[derive(Serialize)]
 pub struct VersionInfo {
@@ -25,7 +26,7 @@ pub struct UpdateCheck {
 async fn check_update(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<UpdateCheck>, (StatusCode, String)> {
-    let repo = &state.github_repo;
+    let repo = YAHU_RELEASE_REPO;
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let resp = state
         .client
@@ -91,7 +92,7 @@ pub struct ApplyResult {
 async fn apply_update(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ApplyResult>, (StatusCode, String)> {
-    let repo = &state.github_repo;
+    let repo = YAHU_RELEASE_REPO;
 
     // Get latest release info
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");

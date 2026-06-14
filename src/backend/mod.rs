@@ -96,6 +96,9 @@ struct Args {
     #[arg(long, env = "HERMES_WEBUI_WORKSPACE", default_value = ".")]
     workspace: PathBuf,
 
+    #[arg(long, env = "HERMES_HOME")]
+    hermes_home: Option<PathBuf>,
+
     #[arg(long, env = "HERMES_WEBUI_IMAGE_DIR")]
     image_dir: Option<PathBuf>,
 
@@ -105,9 +108,6 @@ struct Args {
         default_value = "https://models.dev/api.json"
     )]
     models_dev_url: String,
-
-    #[arg(long, env = "YAHU_GITHUB_REPO", default_value = "fffonion/yahu")]
-    github_repo: String,
 }
 
 #[derive(Clone)]
@@ -127,7 +127,6 @@ struct AppState {
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
     models_dev_url: String,
-    github_repo: String,
 }
 
 #[derive(Deserialize)]
@@ -209,14 +208,12 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
-    let hermes_home = std::env::var_os("HERMES_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".hermes")
-        });
+    let hermes_home = args.hermes_home.unwrap_or_else(|| {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".hermes")
+    });
     let image_dir = args
         .image_dir
         .unwrap_or_else(|| hermes_home.join("cache/images"));
@@ -247,7 +244,6 @@ pub async fn run() -> anyhow::Result<()> {
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
         models_dev_url: args.models_dev_url,
-        github_repo: args.github_repo,
     });
 
     let app = Router::new()
