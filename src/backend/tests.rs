@@ -308,7 +308,6 @@ mod tests {
             active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
-            models_dev_url: "https://models.dev/api.json".to_string(),
         }
     }
 
@@ -600,16 +599,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn insights_fetches_models_dev_price_catalog_from_configured_backend_url() {
-        async fn models_dev(headers: HeaderMap) -> Json<serde_json::Value> {
-            assert!(
-                headers
-                    .get(header::USER_AGENT)
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or("")
-                    .starts_with("yahu/")
-            );
-            Json(serde_json::json!({
+    async fn insights_price_catalog_uses_cached_models_dev_payload() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        {
+            let mut cache = state.model_price_cache.write().await;
+            cache.fetched_at = Some(std::time::Instant::now());
+            cache.body = Some(serde_json::json!({
                 "minimax": {
                     "id": "minimax",
                     "models": {
@@ -619,18 +615,8 @@ mod tests {
                         }
                     }
                 }
-            }))
+            }));
         }
-
-        let app = Router::new().route("/api.json", get(models_dev));
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        let temp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
-        state.models_dev_url = format!("http://{addr}/api.json");
 
         let catalog = fetch_models_dev_price_catalog(&state).await.unwrap();
         let price = model_price_for_model(&catalog, "minimax/m3").unwrap();

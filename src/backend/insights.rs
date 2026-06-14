@@ -4,6 +4,7 @@ const INSIGHTS_HOURS: usize = 24;
 const INSIGHTS_PAGE_SIZE: usize = 200;
 const INSIGHTS_SCAN_LIMIT: usize = 5_000;
 const INSIGHTS_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const MODELS_DEV_API_URL: &str = "https://models.dev/api.json";
 const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 type ModelPriceCatalog = HashMap<String, ModelPrice>;
@@ -289,7 +290,7 @@ async fn fetch_models_dev_price_catalog(state: &AppState) -> anyhow::Result<Mode
         INSIGHTS_REQUEST_TIMEOUT,
         state
             .client
-            .get(state.models_dev_url.as_str())
+            .get(MODELS_DEV_API_URL)
             .header(header::USER_AGENT, concat!("yahu/", env!("CARGO_PKG_VERSION")))
             .send(),
     )

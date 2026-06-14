@@ -14,9 +14,13 @@ describe('runtime arguments', () => {
     expect(docs).toContain('`--hermes-home` | `HERMES_HOME`');
   });
 
-  test('GitHub release repo is not exposed as a runtime argument', () => {
+  test('GitHub release repo and models.dev URL are not exposed as runtime arguments', () => {
     const source = backend();
+    const docs = readme();
     expect(source).not.toContain('YAHU_GITHUB_REPO');
     expect(source).not.toContain('github_repo');
+    expect(source).not.toContain('HERMES_WEBUI_MODELS_DEV_URL');
+    expect(source).not.toContain('models_dev_url');
+    expect(docs).not.toContain('`--models-dev-url`');
   });
 });
