@@ -12,20 +12,14 @@ async fn models_cached(State(state): State<Arc<AppState>>) -> Response<Body> {
         Ok(body) => body,
         Err(err) => {
             errors.push(format!("api_server: {err}"));
-            match fetch_non_empty_model_payload(&state, fetch_dashboard_models(&state), "hermes_dashboard").await {
+            match fetch_non_empty_model_payload(&state, load_hermes_model_inventory(&state), "hermes_inventory").await {
                 Ok(body) => body,
                 Err(err) => {
-                    errors.push(format!("dashboard: {err}"));
-                    match fetch_non_empty_model_payload(&state, load_hermes_model_inventory(&state), "hermes_inventory").await {
-                        Ok(body) => body,
-                        Err(err) => {
-                            errors.push(format!("inventory: {err}"));
-                            return json_error(
-                                StatusCode::BAD_GATEWAY,
-                                &format!("model list unavailable: {}", errors.join("; ")),
-                            );
-                        }
-                    }
+                    errors.push(format!("inventory: {err}"));
+                    return json_error(
+                        StatusCode::BAD_GATEWAY,
+                        &format!("model list unavailable: {}", errors.join("; ")),
+                    );
                 }
             }
         }
@@ -63,24 +57,6 @@ async fn fetch_api_server_models(state: &AppState) -> anyhow::Result<serde_json:
     let resp = req.send().await?;
     if !resp.status().is_success() {
         anyhow::bail!("model list request failed: {}", resp.status());
-    }
-    Ok(resp.json::<serde_json::Value>().await?)
-}
-
-async fn fetch_dashboard_models(state: &AppState) -> anyhow::Result<serde_json::Value> {
-    let token = state
-        .dashboard_session_token
-        .as_deref()
-        .filter(|token| !token.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("HERMES_DASHBOARD_SESSION_TOKEN not configured"))?;
-    let resp = state
-        .client
-        .get(format!("{}/api/model/options", state.dashboard_url))
-        .header("X-Hermes-Session-Token", token)
-        .send()
-        .await?;
-    if !resp.status().is_success() {
-        anyhow::bail!("dashboard model options request failed: {}", resp.status());
     }
     Ok(resp.json::<serde_json::Value>().await?)
 }

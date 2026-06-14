@@ -309,8 +309,6 @@ mod tests {
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
             models_dev_url: "https://models.dev/api.json".to_string(),
-            dashboard_url: "http://127.0.0.1:9119".to_string(),
-            dashboard_session_token: None,
             github_repo: String::new(),
         }
     }

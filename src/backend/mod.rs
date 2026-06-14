@@ -106,16 +106,6 @@ struct Args {
     )]
     models_dev_url: String,
 
-    #[arg(
-        long,
-        env = "HERMES_DASHBOARD_URL",
-        default_value = "http://127.0.0.1:9119"
-    )]
-    dashboard_url: String,
-
-    #[arg(long, env = "HERMES_DASHBOARD_SESSION_TOKEN")]
-    dashboard_session_token: Option<String>,
-
     #[arg(long, env = "YAHU_GITHUB_REPO", default_value = "fffonion/yahu")]
     github_repo: String,
 }
@@ -137,8 +127,6 @@ struct AppState {
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
     models_dev_url: String,
-    dashboard_url: String,
-    dashboard_session_token: Option<String>,
     github_repo: String,
 }
 
@@ -259,8 +247,6 @@ pub async fn run() -> anyhow::Result<()> {
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
         models_dev_url: args.models_dev_url,
-        dashboard_url: args.dashboard_url.trim_end_matches('/').to_string(),
-        dashboard_session_token: args.dashboard_session_token,
         github_repo: args.github_repo,
     });
 

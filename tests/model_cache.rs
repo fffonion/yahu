@@ -67,11 +67,12 @@ fn models_cache_backend_falls_back_when_api_server_only_returns_placeholder() {
 
     assert!(source.contains("fetch_api_server_models(&state)"));
     assert!(source.contains("no non-placeholder models returned"));
-    assert!(source.contains("fetch_dashboard_models(&state)"));
     assert!(source.contains("load_hermes_model_inventory(&state)"));
-    assert!(source.contains("/api/model/options"));
     assert!(source.contains("hermes_cli.inventory"));
     assert!(source.contains("Command::new(python)"));
+    assert!(!source.contains("fetch_dashboard_models"));
+    assert!(!source.contains("/api/model/options"));
+    assert!(!source.contains("HERMES_DASHBOARD"));
 }
 
 #[test]
