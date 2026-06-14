@@ -162,25 +162,6 @@ struct WorkspaceSavePayload {
     content: String,
 }
 
-#[derive(Deserialize)]
-struct SkillQuery {
-    name: Option<String>,
-    path: Option<String>,
-}
-
-#[derive(Serialize, Clone)]
-struct SkillInfo {
-    name: String,
-    description: String,
-    category: String,
-    enabled: bool,
-}
-
-#[derive(Deserialize)]
-struct SkillTogglePayload {
-    enabled: bool,
-}
-
 #[derive(Deserialize, Serialize)]
 struct MemoryPayload {
     memory: String,

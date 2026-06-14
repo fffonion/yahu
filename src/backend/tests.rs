@@ -66,21 +66,6 @@ mod tests {
     }
 
     #[test]
-    fn frontmatter_value_reads_yaml_after_opening_blank_line() {
-        let text =
-            "---\nname: hermes-dashboard-webui\ndescription: \"Dashboard UI\"\n---\n# Body\n";
-
-        assert_eq!(
-            frontmatter_value(text, "name"),
-            Some("hermes-dashboard-webui".to_string())
-        );
-        assert_eq!(
-            frontmatter_value(text, "description"),
-            Some("Dashboard UI".to_string())
-        );
-    }
-
-    #[test]
     fn workspace_path_rejects_parent_escape() {
         let root = std::env::temp_dir().join(format!(
             "hermes-webui-test-{}",
@@ -289,80 +274,6 @@ mod tests {
             models_dev_url: "https://models.dev/api.json".to_string(),
             github_repo: String::new(),
         }
-    }
-
-    #[tokio::test]
-    async fn skill_delete_removes_user_skill_directory() {
-        let temp = tempfile::tempdir().unwrap();
-        let skill_dir = temp.path().join("skills/dev/demo-skill");
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\nname: demo-skill\ndescription: Demo\n---\n# Demo\n",
-        )
-        .unwrap();
-        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
-        let expected = skill_dir.canonicalize().unwrap();
-
-        let deleted = delete_skill_dir(&state, "demo-skill").await.unwrap();
-
-        assert_eq!(deleted, expected);
-        assert!(!skill_dir.exists());
-    }
-
-    #[tokio::test]
-    async fn skill_delete_rejects_bundled_optional_skills() {
-        let temp = tempfile::tempdir().unwrap();
-        let skill_dir = temp.path().join("hermes-agent/optional-skills/demo-bundled");
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\nname: demo-bundled\ndescription: Demo\n---\n# Demo\n",
-        )
-        .unwrap();
-        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
-
-        let err = delete_skill_dir(&state, "demo-bundled").await.unwrap_err();
-
-        assert!(err.to_string().contains("skill directory is not user-deletable"));
-        assert!(skill_dir.join("SKILL.md").exists());
-    }
-
-    #[test]
-    fn skill_item_destination_keeps_rename_inside_parent_directory() {
-        let root = std::env::temp_dir().join(format!(
-            "hermes-webui-skill-item-test-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or(Duration::ZERO)
-                .as_nanos()
-        ));
-        let nested = root.join("references");
-        std::fs::create_dir_all(&nested).unwrap();
-        std::fs::write(nested.join("old.md"), "hello").unwrap();
-
-        let target = skill_item_destination_path(&root, "references/old.md", "new.md").unwrap();
-
-        assert_eq!(target, nested.join("new.md"));
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn skill_item_destination_rejects_path_like_new_names() {
-        let root = std::env::temp_dir().join(format!(
-            "hermes-webui-skill-item-test-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or(Duration::ZERO)
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("old.md"), "hello").unwrap();
-
-        let err = skill_item_destination_path(&root, "old.md", "../bad.md").unwrap_err();
-
-        assert!(err.to_string().contains("new name must be a single file name"));
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[tokio::test]

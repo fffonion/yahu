@@ -97,7 +97,7 @@ describe('skills UI', () => {
 });
 
 describe('skills backend API', () => {
-  test('serves skill list, skill files, and skill enable toggles from root-confined routes', () => {
+  test('routes skills through Hermes API Server and fails closed for unsupported file/mutation APIs', () => {
     const source = server();
     expect(source).toContain('.route("/skills/list", get(skills_list))');
     expect(source).toContain('.route("/skills/files", get(skill_files))');
@@ -105,15 +105,13 @@ describe('skills backend API', () => {
     expect(source).toContain('.route("/skills/toggle/{name}", post(skill_toggle))');
     expect(source).toContain('.route("/skills/item", patch(skill_item_rename).delete(skill_item_delete))');
     expect(source).toContain('.route("/skills/{name}", delete(skill_delete))');
-    expect(source).toContain('async fn skill_item_rename');
-    expect(source).toContain('async fn skill_item_delete');
-    expect(source).toContain('skill_item_destination_path');
-    expect(source).toContain('skill item not found');
-    expect(source).toContain('async fn skill_delete');
-    expect(source).toContain('delete_skill_dir');
-    expect(source).toContain('skill directory is not user-deletable');
-    expect(source).toContain('find_skill_dir');
-    expect(source).toContain('resolve_skill_file_path');
-    expect(source).toContain('skills_config import get_disabled_skills, save_disabled_skills');
+    expect(source).toContain('format!("{}/v1/skills", state.api_url)');
+    expect(source).toContain('skill_api_unavailable("skill item rename")');
+    expect(source).toContain('StatusCode::NOT_IMPLEMENTED');
+    expect(source).not.toContain('skill_item_destination_path');
+    expect(source).not.toContain('delete_skill_dir');
+    expect(source).not.toContain('find_skill_dir');
+    expect(source).not.toContain('resolve_skill_file_path');
+    expect(source).not.toContain('skills_config import get_disabled_skills, save_disabled_skills');
   });
 });
