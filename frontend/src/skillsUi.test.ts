@@ -105,7 +105,8 @@ describe('skills backend API', () => {
     expect(source).toContain('.route("/skills/files", get(skill_files))');
     expect(source).toContain('.route("/skills/file", get(skill_file).put(skill_file_write))');
     expect(source).toContain('.route("/skills/toggle/{name}", post(skill_toggle))');
-    expect(source).toContain('.route("/skills/item", patch(skill_item_rename).delete(skill_item_delete))');
+    expect(source).toContain('"/skills/item"');
+    expect(source).toContain('patch(skill_item_rename).delete(skill_item_delete)');
     expect(source).toContain('.route("/skills/{name}", delete(skill_delete))');
     expect(source).toContain('format!("{}/v1/skills", state.api_url)');
     expect(source).toContain('skill_api_unavailable("skill file writing")');

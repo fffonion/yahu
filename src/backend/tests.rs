@@ -252,6 +252,43 @@ mod tests {
         assert_eq!(usage.total_messages, 2);
     }
 
+    #[test]
+    fn memory_payload_reads_profile_scoped_memory_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let memories = temp.path().join("memories");
+        std::fs::create_dir_all(&memories).unwrap();
+        std::fs::write(memories.join("MEMORY.md"), "agent note\n§\nproject convention").unwrap();
+        std::fs::write(memories.join("USER.md"), "user preference").unwrap();
+
+        let payload = read_memory_payload_from_files(temp.path()).unwrap();
+
+        assert_eq!(payload.memory, "agent note\n§\nproject convention");
+        assert_eq!(payload.user, "user preference");
+    }
+
+    #[test]
+    fn memory_payload_writes_files_with_hermes_style_locks() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = MemoryPayload {
+            memory: "agent note".to_string(),
+            user: "user preference".to_string(),
+        };
+
+        write_memory_payload_to_files(temp.path(), &payload).unwrap();
+
+        let memories = temp.path().join("memories");
+        assert_eq!(
+            std::fs::read_to_string(memories.join("MEMORY.md")).unwrap(),
+            "agent note"
+        );
+        assert_eq!(
+            std::fs::read_to_string(memories.join("USER.md")).unwrap(),
+            "user preference"
+        );
+        assert!(memories.join("MEMORY.md.lock").exists());
+        assert!(memories.join("USER.md.lock").exists());
+    }
+
     fn test_app_state(api_url: String, root: &Path) -> AppState {
         let (updates, _) = broadcast::channel::<String>(1);
         let (deletes, _) = broadcast::channel::<String>(1);

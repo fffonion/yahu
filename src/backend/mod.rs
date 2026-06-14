@@ -247,13 +247,19 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/skills/files", get(skill_files))
         .route("/skills/file", get(skill_file).put(skill_file_write))
         .route("/skills/toggle/{name}", post(skill_toggle))
-        .route("/skills/item", patch(skill_item_rename).delete(skill_item_delete))
+        .route(
+            "/skills/item",
+            patch(skill_item_rename).delete(skill_item_delete),
+        )
         .route("/skills/{name}", delete(skill_delete))
         .route("/memory", get(memory_get).put(memory_put))
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
         .route("/chat/messages/{session_id}", get(chat_messages_page))
-        .route("/chat/context-window/{session_id}", get(chat_context_window))
+        .route(
+            "/chat/context-window/{session_id}",
+            get(chat_context_window),
+        )
         .route("/chat/attachments", post(chat_upload_attachments))
         .route("/version", get(yahu_version))
         .route("/update/check", get(check_update))
