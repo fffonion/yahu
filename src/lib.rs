@@ -22,6 +22,13 @@ pub fn model_cache_payload_from_source(body: &Value, source: &str) -> Value {
     })
 }
 
+pub fn model_cache_payload_has_models(body: &Value) -> bool {
+    body.get("data")
+        .and_then(Value::as_array)
+        .map(|rows| !rows.is_empty())
+        .unwrap_or(false)
+}
+
 pub fn flatten_model_options(body: &Value) -> Vec<Value> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();

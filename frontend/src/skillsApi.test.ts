@@ -4,29 +4,30 @@ import { readFileSync } from 'node:fs';
 const skillsBackend = () => readFileSync(new URL('../../src/backend/skills.rs', import.meta.url), 'utf8');
 
 describe('skills API routing', () => {
-  test('yahu skills list proxies Hermes API Server and does not scan HERMES_HOME skill files', () => {
+  test('yahu skills restore local skill inventory with Hermes Python config helpers', () => {
     const source = skillsBackend();
-    expect(source).toContain('format!("{}/v1/skills", state.api_url)');
-    expect(source).toContain('state.client.request(reqwest::Method::GET, url)');
-    expect(source).toContain('response_from_reqwest(state, None, resp).await');
-    expect(source).not.toContain('state.hermes_home.join("skills")');
-    expect(source).not.toContain('optional-skills');
-    expect(source).not.toContain('SKILL.md');
-    expect(source).not.toContain('std::fs::read_to_string');
-    expect(source).not.toContain('fs::read_dir');
-    expect(source).not.toContain('fs::remove_dir_all');
-    expect(source).not.toContain('fs::rename');
-    expect(source).not.toContain('save_disabled_skills');
+    expect(source).toContain('state.hermes_home.join("skills")');
+    expect(source).toContain('optional-skills');
+    expect(source).toContain('collect_skill_dirs(&root, &root, &disabled, &mut found)');
+    expect(source).toContain('std::fs::read_to_string(&skill_md)');
+    expect(source).toContain('from hermes_cli.skills_config import get_disabled_skills');
+    expect(source).toContain('save_disabled_skills(config, disabled)');
+    expect(source).toContain('HERMES_WEBUI_PYTHON');
+    expect(source).toContain('Command::new(python)');
   });
 
-  test('skill file and mutation routes fail closed until Hermes API Server exposes them', () => {
+  test('skill file and mutation routes are backed by the restored skill workspace implementation', () => {
     const source = skillsBackend();
-    expect(source).toContain('skill_api_unavailable("skill file listing")');
-    expect(source).toContain('skill_api_unavailable("skill file reading")');
-    expect(source).toContain('skill_api_unavailable("skill toggling")');
-    expect(source).toContain('skill_api_unavailable("skill item rename")');
-    expect(source).toContain('skill_api_unavailable("skill item delete")');
-    expect(source).toContain('skill_api_unavailable("skill deletion")');
-    expect(source).toContain('StatusCode::NOT_IMPLEMENTED');
+    expect(source).toContain('async fn skill_files(');
+    expect(source).toContain('async fn skill_file(');
+    expect(source).toContain('async fn skill_file_write(');
+    expect(source).toContain('async fn skill_toggle(');
+    expect(source).toContain('async fn skill_item_rename(');
+    expect(source).toContain('async fn skill_item_delete(');
+    expect(source).toContain('async fn skill_delete(');
+    expect(source).toContain('skill_item_destination_path');
+    expect(source).toContain('delete_skill_dir');
+    expect(source).toContain('resolve_skill_file_path');
+    expect(source).not.toContain('skill_api_unavailable(');
   });
 });

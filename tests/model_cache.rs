@@ -62,16 +62,40 @@ fn provider_inventory_context_lengths_are_preserved_from_capabilities() {
 }
 
 #[test]
-fn models_cache_backend_uses_api_server_without_python_inventory_subprocess() {
+fn models_cache_backend_falls_back_when_api_server_only_returns_placeholder() {
     let source = include_str!("../src/backend/models.rs");
 
-    assert!(source.contains("fetch_api_server_models(&state).await"));
-    assert!(source.contains("format!(\"{}/v1/models\", state.api_url)"));
-    assert!(!source.contains("load_hermes_model_inventory"));
-    assert!(!source.contains("HERMES_WEBUI_PYTHON"));
-    assert!(!source.contains("hermes_cli.inventory"));
-    assert!(!source.contains("inventory.py"));
-    assert!(!source.contains("Command::new"));
+    assert!(source.contains("fetch_api_server_models(&state)"));
+    assert!(source.contains("no non-placeholder models returned"));
+    assert!(source.contains("fetch_dashboard_models(&state)"));
+    assert!(source.contains("load_hermes_model_inventory(&state)"));
+    assert!(source.contains("/api/model/options"));
+    assert!(source.contains("hermes_cli.inventory"));
+    assert!(source.contains("Command::new(python)"));
+}
+
+#[test]
+fn model_cache_placeholder_only_payload_is_not_usable() {
+    let payload = yet_another_hermes_ui::model_cache_payload_from_source(
+        &json!({"object": "list", "data": [{"id": "hermes-agent", "object": "model"}]}),
+        "api_server",
+    );
+
+    assert!(!yet_another_hermes_ui::model_cache_payload_has_models(
+        &payload
+    ));
+}
+
+#[test]
+fn model_cache_non_placeholder_payload_is_usable() {
+    let payload = yet_another_hermes_ui::model_cache_payload_from_source(
+        &json!({"object": "list", "data": [{"id": "MiniMax-M3", "object": "model"}]}),
+        "api_server",
+    );
+
+    assert!(yet_another_hermes_ui::model_cache_payload_has_models(
+        &payload
+    ));
 }
 
 #[test]
