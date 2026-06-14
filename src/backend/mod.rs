@@ -181,14 +181,8 @@ struct SkillTogglePayload {
     enabled: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct MemoryPayload {
-    memory: String,
-    user: String,
-}
-
-#[derive(Serialize)]
-struct MemoryResponse {
     memory: String,
     user: String,
 }

@@ -1,36 +1,45 @@
 async fn memory_get(State(state): State<Arc<AppState>>) -> Response<Body> {
-    let mem_dir = state.hermes_home.join("memories");
-    let memory = fs::read_to_string(mem_dir.join("MEMORY.md"))
-        .await
-        .unwrap_or_default();
-    let user = fs::read_to_string(mem_dir.join("USER.md"))
-        .await
-        .unwrap_or_default();
-    Json(MemoryResponse { memory, user }).into_response()
+    proxy_memory_request(state, reqwest::Method::GET, None).await
 }
 
 async fn memory_put(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<MemoryPayload>,
 ) -> Response<Body> {
-    let mem_dir = state.hermes_home.join("memories");
-    if let Err(err) = fs::create_dir_all(&mem_dir).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("cannot create memory directory: {err}"),
-        );
+    let body = match serde_json::to_vec(&payload) {
+        Ok(body) => body,
+        Err(err) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("cannot encode memory payload: {err}"),
+            );
+        }
+    };
+    proxy_memory_request(state, reqwest::Method::PUT, Some(body)).await
+}
+
+async fn proxy_memory_request(
+    state: Arc<AppState>,
+    method: reqwest::Method,
+    body: Option<Vec<u8>>,
+) -> Response<Body> {
+    let url = format!("{}/api/memory", state.api_url);
+    let mut builder = state.client.request(method, url);
+    if let Some(body) = body {
+        builder = builder
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body);
     }
-    if let Err(err) = fs::write(mem_dir.join("MEMORY.md"), payload.memory).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("cannot write MEMORY.md: {err}"),
-        );
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        builder = builder.bearer_auth(key);
     }
-    if let Err(err) = fs::write(mem_dir.join("USER.md"), payload.user).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("cannot write USER.md: {err}"),
-        );
+    match builder.send().await {
+        Ok(resp) => response_from_reqwest(state, None, resp).await,
+        Err(err) => json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("Hermes API memory request failed: {err}"),
+        ),
     }
-    Json(serde_json::json!({"status":"ok"})).into_response()
 }
