@@ -109,7 +109,7 @@ Open `http://127.0.0.1:9642`.
 | `--api-url` | `HERMES_WEBUI_API_URL` | `http://127.0.0.1:8642` | Hermes API Server upstream |
 | `--workspace` | `HERMES_WEBUI_WORKSPACE` | `$HOME/workspace` | File browser root |
 | `--image-dir` | `HERMES_WEBUI_IMAGE_DIR` | `$HERMES_HOME/cache/images` | Image gallery directory |
-|  | `HERMES_HOME` | `$HOME/.hermes` | Hermes data directory for skills, memory, model inventory, uploads, and default image cache |
+|  | `HERMES_HOME` | `$HOME/.hermes` | Hermes data directory for uploads and default image cache |
 | `--insecure` | | | Skip yahu login gate |
 
 ## Service install

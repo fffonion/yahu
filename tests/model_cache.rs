@@ -42,7 +42,7 @@ fn api_server_model_fallback_is_flattened_and_filters_hermes_agent_placeholder()
 }
 
 #[test]
-fn hermes_inventory_context_lengths_are_preserved_from_capabilities() {
+fn provider_inventory_context_lengths_are_preserved_from_capabilities() {
     let payload = json!({
         "providers": [
             {
@@ -59,6 +59,19 @@ fn hermes_inventory_context_lengths_are_preserved_from_capabilities() {
     let flattened = yet_another_hermes_ui::flatten_model_options(&payload);
 
     assert_eq!(flattened[0]["context_length"], 200000);
+}
+
+#[test]
+fn models_cache_backend_uses_api_server_without_python_inventory_subprocess() {
+    let source = include_str!("../src/backend/models.rs");
+
+    assert!(source.contains("fetch_api_server_models(&state).await"));
+    assert!(source.contains("format!(\"{}/v1/models\", state.api_url)"));
+    assert!(!source.contains("load_hermes_model_inventory"));
+    assert!(!source.contains("HERMES_WEBUI_PYTHON"));
+    assert!(!source.contains("hermes_cli.inventory"));
+    assert!(!source.contains("inventory.py"));
+    assert!(!source.contains("Command::new"));
 }
 
 #[test]
