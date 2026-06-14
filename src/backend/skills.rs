@@ -422,10 +422,8 @@ fn resolve_skill_write_path(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
 }
 
 async fn load_disabled_skills(state: &AppState) -> anyhow::Result<HashSet<String>> {
-    let agent_dir = env::var("HERMES_AGENT_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| state.hermes_home.join("hermes-agent"));
-    let python = env::var("HERMES_WEBUI_PYTHON").unwrap_or_else(|_| "python3".to_string());
+    let agent_dir = hermes_agent_dir(state);
+    let python = hermes_python_command(&agent_dir);
     let script = "import json, os, sys\nsys.path.insert(0, os.environ['HERMES_AGENT_DIR'])\nfrom hermes_cli.config import load_config\nfrom hermes_cli.skills_config import get_disabled_skills\nprint(json.dumps(sorted(get_disabled_skills(load_config()))))";
     let output = timeout(
         Duration::from_secs(20),
@@ -445,10 +443,8 @@ async fn load_disabled_skills(state: &AppState) -> anyhow::Result<HashSet<String
 }
 
 async fn set_skill_enabled(state: &AppState, name: &str, enabled: bool) -> anyhow::Result<()> {
-    let agent_dir = env::var("HERMES_AGENT_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| state.hermes_home.join("hermes-agent"));
-    let python = env::var("HERMES_WEBUI_PYTHON").unwrap_or_else(|_| "python3".to_string());
+    let agent_dir = hermes_agent_dir(state);
+    let python = hermes_python_command(&agent_dir);
     let script = "import os, sys\nsys.path.insert(0, os.environ['HERMES_AGENT_DIR'])\nfrom hermes_cli.config import load_config\nfrom hermes_cli.skills_config import get_disabled_skills, save_disabled_skills\nname=os.environ['SKILL_NAME']; enabled=os.environ.get('SKILL_ENABLED')=='1'\nconfig=load_config(); disabled=get_disabled_skills(config)\n(disabled.discard(name) if enabled else disabled.add(name))\nsave_disabled_skills(config, disabled)";
     let output = timeout(
         Duration::from_secs(20),

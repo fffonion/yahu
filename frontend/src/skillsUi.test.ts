@@ -4,7 +4,7 @@ import { readFileSync } from 'fs';
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 const routes = () => readFileSync(new URL('./hashRoute.ts', import.meta.url), 'utf8');
-const server = () => ['mod.rs', 'skills.rs']
+const server = () => ['mod.rs', 'models.rs', 'skills.rs']
   .map((file) => readFileSync(new URL(`../../src/backend/${file}`, import.meta.url), 'utf8'))
   .join('\n');
 

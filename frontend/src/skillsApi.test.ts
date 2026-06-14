@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const skillsBackend = () => readFileSync(new URL('../../src/backend/skills.rs', import.meta.url), 'utf8');
+const skillsBackend = () => ['models.rs', 'skills.rs']
+  .map((file) => readFileSync(new URL(`../../src/backend/${file}`, import.meta.url), 'utf8'))
+  .join('\n');
 
 describe('skills API routing', () => {
   test('yahu skills restore local skill inventory with Hermes Python config helpers', () => {
@@ -13,6 +15,8 @@ describe('skills API routing', () => {
     expect(source).toContain('from hermes_cli.skills_config import get_disabled_skills');
     expect(source).toContain('save_disabled_skills(config, disabled)');
     expect(source).toContain('HERMES_WEBUI_PYTHON');
+    expect(source).toContain('hermes_python_command(&agent_dir)');
+    expect(source).toContain('agent_dir.join("venv/bin/python3")');
     expect(source).toContain('Command::new(python)');
   });
 

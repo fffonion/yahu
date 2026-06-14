@@ -62,13 +62,11 @@ async fn fetch_api_server_models(state: &AppState) -> anyhow::Result<serde_json:
 }
 
 async fn load_hermes_model_inventory(state: &AppState) -> anyhow::Result<serde_json::Value> {
-    let agent_dir = env::var("HERMES_AGENT_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| state.hermes_home.join("hermes-agent"));
+    let agent_dir = hermes_agent_dir(state);
     if !agent_dir.join("hermes_cli/inventory.py").exists() {
         anyhow::bail!("Hermes agent source not found at {}", agent_dir.display());
     }
-    let python = env::var("HERMES_WEBUI_PYTHON").unwrap_or_else(|_| "python3".to_string());
+    let python = hermes_python_command(&agent_dir);
     let script = r#"
 import json, os, sys
 agent_dir = os.environ.get('HERMES_AGENT_DIR')
@@ -108,4 +106,24 @@ print(json.dumps(payload))
         );
     }
     Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+fn hermes_agent_dir(state: &AppState) -> PathBuf {
+    env::var("HERMES_AGENT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| state.hermes_home.join("hermes-agent"))
+}
+
+fn hermes_python_command(agent_dir: &Path) -> PathBuf {
+    if let Ok(python) = env::var("HERMES_WEBUI_PYTHON") {
+        let trimmed = python.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    let venv_python = agent_dir.join("venv/bin/python3");
+    if venv_python.is_file() {
+        return venv_python;
+    }
+    PathBuf::from("python3")
 }
