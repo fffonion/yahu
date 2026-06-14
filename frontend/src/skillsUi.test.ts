@@ -70,6 +70,8 @@ describe('skills UI', () => {
     expect(source).toContain('className="skill-workspace workspace"');
     expect(source).toContain("fetch(`/skills/files?name=${encodeURIComponent(skill.name)}");
     expect(source).toContain("fetch(`/skills/file?name=${encodeURIComponent(skillName)}");
+    expect(source).toContain("saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined}");
+    expect(source).toContain('const target = saveUrl ? saveUrl(preview.path) : `/workspace/file?path=${encodeURIComponent(preview.path)}`;');
     expect(styles).toContain('.app-shell.skills-mode{grid-template-columns:360px minmax(480px,1fr) 320px}');
     expect(styles).toContain('.skill-workspace');
   });
@@ -101,11 +103,12 @@ describe('skills backend API', () => {
     const source = server();
     expect(source).toContain('.route("/skills/list", get(skills_list))');
     expect(source).toContain('.route("/skills/files", get(skill_files))');
-    expect(source).toContain('.route("/skills/file", get(skill_file))');
+    expect(source).toContain('.route("/skills/file", get(skill_file).put(skill_file_write))');
     expect(source).toContain('.route("/skills/toggle/{name}", post(skill_toggle))');
     expect(source).toContain('.route("/skills/item", patch(skill_item_rename).delete(skill_item_delete))');
     expect(source).toContain('.route("/skills/{name}", delete(skill_delete))');
     expect(source).toContain('format!("{}/v1/skills", state.api_url)');
+    expect(source).toContain('skill_api_unavailable("skill file writing")');
     expect(source).toContain('skill_api_unavailable("skill item rename")');
     expect(source).toContain('StatusCode::NOT_IMPLEMENTED');
     expect(source).not.toContain('skill_item_destination_path');

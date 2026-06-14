@@ -2256,7 +2256,7 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
   return <><div className="cron-sidebar-head"><div><h2>Skills</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
 function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
-  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} /></main>;
+  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} /></main>;
 }
 function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile, openSkillFileMenu }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void; openSkillFileMenu: (skill: Skill, entry: WorkspaceEntry, event: React.MouseEvent) => void }) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.filter((e) => e.name !== '.archive').map((entry) => {
@@ -2271,7 +2271,7 @@ function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleS
   });
   return <aside className="skill-workspace workspace"><div className="workspace-sidebar-head"><div><h2>{t('skills.skillFiles')}</h2><p>{skill?.category || t('skills.select')}</p></div></div><div className="workspace-tree file-list">{renderRows(skillFileTree[''] || [])}</div></aside>;
 }
-function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc }: any) {
+function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl }: any) {
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
@@ -2282,7 +2282,8 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   const saveEdit = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`/workspace/file?path=${encodeURIComponent(preview.path)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: editContent }) });
+      const target = saveUrl ? saveUrl(preview.path) : `/workspace/file?path=${encodeURIComponent(preview.path)}`;
+      const res = await fetch(target, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: editContent }) });
       if (!res.ok) { alert(tf('workspace.saveFailed', res.status)); return; }
       setPreview({ ...preview, content: editContent });
       setEditMode(false);

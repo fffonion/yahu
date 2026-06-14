@@ -23,6 +23,13 @@ async fn skill_file(State(_state): State<Arc<AppState>>) -> Response<Body> {
     skill_api_unavailable("skill file reading")
 }
 
+async fn skill_file_write(
+    State(_state): State<Arc<AppState>>,
+    Json(_payload): Json<WorkspaceSavePayload>,
+) -> Response<Body> {
+    skill_api_unavailable("skill file writing")
+}
+
 async fn skill_toggle(
     State(_state): State<Arc<AppState>>,
     AxumPath(_name): AxumPath<String>,
