@@ -289,6 +289,28 @@ mod tests {
         assert!(memories.join("USER.md.lock").exists());
     }
 
+    #[test]
+    fn skills_collector_skips_archive_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("skills");
+        let active = root.join("productivity/live-skill");
+        let archived = root.join(".archive/old-skill");
+        let nested_archived = root.join("productivity/.archive/nested-old-skill");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::create_dir_all(&nested_archived).unwrap();
+        std::fs::write(active.join("SKILL.md"), "---\nname: live-skill\ndescription: Live\n---\n").unwrap();
+        std::fs::write(archived.join("SKILL.md"), "---\nname: old-skill\ndescription: Old\n---\n").unwrap();
+        std::fs::write(nested_archived.join("SKILL.md"), "---\nname: nested-old-skill\ndescription: Nested old\n---\n").unwrap();
+
+        let mut found = HashMap::<String, (SkillInfo, PathBuf)>::new();
+        collect_skill_dirs(&root, &root, &HashSet::new(), &mut found);
+
+        assert!(found.contains_key("live-skill"));
+        assert!(!found.contains_key("old-skill"));
+        assert!(!found.contains_key("nested-old-skill"));
+    }
+
     fn test_app_state(api_url: String, root: &Path) -> AppState {
         let (updates, _) = broadcast::channel::<String>(1);
         let (deletes, _) = broadcast::channel::<String>(1);

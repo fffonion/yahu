@@ -319,6 +319,9 @@ fn collect_skill_dirs(
     disabled: &HashSet<String>,
     found: &mut HashMap<String, (SkillInfo, PathBuf)>,
 ) {
+    if skill_path_is_archived(root, dir) {
+        return;
+    }
     let skill_md = dir.join("SKILL.md");
     if skill_md.is_file() {
         if let Ok(text) = std::fs::read_to_string(&skill_md) {
@@ -354,6 +357,14 @@ fn collect_skill_dirs(
             collect_skill_dirs(root, &entry.path(), disabled, found);
         }
     }
+}
+
+fn skill_path_is_archived(root: &Path, dir: &Path) -> bool {
+    dir.strip_prefix(root).ok().is_some_and(|rel| {
+        rel.components().any(|component| {
+            matches!(component, Component::Normal(name) if name == OsStr::new(".archive"))
+        })
+    })
 }
 
 fn frontmatter_value(text: &str, key: &str) -> Option<String> {

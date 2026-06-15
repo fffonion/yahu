@@ -11,6 +11,8 @@ describe('skills API routing', () => {
     expect(source).toContain('state.hermes_home.join("skills")');
     expect(source).toContain('optional-skills');
     expect(source).toContain('collect_skill_dirs(&root, &root, &disabled, &mut found)');
+    expect(source).toContain('skill_path_is_archived(root, dir)');
+    expect(source).toContain('OsStr::new(".archive")');
     expect(source).toContain('std::fs::read_to_string(&skill_md)');
     expect(source).toContain('from hermes_cli.skills_config import get_disabled_skills');
     expect(source).toContain('save_disabled_skills(config, disabled)');

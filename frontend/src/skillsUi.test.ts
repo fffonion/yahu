@@ -4,7 +4,7 @@ import { readFileSync } from 'fs';
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 const routes = () => readFileSync(new URL('./hashRoute.ts', import.meta.url), 'utf8');
-const server = () => ['mod.rs', 'models.rs', 'skills.rs']
+const server = () => ['mod.rs', 'models.rs', 'skills.rs', 'tests.rs']
   .map((file) => readFileSync(new URL(`../../src/backend/${file}`, import.meta.url), 'utf8'))
   .join('\n');
 
@@ -113,6 +113,8 @@ describe('skills backend API', () => {
     expect(source).toContain('skill_item_destination_path');
     expect(source).toContain('delete_skill_dir');
     expect(source).toContain('find_skill_dir');
+    expect(source).toContain('skill_path_is_archived');
+    expect(source).toContain('skills_collector_skips_archive_directories');
     expect(source).toContain('resolve_skill_file_path');
     expect(source).toContain('skills_config import get_disabled_skills, save_disabled_skills');
     expect(source).not.toContain('skill_api_unavailable(');
