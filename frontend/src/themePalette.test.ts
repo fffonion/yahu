@@ -32,7 +32,11 @@ describe('full palette theme control', () => {
     const styles = css();
     expect(styles).toContain('.workspace-editor{width:100%;height:100%;min-height:0;resize:none;padding:14px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--editor-bg);color:var(--editor-text);');
     expect(styles).toContain('.workspace-code-highlight{margin:0;min-height:0;overflow:auto;padding:14px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--editor-bg);');
-    expect(styles).toContain('.tok-keyword{color:var(--syntax-keyword);font-weight:700}');
+    expect(styles).toContain('.workspace-editor-textarea{min-height:0;width:100%;height:100%;resize:none;margin:0;padding:14px;');
+    expect(styles).toContain('font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--editor-text);caret-color:var(--editor-text);background:var(--editor-bg);');
+    expect(styles).toContain('.workspace-editor-highlight{display:none;');
+    expect(styles).toContain('.tok-keyword{color:var(--syntax-keyword)}');
+    expect(styles).not.toContain('.tok-keyword{color:var(--syntax-keyword);font-weight:700}');
     expect(styles).toContain('.tok-string{color:var(--syntax-string)}');
     expect(styles).toContain('.msg-body code{background:var(--code-inline-bg);color:var(--code-text)}');
   });
