@@ -76,6 +76,10 @@ export function markdownInline(text: string) {
   return html;
 }
 
+export function isMarkdownPath(path: string) {
+  return /(?:^|\/)[^/]+\.(?:md|markdown)$/i.test(path || '');
+}
+
 export function markdownText(text: string) {
   const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
   const out: string[] = [];

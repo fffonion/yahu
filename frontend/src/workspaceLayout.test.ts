@@ -33,6 +33,20 @@ describe('workspace page file tree layout', () => {
     expect(component).toContain('editMode');
   });
 
+  test('markdown files render as formatted markdown outside edit mode', () => {
+    const source = app();
+    const styles = css();
+    const component = source.slice(source.indexOf('function WorkspaceEditorPreview'), source.indexOf('function WorkspaceBrowser'));
+    const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));
+    expect(source).toContain("import { isMarkdownPath, markdownText } from './markdown';");
+    expect(component).toContain('isMarkdownPath(preview.path)');
+    expect(component).toContain('className="workspace-markdown-preview md-content"');
+    expect(component).toContain('markdownText(preview.content || \'\')');
+    expect(browser).toContain('className="workspace-markdown-preview compact md-content"');
+    expect(styles).toContain('.workspace-markdown-preview{min-height:0;overflow:auto;padding:18px 20px;background:var(--editor-bg);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--editor-text);line-height:1.6;overflow-wrap:anywhere}');
+    expect(styles).toContain('.workspace-markdown-preview .md-table-wrap{max-width:100%;overflow-x:auto;margin:10px 0 12px;border:1px solid var(--border);border-radius:12px}');
+  });
+
   test('collapsed right workspace rail only exposes the expand control', () => {
     const source = app();
     const styles = css();

@@ -1,8 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { markdownText } from './markdown';
+import { isMarkdownPath, markdownText } from './markdown';
 
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+
+describe('markdown helpers', () => {
+  test('detects markdown file paths used by workspace and skills previews', () => {
+    expect(isMarkdownPath('README.md')).toBe(true);
+    expect(isMarkdownPath('docs/guide.markdown')).toBe(true);
+    expect(isMarkdownPath('references/SKILL.MD')).toBe(true);
+    expect(isMarkdownPath('src/App.tsx')).toBe(false);
+    expect(isMarkdownPath('notes.md.bak')).toBe(false);
+  });
+});
 
 describe('chat markdown rendering', () => {
   test('renders common markdown blocks and inline formatting safely', () => {
