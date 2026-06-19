@@ -50,13 +50,6 @@ export type SessionArtifact = {
 
 export const ARTIFACTS_KEY = 'yahu.sessionArtifacts';
 
-const ROLE_TITLE: Record<ArtifactRole, string> = {
-  user: 'User request',
-  assistant: 'Agent response',
-  system: 'System note',
-  tool: 'Tool output',
-};
-
 function cleanText(value: string) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -74,9 +67,38 @@ function artifactTitle(session: ArtifactInputSession) {
   return cleanText(session.title || session.preview || session.id || 'Untitled session') || 'Untitled session';
 }
 
-function timelineTitle(message: ArtifactInputMessage) {
-  if (message.role === 'tool') return message.toolName || ROLE_TITLE.tool;
-  return ROLE_TITLE[message.role] || message.role;
+function readableList(items: string[], limit = 4) {
+  const values = Array.from(new Set(items.map((item) => cleanText(item)).filter(Boolean))).slice(0, limit);
+  return values.length ? values.join(', ') : 'none';
+}
+
+function messagesByRole(messages: ArtifactInputMessage[], role: ArtifactRole) {
+  return messages.filter((message) => message.role === role && cleanText(message.content));
+}
+
+function summarizedExcerpt(label: string, group: ArtifactInputMessage[], max = 220) {
+  if (!group.length) return '';
+  const first = excerpt(group[0].content, 90);
+  const last = excerpt(group[group.length - 1].content, 110);
+  if (group.length === 1) return `${label}: ${first}`;
+  return `${label}: ${group.length} entries. First: ${first} Latest: ${last}`;
+}
+
+function dashboardTimeline(messages: ArtifactInputMessage[]): ArtifactTimelineItem[] {
+  const users = messagesByRole(messages, 'user');
+  const assistants = messagesByRole(messages, 'assistant');
+  const tools = messagesByRole(messages, 'tool');
+  const systems = messagesByRole(messages, 'system');
+  const rows: ArtifactTimelineItem[] = [];
+  if (users.length) rows.push({ id: 'request', role: 'user', title: 'Request', excerpt: summarizedExcerpt('User asked', users), timestamp: users[0].timestamp });
+  if (assistants.length) rows.push({ id: 'work-summary', role: 'assistant', title: 'Work summary', excerpt: summarizedExcerpt('Agent produced', assistants), timestamp: assistants[assistants.length - 1].timestamp });
+  if (tools.length) rows.push({ id: 'tool-evidence', role: 'tool', title: 'Tool evidence', excerpt: `Tools used: ${readableList(tools.map((message) => message.toolName || 'tool'))}. Outputs checked: ${tools.length}. Latest: ${excerpt(tools[tools.length - 1].content, 110)}`, timestamp: tools[tools.length - 1].timestamp });
+  if (systems.length) rows.push({ id: 'system-notes', role: 'system', title: 'System notes', excerpt: summarizedExcerpt('System context', systems), timestamp: systems[systems.length - 1].timestamp });
+  return rows;
+}
+
+function timelineText(timeline: ArtifactTimelineItem[]) {
+  return timeline.map((item) => `- ${item.title}: ${item.excerpt}`).join('\n');
 }
 
 function summarize(messages: ArtifactInputMessage[]) {
@@ -90,11 +112,14 @@ function summarize(messages: ArtifactInputMessage[]) {
 }
 
 function highlights(messages: ArtifactInputMessage[]) {
-  const candidates = messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message) => excerpt(message.content, 140))
-    .filter(Boolean);
-  return candidates.slice(-4).reverse();
+  const users = messagesByRole(messages, 'user');
+  const assistants = messagesByRole(messages, 'assistant');
+  const tools = messagesByRole(messages, 'tool');
+  return [
+    users[0] ? `Request: ${excerpt(users[0].content, 130)}` : '',
+    assistants.length ? `Latest response: ${excerpt(assistants[assistants.length - 1].content, 130)}` : '',
+    tools.length ? `Evidence: ${tools.length} tool output${tools.length === 1 ? '' : 's'} from ${readableList(tools.map((message) => message.toolName || 'tool'))}` : '',
+  ].filter(Boolean);
 }
 
 export function buildSessionArtifact(input: { session: ArtifactInputSession; messages: ArtifactInputMessage[]; existing?: SessionArtifact; now?: number }): SessionArtifact {
@@ -113,13 +138,7 @@ export function buildSessionArtifact(input: { session: ArtifactInputSession; mes
     version: base.versions.length + 1,
     createdAt: now,
     summary: summarize(messages),
-    timeline: messages.slice(-12).map((message, index) => ({
-      id: message.id || `message-${index}`,
-      role: message.role,
-      title: timelineTitle(message),
-      excerpt: excerpt(message.content),
-      timestamp: message.timestamp,
-    })),
+    timeline: dashboardTimeline(messages),
     highlights: highlights(messages),
   };
   return {
@@ -130,15 +149,44 @@ export function buildSessionArtifact(input: { session: ArtifactInputSession; mes
   };
 }
 
-export function artifactCopyPrompt(artifact: SessionArtifact) {
-  const latest = artifact.versions[artifact.versions.length - 1];
+export function artifactCopyPrompt(artifact: SessionArtifact, version = artifact.versions[artifact.versions.length - 1]) {
+  const latest = version;
   return [
     `Continue from artifact “${artifact.title}”.`,
     `Source session: ${artifact.sourceSessionId}`,
     `Version: ${latest?.version || 1}`,
-    latest?.highlights?.length ? `Recent highlights:\n${latest.highlights.map((item) => `- ${item}`).join('\n')}` : '',
+    latest?.highlights?.length ? `Highlights:\n${latest.highlights.map((item) => `- ${item}`).join('\n')}` : '',
+    latest?.timeline?.length ? `Timeline:\n${timelineText(latest.timeline)}` : '',
     'Use the artifact context above and propose the next concrete update.',
   ].filter(Boolean).join('\n\n');
+}
+
+export async function copyTextToClipboard(text: string, env: { navigator?: any; document?: any } = {}) {
+  const nav = env.navigator ?? globalThis.navigator;
+  const doc = env.document ?? globalThis.document;
+  try {
+    if (nav?.clipboard?.writeText) {
+      await nav.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to textarea copy path.
+  }
+  if (!doc?.createElement || !doc?.body?.appendChild) return false;
+  const textarea = doc.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute?.('readonly', '');
+  Object.assign(textarea.style || {}, { position: 'fixed', left: '-9999px', top: '0', opacity: '0' });
+  doc.body.appendChild(textarea);
+  textarea.focus?.();
+  textarea.select?.();
+  try {
+    return !!doc.execCommand?.('copy');
+  } catch {
+    return false;
+  } finally {
+    textarea.remove?.();
+  }
 }
 
 export function readStoredArtifacts(storage: Pick<Storage, 'getItem'> = localStorage): SessionArtifact[] {

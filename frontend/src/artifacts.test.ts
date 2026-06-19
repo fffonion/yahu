@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { artifactCopyPrompt, buildSessionArtifact } from './artifacts';
+import { artifactCopyPrompt, buildSessionArtifact, copyTextToClipboard } from './artifacts';
 
 describe('session artifacts', () => {
   test('builds a shareable session artifact with summary, timeline, and copy prompt', () => {
@@ -19,8 +19,13 @@ describe('session artifacts', () => {
     expect(artifact.versions).toHaveLength(1);
     expect(artifact.versions[0].summary.totalMessages).toBe(3);
     expect(artifact.versions[0].summary.toolMessages).toBe(1);
-    expect(artifact.versions[0].timeline.map((item) => item.role)).toEqual(['user', 'assistant', 'tool']);
-    expect(artifact.versions[0].timeline[2].title).toBe('terminal');
+    expect(artifact.versions[0].timeline.map((item) => item.title)).toEqual(['Request', 'Work summary', 'Tool evidence']);
+    expect(artifact.versions[0].timeline.map((item) => item.excerpt)).not.toEqual([
+      'Cursor is offset in the editor',
+      'I reproduced it and found the overlay mismatch.',
+      'bun test -> 272 pass',
+    ]);
+    expect(artifactCopyPrompt(artifact)).toContain('Timeline:');
     expect(artifactCopyPrompt(artifact)).toContain('Continue from artifact “Debug flaky editor”');
     expect(artifactCopyPrompt(artifact)).toContain('s1');
   });
@@ -46,5 +51,30 @@ describe('session artifacts', () => {
     expect(second.versions[0].version).toBe(1);
     expect(second.versions[1].version).toBe(2);
     expect(second.versions[1].summary.assistantMessages).toBe(1);
+    expect(artifactCopyPrompt(second, second.versions[0])).toContain('Version: 1');
+    expect(artifactCopyPrompt(second, second.versions[1])).toContain('Version: 2');
+  });
+
+  test('copy helper falls back to a hidden textarea when clipboard API is unavailable', async () => {
+    const calls: string[] = [];
+    const textarea = {
+      value: '',
+      style: {},
+      focus: () => calls.push('focus'),
+      select: () => calls.push('select'),
+      remove: () => calls.push('remove'),
+    };
+    const ok = await copyTextToClipboard('artifact prompt', {
+      navigator: {},
+      document: {
+        createElement: () => textarea,
+        body: { appendChild: (node: any) => calls.push(node === textarea ? 'append' : 'other') },
+        execCommand: (command: string) => command === 'copy',
+      } as any,
+    });
+
+    expect(ok).toBe(true);
+    expect(textarea.value).toBe('artifact prompt');
+    expect(calls).toEqual(['append', 'focus', 'select', 'remove']);
   });
 });

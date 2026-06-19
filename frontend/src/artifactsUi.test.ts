@@ -29,7 +29,10 @@ describe('artifacts UI', () => {
     expect(source).toContain('function ArtifactsMain');
     expect(source).toContain('artifact-gallery');
     expect(source).toContain('artifact-document');
-    expect(source).toContain('artifact-copy-prompt');
+    expect(source).toContain('copyTextToClipboard(artifactCopyPrompt(selected, activeVersion))');
+    expect(source).toContain('artifact-version-help');
+    expect(i18n()).toContain("'artifacts.versionHelp'");
+    expect(source).toContain('artifact-timeline-row');
     expect(styles).toContain('.artifacts-main');
     expect(styles).toContain('.artifact-document');
     expect(styles).toContain('#f5f4ed');

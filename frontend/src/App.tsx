@@ -18,7 +18,7 @@ import { mergeMessageWindow } from './chatMessageWindow';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
 import { isMarkdownPath, markdownText } from './markdown';
-import { buildSessionArtifact, artifactCopyPrompt, readStoredArtifacts, ARTIFACTS_KEY, type SessionArtifact } from './artifacts';
+import { buildSessionArtifact, artifactCopyPrompt, copyTextToClipboard, readStoredArtifacts, ARTIFACTS_KEY, type SessionArtifact } from './artifacts';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
@@ -1848,10 +1848,9 @@ function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId
   const latestIndex = Math.max(0, versions.length - 1);
   const activeVersion = versions[Math.min(versionIndex, latestIndex)] || null;
   const copyPrompt = async () => {
-    if (!selected) return;
-    const prompt = artifactCopyPrompt(selected);
-    try { await navigator.clipboard?.writeText(prompt); props.showToast(t('artifacts.copiedPrompt')); }
-    catch { props.showToast(prompt); }
+    if (!selected || !activeVersion) return;
+    const copied = await copyTextToClipboard(artifactCopyPrompt(selected, activeVersion));
+    props.showToast(copied ? t('artifacts.copiedPrompt') : t('artifacts.copyFailed'));
   };
   return <main className="main-panel artifacts-main">
     <header className="chat-header header-no-drawer artifacts-header"><div><h1>{t('artifacts.title')}</h1><span>{t('artifacts.subtitle')}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></header>
@@ -1872,7 +1871,7 @@ function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId
       <article className="artifact-document">
         {!selected || !activeVersion ? <div className="empty-state"><Layout className="big-mark" /><h2>{t('artifacts.empty')}</h2><p>{t('artifacts.emptyDesc')}</p></div> : <>
           <div className="artifact-document-kicker">{t('artifacts.sourceSession')} · {selected.sourceSessionId}</div>
-          <div className="artifact-document-titlebar"><div><h2>{selected.title}</h2><p>{t('artifacts.latestVersion')} v{activeVersion.version} · {artifactDate(activeVersion.createdAt)}</p></div><div className="artifact-actions"><select value={activeVersion.version} onChange={(event) => setVersionIndex(Math.max(0, Number(event.target.value) - 1))}>{versions.map((version) => <option key={version.version} value={version.version}>v{version.version}</option>)}</select><button type="button" className="artifact-copy-prompt" onClick={copyPrompt}><FileText /> {t('artifacts.copyPrompt')}</button></div></div>
+          <div className="artifact-document-titlebar"><div><h2>{selected.title}</h2><p>{t('artifacts.latestVersion')} v{activeVersion.version} · {artifactDate(activeVersion.createdAt)}</p><p className="artifact-version-help">{t('artifacts.versionHelp')}</p></div><div className="artifact-actions"><select value={activeVersion.version} onChange={(event) => setVersionIndex(Math.max(0, Number(event.target.value) - 1))}>{versions.map((version) => <option key={version.version} value={version.version}>v{version.version}</option>)}</select><button type="button" className="artifact-copy-prompt" onClick={copyPrompt}><FileText /> {t('artifacts.copyPrompt')}</button></div></div>
           <div className="artifact-metrics"><ArtifactMetric label="Messages" value={activeVersion.summary.totalMessages} /><ArtifactMetric label="Assistant" value={activeVersion.summary.assistantMessages} /><ArtifactMetric label="Tools" value={activeVersion.summary.toolMessages} /><ArtifactMetric label="Versions" value={selected.versions.length} /></div>
           <section className="artifact-section"><h3>{t('artifacts.highlights')}</h3>{activeVersion.highlights.length ? <ul>{activeVersion.highlights.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p className="artifact-muted">No highlights yet.</p>}</section>
           <section className="artifact-section"><h3>{t('artifacts.timeline')}</h3><div className="artifact-timeline">{activeVersion.timeline.map((item) => <div className={`artifact-timeline-row ${item.role}`} key={item.id}><span>{item.role}</span><div><strong>{item.title}</strong><p>{item.excerpt}</p></div></div>)}</div></section>
