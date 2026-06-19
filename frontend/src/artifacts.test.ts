@@ -55,6 +55,30 @@ describe('session artifacts', () => {
     expect(artifactCopyPrompt(second, second.versions[1])).toContain('Version: 2');
   });
 
+  test('extracts high-value tool outputs into evidence instead of restyling raw transcript', () => {
+    const artifact = buildSessionArtifact({
+      session: { id: 'tools1', title: 'Artifacts implementation' },
+      messages: [
+        { id: 'u1', role: 'user', content: 'Make artifacts useful.' },
+        { id: 'rf', role: 'tool', toolName: 'read_file', content: JSON.stringify({ tool_name: 'read_file', path: '/tmp/App.tsx', result: 'read 120 lines' }) },
+        { id: 'test', role: 'tool', toolName: 'functions.terminal', content: JSON.stringify({ tool_name: 'terminal', arguments: { command: 'bun test' }, output: '278 pass\n0 fail\nRan 278 tests across 62 files.', exit_code: 0 }) },
+        { id: 'browser', role: 'tool', toolName: 'browser_snapshot', content: '<untrusted_tool_result source="browser_snapshot">heading "Artifacts"\nbutton "Copy as prompt"\nparagraph: Tool evidence</untrusted_tool_result>' },
+        { id: 'a1', role: 'assistant', content: 'Implemented a real artifact canvas with evidence.' },
+      ],
+      now: 1710000300000,
+    });
+    const version = artifact.versions[0];
+
+    expect(version.evidence.map((item) => item.toolName).slice(0, 2)).toEqual(['terminal', 'browser_snapshot']);
+    expect(version.evidence[0].category).toBe('verification');
+    expect(version.evidence[0].findings).toContain('278 tests passed');
+    expect(version.evidence[0].summary).toContain('bun test');
+    expect(version.evidence.some((item) => item.toolName === 'read_file')).toBe(false);
+    expect(version.sections.find((section) => section.id === 'verification')?.items.join('\n')).toContain('278 tests passed');
+    expect(artifactCopyPrompt(artifact)).toContain('Tool evidence:');
+    expect(artifactCopyPrompt(artifact)).toContain('278 tests passed');
+  });
+
   test('copy helper falls back to a hidden textarea when clipboard API is unavailable', async () => {
     const calls: string[] = [];
     const textarea = {

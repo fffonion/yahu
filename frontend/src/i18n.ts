@@ -312,6 +312,8 @@ const translations: Record<string, Record<string, string>> = {
   'artifacts.versionHelp': { en: 'A new version is appended every time this source is published again.', 'zh-CN': '同一来源每次重新生成都会追加一个新版本。', 'zh-TW': '同一來源每次重新生成都會追加一個新版本。', ja: '同じソースを再公開するたびに新しいバージョンが追加されます。' },
   'artifacts.timeline': { en: 'Timeline', 'zh-CN': '时间线', 'zh-TW': '時間線', ja: 'タイムライン' },
   'artifacts.highlights': { en: 'Highlights', 'zh-CN': '重点', 'zh-TW': '重點', ja: 'ハイライト' },
+  'artifacts.brief': { en: 'Artifact brief', 'zh-CN': 'Artifact 摘要', 'zh-TW': 'Artifact 摘要', ja: 'Artifact概要' },
+  'artifacts.toolEvidence': { en: 'Tool evidence', 'zh-CN': '工具证据', 'zh-TW': '工具證據', ja: 'ツール根拠' },
   'artifacts.sourceSession': { en: 'Source session', 'zh-CN': '来源会话', 'zh-TW': '來源會話', ja: 'ソースセッション' },
 
   // Status messages
