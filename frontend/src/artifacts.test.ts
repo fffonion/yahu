@@ -79,6 +79,36 @@ describe('session artifacts', () => {
     expect(artifactCopyPrompt(artifact)).toContain('278 tests passed');
   });
 
+  test('extracts code diffs from tool output into the artifact dashboard and copy prompt', () => {
+    const diff = [
+      'diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx',
+      '--- a/frontend/src/App.tsx',
+      '+++ b/frontend/src/App.tsx',
+      '@@ -10,6 +10,7 @@',
+      " const title = 'Artifacts';",
+      '-const showRawTranscript = true;',
+      '+const showDiff = true;',
+      '+const showRawTranscript = false;',
+    ].join('\n');
+    const artifact = buildSessionArtifact({
+      session: { id: 'diff1', title: 'Show artifact diff' },
+      messages: [
+        { id: 'u1', role: 'user', content: 'Make the board show diffs.' },
+        { id: 'patch', role: 'tool', toolName: 'patch', content: JSON.stringify({ tool_name: 'patch', success: true, diff }) },
+        { id: 'a1', role: 'assistant', content: 'Added a diff panel to the artifact dashboard.' },
+      ],
+      now: 1710000400000,
+    });
+    const version = artifact.versions[0];
+
+    expect(version.diffs).toHaveLength(1);
+    expect(version.diffs[0]).toMatchObject({ file: 'frontend/src/App.tsx', added: 2, removed: 1 });
+    expect(version.diffs[0].excerpt).toContain('+const showDiff = true;');
+    expect(version.sections.find((section) => section.id === 'changes')?.items.join('\n')).toContain('frontend/src/App.tsx: +2 / -1');
+    expect(artifactCopyPrompt(artifact)).toContain('Code diff:');
+    expect(artifactCopyPrompt(artifact)).toContain('frontend/src/App.tsx (+2 / -1)');
+  });
+
   test('copy helper falls back to a hidden textarea when clipboard API is unavailable', async () => {
     const calls: string[] = [];
     const textarea = {

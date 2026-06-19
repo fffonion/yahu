@@ -37,9 +37,15 @@ describe('artifacts UI', () => {
     expect(source).toContain('artifact-evidence-status');
     expect(source).toContain('activeVersion.evidence');
     expect(source).toContain('activeVersion.sections');
+    expect(source).toContain('activeVersion.diffs');
+    expect(source).toContain('artifact-diff-panel');
+    expect(source).toContain('artifact-diff-line-add');
     expect(i18n()).toContain("'artifacts.toolEvidence'");
+    expect(i18n()).toContain("'artifacts.codeDiff'");
     expect(styles).toContain('.artifact-evidence-card');
     expect(styles).toContain('.artifact-evidence-status');
+    expect(styles).toContain('.artifact-diff-panel');
+    expect(styles).toContain('.artifact-diff-line-add');
     expect(styles).toContain('.artifacts-main');
     expect(styles).toContain('.artifact-document');
     expect(styles).toContain('#f5f4ed');

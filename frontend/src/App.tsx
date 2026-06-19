@@ -1862,6 +1862,12 @@ function artifactDate(value?: string | number) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
+function artifactDiffLineClass(line: string) {
+  if (line.startsWith('+') && !line.startsWith('+++')) return 'artifact-diff-line artifact-diff-line-add';
+  if (line.startsWith('-') && !line.startsWith('---')) return 'artifact-diff-line artifact-diff-line-remove';
+  if (line.startsWith('@@')) return 'artifact-diff-line artifact-diff-line-hunk';
+  return 'artifact-diff-line';
+}
 function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId: string; selectArtifact: (id: string) => void; openArtifactMenu: (artifact: SessionArtifact, event: React.MouseEvent) => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void; showToast: (message: string) => void }) {
   const selected = props.artifacts.find((artifact) => artifact.id === props.selectedArtifactId) || props.artifacts[0] || null;
   const [versionIndex, setVersionIndex] = useState(0);
@@ -1898,6 +1904,7 @@ function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId
           {!!activeVersion.sections?.length && <section className="artifact-section artifact-brief"><h3>{t('artifacts.brief')}</h3><div className="artifact-section-list">{activeVersion.sections.map((section) => <div className={`artifact-brief-block ${section.id}`} key={section.id}><strong>{section.title}</strong><ul>{section.items.map((item, index) => <li key={`${section.id}-${index}`}>{item}</li>)}</ul></div>)}</div></section>}
           <section className="artifact-section"><h3>{t('artifacts.highlights')}</h3>{activeVersion.highlights.length ? <ul>{activeVersion.highlights.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p className="artifact-muted">No highlights yet.</p>}</section>
           {!!activeVersion.evidence?.length && <section className="artifact-section"><h3>{t('artifacts.toolEvidence')}</h3><div className="artifact-evidence-grid">{activeVersion.evidence.map((item) => <article className={`artifact-evidence-card ${item.category}`} key={item.id}><div className="artifact-evidence-meta"><span>{item.category}</span><small className="artifact-evidence-status">{item.status}</small></div><strong>{item.title}</strong><p>{item.summary}</p><ul>{item.findings.map((finding, index) => <li key={`${item.id}-${index}`}>{finding}</li>)}</ul><pre>{item.rawExcerpt}</pre></article>)}</div></section>}
+          {!!activeVersion.diffs?.length && <section className="artifact-section artifact-diff-panel"><h3>{t('artifacts.codeDiff')}</h3><div className="artifact-diff-list">{activeVersion.diffs.map((item) => <article className="artifact-diff-card" key={item.id}><div className="artifact-diff-head"><strong>{item.file}</strong><span>+{item.added} / -{item.removed}</span></div><pre>{item.excerpt.split('\n').map((line, index) => <span className={artifactDiffLineClass(line)} key={`${item.id}-${index}`}>{line || ' '}</span>)}</pre></article>)}</div></section>}
           <section className="artifact-section"><h3>{t('artifacts.timeline')}</h3><div className="artifact-timeline">{activeVersion.timeline.map((item) => <div className={`artifact-timeline-row ${item.role}`} key={item.id}><span>{item.role}</span><div><strong>{item.title}</strong><p>{item.excerpt}</p></div></div>)}</div></section>
         </>}
       </article>

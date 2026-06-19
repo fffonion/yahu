@@ -314,6 +314,7 @@ const translations: Record<string, Record<string, string>> = {
   'artifacts.highlights': { en: 'Highlights', 'zh-CN': '重点', 'zh-TW': '重點', ja: 'ハイライト' },
   'artifacts.brief': { en: 'Artifact brief', 'zh-CN': 'Artifact 摘要', 'zh-TW': 'Artifact 摘要', ja: 'Artifact概要' },
   'artifacts.toolEvidence': { en: 'Tool evidence', 'zh-CN': '工具证据', 'zh-TW': '工具證據', ja: 'ツール根拠' },
+  'artifacts.codeDiff': { en: 'Code diff', 'zh-CN': '代码差异', 'zh-TW': '程式碼差異', ja: 'コード差分' },
   'artifacts.delete': { en: 'Delete artifact', 'zh-CN': '删除看板', 'zh-TW': '刪除看板', ja: 'Artifactを削除' },
   'artifacts.deleteTitle': { en: 'Delete artifact', 'zh-CN': '删除看板', 'zh-TW': '刪除看板', ja: 'Artifactを削除' },
   'artifacts.deleteConfirm': { en: 'Delete artifact “{0}”? This cannot be undone.', 'zh-CN': '删除看板“{0}”？此操作无法撤销。', 'zh-TW': '刪除看板「{0}」？此操作無法復原。', ja: 'Artifact「{0}」を削除しますか？元に戻せません。' },

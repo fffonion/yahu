@@ -49,6 +49,14 @@ export type ArtifactDocumentSection = {
   items: string[];
 };
 
+export type ArtifactDiffItem = {
+  id: string;
+  file: string;
+  added: number;
+  removed: number;
+  excerpt: string;
+};
+
 export type SessionArtifactVersion = {
   version: number;
   createdAt: number;
@@ -62,6 +70,7 @@ export type SessionArtifactVersion = {
   timeline: ArtifactTimelineItem[];
   highlights: string[];
   evidence: ArtifactEvidenceItem[];
+  diffs: ArtifactDiffItem[];
   sections: ArtifactDocumentSection[];
 };
 
@@ -164,6 +173,80 @@ function pushUnique(items: string[], value: string, max = 6) {
   items.push(text);
 }
 
+function collectStrings(value: unknown, output: string[] = [], seen = new Set<unknown>()): string[] {
+  if (value === undefined || value === null) return output;
+  if (typeof value === 'string') { output.push(value); return output; }
+  if (typeof value !== 'object') return output;
+  if (seen.has(value)) return output;
+  seen.add(value);
+  if (Array.isArray(value)) value.forEach((item) => collectStrings(item, output, seen));
+  else Object.values(value as Record<string, unknown>).forEach((item) => collectStrings(item, output, seen));
+  return output;
+}
+
+function normalizeDiffText(value: string) {
+  const text = String(value || '').replace(/\r\n/g, '\n');
+  return !text.includes('\n') && text.includes('\\n') ? text.replace(/\\n/g, '\n') : text;
+}
+
+function diffFileName(lines: string[]) {
+  const header = lines.find((line) => line.startsWith('diff --git '));
+  const fromHeader = header?.match(/\sb\/(.+)$/)?.[1];
+  if (fromHeader) return fromHeader;
+  const plus = lines.find((line) => line.startsWith('+++ '));
+  return (plus || '').replace(/^\+\+\+\s+(?:b\/)?/, '').trim() || 'diff';
+}
+
+function diffCounts(lines: string[]) {
+  return lines.reduce((counts, line) => {
+    if (line.startsWith('+++') || line.startsWith('---')) return counts;
+    if (line.startsWith('+')) counts.added += 1;
+    if (line.startsWith('-')) counts.removed += 1;
+    return counts;
+  }, { added: 0, removed: 0 });
+}
+
+function diffBlocksFromText(value: string): string[] {
+  const lines = normalizeDiffText(value).split('\n');
+  const blocks: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i].startsWith('diff --git ')) continue;
+    const start = i;
+    i += 1;
+    while (i < lines.length && !lines[i].startsWith('diff --git ')) i += 1;
+    blocks.push(lines.slice(start, i).join('\n').trim());
+    i -= 1;
+  }
+  if (blocks.length) return blocks;
+  const hunk = lines.findIndex((line) => line.startsWith('@@ ') || line.startsWith('--- '));
+  return hunk >= 0 && lines.some((line) => line.startsWith('+++ ')) ? [lines.slice(Math.max(0, hunk - 2)).join('\n').trim()] : [];
+}
+
+function extractDiffs(messages: ArtifactInputMessage[]): ArtifactDiffItem[] {
+  const items: ArtifactDiffItem[] = [];
+  const seen = new Set<string>();
+  messages.filter((message) => message.role === 'tool' && cleanText(message.content)).forEach((message) => {
+    const summary = summarizeToolMessage(message.content, message.toolName || '', message.toolInput);
+    const strings = collectStrings(summary.raw).concat(collectStrings(summary.result));
+    strings.flatMap(diffBlocksFromText).forEach((block) => {
+      const lines = block.split('\n');
+      const file = diffFileName(lines);
+      const counts = diffCounts(lines);
+      if (!counts.added && !counts.removed) return;
+      const key = `${file}\n${block}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push({
+        id: message.id ? `diff-${message.id}-${items.length}` : `diff-${items.length}`,
+        file,
+        ...counts,
+        excerpt: lines.slice(0, 80).join('\n'),
+      });
+    });
+  });
+  return items.slice(0, 6);
+}
+
 function outputTextForAnalysis(message: ArtifactInputMessage) {
   const summary = summarizeToolMessage(message.content, message.toolName || '', message.toolInput);
   const rawText = valueText(summary.result || summary.subtitle || message.content);
@@ -259,7 +342,7 @@ function summarize(messages: ArtifactInputMessage[]) {
   };
 }
 
-function documentSections(messages: ArtifactInputMessage[], evidence: ArtifactEvidenceItem[]): ArtifactDocumentSection[] {
+function documentSections(messages: ArtifactInputMessage[], evidence: ArtifactEvidenceItem[], diffs: ArtifactDiffItem[] = []) {
   const users = messagesByRole(messages, 'user');
   const assistants = messagesByRole(messages, 'assistant');
   const sections: ArtifactDocumentSection[] = [];
@@ -268,24 +351,34 @@ function documentSections(messages: ArtifactInputMessage[], evidence: ArtifactEv
   const verification = evidence.filter((item) => item.category === 'verification' || item.category === 'diagnostic').flatMap((item) => item.findings.map((finding) => `${item.title}: ${finding}`));
   if (verification.length) sections.push({ id: 'verification', title: 'Verification', items: verification.slice(0, 8) });
   const changes = evidence.filter((item) => item.category === 'change').flatMap((item) => item.findings.map((finding) => `${item.title}: ${finding}`));
+  diffs.forEach((item) => changes.unshift(`${item.file}: +${item.added} / -${item.removed}`));
   if (changes.length) sections.push({ id: 'changes', title: 'Changes', items: changes.slice(0, 6) });
   const observations = evidence.filter((item) => item.category === 'observation').flatMap((item) => item.findings.map((finding) => `${item.title}: ${finding}`));
   if (observations.length) sections.push({ id: 'observations', title: 'Observations', items: observations.slice(0, 6) });
   return sections;
 }
 
-function highlights(messages: ArtifactInputMessage[], evidence: ArtifactEvidenceItem[]) {
+function diffSummaryText(diffs: ArtifactDiffItem[]) {
+  return diffs.map((item) => `${item.file} (+${item.added} / -${item.removed})`).join(', ');
+}
+
+function highlights(messages: ArtifactInputMessage[], evidence: ArtifactEvidenceItem[], diffs: ArtifactDiffItem[] = []) {
   const users = messagesByRole(messages, 'user');
   const assistants = messagesByRole(messages, 'assistant');
   return [
     users[0] ? `Request: ${excerpt(users[0].content, 130)}` : '',
     assistants.length ? `Latest response: ${excerpt(assistants[assistants.length - 1].content, 130)}` : '',
     evidence.length ? `Tool-backed evidence: ${evidence.slice(0, 3).map((item) => `${item.title} (${item.category})`).join(', ')}` : '',
+    diffs.length ? `Code diff: ${diffSummaryText(diffs)}` : '',
   ].filter(Boolean);
 }
 
 function evidenceText(evidence: ArtifactEvidenceItem[]) {
   return evidence.map((item) => `- ${item.title} [${item.category}, ${item.status}]: ${item.findings.join('; ')}\n  ${item.rawExcerpt}`).join('\n');
+}
+
+function diffText(diffs: ArtifactDiffItem[]) {
+  return diffs.map((item) => `- ${item.file} (+${item.added} / -${item.removed})\n${item.excerpt}`).join('\n\n');
 }
 
 function sectionText(sections: ArtifactDocumentSection[]) {
@@ -305,14 +398,16 @@ export function buildSessionArtifact(input: { session: ArtifactInputSession; mes
   };
   const messages = input.messages || [];
   const evidence = toolEvidence(messages);
-  const sections = documentSections(messages, evidence);
+  const diffs = extractDiffs(messages);
+  const sections = documentSections(messages, evidence, diffs);
   const nextVersion: SessionArtifactVersion = {
     version: base.versions.length + 1,
     createdAt: now,
     summary: summarize(messages),
     timeline: dashboardTimeline(messages, evidence),
-    highlights: highlights(messages, evidence),
+    highlights: highlights(messages, evidence, diffs),
     evidence,
+    diffs,
     sections,
   };
   return {
@@ -333,6 +428,7 @@ export function artifactCopyPrompt(artifact: SessionArtifact, version = artifact
     latest?.highlights?.length ? `Highlights:\n${latest.highlights.map((item) => `- ${item}`).join('\n')}` : '',
     latest?.timeline?.length ? `Timeline:\n${timelineText(latest.timeline)}` : '',
     latest?.evidence?.length ? `Tool evidence:\n${evidenceText(latest.evidence)}` : '',
+    latest?.diffs?.length ? `Code diff:\n${diffText(latest.diffs)}` : '',
     'Use the artifact context above and propose the next concrete update.',
   ].filter(Boolean).join('\n\n');
 }
