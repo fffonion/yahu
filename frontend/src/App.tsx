@@ -18,10 +18,11 @@ import { mergeMessageWindow } from './chatMessageWindow';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
 import { isMarkdownPath, markdownText } from './markdown';
+import { buildSessionArtifact, artifactCopyPrompt, readStoredArtifacts, ARTIFACTS_KEY, type SessionArtifact } from './artifacts';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
-type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
+type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'artifacts' | 'images' | 'workspace' | 'skills' | 'settings';
 type Role = 'user' | 'assistant' | 'system' | 'tool';
 type FollowUpBehaviour = 'queue' | 'steer';
 type ComposerEnterMode = 'enter-send' | 'enter-newline';
@@ -127,7 +128,7 @@ function cronEnabledToolsets(job?: Job | null): string[] {
 const usageMetricLabel = (metric: UsageMetric) => t(`insights.metric.${metric}`);
 function isHourlyBucket(bucket: UsageDay | UsageHour | undefined): bucket is UsageHour { return !!bucket && 'hour' in bucket; }
 const navLabel = (mode: Mode) => t(`nav.${mode}`);
-const modeSummary = (mode: Mode) => mode === 'memory' ? t('mode.memorySummary') : mode === 'insights' ? t('mode.insightsSummary') : mode === 'workspace' ? t('mode.workspaceSummary') : mode === 'settings' ? t('mode.settingsSummary') : mode === 'images' ? t('mode.imagesSummary') : t('mode.cronSummary');
+const modeSummary = (mode: Mode) => mode === 'memory' ? t('mode.memorySummary') : mode === 'insights' ? t('mode.insightsSummary') : mode === 'artifacts' ? t('mode.artifactsSummary') : mode === 'workspace' ? t('mode.workspaceSummary') : mode === 'settings' ? t('mode.settingsSummary') : mode === 'images' ? t('mode.imagesSummary') : t('mode.cronSummary');
 const apiJoin = (base: string, path: string) => `${base.replace(/\/$/, '')}${path}`;
 const numericId = (id?: string) => /^\d+$/.test(id || '') ? id : '';
 const workspaceRouteParents = (path: string) => {
@@ -550,7 +551,7 @@ function ContextWindowMeter({ used, total, approximate = false }: { used?: numbe
 export default function App() {
   const [mode, setMode] = useState<Mode>(initialRoute.mode || 'chat');
   const [lang, setLangState] = useState<Lang>(initLang);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'insights' || initialRoute.mode === 'settings');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'insights' || initialRoute.mode === 'artifacts' || initialRoute.mode === 'settings');
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => normalizeTheme(localStorage.getItem('theme')));
@@ -619,6 +620,8 @@ export default function App() {
   const [usagePeriod, setUsagePeriod] = useState<1 | 7 | 30>(7);
   const [usageMetric, setUsageMetric] = useState<UsageMetric>('total_tokens');
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
+  const [artifacts, setArtifacts] = useState<SessionArtifact[]>(readStoredArtifacts);
+  const [selectedArtifactId, setSelectedArtifactId] = useState(initialRoute.mode === 'artifacts' ? initialRoute.artifactId || '' : '');
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -711,13 +714,14 @@ export default function App() {
   }, []);
   const applyHashRoute = useCallback((route: HashRoute) => {
     setMode(route.mode);
-    setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'settings');
+    setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'artifacts' || route.mode === 'settings');
     if (route.mode !== 'chat' && route.mode !== 'cron') setMobileSidebarOpen(false);
     if (route.mode === 'chat' && route.sessionId) switchActiveSession(route.sessionId);
     if (route.mode === 'cron' && route.jobId) setCronEditingId(route.jobId);
     if (route.mode === 'skills' && route.skillName) setSkillRouteTarget(route.skillName);
     if (route.mode === 'skills' && !route.skillName) clearSelectedSkill();
     if (route.mode === 'images') setInitialImageFilename(route.imageFilename || '');
+    if (route.mode === 'artifacts') setSelectedArtifactId(route.artifactId || '');
     if (route.mode === 'workspace' && route.workspaceKind) setWorkspaceRouteTarget({ workspaceKind: route.workspaceKind, workspacePath: route.workspacePath || '' });
   }, [clearSelectedSkill, switchActiveSession]);
   useEffect(() => {
@@ -739,6 +743,34 @@ export default function App() {
   useEffect(() => localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds))), [pinnedIds]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || (activeSessionDetail?.id === activeSessionId ? activeSessionDetail : undefined);
+  const selectArtifact = useCallback((artifactId: string) => {
+    setSelectedArtifactId(artifactId);
+    writeHashRoute(artifactId ? { mode: 'artifacts', artifactId } : { mode: 'artifacts' });
+  }, [writeHashRoute]);
+  const createSessionArtifact = useCallback(() => {
+    const session = activeSession || activeSessionDetail || { id: activeSessionId || DRAFT_SESSION_ID, title: 'New conversation' };
+    const newArtifact = buildSessionArtifact({
+      session: {
+        id: session.id,
+        title: sessionDisplayTitle(session as Session),
+        preview: session.preview,
+        started_at: session.started_at,
+        last_active: session.last_active,
+      },
+      messages: messagesRef.current,
+      existing: artifacts.find((artifact) => artifact.sourceSessionId === session.id),
+    });
+    setArtifacts((old) => {
+      const next = [newArtifact, ...old.filter((artifact) => artifact.id !== newArtifact.id)];
+      localStorage.setItem(ARTIFACTS_KEY, JSON.stringify(next));
+      return next;
+    });
+    setSelectedArtifactId(newArtifact.id);
+    setMode('artifacts');
+    setSidebarCollapsed(true);
+    writeHashRoute({ mode: 'artifacts', artifactId: newArtifact.id });
+    showToast(t('artifacts.created'));
+  }, [activeSession, activeSessionDetail, activeSessionId, artifacts, showToast, writeHashRoute]);
   useEffect(() => {
     const activeModel = realModelOrEmpty(activeSession?.model);
     const activeProvider = String(activeSession?.provider || '').trim();
@@ -1658,7 +1690,7 @@ export default function App() {
   };
   const setNavMode = (next: Mode, collapse = false) => {
     setMode(next);
-    setSidebarCollapsed(collapse || next === 'memory' || next === 'insights' || next === 'settings');
+    setSidebarCollapsed(collapse || next === 'memory' || next === 'insights' || next === 'artifacts' || next === 'settings');
     setMobileSidebarOpen(false);
     const route: HashRoute = { mode: next } as HashRoute;
     writeHashRoute(route);
@@ -1675,6 +1707,7 @@ export default function App() {
           <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} title={t('nav.cron')}><CalendarClock /></button>
           <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} title={t('nav.memory')}><Brain /></button>
           <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} title={t('nav.insights')}><LineChart /></button>
+          <button className={`rail-btn nav-artifacts ${mode === 'artifacts' ? 'active' : ''}`} onClick={() => setNavMode('artifacts', true)} title={t('nav.artifacts')}><Layout /></button>
           <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} title={t('nav.skills')}><Puzzle /></button>
           <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} title={t('nav.images')}><ImageIcon /></button>
           <button className={`rail-btn nav-workspace ${mode === 'workspace' ? 'active' : ''}`} onClick={() => { setNavMode('workspace'); loadWorkspace(workspacePath); }} title={t('nav.workspace')}><Folder /></button>
@@ -1704,10 +1737,11 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} createSessionArtifact={createSessionArtifact} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'artifacts' && <ArtifactsMain artifacts={artifacts} selectedArtifactId={selectedArtifactId} selectArtifact={selectArtifact} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} showToast={showToast} />}
       {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'skills' && <>
         <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
@@ -1724,6 +1758,7 @@ export default function App() {
         <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label={t('nav.cron')}><CalendarClock /></button>
         <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label={t('nav.skills')}><Star /></button>
         <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} aria-label={t('nav.insights')}><LineChart /></button>
+        <button className={`rail-btn nav-artifacts ${mode === 'artifacts' ? 'active' : ''}`} onClick={() => setNavMode('artifacts', true)} aria-label={t('nav.artifacts')}><Layout /></button>
         <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label={t('nav.images')}><ImageIcon /></button>
         <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} aria-label={t('nav.memory')}><Brain /></button>
       </nav>
@@ -1795,6 +1830,56 @@ function HeaderThemeControl({ theme, setTheme, mode, onNavigateToSettings }: { t
 }
 function ModeSidebar({ mode }: { mode: Mode }) {
   return <div className="admin-side"><h2>{navLabel(mode)}</h2><p>{modeSummary(mode)}</p></div>;
+}
+
+function ArtifactMetric({ label, value }: { label: string; value: string | number }) {
+  return <div className="artifact-metric"><span>{label}</span><strong>{value}</strong></div>;
+}
+function artifactDate(value?: string | number) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId: string; selectArtifact: (id: string) => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void; showToast: (message: string) => void }) {
+  const selected = props.artifacts.find((artifact) => artifact.id === props.selectedArtifactId) || props.artifacts[0] || null;
+  const [versionIndex, setVersionIndex] = useState(0);
+  useEffect(() => { setVersionIndex(Math.max(0, (selected?.versions.length || 1) - 1)); }, [selected?.id, selected?.versions.length]);
+  const versions = selected?.versions || [];
+  const latestIndex = Math.max(0, versions.length - 1);
+  const activeVersion = versions[Math.min(versionIndex, latestIndex)] || null;
+  const copyPrompt = async () => {
+    if (!selected) return;
+    const prompt = artifactCopyPrompt(selected);
+    try { await navigator.clipboard?.writeText(prompt); props.showToast(t('artifacts.copiedPrompt')); }
+    catch { props.showToast(prompt); }
+  };
+  return <main className="main-panel artifacts-main">
+    <header className="chat-header header-no-drawer artifacts-header"><div><h1>{t('artifacts.title')}</h1><span>{t('artifacts.subtitle')}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></header>
+    <section className="artifact-gallery">
+      <aside className="artifact-list-panel">
+        <div className="artifact-list-head"><h2>{t('artifacts.title')}</h2><span>{props.artifacts.length}</span></div>
+        <div className="artifact-card-list">
+          {props.artifacts.map((artifact) => {
+            const latest = artifact.versions[artifact.versions.length - 1];
+            return <button type="button" key={artifact.id} className={`artifact-card ${selected?.id === artifact.id ? 'active' : ''}`} onClick={() => props.selectArtifact(artifact.id)}>
+              <span className="artifact-card-type">Session</span>
+              <strong>{artifact.title}</strong>
+              <small>{latest?.summary.totalMessages || 0} messages · v{artifact.versions.length}</small>
+            </button>;
+          })}
+        </div>
+      </aside>
+      <article className="artifact-document">
+        {!selected || !activeVersion ? <div className="empty-state"><Layout className="big-mark" /><h2>{t('artifacts.empty')}</h2><p>{t('artifacts.emptyDesc')}</p></div> : <>
+          <div className="artifact-document-kicker">{t('artifacts.sourceSession')} · {selected.sourceSessionId}</div>
+          <div className="artifact-document-titlebar"><div><h2>{selected.title}</h2><p>{t('artifacts.latestVersion')} v{activeVersion.version} · {artifactDate(activeVersion.createdAt)}</p></div><div className="artifact-actions"><select value={activeVersion.version} onChange={(event) => setVersionIndex(Math.max(0, Number(event.target.value) - 1))}>{versions.map((version) => <option key={version.version} value={version.version}>v{version.version}</option>)}</select><button type="button" className="artifact-copy-prompt" onClick={copyPrompt}><FileText /> {t('artifacts.copyPrompt')}</button></div></div>
+          <div className="artifact-metrics"><ArtifactMetric label="Messages" value={activeVersion.summary.totalMessages} /><ArtifactMetric label="Assistant" value={activeVersion.summary.assistantMessages} /><ArtifactMetric label="Tools" value={activeVersion.summary.toolMessages} /><ArtifactMetric label="Versions" value={selected.versions.length} /></div>
+          <section className="artifact-section"><h3>{t('artifacts.highlights')}</h3>{activeVersion.highlights.length ? <ul>{activeVersion.highlights.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p className="artifact-muted">No highlights yet.</p>}</section>
+          <section className="artifact-section"><h3>{t('artifacts.timeline')}</h3><div className="artifact-timeline">{activeVersion.timeline.map((item) => <div className={`artifact-timeline-row ${item.role}`} key={item.id}><span>{item.role}</span><div><strong>{item.title}</strong><p>{item.excerpt}</p></div></div>)}</div></section>
+        </>}
+      </article>
+    </section>
+  </main>;
 }
 
 function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void }) {
@@ -2166,7 +2251,7 @@ function ChatMain(props: any) {
   }, [visibleMessages.length, props.messages[0]?.id, props.activeSessionId, props.hasOlder, props.loadingMessages, props.showReasoning, props.showToolCalls]);
   return <main className="main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
-        <HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
+        <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}

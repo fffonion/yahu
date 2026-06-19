@@ -12,12 +12,13 @@ describe('skills UI', () => {
   test('skills mode is available from desktop rail and mobile bottom nav', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings'");
+    expect(source).toContain("type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'artifacts' | 'images' | 'workspace' | 'skills' | 'settings'");
     expect(source).toContain('rail-btn nav-skills');
     expect(source).toContain("setNavMode('skills')");
     expect(source).toContain("aria-label={t('nav.skills')}><Star");
     expect(styles).toContain('.rail-btn.nav-skills.active{--rail-accent:#f59e0b}');
     expect(styles).toContain('.rail-btn.nav-chat.active,.rail-btn.nav-cron.active,.rail-btn.nav-memory.active,.rail-btn.nav-skills.active,.rail-btn.nav-images.active');
+    expect(styles).toContain('.rail-btn.nav-artifacts.active{--rail-accent:#c96442}');
     expect(styles).toContain('@media (max-width: 760px)');
     expect(styles).not.toContain('.skills-main{display:none!important}');
   });

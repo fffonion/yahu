@@ -50,7 +50,7 @@ describe('hash route integration', () => {
 
   test('hash landing auto-collapses pages without a left list', () => {
     const source = app();
-    expect(source).toContain("setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'settings')");
-    expect(source).toContain("setSidebarCollapsed(collapse || next === 'memory' || next === 'insights' || next === 'settings')");
+    expect(source).toContain("setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'artifacts' || route.mode === 'settings')");
+    expect(source).toContain("setSidebarCollapsed(collapse || next === 'memory' || next === 'insights' || next === 'artifacts' || next === 'settings')");
   });
 });

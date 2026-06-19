@@ -5,6 +5,7 @@ export type HashRoute =
   | { mode: 'workspace'; workspaceKind?: 'file' | 'folder'; workspacePath?: string }
   | { mode: 'skills'; skillName?: string }
   | { mode: 'insights' }
+  | { mode: 'artifacts'; artifactId?: string }
   | { mode: 'memory' }
   | { mode: 'settings' };
 
@@ -27,6 +28,7 @@ export function parseHashRoute(hash: string): HashRoute {
   }
   if (mode === 'memory') return { mode: 'memory' };
   if (mode === 'insights') return { mode: 'insights' };
+  if (mode === 'artifacts') return { mode: 'artifacts', artifactId: kind ? decodePart(kind) : undefined };
   if (mode === 'skills') {
     if (kind) return { mode: 'skills', skillName: decodePart(kind) };
     return { mode: 'skills' };
@@ -48,5 +50,6 @@ export function buildHashRoute(route: HashRoute): string {
     return '#/workspace';
   }
   if (route.mode === 'skills') return route.skillName ? `#/skills/${encodePart(route.skillName)}` : '#/skills';
+  if (route.mode === 'artifacts') return route.artifactId ? `#/artifacts/${encodePart(route.artifactId)}` : '#/artifacts';
   return `#/${route.mode}`;
 }
