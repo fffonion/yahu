@@ -33,13 +33,29 @@ describe('artifacts UI', () => {
     expect(source).toContain('artifact-version-help');
     expect(i18n()).toContain("'artifacts.versionHelp'");
     expect(source).toContain('artifact-evidence-grid');
+    expect(source).toContain('artifact-evidence-meta');
+    expect(source).toContain('artifact-evidence-status');
     expect(source).toContain('activeVersion.evidence');
     expect(source).toContain('activeVersion.sections');
     expect(i18n()).toContain("'artifacts.toolEvidence'");
     expect(styles).toContain('.artifact-evidence-card');
+    expect(styles).toContain('.artifact-evidence-status');
     expect(styles).toContain('.artifacts-main');
     expect(styles).toContain('.artifact-document');
     expect(styles).toContain('#f5f4ed');
     expect(styles).toContain('#c96442');
+  });
+
+  test('artifacts page supports right-click deletion with dangerous confirmation', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('type ArtifactContextMenu');
+    expect(source).toContain('setArtifactMenu({ artifact, x: Math.max(8, x), y: Math.max(8, y) })');
+    expect(source).toContain('onContextMenu={(event) => props.openArtifactMenu(artifact, event)}');
+    expect(source).toContain('artifact-context-menu');
+    expect(source).toContain("requestConfirm(t('artifacts.deleteTitle'), tf('artifacts.deleteConfirm', artifact.title), true)");
+    expect(source).toContain('localStorage.setItem(ARTIFACTS_KEY, JSON.stringify(next))');
+    expect(i18n()).toContain("'artifacts.deleteTitle'");
+    expect(styles).toContain('.artifact-context-menu');
   });
 });

@@ -32,6 +32,7 @@ type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
+type ArtifactContextMenu = { artifact: SessionArtifact; x: number; y: number } | null;
 type SkillContextMenu = { skill: Skill; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
 type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'none'; url?: string; editRequest?: number };
@@ -597,6 +598,7 @@ export default function App() {
   const [activeSessionDetail, setActiveSessionDetail] = useState<Session | null>(null);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(readPinnedIds);
   const [sessionMenu, setSessionMenu] = useState<SessionContextMenu>(null);
+  const [artifactMenu, setArtifactMenu] = useState<ArtifactContextMenu>(null);
   const [skillMenu, setSkillMenu] = useState<SkillContextMenu>(null);
   const [skillFileMenu, setSkillFileMenu] = useState<SkillFileContextMenu>(null);
   const [workspaceMenu, setWorkspaceMenu] = useState<WorkspaceContextMenu>(null);
@@ -747,6 +749,22 @@ export default function App() {
     setSelectedArtifactId(artifactId);
     writeHashRoute(artifactId ? { mode: 'artifacts', artifactId } : { mode: 'artifacts' });
   }, [writeHashRoute]);
+  const openArtifactMenu = (artifact: SessionArtifact, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const x = Math.min(event.clientX, window.innerWidth - 190);
+    const y = Math.min(event.clientY, window.innerHeight - 96);
+    setArtifactMenu({ artifact, x: Math.max(8, x), y: Math.max(8, y) });
+  };
+  const deleteArtifact = async (artifact: SessionArtifact) => {
+    setArtifactMenu(null);
+    if (!await requestConfirm(t('artifacts.deleteTitle'), tf('artifacts.deleteConfirm', artifact.title), true)) return;
+    const next = artifacts.filter((item) => item.id !== artifact.id);
+    setArtifacts(next);
+    localStorage.setItem(ARTIFACTS_KEY, JSON.stringify(next));
+    if (selectedArtifactId === artifact.id) selectArtifact(next[0]?.id || '');
+    showToast(t('artifacts.deleted'));
+  };
   const createSessionArtifact = useCallback(() => {
     const session = activeSession || activeSessionDetail || { id: activeSessionId || DRAFT_SESSION_ID, title: 'New conversation' };
     const newArtifact = buildSessionArtifact({
@@ -1286,12 +1304,13 @@ export default function App() {
     return () => { es.close(); watchSourceRef.current = null; };
   }, [activeSessionId, clearNewMessages, loadContextWindowSnapshot]);
   useEffect(() => {
-    if (!sessionMenu && !skillMenu && !skillFileMenu && !workspaceMenu) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setSkillMenu(null); setSkillFileMenu(null); setWorkspaceMenu(null); } };
+    if (!sessionMenu && !artifactMenu && !skillMenu && !skillFileMenu && !workspaceMenu) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setArtifactMenu(null); setSkillMenu(null); setSkillFileMenu(null); setWorkspaceMenu(null); } };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
-      if (target?.closest('.session-context-menu,.skill-context-menu,.skill-file-context-menu,.workspace-context-menu')) return;
+      if (target?.closest('.session-context-menu,.artifact-context-menu,.skill-context-menu,.skill-file-context-menu,.workspace-context-menu')) return;
       setSessionMenu(null);
+      setArtifactMenu(null);
       setSkillMenu(null);
       setSkillFileMenu(null);
       setWorkspaceMenu(null);
@@ -1302,7 +1321,7 @@ export default function App() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onPointerDown, true);
     };
-  }, [sessionMenu, skillMenu, skillFileMenu, workspaceMenu]);
+  }, [sessionMenu, artifactMenu, skillMenu, skillFileMenu, workspaceMenu]);
   useLayoutEffect(() => {
     if (!scrollLatestAfterRenderRef.current) return;
     scrollLatestAfterRenderRef.current = false;
@@ -1723,6 +1742,9 @@ export default function App() {
         <button type="button" role="menuitem" onClick={() => renameSession(sessionMenu.session)}><Pencil /> {t('chat.rename')}</button>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSession(sessionMenu.session)}><Trash2 /> {t('chat.delete')}</button>
       </div>}
+      {artifactMenu && <div className="artifact-context-menu" role="menu" style={{ left: artifactMenu.x, top: artifactMenu.y }} onContextMenu={(event) => event.preventDefault()}>
+        <button type="button" role="menuitem" className="danger" onClick={() => deleteArtifact(artifactMenu.artifact)}><Trash2 /> {t('artifacts.delete')}</button>
+      </div>}
       {skillMenu && <div className="skill-context-menu" role="menu" style={{ left: skillMenu.x, top: skillMenu.y }} onContextMenu={(event) => event.preventDefault()}>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSkill(skillMenu.skill)}><Trash2 /> {t('skills.delete')}</button>
       </div>}
@@ -1741,7 +1763,7 @@ export default function App() {
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
-      {mode === 'artifacts' && <ArtifactsMain artifacts={artifacts} selectedArtifactId={selectedArtifactId} selectArtifact={selectArtifact} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} showToast={showToast} />}
+      {mode === 'artifacts' && <ArtifactsMain artifacts={artifacts} selectedArtifactId={selectedArtifactId} selectArtifact={selectArtifact} openArtifactMenu={openArtifactMenu} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} showToast={showToast} />}
       {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'skills' && <>
         <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />
@@ -1840,7 +1862,7 @@ function artifactDate(value?: string | number) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
-function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId: string; selectArtifact: (id: string) => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void; showToast: (message: string) => void }) {
+function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId: string; selectArtifact: (id: string) => void; openArtifactMenu: (artifact: SessionArtifact, event: React.MouseEvent) => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void; showToast: (message: string) => void }) {
   const selected = props.artifacts.find((artifact) => artifact.id === props.selectedArtifactId) || props.artifacts[0] || null;
   const [versionIndex, setVersionIndex] = useState(0);
   useEffect(() => { setVersionIndex(Math.max(0, (selected?.versions.length || 1) - 1)); }, [selected?.id, selected?.versions.length]);
@@ -1860,7 +1882,7 @@ function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId
         <div className="artifact-card-list">
           {props.artifacts.map((artifact) => {
             const latest = artifact.versions[artifact.versions.length - 1];
-            return <button type="button" key={artifact.id} className={`artifact-card ${selected?.id === artifact.id ? 'active' : ''}`} onClick={() => props.selectArtifact(artifact.id)}>
+            return <button type="button" key={artifact.id} className={`artifact-card ${selected?.id === artifact.id ? 'active' : ''}`} onClick={() => props.selectArtifact(artifact.id)} onContextMenu={(event) => props.openArtifactMenu(artifact, event)}>
               <span className="artifact-card-type">Session</span>
               <strong>{artifact.title}</strong>
               <small>{latest?.summary.totalMessages || 0} messages · v{artifact.versions.length}</small>
@@ -1875,7 +1897,7 @@ function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId
           <div className="artifact-metrics"><ArtifactMetric label="Messages" value={activeVersion.summary.totalMessages} /><ArtifactMetric label="Assistant" value={activeVersion.summary.assistantMessages} /><ArtifactMetric label="Tools" value={activeVersion.summary.toolMessages} /><ArtifactMetric label="Evidence" value={(activeVersion.evidence || []).length} /></div>
           {!!activeVersion.sections?.length && <section className="artifact-section artifact-brief"><h3>{t('artifacts.brief')}</h3><div className="artifact-section-list">{activeVersion.sections.map((section) => <div className={`artifact-brief-block ${section.id}`} key={section.id}><strong>{section.title}</strong><ul>{section.items.map((item, index) => <li key={`${section.id}-${index}`}>{item}</li>)}</ul></div>)}</div></section>}
           <section className="artifact-section"><h3>{t('artifacts.highlights')}</h3>{activeVersion.highlights.length ? <ul>{activeVersion.highlights.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p className="artifact-muted">No highlights yet.</p>}</section>
-          {!!activeVersion.evidence?.length && <section className="artifact-section"><h3>{t('artifacts.toolEvidence')}</h3><div className="artifact-evidence-grid">{activeVersion.evidence.map((item) => <article className={`artifact-evidence-card ${item.category}`} key={item.id}><div><span>{item.category}</span><small>{item.status}</small></div><strong>{item.title}</strong><p>{item.summary}</p><ul>{item.findings.map((finding, index) => <li key={`${item.id}-${index}`}>{finding}</li>)}</ul><pre>{item.rawExcerpt}</pre></article>)}</div></section>}
+          {!!activeVersion.evidence?.length && <section className="artifact-section"><h3>{t('artifacts.toolEvidence')}</h3><div className="artifact-evidence-grid">{activeVersion.evidence.map((item) => <article className={`artifact-evidence-card ${item.category}`} key={item.id}><div className="artifact-evidence-meta"><span>{item.category}</span><small className="artifact-evidence-status">{item.status}</small></div><strong>{item.title}</strong><p>{item.summary}</p><ul>{item.findings.map((finding, index) => <li key={`${item.id}-${index}`}>{finding}</li>)}</ul><pre>{item.rawExcerpt}</pre></article>)}</div></section>}
           <section className="artifact-section"><h3>{t('artifacts.timeline')}</h3><div className="artifact-timeline">{activeVersion.timeline.map((item) => <div className={`artifact-timeline-row ${item.role}`} key={item.id}><span>{item.role}</span><div><strong>{item.title}</strong><p>{item.excerpt}</p></div></div>)}</div></section>
         </>}
       </article>
