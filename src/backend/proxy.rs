@@ -17,6 +17,9 @@ async fn proxy_hermes(
             return json_error(StatusCode::BAD_REQUEST, &format!("cannot read body: {err}"));
         }
     };
+    if let Some(cli_request) = chat_stream_cli_request(&path, &method, &bytes) {
+        return response_from_hermes_cli(state, cli_request).await;
+    }
     if let Some(session_id) = &stream_session_id {
         begin_chat_stream_snapshot(&state, session_id).await;
         if let Some(input) = chat_stream_request_input_text(&bytes) {
@@ -55,6 +58,148 @@ async fn proxy_hermes(
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CliChatRequest {
+    session_id: String,
+    input: String,
+    model: String,
+    provider: Option<String>,
+}
+
+fn chat_stream_cli_request(path: &str, method: &Method, bytes: &[u8]) -> Option<CliChatRequest> {
+    let session_id = proxied_chat_stream_session_id(path, method)?;
+    let body = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    let model = body
+        .get("model")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "hermes-agent")?
+        .to_string();
+    let input = chat_stream_input_text(body.get("input")?).filter(|text| !text.is_empty())?;
+    let provider = body
+        .get("provider")
+        .or_else(|| body.get("model_provider"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    Some(CliChatRequest {
+        session_id,
+        input,
+        model,
+        provider,
+    })
+}
+
+async fn response_from_hermes_cli(state: Arc<AppState>, request: CliChatRequest) -> Response<Body> {
+    begin_chat_stream_snapshot(&state, &request.session_id).await;
+    publish_chat_stream_message(
+        &state,
+        &request.session_id,
+        serde_json::json!({
+            "id": format!("user_{}", chat_stream_run_id()),
+            "role": "user",
+            "content": request.input,
+            "timestamp": unix_now_seconds(),
+        }),
+    )
+    .await;
+
+    let mut command = Command::new(&state.hermes_cmd);
+    command
+        .arg("chat")
+        .arg("-Q")
+        .arg("--resume")
+        .arg(&request.session_id)
+        .arg("-m")
+        .arg(&request.model)
+        .arg("-q")
+        .arg(&request.input)
+        .env("HERMES_HOME", &state.hermes_home)
+        .env("NO_COLOR", "1");
+    if let Some(provider) = &request.provider {
+        command.arg("--provider").arg(provider);
+    }
+
+    let output = match timeout(Duration::from_secs(1800), command.output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(err)) => {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("Hermes CLI launch failed: {err}"),
+            );
+        }
+        Err(_) => {
+            return json_error(StatusCode::GATEWAY_TIMEOUT, "Hermes CLI timed out");
+        }
+    };
+
+    let stdout = clean_hermes_cli_stdout(&String::from_utf8_lossy(&output.stdout));
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !output.status.success() {
+        return json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("Hermes CLI failed: {stderr}"),
+        );
+    }
+    let final_text = stdout;
+    let assistant_id = format!("assistant_{}", chat_stream_run_id());
+    publish_chat_stream_message(
+        &state,
+        &request.session_id,
+        serde_json::json!({
+            "id": assistant_id,
+            "role": "assistant",
+            "content": final_text,
+            "pending": false,
+            "model": request.model,
+            "provider": request.provider,
+            "timestamp": unix_now_seconds(),
+        }),
+    )
+    .await;
+    let state_for_clear = state.clone();
+    let session_for_clear = request.session_id.clone();
+    tokio::spawn(async move { clear_chat_stream_snapshot_later(state_for_clear, session_for_clear).await; });
+
+    let run_id = format!("run_{}", chat_stream_run_id());
+    let payloads = vec![
+        (
+            "run.started",
+            serde_json::json!({"session_id": request.session_id, "run_id": run_id}),
+        ),
+        (
+            "message.started",
+            serde_json::json!({"session_id": request.session_id, "run_id": run_id, "message": {"id": assistant_id, "role": "assistant"}}),
+        ),
+        (
+            "assistant.delta",
+            serde_json::json!({"session_id": request.session_id, "run_id": run_id, "message_id": assistant_id, "delta": final_text}),
+        ),
+        (
+            "assistant.completed",
+            serde_json::json!({"session_id": request.session_id, "run_id": run_id, "message_id": assistant_id, "content": final_text, "completed": true, "partial": false, "interrupted": false}),
+        ),
+        (
+            "run.completed",
+            serde_json::json!({"session_id": request.session_id, "run_id": run_id, "message_id": assistant_id, "completed": true, "messages": [{"role": "assistant", "content": final_text, "model": request.model, "provider": request.provider}]}),
+        ),
+        ("done", serde_json::json!({"session_id": request.session_id, "run_id": run_id})),
+    ];
+    let mut body = String::new();
+    for (event, payload) in payloads {
+        body.push_str(&format!("event: {event}\ndata: {payload}\n\n"));
+    }
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/event-stream")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .header("x-hermes-session-id", request.session_id)
+        .body(Body::from(body))
+        .unwrap()
+}
+
 fn should_forward_proxy_header(name: &str) -> bool {
     !matches!(
         name,
@@ -68,6 +213,26 @@ fn should_forward_proxy_header(name: &str) -> bool {
             | "transfer-encoding"
     ) && !name.starts_with("sec-fetch-")
         && !name.starts_with("sec-ch-")
+}
+
+fn clean_hermes_cli_stdout(text: &str) -> String {
+    let mut cleaned = Vec::new();
+    let mut skipping_warning = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("Normalized model '") || trimmed.contains("Normalized Copilot model '") {
+            skipping_warning = !trimmed.ends_with('.');
+            continue;
+        }
+        if skipping_warning {
+            if trimmed.ends_with('.') {
+                skipping_warning = false;
+            }
+            continue;
+        }
+        cleaned.push(line);
+    }
+    cleaned.join("\n").trim().to_string()
 }
 
 async fn response_from_reqwest(

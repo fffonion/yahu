@@ -330,6 +330,7 @@ mod tests {
             active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
+            hermes_cmd: "hermes".to_string(),
         }
     }
 
@@ -435,6 +436,42 @@ mod tests {
         assert_eq!(state.fingerprints.len(), API_MESSAGE_WATCH_WINDOW);
         assert!(!state.fingerprints.contains_key(&0));
         assert!(state.fingerprints.contains_key(&((API_MESSAGE_WATCH_WINDOW + 24) as i64)));
+    }
+
+    #[test]
+    fn chat_stream_cli_request_extracts_model_provider_and_text() {
+        let body = serde_json::json!({
+            "input": [{"type":"text","text":"hello"}],
+            "model": "openai/gpt-5",
+            "provider": "openai"
+        });
+        let request = chat_stream_cli_request(
+            "api/sessions/s1/chat/stream",
+            &Method::POST,
+            body.to_string().as_bytes(),
+        )
+        .unwrap();
+
+        assert_eq!(request.session_id, "s1");
+        assert_eq!(request.input, "hello");
+        assert_eq!(request.model, "openai/gpt-5");
+        assert_eq!(request.provider.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn chat_stream_cli_request_ignores_placeholder_model() {
+        let body = serde_json::json!({"input":"hello","model":"hermes-agent"});
+        assert!(chat_stream_cli_request(
+            "api/sessions/s1/chat/stream",
+            &Method::POST,
+            body.to_string().as_bytes(),
+        ).is_none());
+    }
+
+    #[test]
+    fn hermes_cli_stdout_filter_removes_model_normalization_warning() {
+        let text = "⚠️  Normalized model 'anthropic/claude-haiku-4.5' to 'claude-haiku-4-5' for \nanthropic provider.\nyahu-live-ok";
+        assert_eq!(clean_hermes_cli_stdout(text), "yahu-live-ok");
     }
 
     #[test]

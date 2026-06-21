@@ -68,6 +68,19 @@ fn path_segment(value: &str) -> String {
         .replace("%7E", "~")
 }
 
+fn resolve_hermes_cmd(configured: &str) -> String {
+    if configured != "hermes" {
+        return configured.to_string();
+    }
+    if let Ok(home) = env::var("HOME") {
+        let candidate = PathBuf::from(home).join(".local/bin/hermes");
+        if candidate.exists() {
+            return candidate.to_string_lossy().to_string();
+        }
+    }
+    configured.to_string()
+}
+
 #[derive(Parser, Debug)]
 #[command(
     author,
@@ -101,6 +114,9 @@ struct Args {
 
     #[arg(long, env = "HERMES_WEBUI_IMAGE_DIR")]
     image_dir: Option<PathBuf>,
+
+    #[arg(long, env = "HERMES_WEBUI_HERMES_CMD", default_value = "hermes")]
+    hermes_cmd: String,
 }
 #[derive(Clone)]
 struct AppState {
@@ -118,6 +134,7 @@ struct AppState {
     active_chat_streams: Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>,
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
+    hermes_cmd: String,
 }
 
 #[derive(Deserialize)]
@@ -234,6 +251,7 @@ pub async fn run() -> anyhow::Result<()> {
         active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
+        hermes_cmd: resolve_hermes_cmd(&args.hermes_cmd),
     });
 
     let app = Router::new()
