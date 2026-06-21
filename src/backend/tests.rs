@@ -438,6 +438,37 @@ mod tests {
     }
 
     #[test]
+    fn chat_stream_model_switch_request_builds_provider_command() {
+        let body = serde_json::json!({
+            "input": "hello",
+            "model": "anthropic/claude-haiku-4.5",
+            "provider": "anthropic",
+            "reasoning_effort": "none"
+        });
+        let request = chat_stream_model_switch_request(
+            "api/sessions/existing-session/chat/stream",
+            &Method::POST,
+            body.to_string().as_bytes(),
+        )
+        .unwrap();
+
+        assert_eq!(request.session_id, "existing-session");
+        assert_eq!(request.command, "/model anthropic/claude-haiku-4.5 --provider anthropic");
+        assert_eq!(request.body["input"], "/model anthropic/claude-haiku-4.5 --provider anthropic");
+        assert_eq!(request.body["reasoning_effort"], "none");
+    }
+
+    #[test]
+    fn chat_stream_model_switch_request_ignores_placeholder_model() {
+        let body = serde_json::json!({"input":"hello","model":"hermes-agent"});
+        assert!(chat_stream_model_switch_request(
+            "api/sessions/new-session/chat/stream",
+            &Method::POST,
+            body.to_string().as_bytes(),
+        ).is_none());
+    }
+
+    #[test]
     fn chat_stream_broadcast_ring_is_small_because_payloads_are_full_snapshots() {
         assert!(CHAT_STREAM_BROADCAST_CAPACITY <= 32);
     }

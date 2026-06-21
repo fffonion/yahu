@@ -33,6 +33,14 @@ async fn proxy_hermes(
             .await;
         }
     }
+    if let Some(model_request) = chat_stream_model_switch_request(&path, &method, &bytes) {
+        if let Err(err) = send_model_switch_instruction(&state, &model_request).await {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("Hermes API model switch failed: {err}"),
+            );
+        }
+    }
     let mut builder = state.client.request(req_method, url).body(bytes);
     for (key, value) in headers.iter() {
         let name = key.as_str().to_ascii_lowercase();
@@ -68,6 +76,71 @@ fn should_forward_proxy_header(name: &str) -> bool {
             | "transfer-encoding"
     ) && !name.starts_with("sec-fetch-")
         && !name.starts_with("sec-ch-")
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ChatStreamModelSwitchRequest {
+    session_id: String,
+    command: String,
+    body: serde_json::Value,
+}
+
+fn chat_stream_model_switch_request(
+    path: &str,
+    method: &Method,
+    bytes: &[u8],
+) -> Option<ChatStreamModelSwitchRequest> {
+    let session_id = proxied_chat_stream_session_id(path, method)?;
+    let body = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    let model = body
+        .get("model")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "hermes-agent")?;
+    let provider = body
+        .get("provider")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let command = if let Some(provider) = provider {
+        format!("/model {model} --provider {provider}")
+    } else {
+        format!("/model {model}")
+    };
+    let mut switch_body = serde_json::json!({"input": command});
+    if let Some(reasoning_effort) = body.get("reasoning_effort") {
+        switch_body["reasoning_effort"] = reasoning_effort.clone();
+    }
+    Some(ChatStreamModelSwitchRequest {
+        session_id,
+        command,
+        body: switch_body,
+    })
+}
+
+async fn send_model_switch_instruction(
+    state: &Arc<AppState>,
+    request: &ChatStreamModelSwitchRequest,
+) -> Result<(), String> {
+    let url = format!(
+        "{}/api/sessions/{}/chat",
+        state.api_url,
+        path_segment(&request.session_id)
+    );
+    let mut builder = state.client.post(url).json(&request.body);
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        builder = builder.bearer_auth(key);
+    }
+    let resp = builder.send().await.map_err(|err| err.to_string())?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        Err(format!("{status}: {text}"))
+    }
 }
 
 async fn response_from_reqwest(
