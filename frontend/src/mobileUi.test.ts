@@ -17,6 +17,10 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain("setNavMode('cron')");
     expect(source).toContain("setNavMode('skills')");
     expect(source).toContain("setNavMode('insights', true)");
+    const mobileRailStart = source.indexOf('<nav className="mobile-bottom-nav"');
+    const mobileRail = source.slice(mobileRailStart, source.indexOf('</nav>', mobileRailStart));
+    expect(mobileRail).not.toContain('nav-artifacts');
+    expect(mobileRail).not.toContain("setNavMode('artifacts', true)");
     expect(source).toContain("setNavMode('images', true)");
     expect(source).toContain("setNavMode('memory')");
     expect(styles).toContain('@media (max-width: 760px)');
@@ -36,12 +40,14 @@ describe('mobile WebUI layout and touch affordances', () => {
     const mobileRailStart = source.indexOf('<nav className="mobile-bottom-nav"');
     const mobileRail = source.slice(mobileRailStart, source.indexOf('</nav>', mobileRailStart));
 
-    for (const nav of ['chat', 'cron', 'skills', 'insights', 'artifacts', 'images', 'memory']) {
+    for (const nav of ['chat', 'cron', 'skills', 'insights', 'images', 'memory']) {
       const desktopIcon = desktopRail.match(new RegExp(`nav-${nav}[\\s\\S]*?<([A-Za-z]+) \\/><\\/button>`))?.[1];
       const mobileIcon = mobileRail.match(new RegExp(`nav-${nav}[\\s\\S]*?<([A-Za-z]+) \\/><\\/button>`))?.[1];
       expect(mobileIcon).toBeTruthy();
       expect(mobileIcon).toBe(desktopIcon);
     }
+    expect(desktopRail).toContain('nav-artifacts');
+    expect(mobileRail).not.toContain('nav-artifacts');
   });
 
   test('mobile keeps session cron workspace and skills lists in a hidden 80 percent left drawer', () => {
