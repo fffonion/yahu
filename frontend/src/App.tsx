@@ -1778,7 +1778,7 @@ export default function App() {
       <nav className="mobile-bottom-nav" aria-label={t('nav.mobile')}>
         <button className={`rail-btn nav-chat ${mode === 'chat' ? 'active' : ''}`} onClick={() => setNavMode('chat')} aria-label={t('nav.chat')}><MessageSquare /></button>
         <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label={t('nav.cron')}><CalendarClock /></button>
-        <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label={t('nav.skills')}><Star /></button>
+        <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label={t('nav.skills')}><Puzzle /></button>
         <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} aria-label={t('nav.insights')}><LineChart /></button>
         <button className={`rail-btn nav-artifacts ${mode === 'artifacts' ? 'active' : ''}`} onClick={() => setNavMode('artifacts', true)} aria-label={t('nav.artifacts')}><Layout /></button>
         <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label={t('nav.images')}><ImageIcon /></button>

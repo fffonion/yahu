@@ -30,6 +30,20 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).not.toContain('.mobile-bottom-nav .nav-memory,.mobile-bottom-nav .nav-workspace,.mobile-bottom-nav .nav-settings{display:none!important}');
   });
 
+  test('mobile bottom route icons match the desktop rail icons', () => {
+    const source = app();
+    const desktopRail = source.slice(source.indexOf('<aside className={`sidebar'), source.indexOf('{!sidebarCollapsed && <div className="left-body">'));
+    const mobileRailStart = source.indexOf('<nav className="mobile-bottom-nav"');
+    const mobileRail = source.slice(mobileRailStart, source.indexOf('</nav>', mobileRailStart));
+
+    for (const nav of ['chat', 'cron', 'skills', 'insights', 'artifacts', 'images', 'memory']) {
+      const desktopIcon = desktopRail.match(new RegExp(`nav-${nav}[\\s\\S]*?<([A-Za-z]+) \\/><\\/button>`))?.[1];
+      const mobileIcon = mobileRail.match(new RegExp(`nav-${nav}[\\s\\S]*?<([A-Za-z]+) \\/><\\/button>`))?.[1];
+      expect(mobileIcon).toBeTruthy();
+      expect(mobileIcon).toBe(desktopIcon);
+    }
+  });
+
   test('mobile keeps session cron workspace and skills lists in a hidden 80 percent left drawer', () => {
     const source = app();
     const styles = css();
