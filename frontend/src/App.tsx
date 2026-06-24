@@ -3,6 +3,7 @@ import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, Chevr
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
+import { waitForCronRunOutput } from './cronRunOutput';
 import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
@@ -1164,20 +1165,23 @@ export default function App() {
       if (cronEditingId && !nextJobs.some((job: Job) => jobId(job) === cronEditingId)) resetCronForm();
     } catch (err: any) { setStatus(tf('cron.jobsUnavailable', err.message)); }
   }, [apiBase, cronEditingId, headers, resetCronForm]);
+  const fetchCronOutput = useCallback(async (id: string) => {
+    const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(id)}/output/latest`), { headers: headers(false) });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const body = await res.json();
+    return (body.output || body.data || null) as CronOutput | null;
+  }, [apiBase, headers]);
   const loadCronOutput = useCallback(async (id = cronEditingId) => {
     if (!id) { setCronOutput(null); return; }
     setCronOutputLoading(true);
     try {
-      const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(id)}/output/latest`), { headers: headers(false) });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-      const body = await res.json();
-      setCronOutput((body.output || body.data || null) as CronOutput | null);
+      setCronOutput(await fetchCronOutput(id));
     } catch (err: any) {
       setCronOutput({ content: tf('cron.outputUnavailable', err.message || String(err)) });
     } finally {
       setCronOutputLoading(false);
     }
-  }, [apiBase, cronEditingId, headers]);
+  }, [cronEditingId, fetchCronOutput]);
   const beginCronEdit = useCallback((job: Job) => {
     const values = cronEditableValues(job);
     setCronEditingId(jobId(job));
@@ -1212,13 +1216,23 @@ export default function App() {
   }, [apiBase, cronEditingId, cronName, cronPrompt, cronSchedule, cronScript, headers, loadCronJobs, showToast]);
   const runCronJob = useCallback(async () => {
     if (!cronEditingId) return;
-    const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(cronEditingId)}/run`), { method: 'POST', headers: headers(false) });
-    if (!res.ok) { setStatus(await res.text()); return; }
-    await loadCronJobs();
-    setStatus(t('cron.ran'));
-    showToast(t('cron.ran'));
-    await loadCronOutput(cronEditingId);
-  }, [apiBase, cronEditingId, headers, loadCronJobs, loadCronOutput, showToast]);
+    const id = cronEditingId;
+    const previousOutputTimestamp = cronOutput?.timestamp || '';
+    setCronOutputLoading(true);
+    try {
+      const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(id)}/run`), { method: 'POST', headers: headers(false) });
+      if (!res.ok) { setStatus(await res.text()); return; }
+      setStatus(t('cron.ran'));
+      showToast(t('cron.ran'));
+      await loadCronJobs();
+      const output = await waitForCronRunOutput(() => fetchCronOutput(id), previousOutputTimestamp);
+      setCronOutput(output);
+    } catch (err: any) {
+      setCronOutput({ content: tf('cron.outputUnavailable', err.message || String(err)) });
+    } finally {
+      setCronOutputLoading(false);
+    }
+  }, [apiBase, cronEditingId, cronOutput?.timestamp, fetchCronOutput, headers, loadCronJobs, showToast]);
   const deleteCronJob = useCallback(async () => {
     if (!cronEditingId) return;
     if (!await requestConfirm(t('cron.deleteTitle'), tf('cron.deleteConfirm', cronName || cronEditingId), true)) return;
