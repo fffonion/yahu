@@ -55,11 +55,60 @@ async fn proxy_hermes(
         builder = builder.bearer_auth(key);
     }
     match builder.send().await {
-        Ok(resp) => response_from_reqwest(state, stream_session_id, resp).await,
+        Ok(resp) => {
+            let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let kick_cron = should_kick_cron_tick_after_proxy(&path, &method, status);
+            let response = response_from_reqwest(state.clone(), stream_session_id, resp).await;
+            if kick_cron {
+                spawn_cron_tick_after_manual_run(state);
+            }
+            response
+        }
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
             &format!("Hermes API proxy failed: {err}"),
         ),
+    }
+}
+
+fn should_kick_cron_tick_after_proxy(path: &str, method: &Method, status: StatusCode) -> bool {
+    if method != Method::POST || !status.is_success() {
+        return false;
+    }
+    let mut parts = path.split('/');
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next(), parts.next()),
+        (Some("api"), Some("jobs"), Some(job_id), Some("run"), None) if !job_id.is_empty()
+    )
+}
+
+fn spawn_cron_tick_after_manual_run(state: Arc<AppState>) {
+    let agent_dir = hermes_agent_dir(&state);
+    let python = hermes_python_command(&agent_dir);
+    let script = r#"
+import os
+import sys
+sys.path.insert(0, os.environ["HERMES_AGENT_DIR"])
+from cron.scheduler import tick
+tick(verbose=True, sync=False)
+"#;
+    let mut command = Command::new(python);
+    command
+        .arg("-c")
+        .arg(script)
+        .env("HERMES_AGENT_DIR", &agent_dir)
+        .env("HERMES_HOME", &state.hermes_home)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    match command.spawn() {
+        Ok(mut child) => {
+            tokio::spawn(async move {
+                if let Err(err) = child.wait().await {
+                    warn!("Hermes cron manual tick wait failed: {err}");
+                }
+            });
+        }
+        Err(err) => warn!("Hermes cron manual tick failed to start: {err}"),
     }
 }
 

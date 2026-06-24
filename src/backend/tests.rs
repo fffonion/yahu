@@ -153,6 +153,30 @@ mod tests {
     }
 
     #[test]
+    fn cron_run_proxy_success_starts_scheduler_tick() {
+        assert!(should_kick_cron_tick_after_proxy(
+            "api/jobs/job_123/run",
+            &Method::POST,
+            StatusCode::OK,
+        ));
+        assert!(!should_kick_cron_tick_after_proxy(
+            "api/jobs/job_123/output/latest",
+            &Method::GET,
+            StatusCode::OK,
+        ));
+        assert!(!should_kick_cron_tick_after_proxy(
+            "api/jobs/job_123/run",
+            &Method::GET,
+            StatusCode::OK,
+        ));
+        assert!(!should_kick_cron_tick_after_proxy(
+            "api/jobs/job_123/run",
+            &Method::POST,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ));
+    }
+
+    #[test]
     fn zip_store_contains_selected_image_file() {
         let bytes =
             build_zip_store(&[("sample.png".to_string(), b"image-bytes".to_vec())]).unwrap();
