@@ -9,6 +9,8 @@ const translations: Record<string, Record<string, string>> = {
   'chat.unpin': { en: 'Unpin', 'zh-CN': '取消固定', 'zh-TW': '取消固定', ja: 'ピン解除' },
   'chat.rename': { en: 'Rename session', 'zh-CN': '重命名会话', 'zh-TW': '重新命名', ja: '名前変更' },
   'chat.delete': { en: 'Delete session', 'zh-CN': '删除会话', 'zh-TW': '刪除', ja: '削除' },
+  'chat.hideCronSessions': { en: 'Hide cron conversations', 'zh-CN': '隐藏定时任务对话', 'zh-TW': '隱藏定時任務對話', ja: 'cron会話を非表示' },
+  'chat.showCronSessions': { en: 'Show cron conversations', 'zh-CN': '显示定时任务对话', 'zh-TW': '顯示定時任務對話', ja: 'cron会話を表示' },
   'chat.disconnected': { en: 'Disconnected', 'zh-CN': '已断开', 'zh-TW': '已斷開', ja: '切断' },
   'chat.connected': { en: 'Connected', 'zh-CN': '已连接', 'zh-TW': '已連接', ja: '接続済み' },
   'chat.streaming': { en: 'Streaming', 'zh-CN': '流式输出中', 'zh-TW': '串流中', ja: 'ストリーミング中' },

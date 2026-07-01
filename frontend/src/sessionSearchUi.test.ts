@@ -12,14 +12,17 @@ describe('session search and composer session model UI', () => {
     expect(app).not.toContain("`${s.title || ''} ${s.preview || ''}`");
   });
 
-  test('new conversation is an icon button beside the search field', () => {
+  test('new conversation and cron filter are icon buttons beside the search field', () => {
     const app = source();
     const css = styles();
     expect(app).toContain('className="session-searchbar"');
     expect(app).toContain('aria-label={t(\'chat.new\')}');
+    expect(app).toContain('aria-pressed={props.hideCronSessions}');
+    expect(app).toContain('setHideCronSessions={(value: boolean) => setHideCronSessions(value)}');
     expect(app).not.toContain('<span>New conversation</span>');
-    expect(css).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr)');
+    expect(css).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px');
     expect(css).toContain('.filter{height:44px');
+    expect(css).toContain('.session-filter-btn{width:44px;height:44px');
   });
 
   test('composer model comes from selected session details, not a global Hermes fallback', () => {

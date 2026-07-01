@@ -63,7 +63,7 @@ describe('draft session lifecycle', () => {
 
   test('new button and filter align in one row without inherited filter margin', () => {
     const styles = css();
-    expect(styles).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr);align-items:center');
+    expect(styles).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center');
     expect(styles).toContain('.filter{height:44px;min-height:44px;margin:0');
   });
 });
