@@ -44,8 +44,18 @@ describe('image browser parity with standalone Hermes image browser', () => {
   test('mobile gallery keeps loading while the sentinel remains near the viewport', () => {
     const source = app();
     expect(source).toContain('const maybeLoadImagesNearViewport = () => {');
-    expect(source).toContain('if (el.scrollHeight - el.scrollTop - el.clientHeight < preloadDistancePx()) loadImages(false);');
+    expect(source).toContain('if (isNearImagePreloadWindow(el) && shouldAutoLoadImages()) loadImages(false);');
     expect(source).toContain('window.requestAnimationFrame(maybeLoadImagesNearViewport);');
+  });
+
+  test('idle gallery preload stops after the initial viewport-sized batch until the user scrolls', () => {
+    const source = app();
+    expect(source).toContain('const imageUserScrolledRef = useRef(false);');
+    expect(source).toContain('const shouldAutoLoadImages = () => imageUserScrolledRef.current || imagesRef.current.length < initialPageSizeForViewport();');
+    expect(source).toContain('if (reset) imageUserScrolledRef.current = false;');
+    expect(source).toContain('if (entries.some((entry) => entry.isIntersecting) && shouldAutoLoadImages()) loadImages(false);');
+    expect(source).toContain('if (el.scrollTop > 0) imageUserScrolledRef.current = true;');
+    expect(source).toContain('if (isNearImagePreloadWindow(el)) loadImages(false);');
   });
 
   test('top summary formats bytes as KB MB GB TB and action buttons match selection mode', () => {

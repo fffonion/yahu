@@ -2561,6 +2561,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const reloadQueuedRef = useRef(false);
   const refreshBusyRef = useRef(false);
   const hasMoreRef = useRef(true);
+  const imageUserScrolledRef = useRef(false);
   const enc = (v: string) => encodeURIComponent(v);
   const selectedList = useMemo(() => images.filter((item) => selected.has(item.filename)).map((item) => item.filename), [images, selected]);
   const sortImages = (items: ImageEntry[]) => [...items].sort((a, b) => b.modified_at - a.modified_at || b.filename.localeCompare(a.filename));
@@ -2610,6 +2611,8 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const lazyPageSizeForViewport = () => window.innerWidth <= 760 ? initialPageSizeForViewport() : clamp(getGridColumnCount() * 2, 4, MAX_PAGE_SIZE);
   const pageSizeForViewport = (offset: number) => offset === 0 ? initialPageSizeForViewport() : lazyPageSizeForViewport();
   const preloadDistancePx = () => Math.max(MIN_PRELOAD_DISTANCE_PX, Math.round(window.innerHeight * 2.5));
+  const isNearImagePreloadWindow = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight < preloadDistancePx();
+  const shouldAutoLoadImages = () => imageUserScrolledRef.current || imagesRef.current.length < initialPageSizeForViewport();
   const MODAL_ANIM_MS = 230;
   const MODAL_MIN_ZOOM = 1;
   const MODAL_MAX_ZOOM = 6;
@@ -2744,6 +2747,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const loadImages = useCallback(async (reset = false) => {
     if (loadingRef.current) { if (reset) reloadQueuedRef.current = true; return; }
     if (!reset && !hasMoreRef.current) return;
+    if (reset) imageUserScrolledRef.current = false;
     loadingRef.current = true;
     setLoading(true);
     try {
@@ -2775,7 +2779,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const maybeLoadImagesNearViewport = () => {
     const el = scrollRef.current;
     if (!el || loadingRef.current || !hasMoreRef.current) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < preloadDistancePx()) loadImages(false);
+    if (isNearImagePreloadWindow(el) && shouldAutoLoadImages()) loadImages(false);
   };
   const refreshIncremental = useCallback(async () => {
     if (refreshBusyRef.current) return;
@@ -2814,14 +2818,15 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     const node = sentinelRef.current;
     if (!node) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) loadImages(false);
+      if (entries.some((entry) => entry.isIntersecting) && shouldAutoLoadImages()) loadImages(false);
     }, { root: scrollRef.current, rootMargin: `${preloadDistancePx()}px` });
     observer.observe(node);
     return () => observer.disconnect();
   }, [loadImages]);
   const onImageScroll = (event: React.UIEvent<HTMLElement>) => {
     const el = event.currentTarget;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < preloadDistancePx()) loadImages(false);
+    if (el.scrollTop > 0) imageUserScrolledRef.current = true;
+    if (isNearImagePreloadWindow(el)) loadImages(false);
   };
   useEffect(() => {
     const es = new EventSource('/image-api/events');
