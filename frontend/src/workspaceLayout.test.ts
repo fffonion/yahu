@@ -43,7 +43,7 @@ describe('workspace page file tree layout', () => {
     expect(component).toContain('className="workspace-markdown-preview md-content"');
     expect(component).toContain('markdownText(preview.content || \'\')');
     expect(browser).toContain('className="workspace-markdown-preview compact md-content"');
-    expect(styles).toContain('.workspace-markdown-preview{min-height:0;overflow:auto;padding:18px 20px;background:var(--editor-bg);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--editor-text);line-height:1.6;overflow-wrap:anywhere}');
+    expect(styles).toContain('.workspace-markdown-preview{width:100%;max-width:100%;min-width:0;min-height:0;overflow:auto;padding:18px 20px;background:var(--editor-bg);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--editor-text);line-height:1.6;overflow-wrap:anywhere}');
     expect(styles).toContain('.workspace-markdown-preview .md-table-wrap{max-width:100%;overflow-x:auto;margin:10px 0 12px;border:1px solid var(--border);border-radius:12px}');
   });
 

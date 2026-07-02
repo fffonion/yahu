@@ -77,6 +77,13 @@ describe('skills UI', () => {
     expect(styles).toContain('.skill-workspace');
   });
 
+  test('skill markdown preview shrinks before the right file workspace instead of sliding underneath it', () => {
+    const styles = css();
+    expect(styles).toContain('.workspace-editor-preview{width:100%;max-width:100%;min-width:0;');
+    expect(styles).toContain('.workspace-text-preview{width:100%;max-width:100%;min-width:0;');
+    expect(styles).toContain('.workspace-markdown-preview{width:100%;max-width:100%;min-width:0;');
+  });
+
   test('skill file workspace rows expose right-click rename and delete actions', () => {
     const source = app();
     expect(source).toContain('type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y: number } | null;');
