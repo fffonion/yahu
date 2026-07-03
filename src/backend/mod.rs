@@ -7,7 +7,6 @@ use std::{
     io::{Read, Write},
     net::IpAddr,
     path::{Component, Path, PathBuf},
-    process::Stdio,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };

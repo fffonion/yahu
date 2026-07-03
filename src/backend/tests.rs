@@ -153,27 +153,13 @@ mod tests {
     }
 
     #[test]
-    fn cron_run_proxy_success_starts_scheduler_tick() {
-        assert!(should_kick_cron_tick_after_proxy(
-            "api/jobs/job_123/run",
-            &Method::POST,
-            StatusCode::OK,
-        ));
-        assert!(!should_kick_cron_tick_after_proxy(
-            "api/jobs/job_123/output/latest",
-            &Method::GET,
-            StatusCode::OK,
-        ));
-        assert!(!should_kick_cron_tick_after_proxy(
-            "api/jobs/job_123/run",
-            &Method::GET,
-            StatusCode::OK,
-        ));
-        assert!(!should_kick_cron_tick_after_proxy(
-            "api/jobs/job_123/run",
-            &Method::POST,
-            StatusCode::INTERNAL_SERVER_ERROR,
-        ));
+    fn cron_run_proxy_waits_for_upstream_scheduler_tick() {
+        let proxy_source = include_str!("proxy.rs");
+
+        assert!(!proxy_source.contains("spawn_cron_tick_after_manual_run"));
+        assert!(!proxy_source.contains("should_kick_cron_tick_after_proxy"));
+        assert!(!proxy_source.contains("cron.scheduler"));
+        assert!(!proxy_source.contains("tick(verbose=True"));
     }
 
     #[test]
