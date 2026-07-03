@@ -106,6 +106,68 @@ async fn skill_file(
         .unwrap()
 }
 
+async fn skill_download(
+    State(state): State<Arc<AppState>>,
+    AxumPath(name): AxumPath<String>,
+) -> Response<Body> {
+    let root = match find_skill_dir(&state, &name) {
+        Ok(path) => path,
+        Err(err) => return json_error(StatusCode::NOT_FOUND, &err.to_string()),
+    };
+
+    let mut zip_buffer = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(&mut zip_buffer);
+
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let base = root.clone();
+    if let Err(err) = add_dir_to_zip(&mut zip, &root, &base, &options) {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("zip error: {err}"));
+    }
+
+    if let Err(err) = zip.finish() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("zip finish: {err}"));
+    }
+    let bytes = zip_buffer.into_inner();
+    let filename = format!("{}.zip", name.replace(' ', "_"));
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", filename.replace('"', "")),
+        )
+        .body(Body::from(bytes))
+        .unwrap()
+}
+
+fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
+    zip: &mut zip::ZipWriter<W>,
+    dir: &std::path::Path,
+    base: &std::path::Path,
+    options: &zip::write::SimpleFileOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let rel = path.strip_prefix(base)?;
+        let rel_str = rel.to_string_lossy().to_string();
+
+        if rel_str.starts_with(".archive") || rel_str.contains("/.archive/") || rel_str.contains("\\.archive\\") {
+            continue;
+        }
+
+        if path.is_dir() {
+            add_dir_to_zip(zip, &path, base, options)?;
+        } else {
+            let data = std::fs::read(&path)?;
+            zip.start_file(&rel_str, *options)?;
+            zip.write_all(&data)?;
+        }
+    }
+    Ok(())
+}
 
 async fn skill_file_write(
     State(state): State<Arc<AppState>>,

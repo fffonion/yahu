@@ -77,6 +77,16 @@ describe('skills UI', () => {
     expect(styles).toContain('.skill-workspace');
   });
 
+  test('skill workspace header has a download skill zip button', () => {
+    const source = app();
+    const skillsWorkspace = source.slice(source.indexOf('function SkillWorkspaceAside'), source.indexOf('function WorkspaceEditorPreview'));
+    expect(skillsWorkspace).toContain('skill');
+    expect(skillsWorkspace).toContain('Download');
+    expect(skillsWorkspace).toContain('/skills/download/');
+    expect(skillsWorkspace).toContain('triggerSkillDownload');
+    expect(skillsWorkspace).toContain('aria-label');
+  });
+
   test('skill markdown preview shrinks before the right file workspace instead of sliding underneath it', () => {
     const styles = css();
     expect(styles).toContain('.workspace-editor-preview{width:100%;max-width:100%;min-width:0;');
@@ -112,6 +122,7 @@ describe('skills backend API', () => {
     expect(source).toContain('.route("/skills/list", get(skills_list))');
     expect(source).toContain('.route("/skills/files", get(skill_files))');
     expect(source).toContain('.route("/skills/file", get(skill_file).put(skill_file_write))');
+    expect(source).toContain('.route("/skills/download/{name}", get(skill_download))');
     expect(source).toContain('.route("/skills/toggle/{name}", post(skill_toggle))');
     expect(source).toContain('"/skills/item"');
     expect(source).toContain('patch(skill_item_rename).delete(skill_item_delete)');

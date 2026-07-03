@@ -4,7 +4,7 @@ use std::{
     convert::Infallible,
     env,
     ffi::OsStr,
-    io::Read,
+    io::{Read, Write},
     net::IpAddr,
     path::{Component, Path, PathBuf},
     process::Stdio,
@@ -252,6 +252,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/skills/list", get(skills_list))
         .route("/skills/files", get(skill_files))
         .route("/skills/file", get(skill_file).put(skill_file_write))
+        .route("/skills/download/{name}", get(skill_download))
         .route("/skills/toggle/{name}", post(skill_toggle))
         .route(
             "/skills/item",

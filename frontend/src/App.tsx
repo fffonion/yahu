@@ -2390,6 +2390,12 @@ function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarO
   return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} /></main>;
 }
 function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile, openSkillFileMenu }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void; openSkillFileMenu: (skill: Skill, entry: WorkspaceEntry, event: React.MouseEvent) => void }) {
+  const triggerSkillDownload = (skill: Skill) => {
+    const a = document.createElement('a');
+    a.href = `/skills/download/${encodeURIComponent(skill.name)}`;
+    a.download = `${skill.name}.zip`;
+    a.click();
+  };
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.filter((e) => e.name !== '.archive').map((entry) => {
     const expanded = entry.kind === 'dir' && expandedSkillPaths.has(entry.path);
     const children = expanded ? (skillFileTree[entry.path] || []) : [];
@@ -2400,7 +2406,7 @@ function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleS
       {expanded && renderRows(children, depth + 1)}
     </React.Fragment>;
   });
-  return <aside className="skill-workspace workspace"><div className="workspace-sidebar-head"><div><h2>{t('skills.skillFiles')}</h2><p>{skill?.category || t('skills.select')}</p></div></div><div className="workspace-tree file-list">{renderRows(skillFileTree[''] || [])}</div></aside>;
+  return <aside className="skill-workspace workspace"><div className="workspace-sidebar-head"><div><h2>{t('skills.skillFiles')}</h2><p>{skill?.category || t('skills.select')}</p></div>{skill && <button className="icon-btn" aria-label={t('skills.download')} title={t('skills.download')} onClick={() => triggerSkillDownload(skill)}><Download /></button>}</div><div className="workspace-tree file-list">{renderRows(skillFileTree[''] || [])}</div></aside>;
 }
 function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl }: any) {
   const [editMode, setEditMode] = useState(false);

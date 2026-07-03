@@ -335,6 +335,58 @@ mod tests {
         assert!(!found.contains_key("nested-old-skill"));
     }
 
+    #[tokio::test]
+    async fn skill_download_returns_zip_with_references() {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use axum::Router;
+        use tokio::net::TcpListener;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("skills");
+        let skill_dir = root.join("productivity/test-skill");
+        std::fs::create_dir_all(&skill_dir.join("references")).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: test-skill\ndescription: Test\n---\n\n# Test\n",
+        ).unwrap();
+        std::fs::write(
+            skill_dir.join("references").join("guide.md"),
+            "# Reference Guide\n",
+        ).unwrap();
+
+        let hero = skill_dir.join("references").join("hero.png");
+        std::fs::write(&hero, b"PNG_DUMMY").unwrap();
+
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+        let app = Router::new()
+            .route("/skills/download/{name}", get(skill_download))
+            .with_state(state);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let resp = reqwest::get(format!("http://{addr}/skills/download/test-skill"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
+        let content_dispo = resp.headers().get("content-disposition").and_then(|v| v.to_str().ok()).unwrap_or("");
+        assert!(content_type.contains("zip") || content_type.contains("octet-stream"), "content-type: {content_type}");
+        assert!(content_dispo.contains("attachment"), "no attachment: {content_dispo}");
+        assert!(content_dispo.contains("test-skill"), "no skill name: {content_dispo}");
+
+        let bytes = resp.bytes().await.unwrap();
+        assert!(bytes.len() > 20, "zip too small: {} bytes", bytes.len());
+
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        let names: Vec<String> = archive.file_names().map(|s| s.to_string()).collect();
+        assert!(names.contains(&"SKILL.md".to_string()), "missing SKILL.md: {names:?}");
+        assert!(names.contains(&"references/guide.md".to_string()), "missing references/guide.md: {names:?}");
+    }
+
     fn test_app_state(api_url: String, root: &Path) -> AppState {
         let (updates, _) = broadcast::channel::<String>(1);
         let (deletes, _) = broadcast::channel::<String>(1);

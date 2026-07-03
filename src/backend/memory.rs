@@ -1,7 +1,5 @@
-use std::{
-    fs as std_fs,
-    io::{self, Write},
-};
+use std::fs as std_fs;
+use std::io;
 
 async fn memory_get(State(state): State<Arc<AppState>>) -> Response<Body> {
     match read_memory_payload_from_files(&state.hermes_home) {
@@ -26,25 +24,25 @@ async fn memory_put(
     }
 }
 
-fn read_memory_payload_from_files(hermes_home: &Path) -> io::Result<MemoryPayload> {
+fn read_memory_payload_from_files(hermes_home: &std::path::Path) -> io::Result<MemoryPayload> {
     Ok(MemoryPayload {
         memory: read_memory_text(&memory_file_path(hermes_home, "memory"))?,
         user: read_memory_text(&memory_file_path(hermes_home, "user"))?,
     })
 }
 
-fn write_memory_payload_to_files(hermes_home: &Path, payload: &MemoryPayload) -> io::Result<()> {
+fn write_memory_payload_to_files(hermes_home: &std::path::Path, payload: &MemoryPayload) -> io::Result<()> {
     write_memory_text(&memory_file_path(hermes_home, "memory"), &payload.memory)?;
     write_memory_text(&memory_file_path(hermes_home, "user"), &payload.user)?;
     Ok(())
 }
 
-fn memory_file_path(hermes_home: &Path, target: &str) -> PathBuf {
+fn memory_file_path(hermes_home: &std::path::Path, target: &str) -> std::path::PathBuf {
     let filename = if target == "user" { "USER.md" } else { "MEMORY.md" };
     hermes_home.join("memories").join(filename)
 }
 
-fn read_memory_text(path: &Path) -> io::Result<String> {
+fn read_memory_text(path: &std::path::Path) -> io::Result<String> {
     let _lock = MemoryFileLock::acquire(path)?;
     match std_fs::read_to_string(path) {
         Ok(content) => Ok(content),
@@ -53,16 +51,17 @@ fn read_memory_text(path: &Path) -> io::Result<String> {
     }
 }
 
-fn write_memory_text(path: &Path, content: &str) -> io::Result<()> {
+fn write_memory_text(path: &std::path::Path, content: &str) -> io::Result<()> {
+    use std::io::Write;
     let _lock = MemoryFileLock::acquire(path)?;
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "memory file has no parent directory")
     })?;
     std_fs::create_dir_all(parent)?;
 
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::ZERO)
         .as_nanos();
     let tmp_path = parent.join(format!(".mem_{}_{}.tmp", std::process::id(), nanos));
     let write_result = (|| -> io::Result<()> {
@@ -88,7 +87,7 @@ struct MemoryFileLock {
 }
 
 impl MemoryFileLock {
-    fn acquire(path: &Path) -> io::Result<Self> {
+    fn acquire(path: &std::path::Path) -> io::Result<Self> {
         let lock_path = path.with_extension(format!(
             "{}lock",
             path.extension()
