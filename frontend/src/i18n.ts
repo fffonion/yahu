@@ -51,6 +51,7 @@ const translations: Record<string, Record<string, string>> = {
   'cron.deliver': { en: 'Delivery target', 'zh-CN': '发送渠道', 'zh-TW': '發送渠道', ja: '配信先' },
   'cron.pinnedModel': { en: 'Pinned model/provider', 'zh-CN': '固定模型/服务商', 'zh-TW': '固定模型/服務商', ja: '固定モデル/プロバイダー' },
   'cron.noPinnedModel': { en: 'using runtime default model', 'zh-CN': '使用运行时默认模型', 'zh-TW': '使用執行時預設模型', ja: '実行時の既定モデルを使用' },
+  'cron.nonAgentJob': { en: 'non-agent task', 'zh-CN': '非Agent任务', 'zh-TW': '非Agent任務', ja: '非Agentタスク' },
   'cron.enabledTools': { en: 'Enabled tools', 'zh-CN': '启用工具', 'zh-TW': '啟用工具', ja: '有効なツール' },
   'cron.allDefaultTools': { en: 'all default tools', 'zh-CN': '默认全部工具', 'zh-TW': '預設全部工具', ja: '既定の全ツール' },
   'cron.save': { en: 'Save', 'zh-CN': '保存', 'zh-TW': '儲存', ja: '保存' },

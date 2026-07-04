@@ -83,13 +83,20 @@ describe('cron manager split editor layout', () => {
   test('selected cron detail shows pinned provider and model from the API job row', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain('model?: string | { model?: string; provider?: string }; provider?: string; provider_snapshot?: string; model_snapshot?: string');
+    expect(source).toContain('model?: string | { model?: string; provider?: string }; provider?: string; provider_snapshot?: string; model_snapshot?: string; no_agent?: boolean; noAgent?: boolean');
     expect(source).toContain('function cronPinnedModel(job?: Job | null)');
     expect(source).toContain('className="cron-model-field cron-fullwidth"');
     expect(source).toContain("{t('cron.pinnedModel')}");
     expect(source).toContain('cronPinnedModel(props.currentJob)');
     expect(styles).toContain('.cron-model-field{display:grid;gap:7px;min-width:0}');
     expect(styles).toContain('.cron-model-value{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}');
+  });
+
+  test('no-agent cron jobs show a non-agent label instead of model/provider chips', () => {
+    const source = app();
+    expect(source).toContain('if (job?.no_agent || job?.noAgent) return { nonAgent: true };');
+    expect(source).toContain("pinnedModel.nonAgent ? <span className=\"cron-tool-chip muted\">{t('cron.nonAgentJob')}</span>");
+    expect(source).toContain("'cron.nonAgentJob'");
   });
 
   test('delivery target is editable and saved in the cron patch body', () => {
