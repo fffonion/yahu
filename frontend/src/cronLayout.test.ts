@@ -80,6 +80,30 @@ describe('cron manager split editor layout', () => {
     expect(styles).toContain('.cron-tool-chip{display:inline-flex;align-items:center;min-height:28px;padding:5px 9px;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);color:var(--text);font-size:12px;line-height:1.2}');
   });
 
+  test('selected cron detail shows pinned provider and model from the API job row', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('model?: string | { model?: string; provider?: string }; provider?: string; provider_snapshot?: string; model_snapshot?: string');
+    expect(source).toContain('function cronPinnedModel(job?: Job | null)');
+    expect(source).toContain('className="cron-model-field cron-fullwidth"');
+    expect(source).toContain("{t('cron.pinnedModel')}");
+    expect(source).toContain('cronPinnedModel(props.currentJob)');
+    expect(styles).toContain('.cron-model-field{display:grid;gap:7px;min-width:0}');
+    expect(styles).toContain('.cron-model-value{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}');
+  });
+
+  test('delivery target is editable and saved in the cron patch body', () => {
+    const source = app();
+    expect(source).toContain('setDeliver: (v: string) => void');
+    expect(source).toContain('buildCronPatch({ name: cronName, schedule: cronSchedule, prompt: cronPrompt, script: cronScript, deliver: cronDeliver })');
+    expect(source).toContain('cronEditableValues(job)');
+    expect(source).toContain('setCronDeliver(values.deliver)');
+    expect(source).toContain('className="cron-field cron-fullwidth cron-deliver-field"');
+    expect(source).toContain('value={props.deliver}');
+    expect(source).toContain('onChange={(e) => props.setDeliver(e.target.value)}');
+    expect(source).not.toContain('value={deliverDisplay(props.deliver)} readOnly');
+  });
+
   test('places the latest output timestamp first and lets the page carry output scrolling', () => {
     const source = app();
     const styles = css();
