@@ -61,6 +61,12 @@ describe('chat message visibility', () => {
     expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['u1', 'a-final']);
   });
 
+  test('hides empty assistant tool-call placeholders so they do not render blank tool result cards', () => {
+    const placeholder = { id: 'a-tool-call', role: 'assistant', content: '', pending: false, toolCalls: [{ function: { name: 'web_extract' } }] };
+    expect(isToolLikeMessage(placeholder)).toBe(true);
+    expect(shouldRenderMessage(placeholder, false, true)).toBe(false);
+  });
+
   test('keeps assistant tool-call placeholders from becoming final-answer dedupe targets', () => {
     const messages = [
       { id: 'a-tool-call', role: 'assistant', content: '', pending: false, toolCalls: [{ function: { name: 'web_extract' } }] },
@@ -70,6 +76,7 @@ describe('chat message visibility', () => {
     const deduped = dedupeVisibleChatMessages(messages);
     expect(isToolLikeMessage(messages[0])).toBe(true);
     expect(deduped.map((message) => message.id)).toEqual(['a-tool-call', 'tool-result', 'a-final']);
+    expect(renderableMessages(deduped, false, true).map((message) => message.id)).toEqual(['tool-result', 'a-final']);
     expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['a-final']);
   });
 

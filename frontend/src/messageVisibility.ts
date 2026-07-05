@@ -38,7 +38,20 @@ export function isToolLikeMessage(message: MessageVisibilityInput): boolean {
   return false;
 }
 
+function hasToolCalls(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== undefined && value !== null;
+}
+
+function isEmptyAssistantToolCallPlaceholder(message: MessageVisibilityInput): boolean {
+  return message.role === 'assistant'
+    && !message.pending
+    && !String(message.content || '').trim()
+    && hasToolCalls(message.toolCalls);
+}
+
 export function shouldRenderMessage(message: MessageVisibilityInput, showReasoning = false, showToolCalls = true): boolean {
+  if (isEmptyAssistantToolCallPlaceholder(message)) return false;
   if (isToolLikeMessage(message)) return showToolCalls;
   if (message.pending) return true;
   if (String(message.content || '').trim()) return true;
