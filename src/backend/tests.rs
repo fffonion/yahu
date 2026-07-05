@@ -542,6 +542,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_messages_page_starts_at_user_turn_boundary() {
+        async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": null}
+            }))
+        }
+
+        async fn api_messages(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            let roles = [
+                "user",
+                "assistant",
+                "tool",
+                "assistant",
+                "user",
+                "assistant",
+                "tool",
+                "tool",
+                "assistant",
+                "tool",
+                "assistant",
+            ];
+            let data: Vec<_> = roles
+                .iter()
+                .enumerate()
+                .map(|(idx, role)| serde_json::json!({
+                    "id": (idx + 1) as i64,
+                    "session_id": session_id,
+                    "role": role,
+                    "content": format!("message {}", idx + 1),
+                }))
+                .collect();
+            Json(serde_json::json!({"object":"list","data":data}))
+        }
+
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let latest = chat_messages_page(
+            State(state.clone()),
+            AxumPath("turns".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(4) }),
+        )
+        .await;
+        let latest_body = axum::body::to_bytes(latest.into_body(), usize::MAX).await.unwrap();
+        let latest_page: serde_json::Value = serde_json::from_slice(&latest_body).unwrap();
+        let latest_data = latest_page["data"].as_array().unwrap();
+        assert_eq!(latest_data[0]["id"], 5);
+        assert_eq!(latest_data[0]["role"], "user");
+        assert_eq!(latest_page["has_older"], true);
+
+        let older = chat_messages_page(
+            State(state),
+            AxumPath("turns".to_string()),
+            Query(ChatMessagesQuery { before: Some(5), after: None, around: None, limit: Some(4) }),
+        )
+        .await;
+        let older_body = axum::body::to_bytes(older.into_body(), usize::MAX).await.unwrap();
+        let older_page: serde_json::Value = serde_json::from_slice(&older_body).unwrap();
+        let older_data = older_page["data"].as_array().unwrap();
+        assert_eq!(older_data[0]["id"], 1);
+        assert_eq!(older_data[0]["role"], "user");
+        assert_eq!(older_page["has_older"], false);
+    }
+
+    #[tokio::test]
     async fn session_history_context_prefers_local_db_lineage_messages() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");

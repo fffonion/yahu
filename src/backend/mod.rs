@@ -36,8 +36,8 @@ use notify::{
     event::{AccessKind, AccessMode, ModifyKind},
 };
 use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
-use serde::{Deserialize, Serialize};
 use rusqlite::OptionalExtension;
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tokio::{
     fs,

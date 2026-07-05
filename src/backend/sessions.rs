@@ -166,6 +166,28 @@ fn json_value_contains_query(value: &serde_json::Value, needle: &str) -> bool {
     }
 }
 
+fn is_user_message(message: &serde_json::Value) -> bool {
+    message.get("role").and_then(|role| role.as_str()) == Some("user")
+}
+
+fn user_turn_page_start(messages: &[serde_json::Value], start: usize, end: usize) -> usize {
+    if start >= end || messages.get(start).is_some_and(is_user_message) {
+        return start;
+    }
+    if let Some(idx) = messages[..=start].iter().rposition(is_user_message) {
+        return idx;
+    }
+    messages[start..end]
+        .iter()
+        .position(is_user_message)
+        .map(|idx| start + idx)
+        .unwrap_or(start)
+}
+
+fn has_older_user_turn(messages: &[serde_json::Value], start: usize) -> bool {
+    messages[..start.min(messages.len())].iter().any(is_user_message)
+}
+
 async fn chat_messages_page(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
@@ -181,7 +203,7 @@ async fn chat_messages_page(
             );
         }
     };
-    let (start, end) = if let Some(around) = query.around {
+    let (mut start, end, align_to_user_turn) = if let Some(around) = query.around {
         let center = all
             .iter()
             .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(around))
@@ -189,29 +211,32 @@ async fn chat_messages_page(
         let half = limit / 2;
         let start = center.saturating_sub(half);
         let end = (start + limit).min(all.len());
-        (end.saturating_sub(limit), end)
+        (end.saturating_sub(limit), end, true)
     } else if let Some(before) = query.before {
         let end = all
             .iter()
             .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(before))
             .unwrap_or(all.len());
-        (end.saturating_sub(limit), end)
+        (end.saturating_sub(limit), end, true)
     } else if let Some(after) = query.after {
         let start = all
             .iter()
             .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(after))
             .map(|idx| idx + 1)
             .unwrap_or(0);
-        (start, (start + limit).min(all.len()))
+        (start, (start + limit).min(all.len()), false)
     } else {
-        (all.len().saturating_sub(limit), all.len())
+        (all.len().saturating_sub(limit), all.len(), true)
     };
+    if align_to_user_turn {
+        start = user_turn_page_start(&all, start, end);
+    }
     let page: Vec<_> = all[start..end].to_vec();
     Json(serde_json::json!({
         "object": "list",
         "data": page,
         "total": all.len(),
-        "has_older": start > 0,
+        "has_older": has_older_user_turn(&all, start),
         "has_newer": end < all.len()
     }))
     .into_response()
