@@ -2307,15 +2307,10 @@ function navigatorVisibleItems(items: UserMessageNavItem[], centerIndex: number)
   return items.slice(start, end).map((item, index) => ({ item, index: start + index, distance: start + index - centerIndex }));
 }
 
-function navigatorBarWidth(distance: number) {
-  return 21 - Math.min(Math.abs(distance), NAVIGATOR_RADIUS) * 4;
-}
-
-function minimapHitStyle(entry: NavigatorWindowEntry, visibleIndex: number, visibleCount: number): React.CSSProperties {
+function minimapHitStyle(visibleIndex: number, visibleCount: number): React.CSSProperties {
   return {
     top: navigatorBarTop(visibleIndex, visibleCount),
-    '--minimap-bar-width': `${navigatorBarWidth(entry.distance)}px`,
-  } as React.CSSProperties;
+  };
 }
 
 function currentNavigatorIndex(items: UserMessageNavItem[]) {
@@ -2355,7 +2350,7 @@ function ChatUserNavigator({ items, sessionId, onJumpToMessage }: { items: UserM
   const centerIndex = Math.max(0, Math.min(currentIndex, items.length - 1));
   const visibleItems = navigatorVisibleItems(items, centerIndex);
   return <nav className="chat-user-minimap" aria-label="User message navigator">
-    {visibleItems.map((entry, visibleIndex) => <button type="button" className="user-minimap-hit" key={entry.item.id} style={minimapHitStyle(entry, visibleIndex, visibleItems.length)} aria-label={entry.item.content} onClick={() => onJumpToMessage(sessionId, entry.item.id)}>
+    {visibleItems.map((entry, visibleIndex) => <button type="button" className="user-minimap-hit" key={entry.item.id} style={minimapHitStyle(visibleIndex, visibleItems.length)} aria-label={entry.item.content} onClick={() => onJumpToMessage(sessionId, entry.item.id)}>
       <span className="user-minimap-bar" />
       <span className="user-minimap-popup"><strong>{entry.item.content || 'User message'}</strong>{formatNavigatorTime(entry.item.timestamp) && <time>{formatNavigatorTime(entry.item.timestamp)}</time>}</span>
     </button>)}
