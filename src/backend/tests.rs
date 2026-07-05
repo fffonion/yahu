@@ -742,6 +742,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_history_includes_immediate_agent_close_predecessor_for_same_thread() {
+        async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": null}
+            }))
+        }
+
+        async fn api_messages(AxumPath(_session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({"object":"list","data":[{
+                "id": 3,
+                "session_id": "current",
+                "role":"assistant",
+                "content": "current summary"
+            }]}))
+        }
+
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('old_root',NULL,1,2,'compression','telegram','agent:telegram:dm','chat',NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('old_tip','old_root',2,10,'agent_close','telegram','agent:telegram:dm','chat',NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('current',NULL,10.5,NULL,NULL,'telegram','agent:telegram:dm','chat',NULL)", []).unwrap();
+        for (sid, role, content) in [
+            ("old_root", "user", "original dm question"),
+            ("old_tip", "assistant", "previous dm answer"),
+            ("current", "assistant", "current summary"),
+        ] {
+            conn.execute(
+                "INSERT INTO messages (session_id,role,content,timestamp,active) VALUES (?1,?2,?3,1,1)",
+                rusqlite::params![sid, role, content],
+            ).unwrap();
+        }
+        drop(conn);
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let resp = chat_messages_page(
+            State(state),
+            AxumPath("current".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20) }),
+        )
+        .await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let data = page["data"].as_array().unwrap();
+
+        assert_eq!(page["total"], 3);
+        assert_eq!(data[0]["session_id"], "old_root");
+        assert_eq!(data[0]["role"], "user");
+        assert_eq!(data[2]["session_id"], "current");
+    }
+
+    #[tokio::test]
     async fn chat_history_does_not_merge_same_session_key_from_other_thread() {
         async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
             Json(serde_json::json!({

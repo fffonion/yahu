@@ -620,7 +620,7 @@ fn local_session_reset_predecessor_id(
             .query_row(
                 "SELECT id FROM sessions
                  WHERE id != ?1
-                   AND end_reason = 'session_reset'
+                   AND end_reason IN ('session_reset', 'agent_close')
                    AND ended_at IS NOT NULL
                    AND ended_at <= ?2 + 1.0
                    AND session_key = ?3
@@ -644,7 +644,7 @@ fn local_session_reset_predecessor_id(
     conn.query_row(
         "SELECT id FROM sessions
          WHERE id != ?1
-           AND end_reason = 'session_reset'
+           AND end_reason IN ('session_reset', 'agent_close')
            AND ended_at IS NOT NULL
            AND ended_at <= ?2 + 1.0
            AND source IS ?3
