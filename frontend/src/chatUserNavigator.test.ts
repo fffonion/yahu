@@ -39,8 +39,9 @@ describe('chat user message navigator', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('const NAVIGATOR_RADIUS = 3;');
-    expect(source).toContain('const start = Math.max(0, centerIndex - NAVIGATOR_RADIUS);');
-    expect(source).toContain('const end = Math.min(items.length, centerIndex + NAVIGATOR_RADIUS + 1);');
+    expect(source).toContain('const totalSlots = NAVIGATOR_RADIUS * 2 + 1; // always 7');
+    expect(source).toContain('const start = Math.max(0, Math.min(centerIndex - half, items.length - totalSlots));');
+    expect(source).toContain('const end = start + totalSlots;');
     expect(source).toContain('return items.slice(start, end).map((item, index) => ({ item, index: start + index, distance: start + index - centerIndex }));');
     expect(source).toContain('style={minimapHitStyle(visibleIndex, visibleItems.length)}');
     expect(source).not.toContain('function navigatorBarWidth');

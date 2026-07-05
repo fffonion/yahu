@@ -2302,8 +2302,13 @@ function navigatorBarTop(index: number, total: number) {
 }
 
 function navigatorVisibleItems(items: UserMessageNavItem[], centerIndex: number): NavigatorWindowEntry[] {
-  const start = Math.max(0, centerIndex - NAVIGATOR_RADIUS);
-  const end = Math.min(items.length, centerIndex + NAVIGATOR_RADIUS + 1);
+  const totalSlots = NAVIGATOR_RADIUS * 2 + 1; // always 7
+  const half = Math.floor(totalSlots / 2); // 3
+  if (items.length <= totalSlots) {
+    return items.map((item, index) => ({ item, index, distance: index - centerIndex }));
+  }
+  const start = Math.max(0, Math.min(centerIndex - half, items.length - totalSlots));
+  const end = start + totalSlots;
   return items.slice(start, end).map((item, index) => ({ item, index: start + index, distance: start + index - centerIndex }));
 }
 

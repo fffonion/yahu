@@ -655,22 +655,29 @@ async fn fetch_all_session_messages_for_context(
     state: &AppState,
     session_id: &str,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
-    match fetch_local_lineage_messages(state, session_id) {
-        Ok(Some(messages)) => return Ok(messages),
-        Ok(None) => {}
-        Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local session lineage; falling back to API Server"),
-    }
     let ids = session_lineage_ids(state, session_id).await;
     let mut messages = Vec::new();
     let mut seen = HashSet::new();
     for id in ids {
-        for message in fetch_session_messages_by_id(state, &id).await? {
-            if let Some(key) = nav_message_id(&message)
-                && !seen.insert(key)
-            {
-                continue;
+        match fetch_session_messages_by_id(state, &id).await {
+            Ok(msgs) => {
+                for message in msgs {
+                    if let Some(key) = nav_message_id(&message)
+                        && !seen.insert(key)
+                    {
+                        continue;
+                    }
+                    messages.push(message);
+                }
             }
-            messages.push(message);
+            Err(err) => {
+                warn!(session_id = %session_id, api_id = %id, error = %err, "API Server fetch failed; falling back to local state.db");
+                match fetch_local_lineage_messages(state, session_id) {
+                    Ok(Some(local_msgs)) => return Ok(local_msgs),
+                    Ok(None) => anyhow::bail!("neither API Server nor local state.db has messages for session lineage of {session_id}"),
+                    Err(local_err) => anyhow::bail!("both API Server and local state.db failed: API={err}, local={local_err}"),
+                }
+            }
         }
     }
     Ok(messages)
