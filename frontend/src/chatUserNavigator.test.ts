@@ -22,25 +22,36 @@ describe('chat user message navigator', () => {
     expect(source).toContain('onJumpToMessage={jumpToMessage}');
   });
 
-  test('renders short hover-expanding bars with popup content and time', () => {
+  test('renders half-length bars with popup content and time', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('function ChatUserNavigator(');
     expect(source).toContain('className="chat-user-minimap"');
     expect(source).toContain('className="user-minimap-popup"');
-    expect(source).toContain('formatNavigatorTime(item.timestamp)');
-    expect(styles).toContain('.user-minimap-bar{width:18px');
+    expect(source).toContain('formatNavigatorTime(entry.item.timestamp)');
+    expect(styles).toContain('.user-minimap-bar{width:var(--minimap-bar-width,9px)');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar');
     expect(styles).toContain('transition:width .18s ease,opacity .18s ease,background .18s ease');
     expect(styles).toContain('.user-minimap-popup{position:absolute;left:calc(100% + 10px);');
   });
 
-  test('places minimap bars in a compact equal-spaced stack like the Codex reference', () => {
+  test('shows at most three bars before and after the current bar with a stronger length transition', () => {
+    const source = app();
+    expect(source).toContain('const NAVIGATOR_RADIUS = 3;');
+    expect(source).toContain('const start = Math.max(0, centerIndex - NAVIGATOR_RADIUS);');
+    expect(source).toContain('const end = Math.min(items.length, centerIndex + NAVIGATOR_RADIUS + 1);');
+    expect(source).toContain('return items.slice(start, end).map((item, index) => ({ item, index: start + index, distance: start + index - centerIndex }));');
+    expect(source).toContain('return 21 - Math.min(Math.abs(distance), NAVIGATOR_RADIUS) * 4;');
+    expect(source).toContain("'--minimap-bar-width': `${navigatorBarWidth(entry.distance)}px`");
+    expect(source).toContain('style={minimapHitStyle(entry, visibleIndex, visibleItems.length)}');
+  });
+
+  test('places visible minimap bars in a compact equal-spaced stack like the Codex reference', () => {
     const source = app();
     expect(source).toContain('function navigatorBarTop(index: number, total: number)');
     expect(source).toContain('const compactGapPx = Math.max(5, Math.min(12, 220 / (total - 1)));');
     expect(source).toContain('return `calc(50% + ${offsetPx.toFixed(1)}px)`;');
-    expect(source).toContain('style={{ top: navigatorBarTop(index, items.length) }}');
+    expect(source).toContain('top: navigatorBarTop(visibleIndex, visibleCount),');
     expect(source).not.toContain('Math.max(0, Math.min(1, item.position)) * 100');
     expect(source).not.toContain('(index / (items.length - 1)) * 100');
   });
