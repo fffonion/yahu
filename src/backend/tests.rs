@@ -454,6 +454,29 @@ mod tests {
     }
 
     #[test]
+    fn user_message_nav_items_include_position_excerpt_and_timestamp() {
+        let messages = vec![
+            serde_json::json!({"id": 1, "role": "system", "content": "setup"}),
+            serde_json::json!({"id": 2, "role": "user", "content": "first question", "timestamp": 1710000000}),
+            serde_json::json!({"id": 3, "role": "assistant", "content": "answer"}),
+            serde_json::json!({"id": 4, "role": "user", "content": {"text": "second question with a lot of detail"}, "created_at": 1710000060}),
+        ];
+
+        let nav = build_user_message_nav(&messages);
+
+        assert_eq!(nav.len(), 2);
+        assert_eq!(nav[0].id, "2");
+        assert_eq!(nav[0].role, "user");
+        assert_eq!(nav[0].content, "first question");
+        assert_eq!(nav[0].timestamp, Some(serde_json::json!(1710000000)));
+        assert_eq!(nav[0].index, 1);
+        assert_eq!(nav[0].total, 4);
+        assert!(nav[0].position > 0.32 && nav[0].position < 0.34);
+        assert_eq!(nav[1].id, "4");
+        assert!(nav[1].position > 0.99);
+    }
+
+    #[test]
     fn session_watch_emits_all_new_messages_in_id_order() {
         let items = vec![
             serde_json::json!({"id": 12, "role": "assistant", "content": "second"}),

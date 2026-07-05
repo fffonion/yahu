@@ -181,6 +181,7 @@ struct MemoryPayload {
 struct ChatMessagesQuery {
     before: Option<i64>,
     after: Option<i64>,
+    around: Option<i64>,
     limit: Option<usize>,
 }
 
@@ -262,6 +263,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
         .route("/chat/messages/{session_id}", get(chat_messages_page))
+        .route("/chat/user-nav/{session_id}", get(chat_user_nav))
         .route(
             "/chat/context-window/{session_id}",
             get(chat_context_window),

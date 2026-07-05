@@ -51,6 +51,7 @@ type ImageMetadata = { filename: string; dimensions?: { width: number; height: n
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
 type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: boolean };
+type UserMessageNavItem = { id: string; role: 'user'; content: string; timestamp?: string | number; position: number; index: number; total: number };
 type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: boolean; compressed?: boolean };
 
 const DEFAULT_API_BASE = '/hermes';
@@ -142,7 +143,7 @@ function isHourlyBucket(bucket: UsageDay | UsageHour | undefined): bucket is Usa
 const navLabel = (mode: Mode) => t(`nav.${mode}`);
 const modeSummary = (mode: Mode) => mode === 'memory' ? t('mode.memorySummary') : mode === 'insights' ? t('mode.insightsSummary') : mode === 'artifacts' ? t('mode.artifactsSummary') : mode === 'workspace' ? t('mode.workspaceSummary') : mode === 'settings' ? t('mode.settingsSummary') : mode === 'images' ? t('mode.imagesSummary') : t('mode.cronSummary');
 const apiJoin = (base: string, path: string) => `${base.replace(/\/$/, '')}${path}`;
-const numericId = (id?: string) => /^\d+$/.test(id || '') ? id : '';
+const numericId = (id?: string): string => /^\d+$/.test(id || '') ? String(id) : '';
 const workspaceRouteParents = (path: string) => {
   const parts = path.split('/').filter(Boolean);
   const parents: string[] = [''];
@@ -581,6 +582,7 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || '' : '');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [userMessageNav, setUserMessageNav] = useState<UserMessageNavItem[]>([]);
   const [contextWindowSnapshot, setContextWindowSnapshot] = useState<ContextWindowSnapshot | null>(null);
   const [showReasoning, setShowReasoning] = useState(() => localStorage.getItem(SHOW_REASONING_KEY) === '1');
   const [showToolCalls, setShowToolCalls] = useState(true);
@@ -679,6 +681,7 @@ export default function App() {
   }, [messages]);
   const scrollLatestAfterRenderRef = useRef(false);
   const pendingHistoryScrollAnchorRef = useRef<MessageScrollAnchor | null>(null);
+  const pendingJumpMessageIdRef = useRef('');
   const titleRefreshDoneRef = useRef<Set<string>>(new Set());
   const skipNextHistoryLoadRef = useRef('');
   const watchSourceRef = useRef<EventSource | null>(null);
@@ -715,6 +718,7 @@ export default function App() {
     pendingHistoryScrollAnchorRef.current = null;
     if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
     setMessages([]);
+    setUserMessageNav([]);
     setHasOlder(false);
     setHasNewer(false);
     clearNewMessages();
@@ -968,6 +972,7 @@ export default function App() {
     setActiveSessionId(DRAFT_SESSION_ID);
     setActiveSessionDetail({ id: DRAFT_SESSION_ID, model: sessionModel, provider: selectedModelProvider });
     setMessages([]);
+    setUserMessageNav([]);
     setHasOlder(false);
     setHasNewer(false);
     setInput('');
@@ -1020,6 +1025,56 @@ export default function App() {
       setHasOlder(merged.hasOlder);
       setHasNewer(merged.hasNewer);
       if (direction === 'latest') scrollLatestAfterRenderRef.current = true;
+    } catch (err: any) { setStatus(`Messages unavailable: ${err.message}`); }
+    finally {
+      if (req === messageRequestRef.current) {
+        loadingMessagesRef.current = false;
+        setLoadingMessages(false);
+      }
+    }
+  }, []);
+
+  const loadUserMessageNav = useCallback(async (sessionId: string) => {
+    if (!sessionId || sessionId === DRAFT_SESSION_ID) { setUserMessageNav([]); return; }
+    try {
+      const res = await fetch(`/chat/user-nav/${encodeURIComponent(sessionId)}`);
+      if (!res.ok) throw new Error(await res.text());
+      const body = await res.json();
+      if (activeSessionIdRef.current !== sessionId) return;
+      setUserMessageNav(Array.isArray(body.data) ? body.data : []);
+    } catch {
+      if (activeSessionIdRef.current === sessionId) setUserMessageNav([]);
+    }
+  }, []);
+
+  const jumpToMessage = useCallback(async (sessionId: string, messageId: string) => {
+    if (!sessionId || !messageId || sessionId === DRAFT_SESSION_ID) return;
+    const targetId = String(messageId);
+    const existing = document.querySelector(`[data-message-id="${CSS.escape(targetId)}"]`);
+    if (existing) {
+      existing.scrollIntoView({ block: 'center' });
+      return;
+    }
+    const around = numericId(messageId);
+    if (!around) return;
+    const req = ++messageRequestRef.current;
+    loadingMessagesRef.current = true;
+    setLoadingMessages(true);
+    try {
+      const params = new URLSearchParams({ limit: String(MESSAGE_PAGE * 2) });
+      params.set('around', around);
+      const res = await fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${params}`);
+      if (!res.ok) throw new Error(await res.text());
+      const page: MessagePage = await res.json();
+      if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
+      const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
+      messagesRef.current = chunk;
+      pendingJumpMessageIdRef.current = messageId;
+      setMessages(chunk);
+      hasOlderRef.current = Boolean(page.has_older);
+      hasNewerRef.current = Boolean(page.has_newer);
+      setHasOlder(Boolean(page.has_older));
+      setHasNewer(Boolean(page.has_newer));
     } catch (err: any) { setStatus(`Messages unavailable: ${err.message}`); }
     finally {
       if (req === messageRequestRef.current) {
@@ -1289,12 +1344,14 @@ export default function App() {
     hasNewerRef.current = false;
     pendingHistoryScrollAnchorRef.current = null;
     setMessages([]);
+    setUserMessageNav([]);
     setContextWindowSnapshot(null);
     setHasOlder(false);
     setHasNewer(false);
     loadMessageWindow(activeSessionId, 'latest');
+    loadUserMessageNav(activeSessionId);
     loadContextWindowSnapshot(activeSessionId);
-  }, [activeSessionId, loadContextWindowSnapshot]);
+  }, [activeSessionId, loadContextWindowSnapshot, loadUserMessageNav]);
   useEffect(() => {
     if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
     clearNewMessages();
@@ -1358,6 +1415,16 @@ export default function App() {
     scrollBottom();
     requestAnimationFrame(scrollBottom);
     window.setTimeout(scrollBottom, 60);
+  }, [messages, activeSessionId]);
+  useLayoutEffect(() => {
+    const targetId = pendingJumpMessageIdRef.current;
+    if (!targetId) return;
+    pendingJumpMessageIdRef.current = '';
+    const target = document.querySelector(`[data-message-id="${CSS.escape(targetId)}"]`);
+    const scrollTarget = () => target?.scrollIntoView({ block: 'center' });
+    scrollTarget();
+    requestAnimationFrame(scrollTarget);
+    window.setTimeout(scrollTarget, 60);
   }, [messages, activeSessionId]);
   useLayoutEffect(() => {
     const anchor = pendingHistoryScrollAnchorRef.current;
@@ -1786,7 +1853,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} createSessionArtifact={createSessionArtifact} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} createSessionArtifact={createSessionArtifact} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2215,6 +2282,24 @@ function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '
   </div>;
 }
 
+function formatNavigatorTime(value?: string | number) {
+  if (value === undefined || value === null || value === '') return '';
+  const raw = Number(value);
+  const date = Number.isFinite(raw) ? new Date(raw * (raw < 1e12 ? 1000 : 1)) : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function ChatUserNavigator({ items, sessionId, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
+  if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
+  return <nav className="chat-user-minimap" aria-label="User message navigator">
+    {items.map((item) => <button type="button" className="user-minimap-hit" key={item.id} style={{ top: `${Math.max(0, Math.min(1, item.position)) * 100}%` }} aria-label={item.content} onClick={() => onJumpToMessage(sessionId, item.id)}>
+      <span className="user-minimap-bar" />
+      <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
+    </button>)}
+  </nav>;
+}
+
 function ChatMain(props: any) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
   const isMobile = useMediaQuery('(max-width: 760px)');
@@ -2308,6 +2393,7 @@ function ChatMain(props: any) {
   return <main className="main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
+    <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} onJumpToMessage={props.onJumpToMessage} />
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}

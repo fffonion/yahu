@@ -233,7 +233,16 @@ async fn chat_messages_page(
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    let (start, end) = if let Some(before) = query.before {
+    let (start, end) = if let Some(around) = query.around {
+        let center = all
+            .iter()
+            .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(around))
+            .unwrap_or_else(|| all.len().saturating_sub(1));
+        let half = limit / 2;
+        let start = center.saturating_sub(half);
+        let end = (start + limit).min(all.len());
+        (end.saturating_sub(limit), end)
+    } else if let Some(before) = query.before {
         let end = all
             .iter()
             .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(before))
@@ -265,6 +274,87 @@ fn session_message_items(body: &serde_json::Value) -> Vec<serde_json::Value> {
         .and_then(|value| value.as_array())
         .cloned()
         .unwrap_or_default()
+}
+
+#[derive(Debug, Serialize)]
+struct UserMessageNavItem {
+    id: String,
+    role: &'static str,
+    content: String,
+    timestamp: Option<serde_json::Value>,
+    position: f64,
+    index: usize,
+    total: usize,
+}
+
+fn nav_message_id(message: &serde_json::Value) -> Option<String> {
+    message
+        .get("id")
+        .and_then(|id| id.as_str().map(ToString::to_string).or_else(|| id.as_i64().map(|v| v.to_string())))
+}
+
+fn nav_message_timestamp(message: &serde_json::Value) -> Option<serde_json::Value> {
+    ["timestamp", "created_at", "createdAt", "time"]
+        .iter()
+        .find_map(|key| message.get(*key).cloned())
+}
+
+fn nav_message_excerpt(message: &serde_json::Value) -> String {
+    let mut text = String::new();
+    if let Some(content) = message.get("content") {
+        collect_json_text(content, &mut text);
+    }
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut excerpt = String::new();
+    for ch in compact.chars().take(160) {
+        excerpt.push(ch);
+    }
+    if compact.chars().count() > excerpt.chars().count() {
+        excerpt.push('…');
+    }
+    excerpt
+}
+
+fn build_user_message_nav(messages: &[serde_json::Value]) -> Vec<UserMessageNavItem> {
+    let total = messages.len();
+    messages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, message)| {
+            if message.get("role").and_then(|role| role.as_str()) != Some("user") {
+                return None;
+            }
+            let id = nav_message_id(message)?;
+            let denom = total.saturating_sub(1).max(1) as f64;
+            Some(UserMessageNavItem {
+                id,
+                role: "user",
+                content: nav_message_excerpt(message),
+                timestamp: nav_message_timestamp(message),
+                position: index as f64 / denom,
+                index,
+                total,
+            })
+        })
+        .collect()
+}
+
+async fn chat_user_nav(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response<Body> {
+    match fetch_all_session_messages_for_context(&state, &session_id).await {
+        Ok(messages) => Json(serde_json::json!({
+            "object": "list",
+            "data": build_user_message_nav(&messages),
+            "total": messages.len(),
+        }))
+        .into_response(),
+        Err(err) => json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("user message navigator request failed: {err}"),
+        ),
+    }
 }
 
 fn watch_message_window(mut items: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
