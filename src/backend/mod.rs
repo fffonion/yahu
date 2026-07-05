@@ -224,7 +224,8 @@ pub async fn run() -> anyhow::Result<()> {
         api_url: args.api_url.trim_end_matches('/').to_string(),
         api_key: args
             .api_key
-            .or_else(|| std::env::var("API_SERVER_KEY").ok()),
+            .or_else(|| std::env::var("API_SERVER_KEY").ok())
+            .or_else(|| std::env::var("HERMES_API_KEY").ok()),
         auth_key: args.auth_key,
         insecure: args.insecure,
         workspace,

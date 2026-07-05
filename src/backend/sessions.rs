@@ -166,28 +166,6 @@ fn json_value_contains_query(value: &serde_json::Value, needle: &str) -> bool {
     }
 }
 
-fn is_user_message(message: &serde_json::Value) -> bool {
-    message.get("role").and_then(|role| role.as_str()) == Some("user")
-}
-
-fn user_turn_page_start(messages: &[serde_json::Value], start: usize, end: usize) -> usize {
-    if start >= end || messages.get(start).is_some_and(is_user_message) {
-        return start;
-    }
-    if let Some(idx) = messages[..=start].iter().rposition(is_user_message) {
-        return idx;
-    }
-    messages[start..end]
-        .iter()
-        .position(is_user_message)
-        .map(|idx| start + idx)
-        .unwrap_or(start)
-}
-
-fn has_older_user_turn(messages: &[serde_json::Value], start: usize) -> bool {
-    messages[..start.min(messages.len())].iter().any(is_user_message)
-}
-
 async fn chat_messages_page(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
@@ -203,7 +181,7 @@ async fn chat_messages_page(
             );
         }
     };
-    let (mut start, end, align_to_user_turn) = if let Some(around) = query.around {
+    let (start, end) = if let Some(around) = query.around {
         let center = all
             .iter()
             .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(around))
@@ -211,32 +189,29 @@ async fn chat_messages_page(
         let half = limit / 2;
         let start = center.saturating_sub(half);
         let end = (start + limit).min(all.len());
-        (end.saturating_sub(limit), end, true)
+        (end.saturating_sub(limit), end)
     } else if let Some(before) = query.before {
         let end = all
             .iter()
             .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(before))
             .unwrap_or(all.len());
-        (end.saturating_sub(limit), end, true)
+        (end.saturating_sub(limit), end)
     } else if let Some(after) = query.after {
         let start = all
             .iter()
             .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(after))
             .map(|idx| idx + 1)
             .unwrap_or(0);
-        (start, (start + limit).min(all.len()), false)
+        (start, (start + limit).min(all.len()))
     } else {
-        (all.len().saturating_sub(limit), all.len(), true)
+        (all.len().saturating_sub(limit), all.len())
     };
-    if align_to_user_turn {
-        start = user_turn_page_start(&all, start, end);
-    }
     let page: Vec<_> = all[start..end].to_vec();
     Json(serde_json::json!({
         "object": "list",
         "data": page,
         "total": all.len(),
-        "has_older": has_older_user_turn(&all, start),
+        "has_older": start > 0,
         "has_newer": end < all.len()
     }))
     .into_response()
@@ -643,6 +618,25 @@ fn messages_with_context_boundary_from_entries(
     Ok(ContextWindowMessages { messages, boundary_start, compression_boundary_id })
 }
 
+fn fetch_local_lineage_entries(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<Vec<SessionLineageEntry>>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let entries = local_session_lineage_entries(&conn, session_id)?;
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(entries))
+}
+
 fn fetch_local_lineage_context_messages(
     state: &AppState,
     session_id: &str,
@@ -800,20 +794,28 @@ async fn fetch_api_context_window_messages(
     for (idx, entry) in entries.iter().enumerate() {
         let entry_messages = fetch_session_messages_by_id(state, &entry.id).await?;
         let mut entry_boundary_id = None;
+        let mut saw_session_scoped_message = false;
+        let mut saw_entry_message = false;
         for message in entry_messages {
             if let Some(key) = nav_message_id(&message)
                 && !seen.insert(key)
             {
                 continue;
             }
-            let belongs_to_entry = message
-                .get("session_id")
-                .and_then(|value| value.as_str())
-                == Some(entry.id.as_str());
+            let message_session_id = message.get("session_id").and_then(|value| value.as_str());
+            let belongs_to_entry = message_session_id == Some(entry.id.as_str());
+            saw_session_scoped_message |= message_session_id.is_some();
+            saw_entry_message |= belongs_to_entry;
             if belongs_to_entry {
                 entry_boundary_id = message.get("id").cloned();
             }
             messages.push(message);
+        }
+        if saw_session_scoped_message && !saw_entry_message {
+            anyhow::bail!(
+                "API messages for session {} did not include that session segment",
+                entry.id
+            );
         }
         if entry.compression_ended() && idx + 1 < entries.len() && entry_boundary_id.is_some() {
             boundary_start = messages.len();
@@ -827,7 +829,16 @@ async fn fetch_context_window_messages(
     state: &AppState,
     session_id: &str,
 ) -> anyhow::Result<ContextWindowMessages> {
-    let entries = session_lineage_entries(state, session_id).await;
+    let mut entries = session_lineage_entries(state, session_id).await;
+    if entries.len() <= 1 {
+        match fetch_local_lineage_entries(state, session_id) {
+            Ok(Some(local_entries)) if local_entries.len() > entries.len() => {
+                entries = local_entries;
+            }
+            Ok(_) => {}
+            Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local session lineage metadata"),
+        }
+    }
     match fetch_api_context_window_messages(state, &entries).await {
         Ok(context) => Ok(context),
         Err(err) => {

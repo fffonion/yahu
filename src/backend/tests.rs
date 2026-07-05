@@ -542,7 +542,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_messages_page_starts_at_user_turn_boundary() {
+    async fn session_history_context_uses_local_lineage_when_api_detail_has_no_parent() {
         async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
             Json(serde_json::json!({
                 "object": "hermes.session",
@@ -550,31 +550,13 @@ mod tests {
             }))
         }
 
-        async fn api_messages(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
-            let roles = [
-                "user",
-                "assistant",
-                "tool",
-                "assistant",
-                "user",
-                "assistant",
-                "tool",
-                "tool",
-                "assistant",
-                "tool",
-                "assistant",
-            ];
-            let data: Vec<_> = roles
-                .iter()
-                .enumerate()
-                .map(|(idx, role)| serde_json::json!({
-                    "id": (idx + 1) as i64,
-                    "session_id": session_id,
-                    "role": role,
-                    "content": format!("message {}", idx + 1),
-                }))
-                .collect();
-            Json(serde_json::json!({"object":"list","data":data}))
+        async fn api_messages(AxumPath(_session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({"object":"list","data":[{
+                "id": 3,
+                "session_id": "child",
+                "role":"user",
+                "content": "api child segment only"
+            }]}))
         }
 
         let app = Router::new()
@@ -583,34 +565,47 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
         let temp = tempfile::tempdir().unwrap();
-        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('root',NULL,1,'compression','telegram')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('parent','root',2,'compression','telegram')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('child','parent',3,NULL,'telegram')", []).unwrap();
+        for (sid, content) in [("root", "local root message"), ("parent", "local parent message"), ("child", "local child message")] {
+            conn.execute(
+                "INSERT INTO messages (session_id,role,content,timestamp,active) VALUES (?1,'user',?2,1,1)",
+                rusqlite::params![sid, content],
+            ).unwrap();
+        }
+        drop(conn);
+        let state = test_app_state(format!("http://{addr}"), temp.path());
 
-        let latest = chat_messages_page(
-            State(state.clone()),
-            AxumPath("turns".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(4) }),
-        )
-        .await;
-        let latest_body = axum::body::to_bytes(latest.into_body(), usize::MAX).await.unwrap();
-        let latest_page: serde_json::Value = serde_json::from_slice(&latest_body).unwrap();
-        let latest_data = latest_page["data"].as_array().unwrap();
-        assert_eq!(latest_data[0]["id"], 5);
-        assert_eq!(latest_data[0]["role"], "user");
-        assert_eq!(latest_page["has_older"], true);
+        let messages = fetch_all_session_messages_for_context(&state, "child").await.unwrap();
 
-        let older = chat_messages_page(
-            State(state),
-            AxumPath("turns".to_string()),
-            Query(ChatMessagesQuery { before: Some(5), after: None, around: None, limit: Some(4) }),
-        )
-        .await;
-        let older_body = axum::body::to_bytes(older.into_body(), usize::MAX).await.unwrap();
-        let older_page: serde_json::Value = serde_json::from_slice(&older_body).unwrap();
-        let older_data = older_page["data"].as_array().unwrap();
-        assert_eq!(older_data[0]["id"], 1);
-        assert_eq!(older_data[0]["role"], "user");
-        assert_eq!(older_page["has_older"], false);
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["session_id"], "root");
+        assert_eq!(messages[1]["session_id"], "parent");
+        assert_eq!(messages[2]["session_id"], "child");
+        assert_eq!(messages[0]["content"], "local root message");
     }
 
     #[tokio::test]
