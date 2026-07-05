@@ -47,6 +47,9 @@ describe('chat user message navigator', () => {
     expect(source).not.toContain('--minimap-bar-width');
     expect(styles).toContain('.user-minimap-bar{width:9px;');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar,.user-minimap-hit:focus-visible .user-minimap-bar{width:21px;');
+    expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit:hover) .user-minimap-bar{width:17px;');
+    expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit+ .user-minimap-hit:hover) .user-minimap-bar{width:13px;');
+    expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit+.user-minimap-hit+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit+ .user-minimap-hit+ .user-minimap-hit:hover) .user-minimap-bar{width:9px;');
   });
 
   test('places visible minimap bars in a compact equal-spaced stack like the Codex reference', () => {
