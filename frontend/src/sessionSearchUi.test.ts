@@ -54,6 +54,16 @@ describe('session search and composer session model UI', () => {
     expect(app).not.toContain("session.title || '—'");
   });
 
+  test('opened session header uses stitched history totals from message and minimap endpoints', () => {
+    const app = source();
+    expect(app).toContain('const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {');
+    expect(app).toContain('sessionWithPreservedMessageCount(detail, old)');
+    expect(app).toContain('sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id))');
+    expect(app).toContain('updateSessionMessageCount(sessionId, page.total);');
+    expect(app).toContain('updateSessionMessageCount(sessionId, body.total);');
+    expect(app).toContain("<span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span>");
+  });
+
   test('opened session header shows start and latest message times on the right', () => {
     const app = source();
     const css = styles();

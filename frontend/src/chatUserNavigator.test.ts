@@ -11,6 +11,8 @@ describe('chat user message navigator', () => {
     expect(source).toContain("const [userMessageNav, setUserMessageNav] = useState<UserMessageNavItem[]>([]);");
     expect(source).toContain("fetch(`/chat/user-nav/${encodeURIComponent(sessionId)}`)");
     expect(source).not.toContain('setUserMessageNav(visibleMessages');
+    expect(source).toContain('setUserMessageNav(Array.isArray(body.data) ? body.data : []);');
+    expect(source).toContain('updateSessionMessageCount(sessionId, body.total);');
   });
 
   test('clicking a navigator row loads an around-message page before scrolling', () => {

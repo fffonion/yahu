@@ -29,6 +29,13 @@ type Role = 'user' | 'assistant' | 'system' | 'tool';
 type FollowUpBehaviour = 'queue' | 'steer';
 type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
+function sessionWithPreservedMessageCount(next: Session, current?: Session | null): Session {
+  if (!current || current.id !== next.id) return next;
+  const currentCount = Number(current.message_count);
+  const nextCount = Number(next.message_count);
+  if (Number.isFinite(currentCount) && (!Number.isFinite(nextCount) || currentCount > nextCount)) return { ...next, message_count: Math.trunc(currentCount) };
+  return next;
+}
 type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
@@ -875,7 +882,7 @@ export default function App() {
       const body = await res.json();
       if (version !== searchVersionRef.current) return;
       const list: Session[] = body.data || [];
-      setSessions(list);
+      setSessions((old) => list.map((session) => sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id))));
       if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
     } catch (err: any) { setStatus(`Sessions unavailable: ${err.message}`); }
@@ -889,10 +896,18 @@ export default function App() {
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const body = await res.json();
       const detail = (body.data || body.session || body) as Session;
-      setActiveSessionDetail(detail);
-      setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...detail } : s) : [detail, ...old]);
+      setActiveSessionDetail((old) => sessionWithPreservedMessageCount(detail, old));
+      setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(detail, s) } : s) : [detail, ...old]);
     } catch (err: any) { setStatus(`Session detail unavailable: ${err.message}`); }
   }, [apiBase, headers]);
+
+  const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {
+    const parsed = Number(total);
+    if (!sessionId || !Number.isFinite(parsed) || parsed < 0) return;
+    const message_count = Math.trunc(parsed);
+    setActiveSessionDetail((old) => old?.id === sessionId ? { ...old, message_count } : old);
+    setSessions((old) => old.map((session) => session.id === sessionId ? { ...session, message_count } : session));
+  }, []);
 
   const loadContextWindowSnapshot = useCallback(async (sessionId: string) => {
     const req = ++contextWindowRequestRef.current;
@@ -1007,6 +1022,7 @@ export default function App() {
       if (!res.ok) throw new Error(await res.text());
       const page: MessagePage = await res.json();
       if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
+      updateSessionMessageCount(sessionId, page.total);
       const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
       const merged = mergeMessageWindow<ChatMessage>({
         current: direction === 'latest' ? [] : messagesRef.current,
@@ -1032,7 +1048,7 @@ export default function App() {
         setLoadingMessages(false);
       }
     }
-  }, []);
+  }, [updateSessionMessageCount]);
 
   const loadUserMessageNav = useCallback(async (sessionId: string) => {
     if (!sessionId || sessionId === DRAFT_SESSION_ID) { setUserMessageNav([]); return; }
@@ -1041,11 +1057,12 @@ export default function App() {
       if (!res.ok) throw new Error(await res.text());
       const body = await res.json();
       if (activeSessionIdRef.current !== sessionId) return;
+      updateSessionMessageCount(sessionId, body.total);
       setUserMessageNav(Array.isArray(body.data) ? body.data : []);
     } catch {
       if (activeSessionIdRef.current === sessionId) setUserMessageNav([]);
     }
-  }, []);
+  }, [updateSessionMessageCount]);
 
   const jumpToMessage = useCallback(async (sessionId: string, messageId: string) => {
     if (!sessionId || !messageId || sessionId === DRAFT_SESSION_ID) return;
@@ -1067,6 +1084,7 @@ export default function App() {
       if (!res.ok) throw new Error(await res.text());
       const page: MessagePage = await res.json();
       if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
+      updateSessionMessageCount(sessionId, page.total);
       const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
       messagesRef.current = chunk;
       pendingJumpMessageIdRef.current = messageId;
@@ -1082,7 +1100,7 @@ export default function App() {
         setLoadingMessages(false);
       }
     }
-  }, []);
+  }, [updateSessionMessageCount]);
 
   const fetchWorkspaceEntries = useCallback(async (path = '') => {
     const res = await fetch(`/workspace/list?path=${encodeURIComponent(path || '')}`);
