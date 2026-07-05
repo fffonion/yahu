@@ -34,4 +34,17 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('transition:width .18s ease,opacity .18s ease,background .18s ease');
     expect(styles).toContain('.user-minimap-popup{position:absolute;left:calc(100% + 10px);');
   });
+
+  test('places minimap bars at equal intervals independent of message distance', () => {
+    const source = app();
+    expect(source).toContain('const top = items.length === 1 ? 50 : (index / (items.length - 1)) * 100;');
+    expect(source).toContain('style={{ top: `${top}%` }}');
+    expect(source).not.toContain('Math.max(0, Math.min(1, item.position)) * 100');
+  });
+
+  test('reserves desktop history space for minimap but releases it on mobile', () => {
+    const styles = css();
+    expect(styles).toContain('.main-panel:has(.chat-user-minimap) .chat-scroll{padding-left:78px}');
+    expect(styles).toContain('@media (max-width:760px){.chat-user-minimap{display:none}.main-panel:has(.chat-user-minimap) .chat-scroll{padding-left:10px}}');
+  });
 });

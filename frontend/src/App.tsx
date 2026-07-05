@@ -2293,10 +2293,13 @@ function formatNavigatorTime(value?: string | number) {
 function ChatUserNavigator({ items, sessionId, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
   return <nav className="chat-user-minimap" aria-label="User message navigator">
-    {items.map((item) => <button type="button" className="user-minimap-hit" key={item.id} style={{ top: `${Math.max(0, Math.min(1, item.position)) * 100}%` }} aria-label={item.content} onClick={() => onJumpToMessage(sessionId, item.id)}>
-      <span className="user-minimap-bar" />
-      <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
-    </button>)}
+    {items.map((item, index) => {
+      const top = items.length === 1 ? 50 : (index / (items.length - 1)) * 100;
+      return <button type="button" className="user-minimap-hit" key={item.id} style={{ top: `${top}%` }} aria-label={item.content} onClick={() => onJumpToMessage(sessionId, item.id)}>
+        <span className="user-minimap-bar" />
+        <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
+      </button>;
+    })}
   </nav>;
 }
 
