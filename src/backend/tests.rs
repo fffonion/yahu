@@ -323,7 +323,6 @@ mod tests {
 
     #[tokio::test]
     async fn skill_download_returns_zip_with_references() {
-        use std::collections::HashMap;
         use std::sync::Arc;
         use axum::Router;
         use tokio::net::TcpListener;
@@ -367,7 +366,7 @@ mod tests {
         let bytes = resp.bytes().await.unwrap();
         assert!(bytes.len() > 20, "zip too small: {} bytes", bytes.len());
 
-        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        let archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
         let names: Vec<String> = archive.file_names().map(|s| s.to_string()).collect();
         assert!(names.contains(&"SKILL.md".to_string()), "missing SKILL.md: {names:?}");
         assert!(names.contains(&"references/guide.md".to_string()), "missing references/guide.md: {names:?}");
@@ -451,6 +450,91 @@ mod tests {
         assert_eq!(session_message_items(&data_body).len(), 1);
         assert_eq!(session_message_items(&legacy_body).len(), 1);
         assert_eq!(session_message_items(&legacy_body)[0]["id"], 2);
+    }
+
+    #[tokio::test]
+    async fn session_history_context_stitches_parent_chain_before_child_messages() {
+        async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            let parent = match session_id.as_str() {
+                "child" => Some("parent"),
+                "parent" => Some("root"),
+                _ => None,
+            };
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": parent}
+            }))
+        }
+
+        async fn api_messages(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({"object":"list","data":[{
+                "id": match session_id.as_str() { "root" => 1, "parent" => 2, _ => 3 },
+                "session_id": session_id,
+                "role":"user",
+                "content": format!("{session_id} message")
+            }]}))
+        }
+
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let messages = fetch_all_session_messages_for_context(&state, "child").await.unwrap();
+
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["session_id"], "root");
+        assert_eq!(messages[1]["session_id"], "parent");
+        assert_eq!(messages[2]["session_id"], "child");
+    }
+
+    #[tokio::test]
+    async fn session_history_context_prefers_local_db_lineage_messages() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('root',NULL,1,'compression','telegram')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('parent','root',2,'compression','telegram')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('child','parent',3,NULL,'telegram')", []).unwrap();
+        for (sid, content) in [("root", "root message"), ("parent", "parent message"), ("child", "child message")] {
+            conn.execute(
+                "INSERT INTO messages (session_id,role,content,timestamp,active) VALUES (?1,'user',?2,1,1)",
+                rusqlite::params![sid, content],
+            ).unwrap();
+        }
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let local_messages = fetch_local_lineage_messages(&state, "child").unwrap().unwrap();
+        assert_eq!(local_messages.len(), 3);
+
+        let messages = fetch_all_session_messages_for_context(&state, "child").await.unwrap();
+
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["session_id"], "root");
+        assert_eq!(messages[1]["session_id"], "parent");
+        assert_eq!(messages[2]["session_id"], "child");
     }
 
     #[test]

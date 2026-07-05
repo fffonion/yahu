@@ -147,32 +147,10 @@ async fn session_messages_match_query(
     let Some(session_id) = row.get("id").and_then(|value| value.as_str()) else {
         return Ok(false);
     };
-    let encoded_id = utf8_percent_encode(session_id, NON_ALPHANUMERIC).to_string();
-    let url = format!(
-        "{}/api/sessions/{}/messages",
-        state.api_url.trim_end_matches('/'),
-        encoded_id
-    );
-    let mut req = state.client.get(url);
-    if let Some(key) = &state.api_key
-        && !key.is_empty()
-    {
-        req = req.bearer_auth(key);
-    }
-    let resp = timeout(API_SESSION_REQUEST_TIMEOUT, req.send()).await??;
-    if !resp.status().is_success() {
-        return Ok(false);
-    }
-    let body = resp.json::<serde_json::Value>().await?;
-    Ok(body
-        .get("data")
-        .and_then(|value| value.as_array())
-        .map(|messages| {
-            messages
-                .iter()
-                .any(|message| json_value_contains_query(message, &needle))
-        })
-        .unwrap_or(false))
+    let messages = fetch_all_session_messages_for_context(state, session_id).await?;
+    Ok(messages
+        .iter()
+        .any(|message| json_value_contains_query(message, &needle)))
 }
 
 fn json_value_contains_query(value: &serde_json::Value, needle: &str) -> bool {
@@ -194,45 +172,15 @@ async fn chat_messages_page(
     Query(query): Query<ChatMessagesQuery>,
 ) -> Response<Body> {
     let limit = query.limit.unwrap_or(24).clamp(1, 80);
-    let mut req = state.client.get(format!(
-        "{}/api/sessions/{}/messages",
-        state.api_url,
-        path_segment(&session_id)
-    ));
-    if let Some(key) = &state.api_key
-        && !key.is_empty()
-    {
-        req = req.bearer_auth(key);
-    }
-    let resp = match req.send().await {
-        Ok(resp) => resp,
+    let all = match fetch_all_session_messages_for_context(&state, &session_id).await {
+        Ok(messages) => messages,
         Err(err) => {
             return json_error(
                 StatusCode::BAD_GATEWAY,
-                &format!("message list proxy failed: {err}"),
+                &format!("message list request failed: {err}"),
             );
         }
     };
-    if !resp.status().is_success() {
-        return json_error(
-            StatusCode::BAD_GATEWAY,
-            &format!("message list request failed: {}", resp.status()),
-        );
-    }
-    let body = match resp.json::<serde_json::Value>().await {
-        Ok(body) => body,
-        Err(err) => {
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                &format!("cannot parse message list: {err}"),
-            );
-        }
-    };
-    let all = body
-        .get("data")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
     let (start, end) = if let Some(around) = query.around {
         let center = all
             .iter()
@@ -525,13 +473,107 @@ fn estimate_context_window_usage(messages: &[serde_json::Value]) -> ContextWindo
     }
 }
 
-async fn fetch_all_session_messages_for_context(
+const HERMES_CONTENT_JSON_PREFIX: &str = "\0json:";
+
+fn json_or_string_field(value: Option<String>) -> serde_json::Value {
+    match value {
+        Some(text) if text.starts_with(HERMES_CONTENT_JSON_PREFIX) => {
+            serde_json::from_str(&text[HERMES_CONTENT_JSON_PREFIX.len()..])
+                .unwrap_or(serde_json::Value::String(text))
+        }
+        Some(text) => serde_json::Value::String(text),
+        None => serde_json::Value::Null,
+    }
+}
+
+fn parsed_json_string_field(value: Option<String>) -> serde_json::Value {
+    match value {
+        Some(text) => serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text)),
+        None => serde_json::Value::Null,
+    }
+}
+
+fn local_session_lineage_ids(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Vec<String>> {
+    const MAX_SESSION_LINEAGE_DEPTH: usize = 100;
+    let mut ids = Vec::new();
+    let mut seen = HashSet::new();
+    let mut current = Some(session_id.to_string());
+    while let Some(id) = current {
+        if !seen.insert(id.clone()) || ids.len() >= MAX_SESSION_LINEAGE_DEPTH {
+            break;
+        }
+        let row_parent: Option<Option<String>> = conn
+            .query_row(
+                "SELECT parent_session_id FROM sessions WHERE id = ?1",
+                [&id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?;
+        let Some(parent) = row_parent else {
+            if ids.is_empty() {
+                return Ok(Vec::new());
+            }
+            break;
+        };
+        ids.push(id);
+        current = parent.filter(|value| !value.trim().is_empty());
+    }
+    ids.reverse();
+    Ok(ids)
+}
+
+fn fetch_local_lineage_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let ids = local_session_lineage_ids(&conn, session_id)?;
+    if ids.is_empty() {
+        return Ok(None);
+    }
+    let placeholders = std::iter::repeat_n("?", ids.len()).collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_content \
+         FROM messages WHERE active = 1 AND session_id IN ({placeholders}) ORDER BY id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+        let mut map = serde_json::Map::new();
+        map.insert("id".to_string(), serde_json::json!(row.get::<_, i64>("id")?));
+        map.insert("session_id".to_string(), serde_json::json!(row.get::<_, String>("session_id")?));
+        map.insert("role".to_string(), serde_json::json!(row.get::<_, String>("role")?));
+        map.insert("content".to_string(), json_or_string_field(row.get::<_, Option<String>>("content")?));
+        map.insert("tool_call_id".to_string(), json_or_string_field(row.get::<_, Option<String>>("tool_call_id")?));
+        map.insert("tool_calls".to_string(), parsed_json_string_field(row.get::<_, Option<String>>("tool_calls")?));
+        map.insert("tool_name".to_string(), json_or_string_field(row.get::<_, Option<String>>("tool_name")?));
+        map.insert("timestamp".to_string(), serde_json::json!(row.get::<_, f64>("timestamp")?));
+        map.insert("token_count".to_string(), row.get::<_, Option<i64>>("token_count")?.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null));
+        map.insert("finish_reason".to_string(), json_or_string_field(row.get::<_, Option<String>>("finish_reason")?));
+        map.insert("reasoning".to_string(), json_or_string_field(row.get::<_, Option<String>>("reasoning")?));
+        map.insert("reasoning_content".to_string(), json_or_string_field(row.get::<_, Option<String>>("reasoning_content")?));
+        Ok(serde_json::Value::Object(map))
+    })?;
+    let messages = rows.collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(messages))
+}
+
+async fn fetch_session_messages_by_id(
     state: &AppState,
     session_id: &str,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
     let mut req = state.client.get(format!(
         "{}/api/sessions/{}/messages",
-        state.api_url,
+        state.api_url.trim_end_matches('/'),
         path_segment(session_id)
     ));
     if let Some(key) = &state.api_key
@@ -545,6 +587,93 @@ async fn fetch_all_session_messages_for_context(
     }
     let body = resp.json::<serde_json::Value>().await?;
     Ok(session_message_items(&body))
+}
+
+fn session_parent_id_from_detail(body: &serde_json::Value) -> Option<String> {
+    body.get("session")
+        .and_then(|session| session.get("parent_session_id"))
+        .or_else(|| body.get("parent_session_id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+async fn fetch_session_parent_id(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<String>> {
+    let mut req = state.client.get(format!(
+        "{}/api/sessions/{}",
+        state.api_url.trim_end_matches('/'),
+        path_segment(session_id)
+    ));
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        req = req.bearer_auth(key);
+    }
+    let resp = req.send().await?;
+    if resp.status() == StatusCode::NOT_FOUND || resp.status() == StatusCode::METHOD_NOT_ALLOWED {
+        return Ok(None);
+    }
+    if !resp.status().is_success() {
+        anyhow::bail!("session detail request failed: {}", resp.status());
+    }
+    let body = resp.json::<serde_json::Value>().await?;
+    Ok(session_parent_id_from_detail(&body))
+}
+
+async fn session_lineage_ids(state: &AppState, session_id: &str) -> Vec<String> {
+    const MAX_SESSION_LINEAGE_DEPTH: usize = 64;
+    let mut ids = vec![session_id.to_string()];
+    let mut seen = HashSet::from([session_id.to_string()]);
+    let mut current = session_id.to_string();
+    for _ in 0..MAX_SESSION_LINEAGE_DEPTH {
+        let parent = match fetch_session_parent_id(state, &current).await {
+            Ok(parent) => parent,
+            Err(err) => {
+                warn!(session_id = %current, error = %err, "cannot read session parent; using available session messages");
+                None
+            }
+        };
+        let Some(parent) = parent else {
+            break;
+        };
+        if !seen.insert(parent.clone()) {
+            warn!(session_id = %parent, "session parent chain cycle detected");
+            break;
+        }
+        ids.push(parent.clone());
+        current = parent;
+    }
+    ids.reverse();
+    ids
+}
+
+async fn fetch_all_session_messages_for_context(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    match fetch_local_lineage_messages(state, session_id) {
+        Ok(Some(messages)) => return Ok(messages),
+        Ok(None) => {}
+        Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local session lineage; falling back to API Server"),
+    }
+    let ids = session_lineage_ids(state, session_id).await;
+    let mut messages = Vec::new();
+    let mut seen = HashSet::new();
+    for id in ids {
+        for message in fetch_session_messages_by_id(state, &id).await? {
+            if let Some(key) = nav_message_id(&message)
+                && !seen.insert(key)
+            {
+                continue;
+            }
+            messages.push(message);
+        }
+    }
+    Ok(messages)
 }
 
 async fn chat_context_window(
