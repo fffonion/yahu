@@ -147,7 +147,7 @@ async fn session_messages_match_query(
     let Some(session_id) = row.get("id").and_then(|value| value.as_str()) else {
         return Ok(false);
     };
-    let messages = fetch_all_session_messages_for_context(state, session_id).await?;
+    let messages = fetch_session_history_messages(state, session_id).await?;
     Ok(messages
         .iter()
         .any(|message| json_value_contains_query(message, &needle)))
@@ -172,7 +172,7 @@ async fn chat_messages_page(
     Query(query): Query<ChatMessagesQuery>,
 ) -> Response<Body> {
     let limit = query.limit.unwrap_or(24).clamp(1, 80);
-    let all = match fetch_all_session_messages_for_context(&state, &session_id).await {
+    let all = match fetch_session_history_messages(&state, &session_id).await {
         Ok(messages) => messages,
         Err(err) => {
             return json_error(
@@ -291,7 +291,7 @@ async fn chat_user_nav(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Response<Body> {
-    match fetch_all_session_messages_for_context(&state, &session_id).await {
+    match fetch_session_history_messages(&state, &session_id).await {
         Ok(messages) => Json(serde_json::json!({
             "object": "list",
             "data": build_user_message_nav(&messages),
@@ -567,6 +567,117 @@ fn local_session_lineage_entries(
     Ok(entries)
 }
 
+fn sqlite_table_has_columns(
+    conn: &rusqlite::Connection,
+    table: &str,
+    required: &[&str],
+) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let columns = rows.collect::<Result<HashSet<_>, _>>()?;
+    Ok(required.iter().all(|column| columns.contains(*column)))
+}
+
+type SessionResetLookupRow = (
+    f64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+fn local_session_reset_predecessor_id(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Option<String>> {
+    if !sqlite_table_has_columns(
+        conn,
+        "sessions",
+        &[
+            "started_at",
+            "ended_at",
+            "end_reason",
+            "source",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let row: Option<SessionResetLookupRow> = conn
+        .query_row(
+            "SELECT started_at, session_key, source, chat_id, thread_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .optional()?;
+    let Some((started_at, session_key, source, chat_id, thread_id)) = row else {
+        return Ok(None);
+    };
+    if let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) {
+        return conn
+            .query_row(
+                "SELECT id FROM sessions
+                 WHERE id != ?1
+                   AND end_reason = 'session_reset'
+                   AND ended_at IS NOT NULL
+                   AND ended_at <= ?2 + 1.0
+                   AND session_key = ?3
+                   AND source IS ?4
+                   AND chat_id IS ?5
+                   AND thread_id IS ?6
+                 ORDER BY ended_at DESC
+                 LIMIT 1",
+                rusqlite::params![
+                    session_id,
+                    started_at,
+                    session_key,
+                    source,
+                    chat_id,
+                    thread_id
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional();
+    }
+    conn.query_row(
+        "SELECT id FROM sessions
+         WHERE id != ?1
+           AND end_reason = 'session_reset'
+           AND ended_at IS NOT NULL
+           AND ended_at <= ?2 + 1.0
+           AND source IS ?3
+           AND chat_id IS ?4
+           AND thread_id IS ?5
+         ORDER BY ended_at DESC
+         LIMIT 1",
+        rusqlite::params![session_id, started_at, source, chat_id, thread_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+}
+
+fn local_session_history_entries(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Vec<SessionLineageEntry>> {
+    let entries = local_session_lineage_entries(conn, session_id)?;
+    let Some(root) = entries.first() else {
+        return Ok(entries);
+    };
+    let Some(predecessor_id) = local_session_reset_predecessor_id(conn, &root.id)? else {
+        return Ok(entries);
+    };
+    let mut predecessor = local_session_lineage_entries(conn, &predecessor_id)?;
+    let known = predecessor
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<HashSet<_>>();
+    predecessor.extend(entries.into_iter().filter(|entry| !known.contains(&entry.id)));
+    Ok(predecessor)
+}
+
 fn row_to_session_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
     let mut map = serde_json::Map::new();
     map.insert("id".to_string(), serde_json::json!(row.get::<_, i64>("id")?));
@@ -641,6 +752,20 @@ fn fetch_local_lineage_context_messages(
     state: &AppState,
     session_id: &str,
 ) -> anyhow::Result<Option<ContextWindowMessages>> {
+    fetch_local_context_messages_with_entries(state, session_id, local_session_lineage_entries)
+}
+
+fn fetch_local_history_context_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<ContextWindowMessages>> {
+    fetch_local_context_messages_with_entries(state, session_id, local_session_history_entries)
+}
+
+fn fetch_local_history_entries(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<Vec<SessionLineageEntry>>> {
     let db_path = state.hermes_home.join("state.db");
     if !db_path.exists() {
         return Ok(None);
@@ -649,7 +774,27 @@ fn fetch_local_lineage_context_messages(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    let entries = local_session_lineage_entries(&conn, session_id)?;
+    let entries = local_session_history_entries(&conn, session_id)?;
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(entries))
+}
+
+fn fetch_local_context_messages_with_entries(
+    state: &AppState,
+    session_id: &str,
+    entry_loader: fn(&rusqlite::Connection, &str) -> rusqlite::Result<Vec<SessionLineageEntry>>,
+) -> anyhow::Result<Option<ContextWindowMessages>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let entries = entry_loader(&conn, session_id)?;
     if entries.is_empty() {
         return Ok(None);
     }
@@ -852,11 +997,44 @@ async fn fetch_context_window_messages(
     }
 }
 
+async fn fetch_session_history_context_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<ContextWindowMessages> {
+    let mut entries = session_lineage_entries(state, session_id).await;
+    match fetch_local_history_entries(state, session_id) {
+        Ok(Some(local_entries)) if local_entries.len() > entries.len() => {
+            entries = local_entries;
+        }
+        Ok(_) => {}
+        Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local session history metadata"),
+    }
+    match fetch_api_context_window_messages(state, &entries).await {
+        Ok(context) => Ok(context),
+        Err(err) => {
+            warn!(session_id = %session_id, error = %err, "API Server history fetch failed; falling back to local state.db");
+            match fetch_local_history_context_messages(state, session_id) {
+                Ok(Some(local_context)) => Ok(local_context),
+                Ok(None) => anyhow::bail!("neither API Server nor local state.db has history messages for session lineage of {session_id}"),
+                Err(local_err) => anyhow::bail!("both API Server and local state.db history failed: API={err}, local={local_err}"),
+            }
+        }
+    }
+}
+
+async fn fetch_session_history_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    Ok(fetch_session_history_context_messages(state, session_id).await?.messages)
+}
+
+#[cfg(test)]
 async fn fetch_all_session_messages_for_context(
     state: &AppState,
     session_id: &str,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
-    Ok(fetch_context_window_messages(state, session_id).await?.messages)
+    fetch_session_history_messages(state, session_id).await
 }
 
 async fn chat_context_window(
