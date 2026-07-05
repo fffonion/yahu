@@ -2290,16 +2290,20 @@ function formatNavigatorTime(value?: string | number) {
   return date.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function navigatorBarTop(index: number, total: number) {
+  if (total <= 1) return '50%';
+  const compactGapPx = Math.max(5, Math.min(12, 220 / (total - 1)));
+  const offsetPx = (index - (total - 1) / 2) * compactGapPx;
+  return `calc(50% + ${offsetPx.toFixed(1)}px)`;
+}
+
 function ChatUserNavigator({ items, sessionId, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
   return <nav className="chat-user-minimap" aria-label="User message navigator">
-    {items.map((item, index) => {
-      const top = items.length === 1 ? 50 : (index / (items.length - 1)) * 100;
-      return <button type="button" className="user-minimap-hit" key={item.id} style={{ top: `${top}%` }} aria-label={item.content} onClick={() => onJumpToMessage(sessionId, item.id)}>
-        <span className="user-minimap-bar" />
-        <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
-      </button>;
-    })}
+    {items.map((item, index) => <button type="button" className="user-minimap-hit" key={item.id} style={{ top: navigatorBarTop(index, items.length) }} aria-label={item.content} onClick={() => onJumpToMessage(sessionId, item.id)}>
+      <span className="user-minimap-bar" />
+      <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
+    </button>)}
   </nav>;
 }
 

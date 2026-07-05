@@ -35,11 +35,14 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('.user-minimap-popup{position:absolute;left:calc(100% + 10px);');
   });
 
-  test('places minimap bars at equal intervals independent of message distance', () => {
+  test('places minimap bars in a compact equal-spaced stack like the Codex reference', () => {
     const source = app();
-    expect(source).toContain('const top = items.length === 1 ? 50 : (index / (items.length - 1)) * 100;');
-    expect(source).toContain('style={{ top: `${top}%` }}');
+    expect(source).toContain('function navigatorBarTop(index: number, total: number)');
+    expect(source).toContain('const compactGapPx = Math.max(5, Math.min(12, 220 / (total - 1)));');
+    expect(source).toContain('return `calc(50% + ${offsetPx.toFixed(1)}px)`;');
+    expect(source).toContain('style={{ top: navigatorBarTop(index, items.length) }}');
     expect(source).not.toContain('Math.max(0, Math.min(1, item.position)) * 100');
+    expect(source).not.toContain('(index / (items.length - 1)) * 100');
   });
 
   test('reserves desktop history space for minimap but releases it on mobile', () => {
