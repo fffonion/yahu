@@ -245,6 +245,55 @@ mod tests {
         assert_eq!(usage.total_messages, 4);
     }
 
+    #[tokio::test]
+    async fn context_window_usage_starts_after_latest_compression_split() {
+        async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            let (parent, end_reason) = match session_id.as_str() {
+                "child" => (Some("root"), None),
+                "root" => (None, Some("compression")),
+                _ => (None, None),
+            };
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": parent, "end_reason": end_reason}
+            }))
+        }
+
+        async fn api_messages(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            let (id, tokens) = match session_id.as_str() {
+                "root" => (1, 1000),
+                _ => (2, 100),
+            };
+            Json(serde_json::json!({"object":"list","data":[{
+                "id": id,
+                "session_id": session_id,
+                "role":"user",
+                "content": format!("{session_id} message"),
+                "token_count": tokens
+            }]}))
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let api_app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let resp = chat_context_window(State(state), AxumPath("child".to_string())).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let usage: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(usage["used"], 100);
+        assert_eq!(usage["counted_messages"], 1);
+        assert_eq!(usage["total_messages"], 2);
+        assert_eq!(usage["compressed"], true);
+        assert_eq!(usage["compression_boundary_id"], serde_json::json!(1));
+    }
+
     #[test]
     fn context_window_usage_is_exact_when_every_counted_message_has_tokens() {
         let messages = vec![

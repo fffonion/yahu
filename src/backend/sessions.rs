@@ -324,6 +324,26 @@ struct ContextWindowUsage {
     total_messages: usize,
 }
 
+#[derive(Debug)]
+struct ContextWindowMessages {
+    messages: Vec<serde_json::Value>,
+    boundary_start: usize,
+    compression_boundary_id: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug)]
+struct SessionLineageEntry {
+    id: String,
+    parent_session_id: Option<String>,
+    end_reason: Option<String>,
+}
+
+impl SessionLineageEntry {
+    fn compression_ended(&self) -> bool {
+        self.end_reason.as_deref() == Some("compression")
+    }
+}
+
 fn numeric_json_field(value: &serde_json::Value) -> Option<i64> {
     value
         .as_i64()
@@ -449,9 +469,26 @@ fn latest_context_compression_boundary(messages: &[serde_json::Value]) -> Option
     messages.iter().rposition(is_context_compression_summary)
 }
 
+#[cfg(test)]
 fn estimate_context_window_usage(messages: &[serde_json::Value]) -> ContextWindowUsage {
-    let boundary = latest_context_compression_boundary(messages);
-    let start = boundary.unwrap_or(0);
+    estimate_context_window_usage_from(messages, 0, None)
+}
+
+fn estimate_context_window_usage_from(
+    messages: &[serde_json::Value],
+    explicit_start: usize,
+    explicit_boundary_id: Option<serde_json::Value>,
+) -> ContextWindowUsage {
+    let summary_boundary = latest_context_compression_boundary(messages);
+    let summary_start = summary_boundary.unwrap_or(0);
+    let (start, boundary_id) = if explicit_start > summary_start {
+        (explicit_start.min(messages.len()), explicit_boundary_id)
+    } else {
+        (
+            summary_start,
+            summary_boundary.and_then(|idx| messages[idx].get("id").cloned()),
+        )
+    };
     let counted = &messages[start..];
     let mut used = 0i64;
     let mut missing_tokens = false;
@@ -463,11 +500,12 @@ fn estimate_context_window_usage(messages: &[serde_json::Value]) -> ContextWindo
             used += message_estimated_token_count(message);
         }
     }
+    let compressed = boundary_id.is_some();
     ContextWindowUsage {
         used,
-        approximate: missing_tokens || boundary.is_some(),
-        compressed: boundary.is_some(),
-        compression_boundary_id: boundary.and_then(|idx| messages[idx].get("id").cloned()),
+        approximate: missing_tokens || compressed,
+        compressed,
+        compression_boundary_id: boundary_id,
         counted_messages: counted.len(),
         total_messages: messages.len(),
     }
@@ -493,42 +531,97 @@ fn parsed_json_string_field(value: Option<String>) -> serde_json::Value {
     }
 }
 
-fn local_session_lineage_ids(
+fn local_session_lineage_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
-) -> rusqlite::Result<Vec<String>> {
+) -> rusqlite::Result<Vec<SessionLineageEntry>> {
     const MAX_SESSION_LINEAGE_DEPTH: usize = 100;
-    let mut ids = Vec::new();
+    let mut entries = Vec::new();
     let mut seen = HashSet::new();
     let mut current = Some(session_id.to_string());
     while let Some(id) = current {
-        if !seen.insert(id.clone()) || ids.len() >= MAX_SESSION_LINEAGE_DEPTH {
+        if !seen.insert(id.clone()) || entries.len() >= MAX_SESSION_LINEAGE_DEPTH {
             break;
         }
-        let row_parent: Option<Option<String>> = conn
+        let row: Option<(Option<String>, Option<String>)> = conn
             .query_row(
-                "SELECT parent_session_id FROM sessions WHERE id = ?1",
+                "SELECT parent_session_id, end_reason FROM sessions WHERE id = ?1",
                 [&id],
-                |row| row.get::<_, Option<String>>(0),
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
             )
             .optional()?;
-        let Some(parent) = row_parent else {
-            if ids.is_empty() {
+        let Some((parent, end_reason)) = row else {
+            if entries.is_empty() {
                 return Ok(Vec::new());
             }
             break;
         };
-        ids.push(id);
+        entries.push(SessionLineageEntry {
+            id,
+            parent_session_id: parent.clone().filter(|value| !value.trim().is_empty()),
+            end_reason,
+        });
         current = parent.filter(|value| !value.trim().is_empty());
     }
-    ids.reverse();
-    Ok(ids)
+    entries.reverse();
+    Ok(entries)
 }
 
-fn fetch_local_lineage_messages(
+fn row_to_session_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
+    let mut map = serde_json::Map::new();
+    map.insert("id".to_string(), serde_json::json!(row.get::<_, i64>("id")?));
+    map.insert("session_id".to_string(), serde_json::json!(row.get::<_, String>("session_id")?));
+    map.insert("role".to_string(), serde_json::json!(row.get::<_, String>("role")?));
+    map.insert("content".to_string(), json_or_string_field(row.get::<_, Option<String>>("content")?));
+    map.insert("tool_call_id".to_string(), json_or_string_field(row.get::<_, Option<String>>("tool_call_id")?));
+    map.insert("tool_calls".to_string(), parsed_json_string_field(row.get::<_, Option<String>>("tool_calls")?));
+    map.insert("tool_name".to_string(), json_or_string_field(row.get::<_, Option<String>>("tool_name")?));
+    map.insert("timestamp".to_string(), serde_json::json!(row.get::<_, f64>("timestamp")?));
+    map.insert("token_count".to_string(), row.get::<_, Option<i64>>("token_count")?.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null));
+    map.insert("finish_reason".to_string(), json_or_string_field(row.get::<_, Option<String>>("finish_reason")?));
+    map.insert("reasoning".to_string(), json_or_string_field(row.get::<_, Option<String>>("reasoning")?));
+    map.insert("reasoning_content".to_string(), json_or_string_field(row.get::<_, Option<String>>("reasoning_content")?));
+    Ok(serde_json::Value::Object(map))
+}
+
+fn messages_with_context_boundary_from_entries(
+    entries: &[SessionLineageEntry],
+    mut fetch_entry_messages: impl FnMut(&str) -> anyhow::Result<Vec<serde_json::Value>>,
+) -> anyhow::Result<ContextWindowMessages> {
+    let mut messages = Vec::new();
+    let mut seen = HashSet::new();
+    let mut boundary_start = 0usize;
+    let mut compression_boundary_id = None;
+    for (idx, entry) in entries.iter().enumerate() {
+        let entry_messages = fetch_entry_messages(&entry.id)?;
+        let mut entry_boundary_id = None;
+        for message in entry_messages {
+            if let Some(key) = nav_message_id(&message)
+                && !seen.insert(key)
+            {
+                continue;
+            }
+            let belongs_to_entry = message
+                .get("session_id")
+                .and_then(|value| value.as_str())
+                == Some(entry.id.as_str());
+            if belongs_to_entry {
+                entry_boundary_id = message.get("id").cloned();
+            }
+            messages.push(message);
+        }
+        if entry.compression_ended() && idx + 1 < entries.len() && entry_boundary_id.is_some() {
+            boundary_start = messages.len();
+            compression_boundary_id = entry_boundary_id;
+        }
+    }
+    Ok(ContextWindowMessages { messages, boundary_start, compression_boundary_id })
+}
+
+fn fetch_local_lineage_context_messages(
     state: &AppState,
     session_id: &str,
-) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+) -> anyhow::Result<Option<ContextWindowMessages>> {
     let db_path = state.hermes_home.join("state.db");
     if !db_path.exists() {
         return Ok(None);
@@ -537,34 +630,27 @@ fn fetch_local_lineage_messages(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    let ids = local_session_lineage_ids(&conn, session_id)?;
-    if ids.is_empty() {
+    let entries = local_session_lineage_entries(&conn, session_id)?;
+    if entries.is_empty() {
         return Ok(None);
     }
-    let placeholders = std::iter::repeat_n("?", ids.len()).collect::<Vec<_>>().join(",");
-    let sql = format!(
-        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_content \
-         FROM messages WHERE active = 1 AND session_id IN ({placeholders}) ORDER BY id"
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
-        let mut map = serde_json::Map::new();
-        map.insert("id".to_string(), serde_json::json!(row.get::<_, i64>("id")?));
-        map.insert("session_id".to_string(), serde_json::json!(row.get::<_, String>("session_id")?));
-        map.insert("role".to_string(), serde_json::json!(row.get::<_, String>("role")?));
-        map.insert("content".to_string(), json_or_string_field(row.get::<_, Option<String>>("content")?));
-        map.insert("tool_call_id".to_string(), json_or_string_field(row.get::<_, Option<String>>("tool_call_id")?));
-        map.insert("tool_calls".to_string(), parsed_json_string_field(row.get::<_, Option<String>>("tool_calls")?));
-        map.insert("tool_name".to_string(), json_or_string_field(row.get::<_, Option<String>>("tool_name")?));
-        map.insert("timestamp".to_string(), serde_json::json!(row.get::<_, f64>("timestamp")?));
-        map.insert("token_count".to_string(), row.get::<_, Option<i64>>("token_count")?.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null));
-        map.insert("finish_reason".to_string(), json_or_string_field(row.get::<_, Option<String>>("finish_reason")?));
-        map.insert("reasoning".to_string(), json_or_string_field(row.get::<_, Option<String>>("reasoning")?));
-        map.insert("reasoning_content".to_string(), json_or_string_field(row.get::<_, Option<String>>("reasoning_content")?));
-        Ok(serde_json::Value::Object(map))
+    let context = messages_with_context_boundary_from_entries(&entries, |entry_id| {
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_content \
+             FROM messages WHERE active = 1 AND session_id = ?1 ORDER BY id"
+        )?;
+        let rows = stmt.query_map([entry_id], row_to_session_message)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })?;
-    let messages = rows.collect::<Result<Vec<_>, _>>()?;
-    Ok(Some(messages))
+    Ok(Some(context))
+}
+
+#[cfg(test)]
+fn fetch_local_lineage_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    Ok(fetch_local_lineage_context_messages(state, session_id)?.map(|context| context.messages))
 }
 
 async fn fetch_session_messages_by_id(
@@ -589,20 +675,37 @@ async fn fetch_session_messages_by_id(
     Ok(session_message_items(&body))
 }
 
-fn session_parent_id_from_detail(body: &serde_json::Value) -> Option<String> {
-    body.get("session")
-        .and_then(|session| session.get("parent_session_id"))
+fn session_info_from_detail(session_id: &str, body: &serde_json::Value) -> SessionLineageEntry {
+    let session = body.get("session").unwrap_or(body);
+    let parent_session_id = session
+        .get("parent_session_id")
         .or_else(|| body.get("parent_session_id"))
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
+        .map(ToString::to_string);
+    let end_reason = session
+        .get("end_reason")
+        .or_else(|| body.get("end_reason"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    SessionLineageEntry {
+        id: session
+            .get("id")
+            .and_then(|value| value.as_str())
+            .unwrap_or(session_id)
+            .to_string(),
+        parent_session_id,
+        end_reason,
+    }
 }
 
-async fn fetch_session_parent_id(
+async fn fetch_session_info(
     state: &AppState,
     session_id: &str,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<Option<SessionLineageEntry>> {
     let mut req = state.client.get(format!(
         "{}/api/sessions/{}",
         state.api_url.trim_end_matches('/'),
@@ -621,74 +724,116 @@ async fn fetch_session_parent_id(
         anyhow::bail!("session detail request failed: {}", resp.status());
     }
     let body = resp.json::<serde_json::Value>().await?;
-    Ok(session_parent_id_from_detail(&body))
+    Ok(Some(session_info_from_detail(session_id, &body)))
 }
 
-async fn session_lineage_ids(state: &AppState, session_id: &str) -> Vec<String> {
+async fn session_lineage_entries(state: &AppState, session_id: &str) -> Vec<SessionLineageEntry> {
     const MAX_SESSION_LINEAGE_DEPTH: usize = 64;
-    let mut ids = vec![session_id.to_string()];
-    let mut seen = HashSet::from([session_id.to_string()]);
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
     let mut current = session_id.to_string();
     for _ in 0..MAX_SESSION_LINEAGE_DEPTH {
-        let parent = match fetch_session_parent_id(state, &current).await {
-            Ok(parent) => parent,
+        if !seen.insert(current.clone()) {
+            warn!(session_id = %current, "session parent chain cycle detected");
+            break;
+        }
+        let info = match fetch_session_info(state, &current).await {
+            Ok(Some(info)) => info,
+            Ok(None) => SessionLineageEntry {
+                id: current.clone(),
+                parent_session_id: None,
+                end_reason: None,
+            },
             Err(err) => {
-                warn!(session_id = %current, error = %err, "cannot read session parent; using available session messages");
-                None
+                warn!(session_id = %current, error = %err, "cannot read session detail; using available session messages");
+                SessionLineageEntry {
+                    id: current.clone(),
+                    parent_session_id: None,
+                    end_reason: None,
+                }
             }
         };
+        let parent = info.parent_session_id.clone();
+        entries.push(info);
         let Some(parent) = parent else {
             break;
         };
-        if !seen.insert(parent.clone()) {
-            warn!(session_id = %parent, "session parent chain cycle detected");
-            break;
-        }
-        ids.push(parent.clone());
         current = parent;
     }
-    ids.reverse();
-    ids
+    entries.reverse();
+    entries
+}
+
+async fn fetch_api_context_window_messages(
+    state: &AppState,
+    entries: &[SessionLineageEntry],
+) -> anyhow::Result<ContextWindowMessages> {
+    let mut messages = Vec::new();
+    let mut seen = HashSet::new();
+    let mut boundary_start = 0usize;
+    let mut compression_boundary_id = None;
+    for (idx, entry) in entries.iter().enumerate() {
+        let entry_messages = fetch_session_messages_by_id(state, &entry.id).await?;
+        let mut entry_boundary_id = None;
+        for message in entry_messages {
+            if let Some(key) = nav_message_id(&message)
+                && !seen.insert(key)
+            {
+                continue;
+            }
+            let belongs_to_entry = message
+                .get("session_id")
+                .and_then(|value| value.as_str())
+                == Some(entry.id.as_str());
+            if belongs_to_entry {
+                entry_boundary_id = message.get("id").cloned();
+            }
+            messages.push(message);
+        }
+        if entry.compression_ended() && idx + 1 < entries.len() && entry_boundary_id.is_some() {
+            boundary_start = messages.len();
+            compression_boundary_id = entry_boundary_id;
+        }
+    }
+    Ok(ContextWindowMessages { messages, boundary_start, compression_boundary_id })
+}
+
+async fn fetch_context_window_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<ContextWindowMessages> {
+    let entries = session_lineage_entries(state, session_id).await;
+    match fetch_api_context_window_messages(state, &entries).await {
+        Ok(context) => Ok(context),
+        Err(err) => {
+            warn!(session_id = %session_id, error = %err, "API Server fetch failed; falling back to local state.db");
+            match fetch_local_lineage_context_messages(state, session_id) {
+                Ok(Some(local_context)) => Ok(local_context),
+                Ok(None) => anyhow::bail!("neither API Server nor local state.db has context messages for session lineage of {session_id}"),
+                Err(local_err) => anyhow::bail!("both API Server and local state.db failed: API={err}, local={local_err}"),
+            }
+        }
+    }
 }
 
 async fn fetch_all_session_messages_for_context(
     state: &AppState,
     session_id: &str,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
-    let ids = session_lineage_ids(state, session_id).await;
-    let mut messages = Vec::new();
-    let mut seen = HashSet::new();
-    for id in ids {
-        match fetch_session_messages_by_id(state, &id).await {
-            Ok(msgs) => {
-                for message in msgs {
-                    if let Some(key) = nav_message_id(&message)
-                        && !seen.insert(key)
-                    {
-                        continue;
-                    }
-                    messages.push(message);
-                }
-            }
-            Err(err) => {
-                warn!(session_id = %session_id, api_id = %id, error = %err, "API Server fetch failed; falling back to local state.db");
-                match fetch_local_lineage_messages(state, session_id) {
-                    Ok(Some(local_msgs)) => return Ok(local_msgs),
-                    Ok(None) => anyhow::bail!("neither API Server nor local state.db has messages for session lineage of {session_id}"),
-                    Err(local_err) => anyhow::bail!("both API Server and local state.db failed: API={err}, local={local_err}"),
-                }
-            }
-        }
-    }
-    Ok(messages)
+    Ok(fetch_context_window_messages(state, session_id).await?.messages)
 }
 
 async fn chat_context_window(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Response<Body> {
-    match fetch_all_session_messages_for_context(&state, &session_id).await {
-        Ok(messages) => Json(estimate_context_window_usage(&messages)).into_response(),
+    match fetch_context_window_messages(&state, &session_id).await {
+        Ok(context) => Json(estimate_context_window_usage_from(
+            &context.messages,
+            context.boundary_start,
+            context.compression_boundary_id,
+        ))
+        .into_response(),
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
             &format!("message context request failed: {err}"),
