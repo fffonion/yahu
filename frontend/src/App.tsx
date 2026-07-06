@@ -32,10 +32,14 @@ type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
 function sessionWithPreservedMessageCount(next: Session, current?: Session | null): Session {
   if (!current || current.id !== next.id) return next;
+  const merged: Session = { ...next };
   const currentCount = Number(current.message_count);
   const nextCount = Number(next.message_count);
-  if (Number.isFinite(currentCount) && (!Number.isFinite(nextCount) || currentCount > nextCount)) return { ...next, message_count: Math.trunc(currentCount) };
-  return next;
+  if (Number.isFinite(currentCount) && (!Number.isFinite(nextCount) || currentCount > nextCount)) merged.message_count = Math.trunc(currentCount);
+  const currentTitle = String(current?.title || '').trim();
+  const nextTitle = String(next.title || '').trim();
+  if (!nextTitle && currentTitle) merged.title = current?.title;
+  return merged;
 }
 type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
@@ -1774,7 +1778,8 @@ export default function App() {
     const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(session.id)}`), { method: 'PATCH', headers: headers(), body: JSON.stringify({ title: nextTitle }) });
     if (!res.ok) { setStatus(`Rename failed: ${await res.text()}`); return; }
     const body = await res.json();
-    const title = body.title || nextTitle;
+    const patched = (body.data || body.session || body) as Session;
+    const title = patched.title || nextTitle;
     setSessions((old) => old.map((item) => item.id === session.id ? { ...item, title } : item));
     setActiveSessionDetail((old) => old?.id === session.id ? { ...old, title } : old);
     await loadSessions(filter);

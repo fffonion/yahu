@@ -19,8 +19,15 @@ describe('session right-click context menu', () => {
     const source = app();
     expect(source).toContain("method: 'PATCH'");
     expect(source).toContain('JSON.stringify({ title: nextTitle })');
+    expect(source).toContain('const patched = (body.data || body.session || body) as Session;');
     expect(source).toContain("method: 'DELETE'");
     expect(source).toContain('/api/sessions/${encodeURIComponent(session.id)}');
+  });
+
+  test('session list refresh preserves a renamed title when search rows omit titles', () => {
+    const source = app();
+    expect(source).toContain('const currentTitle = String(current?.title || \'\').trim();');
+    expect(source).toContain("if (!nextTitle && currentTitle) merged.title = current?.title;");
   });
 
   test('context menu is positioned above the chat sidebar and styled as a menu', () => {
