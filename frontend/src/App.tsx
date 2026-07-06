@@ -2256,7 +2256,7 @@ function MessageView({ message, showReasoning = false, assistantName }: { messag
           <div className="md-content" dangerouslySetInnerHTML={{ __html: html }} />
           {isPending && <span className="stream-caret" aria-hidden="true" />}
         </div>
-        {message.reasoning && showReasoning && <section className="msg-reasoning" aria-label="Reasoning / thinking"><span>Thinking</span><pre>{message.reasoning}</pre></section>}
+        {message.reasoning && showReasoning && (isToolPrelude ? <details className="msg-reasoning msg-reasoning-collapsed" aria-label="Reasoning / thinking"><summary>Thinking</summary><pre>{message.reasoning}</pre></details> : <section className="msg-reasoning" aria-label="Reasoning / thinking"><span>Thinking</span><pre>{message.reasoning}</pre></section>)}
       </div>
     </article>
   );
