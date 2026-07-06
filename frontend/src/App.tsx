@@ -2307,17 +2307,17 @@ function formatNavigatorTime(value?: string | number) {
   return date.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function minimapHitStyle(item: UserMessageNavItem): React.CSSProperties {
-  const position = Number.isFinite(item.position) ? Math.max(0, Math.min(1, item.position)) : 0;
+function minimapHitStyle(ordinal: number, count: number): React.CSSProperties {
+  const top = count <= 1 ? 50 : ordinal / (count - 1) * 100;
   return {
-    top: `${(position * 100).toFixed(3)}%`,
+    top: `${top.toFixed(3)}%`,
   };
 }
 
 function ChatUserNavigator({ items, sessionId, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
   return <nav className="chat-user-minimap" aria-label="User message navigator">
-    {items.map((item) => <button type="button" className="user-minimap-hit" key={item.id} style={minimapHitStyle(item)} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onClick={() => onJumpToMessage(sessionId, item.id)}>
+    {items.map((item, ordinal) => <button type="button" className="user-minimap-hit" key={item.id} style={minimapHitStyle(ordinal, items.length)} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onClick={() => onJumpToMessage(sessionId, item.id)}>
       <span className="user-minimap-bar" />
       <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{item.assistant_preview && <span className="user-minimap-assistant-preview">{item.assistant_preview}</span>}{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
     </button>)}

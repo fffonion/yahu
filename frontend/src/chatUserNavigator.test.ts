@@ -39,28 +39,29 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('.user-minimap-assistant-preview{font-size:12px;line-height:1.35;color:color-mix(in srgb,var(--muted) 82%,transparent);');
   });
 
-  test('renders every backend navigator item using backend-provided transcript positions', () => {
+  test('renders every backend navigator item with equal spacing across the minimap', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain('function minimapHitStyle(item: UserMessageNavItem): React.CSSProperties');
-    expect(source).toContain('const position = Number.isFinite(item.position) ? Math.max(0, Math.min(1, item.position)) : 0;');
-    expect(source).toContain('top: `${(position * 100).toFixed(3)}%`,');
-    expect(source).toContain('items.map((item) => <button type="button" className="user-minimap-hit" key={item.id} style={minimapHitStyle(item)}');
+    expect(source).toContain('function minimapHitStyle(ordinal: number, count: number): React.CSSProperties');
+    expect(source).toContain('const top = count <= 1 ? 50 : ordinal / (count - 1) * 100;');
+    expect(source).toContain('top: `${top.toFixed(3)}%`,');
+    expect(source).toContain('items.map((item, ordinal) => <button type="button" className="user-minimap-hit" key={item.id} style={minimapHitStyle(ordinal, items.length)}');
     expect(source).toContain('data-nav-index={item.index} data-nav-total={item.total}');
     expect(source).not.toContain('const NAVIGATOR_RADIUS = 3;');
     expect(source).not.toContain('function navigatorVisibleItems');
     expect(source).not.toContain('function currentNavigatorIndex');
+    expect(source).not.toContain('Math.min(1, item.position)');
     expect(styles).toContain('.user-minimap-bar{width:9px;');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar,.user-minimap-hit:focus-visible .user-minimap-bar{width:21px;');
     expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit:hover) .user-minimap-bar{width:17px;');
   });
 
-  test('uses full transcript position from backend instead of frontend loaded-row spacing', () => {
+  test('uses backend full user-turn list instead of frontend loaded-row spacing or transcript positions', () => {
     const source = app();
     expect(source).not.toContain('function navigatorBarTop(index: number, total: number)');
     expect(source).not.toContain('top: navigatorBarTop(visibleIndex, visibleCount),');
     expect(source).not.toContain('style={minimapHitStyle(visibleIndex, visibleItems.length)}');
-    expect(source).toContain('style={minimapHitStyle(item)}');
+    expect(source).toContain('style={minimapHitStyle(ordinal, items.length)}');
     expect(source).toContain('setUserMessageNav(Array.isArray(body.data) ? body.data : []);');
   });
 
