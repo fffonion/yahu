@@ -35,7 +35,7 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('.user-minimap-bar{width:9px;');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar');
     expect(styles).toContain('transition:width .18s ease,opacity .18s ease,background .18s ease');
-    expect(styles).toContain('.user-minimap-popup{position:absolute;left:calc(100% + 10px);');
+    expect(styles).toContain('.user-minimap-popup{position:absolute;left:29px;');
     expect(styles).toContain('.user-minimap-assistant-preview{font-size:12px;line-height:1.35;color:color-mix(in srgb,var(--muted) 82%,transparent);');
   });
 
