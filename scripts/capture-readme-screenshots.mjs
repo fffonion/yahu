@@ -102,19 +102,41 @@ function makeInsights() {
 
 const insights = makeInsights();
 const sessions = [
-  { id: 'demo-chat-001', title: 'Demo release QA with tools', preview: 'Terminal, file, and browser tools summarized in one place.', started_at: now - 5600, ended_at: now - 4300, last_active: now - 4200, message_count: 7, model: 'openai/gpt-5.5', provider: 'openai' },
+  { id: 'demo-chat-001', title: 'Demo release QA with tools', preview: 'Terminal, file, and browser tools summarized in one place.', started_at: now - 7_200, ended_at: now - 4_300, last_active: now - 4_200, message_count: 28, model: 'openai/gpt-5.5', provider: 'openai' },
   { id: 'demo-chat-002', title: 'Design review notes', preview: 'Compared mobile spacing and theme tokens.', started_at: now - 14_400, last_active: now - 13_800, message_count: 5, model: 'minimax/minimax-m3', provider: 'minimax' },
   { id: 'demo-chat-003', title: 'Gallery refresh audit', preview: 'Checked image watcher deltas and download actions.', started_at: now - 22_000, last_active: now - 21_500, message_count: 8, model: 'deepseek/deepseek-v4-flash', provider: 'deepseek' },
 ];
-const messages = [
-  { id: '1', role: 'user', timestamp: now - 5400, content: 'Can you inspect the demo workspace, run the UI checks, and verify the gallery refresh flow?' },
-  { id: '2', role: 'assistant', timestamp: now - 5320, content: 'I will check the project state, inspect the Rust fixture, and verify the UI paths with browser evidence.' },
-  { id: '3', role: 'tool', tool_name: 'terminal', timestamp: now - 5280, content: JSON.stringify({ tool_name: 'terminal', command: 'bun test frontend/src/*.test.ts', output: '150 tests passed across 39 files in 0.22s', exit_code: 0 }) },
-  { id: '4', role: 'tool', tool_name: 'read_file', timestamp: now - 5220, content: JSON.stringify({ tool_name: 'read_file', path: '/demo/workspace/src/main.rs', content: 'pub fn render_dashboard(config: DemoConfig) -> Result<Page> { /* highlighted in Workspace */ }' }) },
-  { id: '5', role: 'tool', tool_name: 'browser_navigate', timestamp: now - 5160, content: JSON.stringify({ tool_name: 'browser_navigate', status: 'success', url: 'http://127.0.0.1:9765/#/insights', title: 'Insights' }) },
-  { id: '6', role: 'tool', tool_name: 'image_generate', timestamp: now - 5100, content: JSON.stringify({ tool_name: 'image_generate', image: 'demo-gallery://landscapes', message: 'Generated varied public-safe landscape placeholders for the gallery fixture.' }) },
-  { id: '7', role: 'assistant', timestamp: now - 5040, content: '**Done.** The demo build is green, the Rust file preview is highlighted, and the gallery has varied placeholder art with refresh-ready metadata.' },
+const turnTopics = [
+  ['Scope the README capture', 'Map the pages that need public-safe screenshots and confirm the dummy fixture set.'],
+  ['Inspect the demo workspace', 'Open the synthetic Rust file and verify the preview uses highlighting.'],
+  ['Run frontend checks', 'Execute the focused UI checks before capturing the public assets.'],
+  ['Review chat tool cards', 'Confirm terminal, file, browser, and image tool cards each use distinct icons.'],
+  ['Check minimap density', 'Make the user-turn navigator visible with enough compact bars for a long chat.'],
+  ['Validate markdown rendering', 'Show a short markdown summary with bold text, a table, and code formatting.'],
+  ['Open Insights fixture', 'Verify the 30 day chart has spikes, dips, and multiple model rows.'],
+  ['Review Cron fixture', 'Check the latest output preview renders safely with synthetic content only.'],
+  ['Audit gallery placeholders', 'Confirm landscape thumbnails vary by palette and scene shape.'],
+  ['Check mobile layout', 'Verify the narrow viewport keeps chat content inside the screen width.'],
+  ['Refresh screenshot assets', 'Capture the README chat image from a local insecure demo instance.'],
+  ['Summarize result', 'Report the capture path and proof that no live data was shown.'],
 ];
+const messages = [];
+turnTopics.forEach(([title, prompt], index) => {
+  const base = now - 7_200 + index * 210;
+  const userId = String(index * 2 + 1);
+  const assistantId = String(index * 2 + 2);
+  messages.push({ id: userId, role: 'user', timestamp: base, content: `${title}: ${prompt}` });
+  if (index === 1) messages.push({ id: `${assistantId}a`, role: 'tool', tool_name: 'read_file', timestamp: base + 22, content: JSON.stringify({ tool_name: 'read_file', path: '/demo/workspace/src/main.rs', content: 'pub async fn render_dashboard(config: DemoConfig) -> Result<Dashboard> { /* highlighted preview */ }' }) });
+  if (index === 2) messages.push({ id: `${assistantId}a`, role: 'tool', tool_name: 'terminal', timestamp: base + 22, content: JSON.stringify({ tool_name: 'terminal', command: 'bun test frontend/src/*.test.ts', output: '150 tests passed across 39 files in 0.22s', exit_code: 0 }) });
+  if (index === 3) messages.push({ id: `${assistantId}a`, role: 'tool', tool_name: 'browser_navigate', timestamp: base + 22, content: JSON.stringify({ tool_name: 'browser_navigate', status: 'success', url: 'http://127.0.0.1:9765/#/chat/demo-chat-001', title: 'Chat demo' }) });
+  if (index === 8) messages.push({ id: `${assistantId}a`, role: 'tool', tool_name: 'image_generate', timestamp: base + 22, content: JSON.stringify({ tool_name: 'image_generate', image: 'demo-gallery://landscapes', message: 'Generated varied public-safe landscape placeholders for the gallery fixture.' }) });
+  messages.push({ id: assistantId, role: 'assistant', timestamp: base + 55, content: index === 11 ? '**Done.** The chat screenshot uses dummy data, distinct tool cards, and a dense user-turn minimap.' : `Acknowledged. ${prompt}` });
+});
+const userNavItems = messages.filter((message) => message.role === 'user').map((message, index, users) => {
+  const nextUser = users[index + 1];
+  const preview = messages.filter((item) => item.role === 'assistant' && Number(item.id.replace(/\D/g, '') || 0) > Number(String(message.id).replace(/\D/g, '') || 0) && (!nextUser || Number(item.id.replace(/\D/g, '') || 0) < Number(String(nextUser.id).replace(/\D/g, '') || 0))).at(-1);
+  return { id: message.id, role: 'user', content: message.content, assistant_preview: preview?.content || '', timestamp: message.timestamp, position: Number(message.id), index: index + 1, total: messages.length };
+});
 const jobs = [
   { job_id: 'job-demo-weekly', name: 'Weekly usage digest', schedule: '0 9 * * MON', status: 'active', prompt: 'Summarize the last week of demo model usage. Highlight cache efficiency, top models, and cost trend changes. Return three bullets and one follow-up action.', script: 'scripts/collect_usage_demo.py', deliver: 'telegram:#demo' },
   { job_id: 'job-gallery-refresh', name: 'Gallery refresh watcher', schedule: 'every 2h', status: 'active', prompt: 'Check the demo image directory for new public placeholder art and summarize any changed metadata.', script: 'scripts/check_gallery_demo.py', deliver: 'local' },
@@ -228,6 +250,7 @@ function routeFixture(url, method) {
   ] });
   if (pathname === '/sessions/search') return json({ data: sessions });
   if (pathname === '/chat/messages/demo-chat-001') return json({ data: messages, total: messages.length, has_older: false, has_newer: false });
+  if (pathname === '/chat/user-nav/demo-chat-001') return json({ data: userNavItems, total: messages.length });
   if (pathname === '/insights/usage') return json(insights);
   if (pathname === '/skills/list') return json({ data: skills });
   if (pathname === '/skills/files') {
@@ -299,8 +322,9 @@ function startYahu() {
 }
 
 async function capturePage(browser, spec) {
-  const context = await browser.newContext({ viewport: spec.viewport, deviceScaleFactor: spec.mobile ? 2 : 1, isMobile: !!spec.mobile, hasTouch: !!spec.mobile });
+  const context = await browser.newContext({ viewport: spec.viewport, deviceScaleFactor: spec.mobile ? 2 : 1, isMobile: !!spec.mobile, hasTouch: !!spec.mobile, serviceWorkers: 'block' });
   await context.addInitScript(({ theme }) => {
+    if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations?.().then((items) => items.forEach((item) => item.unregister())).catch(() => {});
     localStorage.setItem('theme', theme);
     localStorage.setItem('lang', 'en');
     localStorage.setItem('apiBase', '/hermes');
@@ -323,14 +347,19 @@ async function capturePage(browser, spec) {
   console.log(`captured ${spec.file}`);
 }
 
+const waitForChatDemo = async (page) => {
+  await page.waitForSelector('.tool-card');
+  await page.waitForFunction(() => document.querySelectorAll('.user-minimap-hit').length >= 10);
+  await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0));
+};
 const specs = [
-  { name: 'chat', file: 'chat.png', hash: '#/chat/demo-chat-001', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.tool-card'); await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0)); } },
+  { name: 'chat', file: 'chat.png', hash: '#/chat/demo-chat-001', theme: 'vscode-light-plus', viewport: desktop, prepare: waitForChatDemo },
   { name: 'insights', file: 'insights.png', hash: '#/insights', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); await page.getByRole('button', { name: '30d' }).click(); await page.waitForTimeout(250); } },
   { name: 'skills', file: 'skills.png', hash: '#/skills/demo-gallery-curator', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight'); await page.locator('.section-label', { hasText: 'productivity' }).click().catch(() => {}); } },
   { name: 'cron', file: 'cron.png', hash: '#/cron/job-demo-weekly', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.cron-detail textarea'); } },
   { name: 'workspace', file: 'workspace.png', hash: '#/workspace/file/src%2Fmain.rs', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight .tok-keyword'); } },
   { name: 'gallery', file: 'gallery.png', hash: '#/images', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.image-card img.loaded'); } },
-  { name: 'chat-mobile', file: 'chat-mobile.png', hash: '#/chat/demo-chat-001', theme: 'vscode-dark-plus', viewport: mobile, mobile: true, prepare: async (page) => { await page.waitForSelector('.tool-card'); await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0)); } },
+  { name: 'chat-mobile', file: 'chat-mobile.png', hash: '#/chat/demo-chat-001', theme: 'vscode-dark-plus', viewport: mobile, mobile: true, prepare: waitForChatDemo },
   { name: 'insights-mobile', file: 'insights-mobile.png', hash: '#/insights', theme: 'vscode-dark-plus', viewport: mobile, mobile: true, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); await page.getByRole('button', { name: '30d' }).click(); await page.waitForTimeout(250); } },
 ];
 const only = new Set((process.env.YAHU_SCREENSHOT_ONLY || '').split(',').map((item) => item.trim()).filter(Boolean));
