@@ -54,6 +54,15 @@ describe('session search and composer session model UI', () => {
     expect(app).not.toContain("session.title || '—'");
   });
 
+  test('active session sidebar preview follows the current message window including streaming assistant text', () => {
+    const app = source();
+    expect(app).toContain("import { latestSessionPreviewFromMessages } from './sessionPreview';");
+    expect(app).toContain('const activePreview = latestSessionPreviewFromMessages(messages);');
+    expect(app).toContain('setSessions((old) => old.map((session) => session.id === activeSessionId && session.preview !== activePreview ? { ...session, preview: activePreview } : session));');
+    expect(app).toContain('setActiveSessionDetail((old) => old?.id === activeSessionId && old.preview !== activePreview ? { ...old, preview: activePreview } : old);');
+    expect(app).toContain('setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, content: text, pending: true } : m));');
+  });
+
   test('opened session header uses stitched history totals from message and minimap endpoints', () => {
     const app = source();
     expect(app).toContain('const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {');

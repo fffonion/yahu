@@ -8,6 +8,7 @@ import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
+import { latestSessionPreviewFromMessages } from './sessionPreview';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { parsePlatformSenderMessage } from './chatSender';
@@ -816,6 +817,13 @@ export default function App() {
     writeHashRoute({ mode: 'artifacts', artifactId: newArtifact.id });
     showToast(t('artifacts.created'));
   }, [activeSession, activeSessionDetail, activeSessionId, artifacts, showToast, writeHashRoute]);
+  useEffect(() => {
+    const activePreview = latestSessionPreviewFromMessages(messages);
+    if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID || !activePreview) return;
+    setSessions((old) => old.map((session) => session.id === activeSessionId && session.preview !== activePreview ? { ...session, preview: activePreview } : session));
+    setActiveSessionDetail((old) => old?.id === activeSessionId && old.preview !== activePreview ? { ...old, preview: activePreview } : old);
+  }, [activeSessionId, messages]);
+
   useEffect(() => {
     const activeModel = realModelOrEmpty(activeSession?.model);
     const activeProvider = String(activeSession?.provider || '').trim();
