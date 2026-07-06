@@ -2345,12 +2345,21 @@ function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: 
 }
 
 function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
+  const navRef = useRef<HTMLElement | null>(null);
+  const [popup, setPopup] = useState<{ item: UserMessageNavItem; top: number } | null>(null);
+  const showPopup = useCallback((item: UserMessageNavItem, target: HTMLElement) => {
+    const navRect = navRef.current?.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    setPopup({ item, top: targetRect.top + targetRect.height / 2 - (navRect?.top ?? 0) });
+  }, []);
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
-  return <nav className="chat-user-minimap" aria-label="User message navigator">
-    {items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onClick={() => onJumpToMessage(sessionId, item.id)}>
-      <span className="user-minimap-bar" />
-      <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{item.assistant_preview && <span className="user-minimap-assistant-preview">{item.assistant_preview}</span>}{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
-    </button>)}
+  return <nav ref={navRef} className="chat-user-minimap" aria-label="User message navigator" onMouseLeave={() => setPopup(null)}>
+    <div className="user-minimap-track">
+      {items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onPointerEnter={(event) => showPopup(item, event.currentTarget)} onFocus={(event) => showPopup(item, event.currentTarget)} onBlur={() => setPopup(null)} onClick={() => onJumpToMessage(sessionId, item.id)}>
+        <span className="user-minimap-bar" />
+      </button>)}
+    </div>
+    {popup && <span className="user-minimap-popup" style={{ top: `${popup.top}px` }}><strong>{popup.item.content || 'User message'}</strong>{popup.item.assistant_preview && <span className="user-minimap-assistant-preview">{popup.item.assistant_preview}</span>}{formatNavigatorTime(popup.item.timestamp) && <time>{formatNavigatorTime(popup.item.timestamp)}</time>}</span>}
   </nav>;
 }
 
