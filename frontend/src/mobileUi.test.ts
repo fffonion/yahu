@@ -264,6 +264,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).not.toContain('.msg-row.tool .avatar{display:none}');
     expect(styles).toContain('.msg-row.tool .msg-content{grid-column:1;min-width:0;max-width:100%}');
     expect(styles).toContain('.msg-row.tool .tool-inline-icon{display:grid;grid-column:1}');
+    expect(source).not.toContain('<div className="avatar">');
     expect(styles).toContain('.msg-row.assistant .msg-body pre,.msg-row.system .msg-body pre,.msg-row.tool .msg-body pre{white-space:pre-wrap;overflow-wrap:anywhere}');
   });
 

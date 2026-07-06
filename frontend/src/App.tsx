@@ -2245,7 +2245,6 @@ function MessageView({ message, showReasoning = false, assistantName }: { messag
   const html = markdownText(message.content || fallback);
   return (
     <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}`} data-message-id={message.id || undefined}>
-      <div className="avatar">{message.role === 'assistant' ? <Bot /> : <UserRound />}</div>
       <div className="msg-content">
         <div className="msg-meta">
           <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>
