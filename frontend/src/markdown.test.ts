@@ -66,10 +66,33 @@ After`);
     expect(html).not.toContain('<script>');
   });
 
-  test('styles markdown tables without widening the chat viewport', () => {
+  test('renders MEDIA and FILE directives as chat media cards outside code blocks', () => {
+    const html = markdownText(`Before
+MEDIA:/tmp/chart.png
+MEDIA:'/tmp/demo clip.mp4'
+MEDIA:/tmp/sound.ogg
+FILE:/tmp/report.pdf
+
+\`\`\`
+MEDIA:/tmp/example.png
+\`\`\`
+After`);
+
+    expect(html).toContain('<p>Before</p>');
+    expect(html).toContain('<figure class="md-media md-media-image"><a href="/chat/media?path=%2Ftmp%2Fchart.png" target="_blank" rel="noreferrer"><img src="/chat/media?path=%2Ftmp%2Fchart.png" alt="chart.png" loading="lazy"/></a><figcaption>chart.png</figcaption></figure>');
+    expect(html).toContain('<figure class="md-media md-media-video"><video controls preload="metadata" src="/chat/media?path=%2Ftmp%2Fdemo%20clip.mp4"></video><figcaption>demo clip.mp4</figcaption></figure>');
+    expect(html).toContain('<figure class="md-media md-media-audio"><audio controls src="/chat/media?path=%2Ftmp%2Fsound.ogg"></audio><figcaption>sound.ogg</figcaption></figure>');
+    expect(html).toContain('<p><a class="md-media-file" href="/chat/media?path=%2Ftmp%2Freport.pdf&amp;download=1" target="_blank" rel="noreferrer">report.pdf</a></p>');
+    expect(html).toContain('<pre><code>MEDIA:/tmp/example.png</code></pre>');
+    expect(html).toContain('<p>After</p>');
+  });
+
+  test('styles markdown tables and media without widening the chat viewport', () => {
     const styles = css();
     expect(styles).toContain('.msg-body .md-table-wrap{max-width:100%;overflow-x:auto;margin:8px 0 10px;border:1px solid var(--border);border-radius:12px}');
     expect(styles).toContain('.msg-body table{width:100%;border-collapse:collapse;font-size:13px}');
     expect(styles).toContain('.msg-body th,.msg-body td{padding:7px 9px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}');
+    expect(styles).toContain('.msg-body .md-media{margin:10px 0;max-width:min(100%,560px);display:grid;gap:6px}');
+    expect(styles).toContain('.msg-body .md-media img,.msg-body .md-media video{width:100%;height:auto;max-width:100%;border-radius:12px;border:1px solid var(--border);background:var(--surface);display:block}');
   });
 });

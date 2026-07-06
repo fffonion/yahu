@@ -271,6 +271,7 @@ pub async fn run() -> anyhow::Result<()> {
             get(chat_context_window),
         )
         .route("/chat/attachments", post(chat_upload_attachments))
+        .route("/chat/media", get(chat_media_file))
         .route("/version", get(yahu_version))
         .route("/update/check", get(check_update))
         .route("/update/apply", post(apply_update))
@@ -317,6 +318,7 @@ include!("workspace.rs");
 include!("skills.rs");
 include!("memory.rs");
 include!("chat_uploads.rs");
+include!("chat_media.rs");
 include!("update.rs");
 include!("images.rs");
 include!("tests.rs");

@@ -227,6 +227,33 @@ mod tests {
     }
 
     #[test]
+    fn chat_media_path_allows_cache_files_and_blocks_credential_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "hermes-webui-media-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_nanos()
+        ));
+        let cache_dir = root.join("cache/images");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let image = cache_dir.join("preview.png");
+        std::fs::write(&image, b"image").unwrap();
+        std::fs::write(root.join(".env"), b"SECRET=1").unwrap();
+
+        let resolved = resolve_chat_media_path(image.to_str().unwrap(), &root).unwrap();
+        assert_eq!(resolved, image.canonicalize().unwrap());
+        assert!(resolve_chat_media_path(root.join(".env").to_str().unwrap(), &root).is_err());
+        assert!(resolve_chat_media_path("relative.png", &root).is_err());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn chat_media_path_rejects_system_denylist() {
+        assert!(resolve_chat_media_path("/etc/passwd", &std::env::temp_dir()).is_err());
+    }
+
+    #[test]
     fn context_window_usage_counts_from_latest_compression_summary() {
         let messages = vec![
             serde_json::json!({"id": 1, "role": "user", "content": "old history", "token_count": 1000}),

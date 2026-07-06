@@ -11,6 +11,61 @@ function safeHref(value: string) {
   return '#';
 }
 
+function escapeAttr(text: string) {
+  return escapeHtml(text).replace(/"/g, '&quot;');
+}
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'svg']);
+const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm']);
+const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'opus', 'm4a', 'flac']);
+
+function basename(path: string) {
+  const cleaned = path.replace(/\\/g, '/').replace(/\/+$/, '');
+  return cleaned.split('/').pop() || cleaned || 'attachment';
+}
+
+function mediaExt(path: string) {
+  const name = basename(path).toLowerCase();
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot + 1) : '';
+}
+
+function chatMediaUrl(path: string, download = false) {
+  const base = `/chat/media?path=${encodeURIComponent(path)}`;
+  return download ? `${base}&amp;download=1` : base;
+}
+
+function parseMediaDirectiveLine(line: string): { directive: 'MEDIA' | 'FILE'; path: string } | null {
+  const match = line.trim().match(/^(MEDIA|FILE)\s*[:：]\s*(.+)$/i);
+  if (!match) return null;
+  let path = match[2].trim();
+  if (path.length >= 2 && path[0] === path[path.length - 1] && '`"\''.includes(path[0])) {
+    path = path.slice(1, -1).trim();
+  }
+  path = path.replace(/^[`"']+/, '').replace(/[`"',.;:)}\]]+$/, '').trim();
+  if (!/^(?:~\/|\/|[A-Za-z]:[\\/])/.test(path)) return null;
+  return { directive: match[1].toUpperCase() as 'MEDIA' | 'FILE', path };
+}
+
+function renderMediaDirective(line: string) {
+  const parsed = parseMediaDirectiveLine(line);
+  if (!parsed) return null;
+  const name = escapeAttr(basename(parsed.path));
+  const src = chatMediaUrl(parsed.path);
+  const ext = mediaExt(parsed.path);
+  if (parsed.directive === 'FILE' || (!IMAGE_EXTS.has(ext) && !VIDEO_EXTS.has(ext) && !AUDIO_EXTS.has(ext))) {
+    const href = chatMediaUrl(parsed.path, true);
+    return `<p><a class="md-media-file" href="${href}" target="_blank" rel="noreferrer">${name}</a></p>`;
+  }
+  if (IMAGE_EXTS.has(ext)) {
+    return `<figure class="md-media md-media-image"><a href="${src}" target="_blank" rel="noreferrer"><img src="${src}" alt="${name}" loading="lazy"/></a><figcaption>${name}</figcaption></figure>`;
+  }
+  if (VIDEO_EXTS.has(ext)) {
+    return `<figure class="md-media md-media-video"><video controls preload="metadata" src="${src}"></video><figcaption>${name}</figcaption></figure>`;
+  }
+  return `<figure class="md-media md-media-audio"><audio controls src="${src}"></audio><figcaption>${name}</figcaption></figure>`;
+}
+
 function applyInlineFormatting(escaped: string) {
   return escaped
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -124,6 +179,13 @@ export function markdownText(text: string) {
 
     if (!trimmed) {
       flushLoose();
+      continue;
+    }
+
+    const mediaHtml = renderMediaDirective(trimmed);
+    if (mediaHtml) {
+      flushLoose();
+      out.push(mediaHtml);
       continue;
     }
 

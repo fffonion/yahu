@@ -256,6 +256,8 @@ describe('mobile WebUI layout and touch affordances', () => {
     const styles = css();
     expect(source).toContain('<span className="tool-inline-icon">{getToolIcon(toolName)}</span>');
     expect(source).not.toContain('<div className="avatar">{getToolIcon(toolName)}</div>');
+    expect(styles).toContain('.msg-row{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;max-width:920px}');
+    expect(styles).not.toContain('.msg-row{display:grid;grid-template-columns:38px minmax(0,1fr);');
     expect(styles).toContain('.msg-row.assistant,.msg-row.system{grid-template-columns:minmax(0,1fr);width:100%;max-width:none}');
     expect(styles).toContain('.msg-row.assistant .avatar,.msg-row.system .avatar{display:none}');
     expect(styles).toContain('.msg-row.assistant .msg-content,.msg-row.system .msg-content{grid-column:1;min-width:0;max-width:100%}');
