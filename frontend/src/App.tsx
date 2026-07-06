@@ -12,7 +12,7 @@ import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
-import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages } from './messageVisibility';
+import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages } from './messageVisibility';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
@@ -2240,11 +2240,12 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
 function MessageView({ message, showReasoning = false, assistantName }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string }) {
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
+  const isToolPrelude = isAssistantToolPreludeMessage(message);
   const fallback = isPending ? '…' : '';
   const senderLabel = messageSenderLabel(message, assistantName);
   const html = markdownText(message.content || fallback);
   return (
-    <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}`} data-message-id={message.id || undefined}>
+    <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}${isToolPrelude ? ' tool-prelude' : ''}`} data-message-id={message.id || undefined}>
       <div className="msg-content">
         <div className="msg-meta">
           <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>

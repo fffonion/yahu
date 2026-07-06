@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
+import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
 
 const appSource = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 
@@ -61,6 +61,21 @@ describe('chat message visibility', () => {
     expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['u1', 'a-final']);
   });
 
+  test('assistant pre-tool text remains visible and non-tool while using compact styling', () => {
+    const prelude = { id: 'a-pre-tool', role: 'assistant', content: 'Need to inspect the file first.', pending: false, toolCalls: [{ function: { name: 'read_file' } }] };
+    expect(isAssistantToolPreludeMessage(prelude)).toBe(true);
+    expect(isToolLikeMessage(prelude)).toBe(false);
+    expect(shouldRenderMessage(prelude, false, false)).toBe(true);
+    expect(renderableMessages([prelude, { id: 'tool-result', role: 'tool', content: 'file output', pending: false }], false, false).map((message) => message.id)).toEqual(['a-pre-tool']);
+    const source = appSource();
+    const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+    expect(source).toContain("import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages } from './messageVisibility';");
+    expect(source).toContain("const isToolPrelude = isAssistantToolPreludeMessage(message);");
+    expect(source).toContain("${isToolPrelude ? ' tool-prelude' : ''}");
+    expect(styles).toContain('.msg-row.tool-prelude .msg-content{color:var(--text)}');
+    expect(styles).toContain('.msg-row.tool-prelude .msg-body{font-size:13px;line-height:1.45;color:var(--text)}');
+  });
+
   test('hides empty assistant tool-call placeholders so they do not render blank tool result cards', () => {
     const placeholder = { id: 'a-tool-call', role: 'assistant', content: '', pending: false, toolCalls: [{ function: { name: 'web_extract' } }] };
     expect(isToolLikeMessage(placeholder)).toBe(true);
@@ -82,7 +97,7 @@ describe('chat message visibility', () => {
 
   test('ChatMain filters visible messages before mapping so hidden tool frames are unmounted', () => {
     const source = appSource();
-    expect(source).toContain("import { dedupeVisibleChatMessages, isToolLikeMessage, renderableMessages } from './messageVisibility';");
+    expect(source).toContain("import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages } from './messageVisibility';");
     expect(source).toContain('const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);');
     expect(source).toContain('<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />');
     expect(source).not.toContain('if (!shouldRenderMessage(message, showReasoning, showToolCalls)) return null;');
