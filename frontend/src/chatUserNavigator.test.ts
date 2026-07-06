@@ -67,9 +67,14 @@ describe('chat user message navigator', () => {
     expect(source).not.toContain('(index / (items.length - 1)) * 100');
   });
 
-  test('reserves desktop history space for minimap but releases it on mobile', () => {
+  test('reserves chat history space for minimap before data loads and keeps minimap on mobile', () => {
+    const source = app();
     const styles = css();
-    expect(styles).toContain('.main-panel:has(.chat-user-minimap) .chat-scroll{padding-left:78px}');
-    expect(styles).toContain('@media (max-width:760px){.chat-user-minimap{display:none}.main-panel:has(.chat-user-minimap) .chat-scroll{padding-left:10px}}');
+    expect(source).toContain('return <main className="main-panel chat-main-panel">');
+    expect(styles).toContain('.chat-main-panel .chat-scroll{padding-left:78px}');
+    expect(styles).not.toContain('.main-panel:has(.chat-user-minimap) .chat-scroll{padding-left:78px}');
+    expect(styles).toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:46px}.chat-user-minimap{display:block;');
+    expect(styles).toContain('.user-minimap-hit{width:34px}');
+    expect(styles).not.toContain('.chat-user-minimap{display:none}');
   });
 });

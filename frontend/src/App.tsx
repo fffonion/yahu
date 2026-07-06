@@ -2470,7 +2470,7 @@ function ChatMain(props: any) {
     lastAutoOlderRequestRef.current = requestKey;
     props.loadMessageWindow(props.activeSessionId, 'older');
   }, [visibleMessages.length, props.messages[0]?.id, props.activeSessionId, props.hasOlder, props.loadingMessages, props.showReasoning, props.showToolCalls]);
-  return <main className="main-panel">
+  return <main className="main-panel chat-main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} onJumpToMessage={props.onJumpToMessage} />
