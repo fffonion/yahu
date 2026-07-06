@@ -24,4 +24,27 @@ describe('session time display helpers', () => {
 
     expect(times).toEqual({ started: 'Started T1700000000000', latest: 'Latest T1700000090000' });
   });
+
+  test('keeps latest at least as new as session metadata when loaded messages come from older stitched history', () => {
+    const times = sessionHeaderTimes(
+      { id: 's1', started_at: 1783102276.8085577, last_active: 1783347141.9966545 },
+      [
+        { id: 'old-user', role: 'user', content: 'older stitched row', timestamp: 1718665260 },
+        { id: 'old-assistant', role: 'assistant', content: 'older reply', timestamp: 1718665300 },
+      ],
+      stamp,
+    );
+
+    expect(times).toEqual({ started: 'Started T1783102276808', latest: 'Latest T1783347141996' });
+  });
+
+  test('parses ISO session timestamps from the API server for header labels', () => {
+    const times = sessionHeaderTimes(
+      { id: 's1', started_at: '2026-07-04T02:11:16.808Z', last_active: '2026-07-06T22:12:21.996Z' },
+      [{ id: 'old', role: 'user', content: 'older loaded row', timestamp: '2026-06-18T03:01:00.000Z' }],
+      stamp,
+    );
+
+    expect(times).toEqual({ started: 'Started T1783131076808', latest: 'Latest T1783375941996' });
+  });
 });

@@ -13,6 +13,14 @@ export type TimeFormatter = (date: Date) => string;
 
 function timestampMs(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric < 1e12 ? numeric * 1000 : numeric;
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   return numeric < 1e12 ? numeric * 1000 : numeric;
@@ -39,17 +47,16 @@ export function sessionDisplayTitle(session: SessionTimeLike | null | undefined,
 }
 
 export function sessionHeaderTimes(session: SessionTimeLike | null | undefined, messages: MessageTimeLike[] = [], formatter: TimeFormatter = defaultSessionTimeFormatter) {
-  const started = formatSessionTime(session?.started_at, formatter);
-  const latestMessageMs = messages.reduce<number | null>((latest, message) => {
-    const ms = timestampMs(message.timestamp);
-    if (ms === null) return latest;
-    return latest === null || ms > latest ? ms : latest;
-  }, null);
-  const latest = latestMessageMs !== null
-    ? formatter(new Date(latestMessageMs))
-    : formatSessionTime(session?.last_active ?? session?.ended_at ?? session?.started_at, formatter);
+  const startedMs = timestampMs(session?.started_at);
+  const latestCandidates = [
+    timestampMs(session?.last_active),
+    timestampMs(session?.ended_at),
+    startedMs,
+    ...messages.map((message) => timestampMs(message.timestamp)),
+  ].filter((ms): ms is number => ms !== null);
+  const latestMs = latestCandidates.length ? Math.max(...latestCandidates) : null;
   return {
-    started: started ? `Started ${started}` : '',
-    latest: latest ? `Latest ${latest}` : '',
+    started: startedMs !== null ? `Started ${formatter(new Date(startedMs))}` : '',
+    latest: latestMs !== null ? `Latest ${formatter(new Date(latestMs))}` : '',
   };
 }
