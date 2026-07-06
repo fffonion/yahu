@@ -34,4 +34,15 @@ describe('chat media image lightbox', () => {
     expect(styles).toContain('.chat-image-modal{z-index:220}.chat-image-modal .modal-meta{z-index:238}.chat-image-modal .modalbar{z-index:240}.chat-image-modal .modalbar button.danger{display:none!important}');
     expect(styles).toContain('.msg-body .md-media-open{display:block;cursor:zoom-in}');
   });
+
+  test('chat lightbox supports mobile pinch zoom with the same pointer model as gallery', () => {
+    const source = app();
+    expect(source).toContain('chatPointers');
+    expect(source).toContain('chatPinchStart');
+    expect(source).toContain('beginChatPinch');
+    expect(source).toContain('chatPointers.current.size >= 2');
+    expect(source).toContain('zoom.current.scale = clampNumber(start.scale * distance / start.distance, 1, 6)');
+    const styles = css();
+    expect(styles).toContain('.image-modal{touch-action:none');
+  });
 });

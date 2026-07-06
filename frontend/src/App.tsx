@@ -2269,6 +2269,8 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
   const imgRef = useRef<HTMLImageElement | null>(null);
   const zoom = useRef({ scale: 1, x: 0, y: 0 });
   const pan = useRef<{ id: number; x: number; y: number; panX: number; panY: number } | null>(null);
+  const chatPointers = useRef(new Map<number, { x: number; y: number }>());
+  const chatPinchStart = useRef<{ distance: number; center: { x: number; y: number }; scale: number; x: number; y: number; imageCenter: { x: number; y: number } } | null>(null);
   const [metadataOpen, setMetadataOpen] = useState(false);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const index = current ? items.findIndex((item) => item.key === current.key) : -1;
@@ -2290,7 +2292,7 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
     img.style.transition = transition ? 'transform 160ms cubic-bezier(.2,.8,.2,1)' : 'none';
     img.style.transform = `translate3d(${zoom.current.x}px, ${zoom.current.y}px, 0) scale(${zoom.current.scale})`;
   };
-  const resetZoom = () => { zoom.current = { scale: 1, x: 0, y: 0 }; pan.current = null; applyZoom(); };
+  const resetZoom = () => { zoom.current = { scale: 1, x: 0, y: 0 }; pan.current = null; chatPinchStart.current = null; chatPointers.current.clear(); applyZoom(); };
   const selectRelative = (dir: -1 | 1) => {
     if (index < 0) return;
     const next = items[index + dir];
@@ -2323,15 +2325,56 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
     zoom.current.scale = nextScale;
     applyZoom();
   };
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!current || event.button !== 0 || zoom.current.scale <= 1.01) return;
-    if ((event.target as HTMLElement).closest('.modalbar,.modal-meta,a,button')) return;
-    event.preventDefault();
+  const chatPointerList = () => Array.from(chatPointers.current.values());
+  const chatPointerDistance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+  const chatPointerCenter = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const beginChatPinch = () => {
+    const pts = chatPointerList();
+    const img = imgRef.current;
+    if (pts.length < 2 || !img) return;
+    const center = chatPointerCenter(pts[0], pts[1]);
+    const rect = img.getBoundingClientRect();
+    chatPinchStart.current = { distance: Math.max(1, chatPointerDistance(pts[0], pts[1])), center, scale: zoom.current.scale, x: zoom.current.x, y: zoom.current.y, imageCenter: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } };
+    pan.current = null;
+    img.classList.add('panning');
+    img.style.transition = 'none';
+  };
+  const beginChatPan = (event: React.PointerEvent<HTMLDivElement>) => {
     pan.current = { id: event.pointerId, x: event.clientX, y: event.clientY, panX: zoom.current.x, panY: zoom.current.y };
     imgRef.current?.classList.add('panning');
+    if (imgRef.current) imgRef.current.style.transition = 'none';
     try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* ignore */ }
   };
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!current) return;
+    if ((event.target as HTMLElement).closest('.modalbar,.modal-meta,a,button')) return;
+    if (event.pointerType === 'touch') {
+      chatPointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* ignore */ }
+      if (chatPointers.current.size >= 2) { event.preventDefault(); beginChatPinch(); return; }
+      if (zoom.current.scale > 1.01) { event.preventDefault(); beginChatPan(event); }
+      return;
+    }
+    if (event.button !== 0 || zoom.current.scale <= 1.01) return;
+    event.preventDefault();
+    beginChatPan(event);
+  };
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch' && chatPointers.current.has(event.pointerId)) chatPointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (chatPinchStart.current && event.pointerType === 'touch' && chatPointers.current.size >= 2) {
+      event.preventDefault();
+      const pts = chatPointerList();
+      const center = chatPointerCenter(pts[0], pts[1]);
+      const distance = Math.max(1, chatPointerDistance(pts[0], pts[1]));
+      const start = chatPinchStart.current;
+      zoom.current.scale = clampNumber(start.scale * distance / start.distance, 1, 6);
+      const ratio = zoom.current.scale / start.scale;
+      zoom.current.x = start.x + center.x - start.center.x - (start.center.x - start.imageCenter.x) * (ratio - 1);
+      zoom.current.y = start.y + center.y - start.center.y - (start.center.y - start.imageCenter.y) * (ratio - 1);
+      if (zoom.current.scale <= 1.01) zoom.current = { scale: 1, x: 0, y: 0 };
+      applyZoom();
+      return;
+    }
     if (!pan.current || pan.current.id !== event.pointerId) return;
     event.preventDefault();
     zoom.current.x = pan.current.panX + event.clientX - pan.current.x;
@@ -2339,7 +2382,21 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
     applyZoom();
   };
   const endPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') chatPointers.current.delete(event.pointerId);
+    if (chatPinchStart.current && chatPointers.current.size < 2) {
+      chatPinchStart.current = null;
+      imgRef.current?.classList.remove('panning');
+      if (zoom.current.scale <= 1.01) resetZoom();
+      event.preventDefault();
+      return;
+    }
     if (!pan.current || pan.current.id !== event.pointerId) return;
+    pan.current = null;
+    imgRef.current?.classList.remove('panning');
+  };
+  const cancelPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') chatPointers.current.delete(event.pointerId);
+    chatPinchStart.current = null;
     pan.current = null;
     imgRef.current?.classList.remove('panning');
   };
@@ -2356,7 +2413,7 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
     return () => window.removeEventListener('keydown', onKey);
   }, [current?.key, index, items]);
   if (!current) return null;
-  return <div className={`image-modal chat-image-modal ${metadataOpen ? 'metadata-open' : ''}`} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer}>
+  return <div className={`image-modal chat-image-modal ${metadataOpen ? 'metadata-open' : ''}`} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={cancelPointer}>
     <img ref={imgRef} className="image-modal-img" src={current.src} alt={current.name} onLoad={(event) => { setDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight }); applyZoom(); }} onClick={(event) => event.stopPropagation()} />
     <aside className="modal-meta" onClick={(event) => event.stopPropagation()}>
       <h2>Metadata</h2>
