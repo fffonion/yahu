@@ -2307,17 +2307,47 @@ function formatNavigatorTime(value?: string | number) {
   return date.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function minimapHitStyle(ordinal: number, count: number): React.CSSProperties {
-  const top = count <= 1 ? 50 : ordinal / (count - 1) * 100;
-  return {
-    top: `${top.toFixed(3)}%`,
-  };
+function sameStringSet(a: Set<string>, b: Set<string>) {
+  if (a.size !== b.size) return false;
+  for (const item of a) if (!b.has(item)) return false;
+  return true;
 }
 
-function ChatUserNavigator({ items, sessionId, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
+function numericMessageId(value?: string | number | null): number | null {
+  const text = String(value || '');
+  if (!/^\d+$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: UserMessageNavItem[]): Set<string> {
+  const active = new Set<string>();
+  if (!scroller || !items.length) return active;
+  const viewport = scroller.getBoundingClientRect();
+  const rows = Array.from(scroller.querySelectorAll<HTMLElement>('.msg-row[data-message-id]')).filter((row) => {
+    const rect = row.getBoundingClientRect();
+    return rect.bottom >= viewport.top + 4 && rect.top <= viewport.bottom - 4;
+  });
+  if (!rows.length) return active;
+  const visibleIds = new Set(rows.map((row) => row.getAttribute('data-message-id') || '').filter(Boolean));
+  for (const item of items) if (visibleIds.has(item.id)) active.add(item.id);
+  const visibleNumbers = rows.map((row) => numericMessageId(row.getAttribute('data-message-id'))).filter((value): value is number => value !== null);
+  if (!visibleNumbers.length) return active;
+  const start = Math.min(...visibleNumbers);
+  const end = Math.max(...visibleNumbers);
+  const numericItems = items.map((item) => ({ item, numeric: numericMessageId(item.id) })).filter((entry): entry is { item: UserMessageNavItem; numeric: number } => entry.numeric !== null);
+  numericItems.forEach((entry, index) => {
+    const itemNumeric = entry.numeric;
+    const nextNumeric = numericItems[index + 1]?.numeric ?? Infinity;
+    if (itemNumeric <= end && nextNumeric > start) active.add(entry.item.id);
+  });
+  return active;
+}
+
+function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
   return <nav className="chat-user-minimap" aria-label="User message navigator">
-    {items.map((item, ordinal) => <button type="button" className="user-minimap-hit" key={item.id} style={minimapHitStyle(ordinal, items.length)} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onClick={() => onJumpToMessage(sessionId, item.id)}>
+    {items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onClick={() => onJumpToMessage(sessionId, item.id)}>
       <span className="user-minimap-bar" />
       <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{item.assistant_preview && <span className="user-minimap-assistant-preview">{item.assistant_preview}</span>}{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
     </button>)}
@@ -2372,6 +2402,7 @@ function ChatMain(props: any) {
     if (isMobile && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (shouldLoadOlderFromScroll(el, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
     if (shouldLoadNewerFromScroll(el, props.hasNewer, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'newer');
+    updateActiveNavigatorIds();
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 120 && props.newMessageCount > 0) props.onClearNewMessages();
   };
   const onWheel = (e: React.WheelEvent<HTMLElement>) => {
@@ -2383,6 +2414,11 @@ function ChatMain(props: any) {
   const currentModel = sessionModel;
   const activeTitle = active?.id === DRAFT_SESSION_ID ? 'New conversation' : active ? sessionDisplayTitle(active) : 'Hermes Agent';
   const headerTimes = sessionHeaderTimes(active, props.messages);
+  const [activeNavigatorIds, setActiveNavigatorIds] = useState<Set<string>>(() => new Set());
+  const updateActiveNavigatorIds = useCallback(() => {
+    const next = activeNavigatorIdsForVisibleRange(props.chatScrollRef.current, props.userMessageNav || []);
+    setActiveNavigatorIds((old) => sameStringSet(old, next) ? old : next);
+  }, [props.chatScrollRef, props.userMessageNav]);
   const exactCurrentOption = currentModel ? findModelOption(props.models, currentModel, sessionProvider) : undefined;
   const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;
   const currentModelOption = exactCurrentOption || currentOption;
@@ -2414,10 +2450,16 @@ function ChatMain(props: any) {
     lastAutoOlderRequestRef.current = requestKey;
     props.loadMessageWindow(props.activeSessionId, 'older');
   }, [visibleMessages.length, props.messages[0]?.id, props.activeSessionId, props.hasOlder, props.loadingMessages, props.showReasoning, props.showToolCalls]);
+  useLayoutEffect(() => {
+    updateActiveNavigatorIds();
+    const raf = requestAnimationFrame(updateActiveNavigatorIds);
+    const timer = window.setTimeout(updateActiveNavigatorIds, 80);
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(timer); };
+  }, [visibleMessages.length, props.activeSessionId, props.userMessageNav, props.showReasoning, props.showToolCalls, updateActiveNavigatorIds]);
   return <main className="main-panel chat-main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
-    <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} onJumpToMessage={props.onJumpToMessage} />
+    <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} />
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
