@@ -25,15 +25,14 @@ describe('chat reasoning display toggle', () => {
     const source = app();
     expect(source).toContain("<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />");
     expect(source).toContain("message.reasoning && showReasoning");
-    expect(source).toContain("className=\"msg-reasoning\"");
+    expect(source).toContain("className=\"msg-reasoning msg-reasoning-collapsed\"");
   });
 
   test('pre-tool assistant text stays visible but its thinking block is collapsed by default', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("isToolPrelude ? <details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label=\"Reasoning / thinking\"><summary>Thinking</summary><pre>{message.reasoning}</pre></details>");
-    expect(source).toContain(": <section className=\"msg-reasoning\" aria-label=\"Reasoning / thinking\"><span>Thinking</span><pre>{message.reasoning}</pre></section>");
-    expect(source).not.toContain("message.reasoning && showReasoning && <section className=\"msg-reasoning\"");
+    expect(source).toContain("<details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label=\"Reasoning / thinking\"><summary>Thinking</summary><pre>{message.reasoning}</pre></details>");
+    expect(source).not.toContain("<section className=\"msg-reasoning\"");
     expect(styles).toContain('.msg-reasoning>summary');
     expect(styles).toContain('.msg-reasoning-collapsed:not([open]) pre{display:none}');
   });
