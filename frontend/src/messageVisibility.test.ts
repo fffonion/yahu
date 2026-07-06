@@ -61,6 +61,18 @@ describe('chat message visibility', () => {
     expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['u1', 'a-final']);
   });
 
+  test('keeps final assistant answers after intervening tool results instead of moving them before tools', () => {
+    const messages = [
+      { id: 'u1', role: 'user', content: 'translate subtitles', pending: false },
+      { id: 'a-progress', role: 'assistant', content: 'Translation started.', pending: false },
+      { id: 'tool-write', role: 'tool', content: 'wrote subtitle batch', pending: false, toolName: 'write_file' },
+      { id: 'tool-validate', role: 'tool', content: 'validation=ok', pending: false, toolName: 'terminal' },
+      { id: 'a-final', role: 'assistant', content: 'Done. Uploaded the subtitles.', pending: false },
+    ];
+    const visible = renderableMessages(dedupeVisibleChatMessages(messages), false, true);
+    expect(visible.map((message) => message.id)).toEqual(['u1', 'a-progress', 'tool-write', 'tool-validate', 'a-final']);
+  });
+
   test('assistant pre-tool text remains visible and non-tool while using compact styling', () => {
     const prelude = { id: 'a-pre-tool', role: 'assistant', content: 'Need to inspect the file first.', pending: false, toolCalls: [{ function: { name: 'read_file' } }] };
     expect(isAssistantToolPreludeMessage(prelude)).toBe(true);

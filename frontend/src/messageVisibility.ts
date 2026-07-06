@@ -87,7 +87,10 @@ export function dedupeVisibleChatMessages<T extends MessageVisibilityInput>(mess
     }
     const isAssistantAnswer = msg.role === 'assistant' && String(msg.content || '').trim() && !isToolLikeMessage(msg);
     if (isAssistantAnswer) {
-      const fuzzyExisting = result.findIndex((m, i) => i > lastUserResultIndex && m.role === 'assistant' && !isToolLikeMessage(m));
+      const fuzzyExisting = result.findIndex((m, i) => {
+        if (i <= lastUserResultIndex || m.role !== 'assistant' || isToolLikeMessage(m)) return false;
+        return !result.slice(i + 1).some((later) => isToolLikeMessage(later));
+      });
       if (fuzzyExisting >= 0) {
         const previous = result[fuzzyExisting];
         const preferCurrent = (isLocalStreamAssistantMessage(previous) && !isLocalStreamAssistantMessage(msg)) || String(msg.content || '').length > String(previous.content || '').length;
