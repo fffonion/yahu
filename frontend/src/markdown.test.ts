@@ -79,7 +79,7 @@ MEDIA:/tmp/example.png
 After`);
 
     expect(html).toContain('<p>Before</p>');
-    expect(html).toContain('<figure class="md-media md-media-image"><a href="/chat/media?path=%2Ftmp%2Fchart.png" target="_blank" rel="noreferrer"><img src="/chat/media?path=%2Ftmp%2Fchart.png" alt="chart.png" loading="lazy"/></a><figcaption>chart.png</figcaption></figure>');
+    expect(html).toContain('<figure class="md-media md-media-image"><a class="md-media-open" href="/chat/media?path=%2Ftmp%2Fchart.png" data-chat-image-path="/tmp/chart.png" data-chat-image-src="/chat/media?path=%2Ftmp%2Fchart.png" data-chat-image-name="chart.png" target="_blank" rel="noreferrer"><img src="/chat/media?path=%2Ftmp%2Fchart.png" alt="chart.png" loading="lazy"/></a><figcaption>chart.png</figcaption></figure>');
     expect(html).toContain('<figure class="md-media md-media-video"><video controls preload="metadata" src="/chat/media?path=%2Ftmp%2Fdemo%20clip.mp4"></video><figcaption>demo clip.mp4</figcaption></figure>');
     expect(html).toContain('<figure class="md-media md-media-audio"><audio controls src="/chat/media?path=%2Ftmp%2Fsound.ogg"></audio><figcaption>sound.ogg</figcaption></figure>');
     expect(html).toContain('<p><a class="md-media-file" href="/chat/media?path=%2Ftmp%2Freport.pdf&amp;download=1" target="_blank" rel="noreferrer">report.pdf</a></p>');

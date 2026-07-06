@@ -18,7 +18,7 @@ import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScr
 import { mergeMessageWindow } from './chatMessageWindow';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
-import { isMarkdownPath, markdownText } from './markdown';
+import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMarkdownImage } from './markdown';
 import { buildSessionArtifact, artifactCopyPrompt, copyTextToClipboard, readStoredArtifacts, ARTIFACTS_KEY, type SessionArtifact } from './artifacts';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
@@ -55,6 +55,7 @@ type MemoryDoc = { memory: string; user: string };
 type ImageEntry = { filename: string; heic_filename?: string | null; image_url: string; png_url: string; heic_url?: string | null; heic_status: 'available' | 'missing' | 'not_applicable' | string; download_filename: string; download_url: string; download_label: string; created_at: number; modified_at: number; size: number };
 type ImageStats = { total_images: number; total_bytes: number };
 type ImageMetadata = { filename: string; dimensions?: { width: number; height: number } | null; png: { filename: string; url: string; size: number; modified_at: number }; webp?: unknown; heic?: unknown; heic_status: string; png_text: Array<{ keyword: string; value: string }> };
+type ChatLightboxImage = ChatMarkdownImage & { key: string; messageId: string };
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
 type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: boolean };
@@ -108,6 +109,7 @@ const initialRoute = getCurrentHashRoute();
 
 const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
 const fmtSize = (bytes?: number) => bytes === undefined ? '' : bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} k` : `${(bytes / 1024 / 1024).toFixed(1)} M`;
+const clampNumber = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 const basename = (path: string) => path.split('/').filter(Boolean).pop() || 'Home';
 
 function useMediaQuery(query: string) {
@@ -2237,6 +2239,115 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
   </article>;
 }
 
+function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatLightboxImage[]; current: ChatLightboxImage | null; onSelect: (item: ChatLightboxImage) => void; onClose: () => void }) {
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const zoom = useRef({ scale: 1, x: 0, y: 0 });
+  const pan = useRef<{ id: number; x: number; y: number; panX: number; panY: number } | null>(null);
+  const [metadataOpen, setMetadataOpen] = useState(false);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
+  const index = current ? items.findIndex((item) => item.key === current.key) : -1;
+  const applyZoom = (transition = false) => {
+    const img = imgRef.current;
+    if (!img) return;
+    if (zoom.current.scale <= 1.01) {
+      zoom.current = { scale: 1, x: 0, y: 0 };
+      img.classList.remove('zoomed', 'panning');
+      img.style.transform = '';
+      img.style.transition = transition ? 'transform 160ms cubic-bezier(.2,.8,.2,1)' : 'none';
+      return;
+    }
+    const extraX = Math.max(0, img.offsetWidth * (zoom.current.scale - 1) / 2 + 96);
+    const extraY = Math.max(0, img.offsetHeight * (zoom.current.scale - 1) / 2 + 96);
+    zoom.current.x = clampNumber(zoom.current.x, -extraX, extraX);
+    zoom.current.y = clampNumber(zoom.current.y, -extraY, extraY);
+    img.classList.add('zoomed');
+    img.style.transition = transition ? 'transform 160ms cubic-bezier(.2,.8,.2,1)' : 'none';
+    img.style.transform = `translate3d(${zoom.current.x}px, ${zoom.current.y}px, 0) scale(${zoom.current.scale})`;
+  };
+  const resetZoom = () => { zoom.current = { scale: 1, x: 0, y: 0 }; pan.current = null; applyZoom(); };
+  const selectRelative = (dir: -1 | 1) => {
+    if (index < 0) return;
+    const next = items[index + dir];
+    if (next) onSelect(next);
+  };
+  const downloadCurrent = () => {
+    if (!current) return;
+    const a = document.createElement('a');
+    a.href = current.downloadUrl;
+    a.download = current.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!current) return;
+    if ((event.target as HTMLElement).closest('.modalbar,.modal-meta,a,button')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const img = imgRef.current;
+    if (!img) return;
+    const oldScale = zoom.current.scale;
+    const nextScale = clampNumber(oldScale * Math.exp(-event.deltaY * 0.0018), 1, 6);
+    const rect = img.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const ratio = nextScale / oldScale;
+    zoom.current.x -= (event.clientX - cx) * (ratio - 1);
+    zoom.current.y -= (event.clientY - cy) * (ratio - 1);
+    zoom.current.scale = nextScale;
+    applyZoom();
+  };
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!current || event.button !== 0 || zoom.current.scale <= 1.01) return;
+    if ((event.target as HTMLElement).closest('.modalbar,.modal-meta,a,button')) return;
+    event.preventDefault();
+    pan.current = { id: event.pointerId, x: event.clientX, y: event.clientY, panX: zoom.current.x, panY: zoom.current.y };
+    imgRef.current?.classList.add('panning');
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* ignore */ }
+  };
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!pan.current || pan.current.id !== event.pointerId) return;
+    event.preventDefault();
+    zoom.current.x = pan.current.panX + event.clientX - pan.current.x;
+    zoom.current.y = pan.current.panY + event.clientY - pan.current.y;
+    applyZoom();
+  };
+  const endPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!pan.current || pan.current.id !== event.pointerId) return;
+    pan.current = null;
+    imgRef.current?.classList.remove('panning');
+  };
+  useEffect(() => { resetZoom(); setDimensions(null); setMetadataOpen(false); }, [current?.key]);
+  useEffect(() => {
+    if (!current) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'ArrowLeft') { event.preventDefault(); selectRelative(-1); }
+      if (event.key === 'ArrowRight') { event.preventDefault(); selectRelative(1); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [current?.key, index, items]);
+  if (!current) return null;
+  return <div className={`image-modal chat-image-modal ${metadataOpen ? 'metadata-open' : ''}`} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer}>
+    <img ref={imgRef} className="image-modal-img" src={current.src} alt={current.name} onLoad={(event) => { setDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight }); applyZoom(); }} onClick={(event) => event.stopPropagation()} />
+    <aside className="modal-meta" onClick={(event) => event.stopPropagation()}>
+      <h2>Metadata</h2>
+      <p className="metadata-dim">Dimensions: {dimensions ? `${dimensions.width} × ${dimensions.height}` : '—'}</p>
+      <section className="metadata-files-section"><span>Files</span><p>{current.name}</p><p>Message {current.messageId}</p></section>
+      <section className="metadata-png-section"><span>Source</span><p>{current.path}</p></section>
+    </aside>
+    <div className="modalbar" onClick={(event) => event.stopPropagation()}>
+      <button className="mobile-icon-only" aria-label="Download image" onClick={downloadCurrent}><Download /></button>
+      <button className={`mobile-icon-only modal-metadata-toggle ${metadataOpen ? 'active' : ''}`} aria-label="Metadata" aria-expanded={metadataOpen} onClick={() => setMetadataOpen((value) => !value)}><Info /></button>
+      <button className="mobile-icon-only" aria-label="Previous image" disabled={index <= 0} onClick={() => selectRelative(-1)}><ChevronLeft /></button>
+      <button className="mobile-icon-only" aria-label="Next image" disabled={index < 0 || index >= items.length - 1} onClick={() => selectRelative(1)}><ChevronRight /></button>
+      <button className="mobile-icon-only" aria-label="Close" onClick={onClose}><X /></button>
+    </div>
+  </div>;
+}
+
 function MessageView({ message, showReasoning = false, assistantName }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string }) {
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
@@ -2434,6 +2545,18 @@ function ChatMain(props: any) {
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
+  const [chatImageModal, setChatImageModal] = useState<ChatLightboxImage | null>(null);
+  const chatLightboxImages = useMemo(() => visibleMessages.flatMap((message: ChatMessage) => chatMediaImagesFromMarkdown(message.content || '').map((image, index) => ({ ...image, key: `${message.id}:${index}:${image.path}`, messageId: message.id }))), [visibleMessages]);
+  const onChatMediaClick = (event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    const link = target.closest('a.md-media-open') as HTMLAnchorElement | null;
+    if (!link) return;
+    event.preventDefault();
+    const path = link.dataset.chatImagePath || '';
+    const src = link.dataset.chatImageSrc || link.getAttribute('href') || '';
+    const found = chatLightboxImages.find((item) => item.path === path || item.src === src);
+    setChatImageModal(found || { key: `adhoc:${path || src}`, messageId: '', path, name: link.dataset.chatImageName || basename(path || src), src, downloadUrl: `${src}${src.includes('?') ? '&' : '?'}download=1` });
+  };
   const contextWindowTotal = currentModelOption?.contextLength || fallbackContextWindowForModel(currentModel);
   const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
@@ -2469,7 +2592,7 @@ function ChatMain(props: any) {
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} />
-    <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
+    <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatMediaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {(() => {
@@ -2482,6 +2605,7 @@ function ChatMain(props: any) {
         ));
       })()}
     </section>
+    <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
       {props.newMessageCount > 0 && <button className="new-messages-bubble" onClick={props.onClearNewMessages} aria-label={t('chat.newMessages')}>{props.newMessageCount === 1 ? t('chat.newMessageCount') : t('chat.newMessagesCount').replace('{n}', String(props.newMessageCount))}</button>}
       <FollowUpQueueView items={props.followUpQueue || []} onSteer={props.onSteerQueuedItem} onEdit={props.onEditQueuedItem} onReorder={props.onReorderQueuedItem} />

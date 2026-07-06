@@ -35,6 +35,11 @@ function chatMediaUrl(path: string, download = false) {
   return download ? `${base}&amp;download=1` : base;
 }
 
+function chatMediaUrlRaw(path: string, download = false) {
+  const base = `/chat/media?path=${encodeURIComponent(path)}`;
+  return download ? `${base}&download=1` : base;
+}
+
 function parseMediaDirectiveLine(line: string): { directive: 'MEDIA' | 'FILE'; path: string } | null {
   const match = line.trim().match(/^(MEDIA|FILE)\s*[:：]\s*(.+)$/i);
   if (!match) return null;
@@ -58,12 +63,21 @@ function renderMediaDirective(line: string) {
     return `<p><a class="md-media-file" href="${href}" target="_blank" rel="noreferrer">${name}</a></p>`;
   }
   if (IMAGE_EXTS.has(ext)) {
-    return `<figure class="md-media md-media-image"><a href="${src}" target="_blank" rel="noreferrer"><img src="${src}" alt="${name}" loading="lazy"/></a><figcaption>${name}</figcaption></figure>`;
+    return `<figure class="md-media md-media-image"><a class="md-media-open" href="${src}" data-chat-image-path="${escapeAttr(parsed.path)}" data-chat-image-src="${src}" data-chat-image-name="${name}" target="_blank" rel="noreferrer"><img src="${src}" alt="${name}" loading="lazy"/></a><figcaption>${name}</figcaption></figure>`;
   }
   if (VIDEO_EXTS.has(ext)) {
     return `<figure class="md-media md-media-video"><video controls preload="metadata" src="${src}"></video><figcaption>${name}</figcaption></figure>`;
   }
   return `<figure class="md-media md-media-audio"><audio controls src="${src}"></audio><figcaption>${name}</figcaption></figure>`;
+}
+
+export type ChatMarkdownImage = { path: string; name: string; src: string; downloadUrl: string };
+
+export function chatMediaImagesFromMarkdown(text: string): ChatMarkdownImage[] {
+  return String(text || '').replace(/\r\n?/g, '\n').split('\n')
+    .map((line) => parseMediaDirectiveLine(line))
+    .filter((item): item is { directive: 'MEDIA' | 'FILE'; path: string } => !!item && item.directive === 'MEDIA' && IMAGE_EXTS.has(mediaExt(item.path)))
+    .map((item) => ({ path: item.path, name: basename(item.path), src: chatMediaUrlRaw(item.path), downloadUrl: chatMediaUrlRaw(item.path, true) }));
 }
 
 function applyInlineFormatting(escaped: string) {
