@@ -26,8 +26,15 @@ describe('tool message structured layout css', () => {
     expect(styles).toContain('.tool-detail-section{display:grid;gap:7px}');
   });
 
-  test('tool names render one step smaller than surrounding chat text', () => {
+  test('tool summaries keep the icon inside the card with compact typography', () => {
+    const source = app();
     const styles = css();
-    expect(styles).toContain('.tool-title{font-size:13px;font-weight:500;color:var(--accent);white-space:nowrap}');
+    expect(source).not.toContain('<div className="avatar">{getToolIcon(toolName)}</div>');
+    expect(source).toContain('<span className="tool-inline-icon">{getToolIcon(toolName)}</span>');
+    expect(styles).toContain('.msg-row.tool{grid-template-columns:minmax(0,1fr);max-width:920px;align-items:start}');
+    expect(styles).toContain('.tool-summary{width:100%;border:0;background:transparent;color:var(--text);display:grid;grid-template-columns:18px max-content minmax(0,1fr) 20px;gap:1ch;');
+    expect(styles).toContain('.tool-inline-icon{display:grid;color:var(--accent);place-items:center}');
+    expect(styles).toContain('.tool-title{font-size:12px;font-weight:500;color:var(--accent);white-space:nowrap}');
+    expect(styles).toContain('.tool-subtitle{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}');
   });
 });

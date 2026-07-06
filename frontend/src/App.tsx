@@ -2222,7 +2222,6 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
   const toolName = summary.toolName;
   const isError = summary.status !== 'ok';
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={message.id || undefined}>
-    <div className="avatar">{getToolIcon(toolName)}</div>
     <div className="msg-content tool-card">
       <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
         <span className="tool-inline-icon">{getToolIcon(toolName)}</span>
