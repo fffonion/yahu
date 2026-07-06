@@ -7,7 +7,7 @@ const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 describe('chat user message navigator', () => {
   test('loads user-message navigator from a separate lazy endpoint', () => {
     const source = app();
-    expect(source).toContain("type UserMessageNavItem = { id: string; role: 'user'; content: string; timestamp?: string | number; position: number; index: number; total: number }");
+    expect(source).toContain("type UserMessageNavItem = { id: string; role: 'user'; content: string; assistant_preview?: string; timestamp?: string | number; position: number; index: number; total: number }");
     expect(source).toContain("const [userMessageNav, setUserMessageNav] = useState<UserMessageNavItem[]>([]);");
     expect(source).toContain("fetch(`/chat/user-nav/${encodeURIComponent(sessionId)}`)");
     expect(source).not.toContain('setUserMessageNav(visibleMessages');
@@ -24,17 +24,19 @@ describe('chat user message navigator', () => {
     expect(source).toContain('onJumpToMessage={jumpToMessage}');
   });
 
-  test('renders half-length bars with popup content and time', () => {
+  test('renders half-length bars with popup content final assistant preview and time', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('function ChatUserNavigator(');
     expect(source).toContain('className="chat-user-minimap"');
     expect(source).toContain('className="user-minimap-popup"');
+    expect(source).toContain('entry.item.assistant_preview && <span className="user-minimap-assistant-preview">{entry.item.assistant_preview}</span>');
     expect(source).toContain('formatNavigatorTime(entry.item.timestamp)');
     expect(styles).toContain('.user-minimap-bar{width:9px;');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar');
     expect(styles).toContain('transition:width .18s ease,opacity .18s ease,background .18s ease');
     expect(styles).toContain('.user-minimap-popup{position:absolute;left:calc(100% + 10px);');
+    expect(styles).toContain('.user-minimap-assistant-preview{font-size:12px;line-height:1.35;color:color-mix(in srgb,var(--muted) 82%,transparent);');
   });
 
   test('shows at most three bars before and after the current bar without default selection width', () => {

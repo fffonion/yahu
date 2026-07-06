@@ -58,7 +58,7 @@ type ImageMetadata = { filename: string; dimensions?: { width: number; height: n
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
 type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: boolean };
-type UserMessageNavItem = { id: string; role: 'user'; content: string; timestamp?: string | number; position: number; index: number; total: number };
+type UserMessageNavItem = { id: string; role: 'user'; content: string; assistant_preview?: string; timestamp?: string | number; position: number; index: number; total: number };
 type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: boolean; compressed?: boolean };
 
 const DEFAULT_API_BASE = '/hermes';
@@ -2375,7 +2375,7 @@ function ChatUserNavigator({ items, sessionId, onJumpToMessage }: { items: UserM
   return <nav className="chat-user-minimap" aria-label="User message navigator">
     {visibleItems.map((entry, visibleIndex) => <button type="button" className="user-minimap-hit" key={entry.item.id} style={minimapHitStyle(visibleIndex, visibleItems.length)} aria-label={entry.item.content} onClick={() => onJumpToMessage(sessionId, entry.item.id)}>
       <span className="user-minimap-bar" />
-      <span className="user-minimap-popup"><strong>{entry.item.content || 'User message'}</strong>{formatNavigatorTime(entry.item.timestamp) && <time>{formatNavigatorTime(entry.item.timestamp)}</time>}</span>
+      <span className="user-minimap-popup"><strong>{entry.item.content || 'User message'}</strong>{entry.item.assistant_preview && <span className="user-minimap-assistant-preview">{entry.item.assistant_preview}</span>}{formatNavigatorTime(entry.item.timestamp) && <time>{formatNavigatorTime(entry.item.timestamp)}</time>}</span>
     </button>)}
   </nav>;
 }

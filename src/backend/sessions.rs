@@ -229,6 +229,8 @@ struct UserMessageNavItem {
     id: String,
     role: &'static str,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    assistant_preview: Option<String>,
     timestamp: Option<serde_json::Value>,
     position: f64,
     index: usize,
@@ -247,20 +249,62 @@ fn nav_message_timestamp(message: &serde_json::Value) -> Option<serde_json::Valu
         .find_map(|key| message.get(*key).cloned())
 }
 
-fn nav_message_excerpt(message: &serde_json::Value) -> String {
+fn nav_message_text(message: &serde_json::Value) -> String {
     let mut text = String::new();
     if let Some(content) = message.get("content") {
         collect_json_text(content, &mut text);
     }
+    text
+}
+
+fn strip_platform_sender_prefix(text: &str) -> &str {
+    let trimmed = text.trim_start();
+    let Some(rest) = trimmed.strip_prefix('[') else {
+        return trimmed;
+    };
+    let Some(end) = rest.find(']') else {
+        return trimmed;
+    };
+    if rest[..end].contains('|') {
+        rest[end + 1..].trim_start()
+    } else {
+        trimmed
+    }
+}
+
+fn nav_text_excerpt(text: &str, max_chars: usize) -> String {
     let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut excerpt = String::new();
-    for ch in compact.chars().take(160) {
+    for ch in compact.chars().take(max_chars) {
         excerpt.push(ch);
     }
     if compact.chars().count() > excerpt.chars().count() {
         excerpt.push('…');
     }
     excerpt
+}
+
+fn nav_message_excerpt(message: &serde_json::Value) -> String {
+    nav_text_excerpt(strip_platform_sender_prefix(&nav_message_text(message)), 160)
+}
+
+fn nav_assistant_preview(messages: &[serde_json::Value], user_index: usize) -> Option<String> {
+    let end = messages
+        .iter()
+        .enumerate()
+        .skip(user_index + 1)
+        .find_map(|(index, message)| {
+            (message.get("role").and_then(|role| role.as_str()) == Some("user")).then_some(index)
+        })
+        .unwrap_or(messages.len());
+    messages[user_index + 1..end]
+        .iter()
+        .rev()
+        .find_map(|message| {
+            (message.get("role").and_then(|role| role.as_str()) == Some("assistant"))
+                .then(|| nav_text_excerpt(&nav_message_text(message), 96))
+                .filter(|text| !text.is_empty())
+        })
 }
 
 fn build_user_message_nav(messages: &[serde_json::Value]) -> Vec<UserMessageNavItem> {
@@ -278,6 +322,7 @@ fn build_user_message_nav(messages: &[serde_json::Value]) -> Vec<UserMessageNavI
                 id,
                 role: "user",
                 content: nav_message_excerpt(message),
+                assistant_preview: nav_assistant_preview(messages, index),
                 timestamp: nav_message_timestamp(message),
                 position: index as f64 / denom,
                 index,
