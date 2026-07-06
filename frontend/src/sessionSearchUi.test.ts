@@ -60,7 +60,7 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('const activePreview = latestSessionPreviewFromMessages(messages);');
     expect(app).toContain('setSessions((old) => old.map((session) => session.id === activeSessionId && session.preview !== activePreview ? { ...session, preview: activePreview } : session));');
     expect(app).toContain('setActiveSessionDetail((old) => old?.id === activeSessionId && old.preview !== activePreview ? { ...old, preview: activePreview } : old);');
-    expect(app).toContain('setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, content: text, pending: true } : m));');
+    expect(app).toContain('setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, content: text, pending: true, timestamp: Date.now() / 1000 } : m));');
   });
 
   test('opened session header uses stitched history totals from message and minimap endpoints', () => {
@@ -76,7 +76,7 @@ describe('session search and composer session model UI', () => {
   test('opened session header shows start and latest message times on the right', () => {
     const app = source();
     const css = styles();
-    expect(app).toContain("import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';");
+    expect(app).toContain("import { formatChatMessageTime, sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';");
     expect(app).toContain('const headerTimes = sessionHeaderTimes(active, props.messages);');
     expect(app).toContain('className="session-header-times"');
     expect(css).toContain('.session-header-times{');

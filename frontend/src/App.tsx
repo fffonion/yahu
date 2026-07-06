@@ -7,7 +7,7 @@ import { waitForCronRunOutput } from './cronRunOutput';
 import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { summarizeToolMessage } from './toolMessage';
-import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
+import { formatChatMessageTime, sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { latestSessionPreviewFromMessages } from './sessionPreview';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
@@ -59,7 +59,7 @@ type ImageMetadata = { filename: string; dimensions?: { width: number; height: n
 type ChatLightboxImage = ChatMarkdownImage & { key: string; messageId: string };
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
-type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: boolean };
+type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: boolean; started_at?: number | string; last_active?: number | string };
 type UserMessageNavItem = { id: string; role: 'user'; content: string; assistant_preview?: string; timestamp?: string | number; position: number; index: number; total: number };
 type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: boolean; compressed?: boolean };
 
@@ -919,6 +919,16 @@ export default function App() {
     setSessions((old) => old.map((session) => session.id === sessionId ? { ...session, message_count } : session));
   }, []);
 
+  const updateSessionBoundaryTimes = useCallback((sessionId: string, page: MessagePage) => {
+    if (!sessionId || sessionId === DRAFT_SESSION_ID) return;
+    const patch: Partial<Session> = {};
+    if (page.started_at !== undefined) patch.started_at = page.started_at;
+    if (page.last_active !== undefined) patch.last_active = page.last_active;
+    if (!Object.keys(patch).length) return;
+    setActiveSessionDetail((old) => old?.id === sessionId ? { ...old, ...patch } : old);
+    setSessions((old) => old.map((session) => session.id === sessionId ? { ...session, ...patch } : session));
+  }, []);
+
   const loadContextWindowSnapshot = useCallback(async (sessionId: string) => {
     const req = ++contextWindowRequestRef.current;
     if (!sessionId || sessionId === DRAFT_SESSION_ID) {
@@ -1033,6 +1043,7 @@ export default function App() {
       const page: MessagePage = await res.json();
       if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
       updateSessionMessageCount(sessionId, page.total);
+      updateSessionBoundaryTimes(sessionId, page);
       const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
       const merged = mergeMessageWindow<ChatMessage>({
         current: direction === 'latest' ? [] : messagesRef.current,
@@ -1058,7 +1069,7 @@ export default function App() {
         setLoadingMessages(false);
       }
     }
-  }, [updateSessionMessageCount]);
+  }, [updateSessionBoundaryTimes, updateSessionMessageCount]);
 
   const loadUserMessageNav = useCallback(async (sessionId: string) => {
     if (!sessionId || sessionId === DRAFT_SESSION_ID) { setUserMessageNav([]); return; }
@@ -1072,7 +1083,7 @@ export default function App() {
     } catch {
       if (activeSessionIdRef.current === sessionId) setUserMessageNav([]);
     }
-  }, [updateSessionMessageCount]);
+  }, [updateSessionBoundaryTimes, updateSessionMessageCount]);
 
   const jumpToMessage = useCallback(async (sessionId: string, messageId: string) => {
     if (!sessionId || !messageId || sessionId === DRAFT_SESSION_ID) return;
@@ -1095,6 +1106,7 @@ export default function App() {
       const page: MessagePage = await res.json();
       if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
       updateSessionMessageCount(sessionId, page.total);
+      updateSessionBoundaryTimes(sessionId, page);
       const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
       messagesRef.current = chunk;
       pendingJumpMessageIdRef.current = messageId;
@@ -1110,7 +1122,7 @@ export default function App() {
         setLoadingMessages(false);
       }
     }
-  }, [updateSessionMessageCount]);
+  }, [updateSessionBoundaryTimes, updateSessionMessageCount]);
 
   const fetchWorkspaceEntries = useCallback(async (path = '') => {
     const res = await fetch(`/workspace/list?path=${encodeURIComponent(path || '')}`);
@@ -1589,7 +1601,7 @@ export default function App() {
     const sessionProvider = providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || '';
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
-    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, model: sessionModel, provider: sessionProvider };
+    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, timestamp: Date.now() / 1000, model: sessionModel, provider: sessionProvider };
     const payloadInput = buildPayload(text, payloadAttachments);
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
@@ -1610,7 +1622,7 @@ export default function App() {
       };
       const animator = createStreamAnimator({
         onUpdate: (text) => {
-          setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, content: text, pending: true } : m));
+          setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, content: text, pending: true, timestamp: Date.now() / 1000 } : m));
           scrollWithStream();
         },
       });
@@ -1661,7 +1673,7 @@ export default function App() {
       // before flipping `pending: false`, so the caret / shimmer / glow run for the full duration.
       await animator.finish(finalText);
       sessionId = await reconcileEffectiveSession(sessionId, effectiveSessionId, createdSession);
-      setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning } : m));
+      setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning, timestamp: Date.now() / 1000 } : m));
       setStatus(t('chat.connected'));
       await refreshSessionTitleOnce(sessionId);
       await loadWorkspace(workspacePath);
@@ -2368,7 +2380,7 @@ function MessageView({ message, showReasoning = false, assistantName }: { messag
       <div className="msg-content">
         <div className="msg-meta">
           <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>
-          <time>{message.timestamp ? new Date(Number(message.timestamp) * (Number(message.timestamp) < 1e12 ? 1000 : 1)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+          <time>{formatChatMessageTime(message.timestamp)}</time>
           {isPending && <span className="stream-state" aria-label="streaming"><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">streaming</span></span>}
         </div>
         <div className="msg-body">

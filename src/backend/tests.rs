@@ -769,6 +769,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_messages_page_reports_stitched_boundary_timestamps() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('root',NULL,10,'compression','telegram')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('child','root',20,NULL,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('root','user','first stitched message',111,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('child','assistant','latest stitched message',333,1)", []).unwrap();
+        drop(conn);
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let resp = chat_messages_page(
+            State(state),
+            AxumPath("child".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(1) }),
+        )
+        .await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(page["total"], 2);
+        assert_eq!(page["data"].as_array().unwrap().len(), 1);
+        assert_eq!(page["started_at"], serde_json::json!(111.0));
+        assert_eq!(page["last_active"], serde_json::json!(333.0));
+    }
+
+    #[tokio::test]
     async fn chat_history_includes_immediate_agent_close_predecessor_for_same_thread() {
         async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
             Json(serde_json::json!({

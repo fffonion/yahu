@@ -40,6 +40,22 @@ export function formatSessionTime(value: unknown, formatter: TimeFormatter = def
   return ms === null ? '' : formatter(new Date(ms));
 }
 
+function pad2(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function localDateKey(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+export function formatChatMessageTime(value: unknown, now: Date = new Date()) {
+  const ms = timestampMs(value) ?? now.getTime();
+  const date = new Date(ms);
+  const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  if (localDateKey(date) === localDateKey(now)) return time;
+  return `${pad2(date.getMonth() + 1)}/${pad2(date.getDate())} ${time}`;
+}
+
 export function sessionDisplayTitle(session: SessionTimeLike | null | undefined, formatter: TimeFormatter = defaultSessionTimeFormatter) {
   const title = String(session?.title || '').trim();
   if (title) return title;

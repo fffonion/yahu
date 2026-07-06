@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
+import { formatChatMessageTime, sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 
 const stamp = (date: Date) => `T${date.getTime()}`;
 
@@ -46,5 +46,13 @@ describe('session time display helpers', () => {
     );
 
     expect(times).toEqual({ started: 'Started T1783131076808', latest: 'Latest T1783375941996' });
+  });
+
+  test('formats today chat message timestamps as hour and minute only', () => {
+    expect(formatChatMessageTime('2026-07-06T09:08:00', new Date('2026-07-06T22:00:00'))).toBe('09:08');
+  });
+
+  test('formats older chat message timestamps with month and day but no year', () => {
+    expect(formatChatMessageTime('2026-07-05T09:08:00', new Date('2026-07-06T22:00:00'))).toBe('07/05 09:08');
   });
 });

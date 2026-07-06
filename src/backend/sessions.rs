@@ -207,14 +207,23 @@ async fn chat_messages_page(
         (all.len().saturating_sub(limit), all.len())
     };
     let page: Vec<_> = all[start..end].to_vec();
+    let (started_at, last_active) = stitched_message_boundary_times(&all);
     Json(serde_json::json!({
         "object": "list",
         "data": page,
         "total": all.len(),
         "has_older": start > 0,
-        "has_newer": end < all.len()
+        "has_newer": end < all.len(),
+        "started_at": started_at,
+        "last_active": last_active
     }))
     .into_response()
+}
+
+fn stitched_message_boundary_times(messages: &[serde_json::Value]) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
+    let started_at = messages.iter().find_map(nav_message_timestamp);
+    let last_active = messages.iter().rev().find_map(nav_message_timestamp);
+    (started_at, last_active)
 }
 fn session_message_items(body: &serde_json::Value) -> Vec<serde_json::Value> {
     body.get("data")
