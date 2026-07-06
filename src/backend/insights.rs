@@ -280,29 +280,56 @@ async fn insights_usage(
 }
 
 async fn fetch_models_dev_price_catalog(state: &AppState) -> anyhow::Result<ModelPriceCatalog> {
+    fetch_models_dev_price_catalog_from_url(state, MODELS_DEV_API_URL).await
+}
+
+async fn fetch_models_dev_price_catalog_from_url(
+    state: &AppState,
+    url: &str,
+) -> anyhow::Result<ModelPriceCatalog> {
     {
         let cache = state.model_price_cache.read().await;
         if let Some(body) = fresh_model_cache_body(&cache, MODEL_PRICE_CACHE_TTL) {
             return Ok(model_price_catalog_from_models_dev(&body));
         }
     }
-    let resp = timeout(
-        INSIGHTS_REQUEST_TIMEOUT,
-        state
-            .client
-            .get(MODELS_DEV_API_URL)
-            .header(header::USER_AGENT, concat!("yahu/", env!("CARGO_PKG_VERSION")))
-            .send(),
-    )
-    .await??;
-    if !resp.status().is_success() {
-        anyhow::bail!("models.dev price request failed: {}", resp.status());
+
+    let fetch_result = async {
+        let resp = timeout(
+            INSIGHTS_REQUEST_TIMEOUT,
+            state
+                .client
+                .get(url)
+                .header(header::USER_AGENT, concat!("yahu/", env!("CARGO_PKG_VERSION")))
+                .send(),
+        )
+        .await??;
+        if !resp.status().is_success() {
+            anyhow::bail!("models.dev price request failed: {}", resp.status());
+        }
+        resp.json::<serde_json::Value>().await.map_err(Into::into)
     }
-    let body = resp.json::<serde_json::Value>().await?;
-    let mut cache = state.model_price_cache.write().await;
-    cache.fetched_at = Some(std::time::Instant::now());
-    cache.body = Some(body.clone());
-    Ok(model_price_catalog_from_models_dev(&body))
+    .await;
+
+    match fetch_result {
+        Ok(body) => {
+            let mut cache = state.model_price_cache.write().await;
+            cache.fetched_at = Some(std::time::Instant::now());
+            cache.body = Some(body.clone());
+            Ok(model_price_catalog_from_models_dev(&body))
+        }
+        Err(err) => {
+            let stale_body = {
+                let cache = state.model_price_cache.read().await;
+                cache.body.clone()
+            };
+            if let Some(body) = stale_body {
+                warn!("models.dev price refresh failed; using stale price cache: {err}");
+                return Ok(model_price_catalog_from_models_dev(&body));
+            }
+            Err(err)
+        }
+    }
 }
 
 async fn fetch_recent_sessions_for_insights(

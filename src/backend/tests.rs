@@ -1299,4 +1299,39 @@ mod tests {
         assert!((price.estimate(1_000_000, 100_000, 9_000_000, 0) - 1.92).abs() < 0.000001);
     }
 
+    #[tokio::test]
+    async fn insights_price_catalog_uses_stale_cache_when_models_dev_refresh_fails() {
+        async fn unavailable() -> StatusCode {
+            StatusCode::BAD_GATEWAY
+        }
+
+        let app = axum::Router::new().route("/api.json", get(unavailable));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        {
+            let mut cache = state.model_price_cache.write().await;
+            cache.fetched_at = Some(std::time::Instant::now() - MODEL_PRICE_CACHE_TTL - Duration::from_secs(1));
+            cache.body = Some(serde_json::json!({
+                "openai": {
+                    "id": "openai",
+                    "models": {
+                        "gpt-5.5": {
+                            "id": "gpt-5.5",
+                            "cost": {"input": 5.0, "output": 30.0, "cache_read": 0.5}
+                        }
+                    }
+                }
+            }));
+        }
+
+        let catalog = fetch_models_dev_price_catalog_from_url(&state, &format!("http://{addr}/api.json")).await.unwrap();
+        let price = model_price_for_model(&catalog, "gpt-5.5").unwrap();
+
+        assert!((price.estimate(1_000_000, 100_000, 9_000_000, 0) - 12.5).abs() < 0.000001);
+    }
+
 }
