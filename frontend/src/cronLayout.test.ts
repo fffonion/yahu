@@ -58,10 +58,23 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain('className="cron-output-panel cron-fullwidth"');
     expect(source).toContain("{t('cron.lastOutput')}");
     expect(styles).toContain('.cron-output-panel{display:grid;gap:7px;min-width:0}');
-    expect(styles).toContain('.cron-output-panel pre{margin:0;overflow:visible;white-space:pre-wrap;word-break:break-word;font:12px/1.45 var(--mono);color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 12px}');
+    expect(styles).toContain('.cron-output-content{margin:0;overflow:visible;white-space:normal;word-break:break-word;font:13px/1.55 var(--font);color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 12px}');
     expect(styles).not.toContain('.cron-output-panel{display:grid;gap:8px;border:1px solid var(--border);');
     expect(styles).not.toContain('.cron-output-panel pre{max-height:240px');
     expect(styles).not.toContain('.cron-output-panel pre{margin:0;overflow:visible;white-space:pre-wrap;word-break:break-word;font:12px/1.45 var(--mono);color:var(--text);background:var(--surface);');
+  });
+
+  test('latest cron output renders markdown and image media with the chat lightbox', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('const cronOutputText = cronOutputDisplayText(props.cronOutput, props.cronOutputLoading);');
+    expect(source).toContain('dangerouslySetInnerHTML={{ __html: markdownText(cronOutputText) }}');
+    expect(source).toContain('const cronLightboxImages = useMemo(() => chatMediaImagesFromMarkdown(cronOutputText)');
+    expect(source).toContain('onClick={onCronOutputMediaClick}');
+    expect(source).toContain('<ChatImageLightbox items={cronLightboxImages} current={cronImageModal}');
+    expect(source).not.toContain('<pre>{props.cronOutputLoading ? t(\'cron.loadingOutput\')');
+    expect(styles).toContain('.cron-output-panel .md-media-open{display:block;cursor:zoom-in}');
+    expect(styles).toContain('.cron-output-panel .md-media img,.cron-output-panel .md-media video{width:100%;height:auto;max-width:100%;border-radius:12px;border:1px solid var(--border);background:var(--surface);display:block}');
   });
 
   test('selected cron detail shows the enabled toolsets from the API job row', () => {

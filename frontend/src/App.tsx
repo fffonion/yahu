@@ -2778,8 +2778,26 @@ function CronSidebar({ jobs, editingId, beginCronEdit, resetCronForm, writeHashR
     <span className="session-icon"><CalendarClock /></span><span className="session-text"><span className="session-title">{j.name || jobId(j)}</span><span className="session-preview">{jobSchedule(j.schedule)} · {jobStateLabel(j)}{j.script ? ` · ${j.script}` : ''}</span></span>
   </button>)}</div></>;
 }
+function cronOutputDisplayText(output: CronOutput | null, loading: boolean) {
+  if (loading) return t('cron.loadingOutput');
+  if (!output?.content) return t('cron.noOutput');
+  return `${output.content}${output.truncated ? `\n\n${t('cron.outputTruncated')}` : ''}`;
+}
 function CronMain(props: { name: string; setName: (v: string) => void; schedule: string; setSchedule: (v: string) => void; prompt: string; setPrompt: (v: string) => void; script: string; setScript: (v: string) => void; deliver: string; setDeliver: (v: string) => void; editingId: string; currentJob: Job | null; cronOutput: CronOutput | null; cronOutputLoading: boolean; refreshCronOutput: () => void; saveCronJob: () => void; runCronJob: () => void; deleteCronJob: () => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
   const pinnedModel = cronPinnedModel(props.currentJob);
+  const [cronImageModal, setCronImageModal] = useState<ChatLightboxImage | null>(null);
+  const cronOutputText = cronOutputDisplayText(props.cronOutput, props.cronOutputLoading);
+  const cronLightboxImages = useMemo(() => chatMediaImagesFromMarkdown(cronOutputText).map((image, index) => ({ ...image, key: `cron:${props.editingId}:${index}:${image.path}`, messageId: props.editingId })), [cronOutputText, props.editingId]);
+  const onCronOutputMediaClick = (event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    const link = target.closest('a.md-media-open') as HTMLAnchorElement | null;
+    if (!link) return;
+    event.preventDefault();
+    const path = link.dataset.chatImagePath || '';
+    const src = link.dataset.chatImageSrc || link.getAttribute('href') || '';
+    const found = cronLightboxImages.find((item) => item.path === path || item.src === src);
+    setCronImageModal(found || { key: `cron-adhoc:${path || src}`, messageId: props.editingId, path, name: link.dataset.chatImageName || basename(path || src), src, downloadUrl: `${src}${src.includes('?') ? '&' : '?'}download=1` });
+  };
   return <main className="main-panel cron-main">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{props.editingId ? t('cron.editCron') : t('cron.newCron')}</h1><span>{t('cron.jobs')}</span></div><div className="header-actions cron-header-actions"><button type="button" aria-label={t('cron.saveAria')} title={t('cron.save')} className="icon-btn cron-action-btn" onClick={props.saveCronJob}><Save /></button><button type="button" aria-label={t('cron.runAria')} title={t('cron.runShort')} className="icon-btn cron-action-btn" disabled={!props.editingId} onClick={props.runCronJob}><PlayMark /></button><button type="button" aria-label={t('cron.deleteAria')} title={t('cron.delete')} className="icon-btn cron-action-btn danger" disabled={!props.editingId} onClick={props.deleteCronJob}><Trash2 /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <section className="cron-detail-wrap"><div className="cron-detail">
@@ -2790,7 +2808,8 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
       <label className="cron-field cron-fullwidth cron-deliver-field"><span>{t('cron.deliver')}</span><input value={props.deliver} onChange={(e) => props.setDeliver(e.target.value)} placeholder={t('cron.placeholderDeliver')} list="cron-deliver-options" /><datalist id="cron-deliver-options"><option value="origin">{t('cron.deliverOrigin')}</option><option value="local">{t('cron.deliverLocal')}</option><option value="all">{t('cron.deliverAll')}</option><option value="telegram" /><option value="weixin" /><option value="qqbot" /></datalist></label>
       {props.editingId && <section className="cron-model-field cron-fullwidth"><span>{t('cron.pinnedModel')}</span><div className="cron-model-value">{pinnedModel ? (pinnedModel.nonAgent ? <span className="cron-tool-chip muted">{t('cron.nonAgentJob')}</span> : <>{pinnedModel.provider && <span className="cron-tool-chip">{providerDisplayName(pinnedModel.provider)}</span>}{pinnedModel.model && <span className="cron-tool-chip">{pinnedModel.model}</span>}</>) : <span className="cron-tool-chip muted">{t('cron.noPinnedModel')}</span>}</div></section>}
       {props.editingId && <section className="cron-tools-field cron-fullwidth"><span>{t('cron.enabledTools')}</span><div className="cron-tool-list">{cronEnabledToolsets(props.currentJob).map((toolset) => <span className="cron-tool-chip" key={toolset}>{toolset}</span>)}{!cronEnabledToolsets(props.currentJob).length && <span className="cron-tool-chip muted">{t('cron.allDefaultTools')}</span>}</div></section>}
-      {props.editingId && <section className="cron-output-panel cron-fullwidth"><div className="cron-output-head"><div className="cron-output-title">{props.cronOutput?.timestamp && <time className="cron-output-timestamp" dateTime={props.cronOutput.timestamp}>{props.cronOutput.timestamp}</time>}<span>{t('cron.lastOutput')}</span></div><button type="button" className="mobile-icon-only" onClick={props.refreshCronOutput} disabled={props.cronOutputLoading}><RefreshCw /> <span className="btn-label">{t('cron.refreshOutput')}</span></button></div><pre>{props.cronOutputLoading ? t('cron.loadingOutput') : props.cronOutput?.content ? `${props.cronOutput.content}${props.cronOutput.truncated ? `\n\n${t('cron.outputTruncated')}` : ''}` : t('cron.noOutput')}</pre></section>}
+      {props.editingId && <section className="cron-output-panel cron-fullwidth" onClick={onCronOutputMediaClick}><div className="cron-output-head"><div className="cron-output-title">{props.cronOutput?.timestamp && <time className="cron-output-timestamp" dateTime={props.cronOutput.timestamp}>{props.cronOutput.timestamp}</time>}<span>{t('cron.lastOutput')}</span></div><button type="button" className="mobile-icon-only" onClick={props.refreshCronOutput} disabled={props.cronOutputLoading}><RefreshCw /> <span className="btn-label">{t('cron.refreshOutput')}</span></button></div><div className="cron-output-content md-content" dangerouslySetInnerHTML={{ __html: markdownText(cronOutputText) }} /></section>}
+      <ChatImageLightbox items={cronLightboxImages} current={cronImageModal} onSelect={setCronImageModal} onClose={() => setCronImageModal(null)} />
     </div></section>
   </main>;
 }
