@@ -2307,74 +2307,19 @@ function formatNavigatorTime(value?: string | number) {
   return date.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-const NAVIGATOR_RADIUS = 3;
-
-type NavigatorWindowEntry = { item: UserMessageNavItem; index: number; distance: number };
-
-function navigatorBarTop(index: number, total: number) {
-  if (total <= 1) return '50%';
-  const compactGapPx = Math.max(5, Math.min(12, 220 / (total - 1)));
-  const offsetPx = (index - (total - 1) / 2) * compactGapPx;
-  return `calc(50% + ${offsetPx.toFixed(1)}px)`;
-}
-
-function navigatorVisibleItems(items: UserMessageNavItem[], centerIndex: number): NavigatorWindowEntry[] {
-  const totalSlots = NAVIGATOR_RADIUS * 2 + 1; // always 7
-  const half = Math.floor(totalSlots / 2); // 3
-  if (items.length <= totalSlots) {
-    return items.map((item, index) => ({ item, index, distance: index - centerIndex }));
-  }
-  const start = Math.max(0, Math.min(centerIndex - half, items.length - totalSlots));
-  const end = start + totalSlots;
-  return items.slice(start, end).map((item, index) => ({ item, index: start + index, distance: start + index - centerIndex }));
-}
-
-function minimapHitStyle(visibleIndex: number, visibleCount: number): React.CSSProperties {
+function minimapHitStyle(item: UserMessageNavItem): React.CSSProperties {
+  const position = Number.isFinite(item.position) ? Math.max(0, Math.min(1, item.position)) : 0;
   return {
-    top: navigatorBarTop(visibleIndex, visibleCount),
+    top: `${(position * 100).toFixed(3)}%`,
   };
 }
 
-function currentNavigatorIndex(items: UserMessageNavItem[]) {
-  const scroll = document.querySelector('.chat-scroll');
-  const viewport = scroll?.getBoundingClientRect();
-  const viewportMiddle = viewport ? viewport.top + viewport.height / 2 : window.innerHeight / 2;
-  let bestIndex = Math.max(0, items.length - 1);
-  let bestDistance = Infinity;
-  for (let index = 0; index < items.length; index += 1) {
-    const row = document.querySelector(`[data-message-id="${CSS.escape(items[index].id)}"]`);
-    if (!row) continue;
-    const rect = row.getBoundingClientRect();
-    const distance = Math.abs(rect.top + rect.height / 2 - viewportMiddle);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestIndex = index;
-    }
-  }
-  return bestIndex;
-}
-
 function ChatUserNavigator({ items, sessionId, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  useEffect(() => {
-    if (!items.length) return;
-    const updateCurrentIndex = () => setCurrentIndex(currentNavigatorIndex(items));
-    updateCurrentIndex();
-    const scroll = document.querySelector('.chat-scroll');
-    scroll?.addEventListener('scroll', updateCurrentIndex, { passive: true });
-    window.addEventListener('resize', updateCurrentIndex);
-    return () => {
-      scroll?.removeEventListener('scroll', updateCurrentIndex);
-      window.removeEventListener('resize', updateCurrentIndex);
-    };
-  }, [items]);
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
-  const centerIndex = Math.max(0, Math.min(currentIndex, items.length - 1));
-  const visibleItems = navigatorVisibleItems(items, centerIndex);
   return <nav className="chat-user-minimap" aria-label="User message navigator">
-    {visibleItems.map((entry, visibleIndex) => <button type="button" className="user-minimap-hit" key={entry.item.id} style={minimapHitStyle(visibleIndex, visibleItems.length)} aria-label={entry.item.content} onClick={() => onJumpToMessage(sessionId, entry.item.id)}>
+    {items.map((item) => <button type="button" className="user-minimap-hit" key={item.id} style={minimapHitStyle(item)} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onClick={() => onJumpToMessage(sessionId, item.id)}>
       <span className="user-minimap-bar" />
-      <span className="user-minimap-popup"><strong>{entry.item.content || 'User message'}</strong>{entry.item.assistant_preview && <span className="user-minimap-assistant-preview">{entry.item.assistant_preview}</span>}{formatNavigatorTime(entry.item.timestamp) && <time>{formatNavigatorTime(entry.item.timestamp)}</time>}</span>
+      <span className="user-minimap-popup"><strong>{item.content || 'User message'}</strong>{item.assistant_preview && <span className="user-minimap-assistant-preview">{item.assistant_preview}</span>}{formatNavigatorTime(item.timestamp) && <time>{formatNavigatorTime(item.timestamp)}</time>}</span>
     </button>)}
   </nav>;
 }
