@@ -77,6 +77,13 @@ function resultFromRecord(root: Record<string, unknown> | null, parsed: unknown)
   return Object.fromEntries(entries);
 }
 
+function commandFromInput(toolName: string, input: unknown): string {
+  const name = toolName.replace(/^functions\./, '');
+  const record = asRecord(input);
+  const command = record?.command;
+  return name === 'terminal' && typeof command === 'string' && command.trim() ? command.trim() : '';
+}
+
 export function summarizeToolMessage(content: string, fallbackToolName = '', fallbackInput?: unknown): ToolSummary {
   const parsed = parseUntrustedToolResult(content) ?? tryParseJson(content);
   const root = asRecord(parsed);
@@ -116,10 +123,12 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
     push('output', content);
   }
 
-  const subtitle = fields.find((f) => f.key === 'error')?.value
+  const input = invocationFromRecord(root) ?? parseMaybeJson(fallbackInput);
+  const command = commandFromInput(toolName, input);
+  const subtitle = command
+    || fields.find((f) => f.key === 'error')?.value
     || fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value
     || (root ? `${Object.keys(root).length} fields` : content);
 
-  const input = invocationFromRecord(root) ?? parseMaybeJson(fallbackInput);
   return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status };
 }

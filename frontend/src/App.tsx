@@ -41,7 +41,7 @@ function sessionWithPreservedMessageCount(next: Session, current?: Session | nul
   if (!nextTitle && currentTitle) merged.title = current?.title;
   return merged;
 }
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
@@ -328,6 +328,7 @@ function normalizeMessage(raw: any): ChatMessage {
     toolName: rawToolName(raw),
     toolInput: rawToolInput(raw),
     toolCalls: raw.toolCalls ?? raw.tool_calls,
+    toolCallId: String(raw.toolCallId || raw.tool_call_id || raw.call_id || '').trim() || undefined,
   };
   if (tokenCount !== undefined) msg.tokenCount = tokenCount;
   if (platformSender.senderName) msg.platformSenderName = platformSender.senderName;

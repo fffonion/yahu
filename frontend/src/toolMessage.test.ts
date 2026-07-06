@@ -49,4 +49,15 @@ describe('summarizeToolMessage', () => {
     expect(summary.toolName).toBe('functions.terminal');
     expect(summary.fields).toEqual([{ key: 'output', value: 'plain terminal output' }]);
   });
+
+  test('terminal summary subtitle prefers the executed command over command output', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ output: 'validation=ok', exit_code: 0, error: null }),
+      'terminal',
+      { command: 'python3 validate.py --strict', timeout: 15 },
+    );
+    expect(summary.subtitle).toBe('python3 validate.py --strict');
+    expect(summary.result).toBe('validation=ok');
+    expect(summary.input).toEqual({ command: 'python3 validate.py --strict', timeout: 15 });
+  });
 });

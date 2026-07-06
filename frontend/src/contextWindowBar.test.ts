@@ -7,7 +7,7 @@ const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 describe('chat context window meter', () => {
   test('chat header renders an API-token context window bar before the settings control', () => {
     const source = app();
-    expect(source).toContain('type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string }');
+    expect(source).toContain('type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string }');
     expect(source).toContain('function ContextWindowMeter({ used, total, approximate = false }: { used?: number; total?: number; approximate?: boolean })');
     expect(source).toContain('const contextWindowTotal = currentModelOption?.contextLength || fallbackContextWindowForModel(currentModel);');
     expect(source).toContain('const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);');

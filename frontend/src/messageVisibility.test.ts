@@ -28,6 +28,15 @@ describe('chat message visibility', () => {
     expect(shouldRenderMessage(msg, false, false)).toBe(false);
   });
 
+  test('copies assistant tool-call arguments onto the matching tool result for collapsed summaries', () => {
+    const messages = [
+      { id: 'a-call', role: 'assistant', content: '', pending: false, toolCalls: [{ id: 'call_1', call_id: 'call_1', function: { name: 'terminal', arguments: '{"command":"date +%F","timeout":15}' } }] },
+      { id: 'tool-result', role: 'tool', content: '{"output":"2026-07-07","exit_code":0}', pending: false, toolName: 'terminal', toolCallId: 'call_1' },
+    ];
+    const deduped = dedupeVisibleChatMessages(messages);
+    expect(deduped.find((message) => message.id === 'tool-result')?.toolInput).toEqual({ command: 'date +%F', timeout: 15 });
+  });
+
   test('tool-like patch and terminal messages hide even when their role is not tool', () => {
     const patchMessage = { role: 'assistant', content: '<untrusted_tool_result source="patch">diff</untrusted_tool_result>', pending: false };
     const terminalMessage = { role: 'system', content: JSON.stringify({ tool_name: 'terminal', output: 'done' }), pending: false };

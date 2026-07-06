@@ -7,6 +7,7 @@ export type MessageVisibilityInput = {
   toolName?: string | null;
   toolInput?: unknown;
   toolCalls?: unknown;
+  toolCallId?: string | null;
 };
 
 function recordLooksToolLike(value: unknown): boolean {
@@ -72,12 +73,54 @@ function isLocalStreamAssistantMessage(message: MessageVisibilityInput): boolean
   return message.role === 'assistant' && String(message.id || '').startsWith('assistant_');
 }
 
+function parseMaybeJsonValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed || !/^[\[{]/.test(trimmed)) return value;
+  try { return JSON.parse(trimmed); } catch { return value; }
+}
+
+function recordValue(record: Record<string, unknown> | null, keys: string[]): unknown {
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null && value !== '') return parseMaybeJsonValue(value);
+  }
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function rememberToolCallInputs(message: MessageVisibilityInput, inputs: Map<string, unknown>) {
+  if (message.role !== 'assistant' || !Array.isArray(message.toolCalls)) return;
+  for (const raw of message.toolCalls) {
+    const call = asRecord(raw);
+    const fn = asRecord(call?.function);
+    const input = recordValue(call, ['arguments', 'args', 'params', 'parameters', 'input', 'tool_input', 'tool_args', 'request'])
+      ?? recordValue(fn, ['arguments', 'args', 'params', 'parameters']);
+    if (input === undefined) continue;
+    for (const id of [call?.call_id, call?.id, call?.tool_call_id]) {
+      const key = String(id || '').trim();
+      if (key) inputs.set(key, input);
+    }
+  }
+}
+
 export function dedupeVisibleChatMessages<T extends MessageVisibilityInput>(messages: T[]): T[] {
   const result: T[] = [];
   const assistantByTurnContent = new Map<string, number>();
+  const toolInputsByCallId = new Map<string, unknown>();
   let turn = 0;
   let lastUserResultIndex = -1;
-  for (const msg of messages) {
+  for (const rawMessage of messages) {
+    let msg = rawMessage;
+    rememberToolCallInputs(msg, toolInputsByCallId);
+    const toolCallId = String(msg.toolCallId || '').trim();
+    if (msg.role === 'tool' && msg.toolInput === undefined && toolCallId && toolInputsByCallId.has(toolCallId)) {
+      msg = { ...msg, toolInput: toolInputsByCallId.get(toolCallId) };
+    }
     if (msg.role === 'user') {
       turn += 1;
       assistantByTurnContent.clear();
