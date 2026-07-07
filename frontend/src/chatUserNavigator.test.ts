@@ -24,7 +24,7 @@ describe('chat user message navigator', () => {
     expect(source).toContain('onJumpToMessage={jumpToMessage}');
   });
 
-  test('renders half-length bars with popup content final assistant preview and time', () => {
+  test('renders shorter default bars with popup content final assistant preview and time', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('function ChatUserNavigator(');
@@ -33,7 +33,7 @@ describe('chat user message navigator', () => {
     expect(source).toContain('const [popup, setPopup] = useState<{ item: UserMessageNavItem; top: number } | null>(null);');
     expect(source).toContain('popup.item.assistant_preview && <span className="user-minimap-assistant-preview">{popup.item.assistant_preview}</span>');
     expect(source).toContain('formatNavigatorTime(popup.item.timestamp)');
-    expect(styles).toContain('.user-minimap-bar{width:9px;');
+    expect(styles).toContain('.user-minimap-bar{width:6px;');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar');
     expect(styles).toContain('transition:width .18s ease,opacity .18s ease,background .18s ease');
     expect(styles).toContain('.user-minimap-popup{position:absolute;left:29px;');
@@ -64,9 +64,14 @@ describe('chat user message navigator', () => {
     expect(styles).not.toContain('height:80%;max-height:80%;');
     expect(styles).not.toContain('max-height:min(52dvh,420px)');
     expect(styles).toContain('.user-minimap-hit{position:relative;width:54px;height:8px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:flex-start;pointer-events:auto;cursor:pointer;flex-shrink:0}');
-    expect(styles).toContain('.user-minimap-bar{width:9px;');
+    expect(styles).toContain('.user-minimap-bar{width:6px;');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar,.user-minimap-hit:focus-visible .user-minimap-bar{width:21px;');
     expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit:hover) .user-minimap-bar{width:17px;');
+    expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit+ .user-minimap-hit:hover) .user-minimap-bar{width:13px;');
+    expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit+.user-minimap-hit+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit+ .user-minimap-hit+ .user-minimap-hit:hover) .user-minimap-bar{width:9px;');
+    expect(styles.indexOf('.chat-user-minimap:has(.user-minimap-hit:hover) .user-minimap-hit:not(:hover) .user-minimap-bar{opacity:.42}')).toBeLessThan(styles.indexOf('.user-minimap-hit:hover+.user-minimap-hit .user-minimap-bar'));
+    expect(styles).toContain('.chat-user-minimap:has(.user-minimap-hit:hover) .user-minimap-hit:hover+.user-minimap-hit .user-minimap-bar,.chat-user-minimap:has(.user-minimap-hit:hover) .user-minimap-hit:has(+ .user-minimap-hit:hover) .user-minimap-bar{width:17px;opacity:.9}');
+    expect(styles.indexOf('.chat-user-minimap:has(.user-minimap-hit:hover) .user-minimap-hit:not(:hover) .user-minimap-bar{opacity:.42}')).toBeLessThan(styles.indexOf('.chat-user-minimap:has(.user-minimap-hit:hover) .user-minimap-hit:hover+.user-minimap-hit .user-minimap-bar'));
   });
 
   test('uses backend full user-turn list and highlights the current visible range', () => {
