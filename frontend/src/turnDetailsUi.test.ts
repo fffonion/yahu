@@ -21,11 +21,11 @@ describe('turn detail fold UI', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('className="turn-detail-toggle"');
-    expect(source).toContain('<span className="turn-detail-toggle-label">{t(\'chat.expandDetails\')}</span>');
+    expect(source).toContain("<span className=\"turn-detail-toggle-label\">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span>");
     expect(source).not.toContain('<span className="turn-detail-toggle-label">Expand</span>');
     expect(styles).toContain('.turn-detail-toggle{display:inline-grid;grid-template-columns:14px auto;');
-    expect(source).toContain('onToggle={(event) => { const detail = event.currentTarget; detail.style.setProperty(\'--turn-detail-toggle-label\', `"${detail.open ? t(\'chat.collapseDetails\') : t(\'chat.expandDetails\')}"`); }}');
-    expect(styles).toContain('.turn-detail-group[open] .turn-detail-toggle-label::before{content:var(--turn-detail-toggle-label)}');
+    expect(source).toContain("open={open} onToggle={(event) => setOpen(event.currentTarget.open)}");
+    expect(source).toContain("const [open, setOpen] = useState(false);");
   });
 
   test('outer turn detail group has compact collapsed styling separate from inner tool and reasoning folds', () => {
