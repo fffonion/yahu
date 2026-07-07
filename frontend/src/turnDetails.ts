@@ -6,6 +6,14 @@ export type TurnDetailMessageItem<T> = {
   sourceIndexes: number[];
 };
 
+export type TurnDetailMetadata = {
+  count: number;
+  toolCount?: number;
+  thinkingCount?: number;
+  afterId?: string;
+  beforeId?: string;
+};
+
 export type TurnDetailGroupItem<T> = {
   kind: 'detailGroup';
   id: string;
@@ -13,6 +21,7 @@ export type TurnDetailGroupItem<T> = {
   sourceIndexes: number[];
   finalMessage: T;
   finalIndex: number;
+  detail?: TurnDetailMetadata;
 };
 
 export type TurnDetailBlock<T> = {
@@ -22,6 +31,8 @@ export type TurnDetailBlock<T> = {
 };
 
 export type TurnDetailItem<T> = TurnDetailMessageItem<T> | TurnDetailGroupItem<T>;
+
+type MessageWithTurnDetails = MessageVisibilityInput & { turnDetails?: TurnDetailMetadata };
 
 const ROOTLESS_ANCHOR_ID = 'rootless';
 
@@ -41,6 +52,11 @@ function isRootlessDetailCandidate(message: MessageVisibilityInput) {
   return isAssistantToolPreludeMessage(message) || isToolLikeMessage(message);
 }
 
+function turnDetailMetadata(message: MessageVisibilityInput): TurnDetailMetadata | undefined {
+  const detail = (message as MessageWithTurnDetails).turnDetails;
+  return detail && Number(detail.count || 0) > 0 ? detail : undefined;
+}
+
 export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages: T[]): Array<TurnDetailItem<T>> {
   const items: Array<TurnDetailItem<T>> = [];
   let activeAnchorId = '';
@@ -51,7 +67,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
     activeAnchorId = '';
   };
 
-  const pushBufferedDetailGroup = (id: string, finalMessage: T, finalIndex: number) => {
+  const pushBufferedDetailGroup = (id: string, finalMessage: T, finalIndex: number, detail?: TurnDetailMetadata) => {
     items.push({
       kind: 'detailGroup',
       id,
@@ -59,6 +75,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
       sourceIndexes: buffer.map((entry) => entry.index),
       finalMessage,
       finalIndex,
+      detail,
     });
     resetBuffer();
   };
@@ -78,7 +95,8 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
   };
 
   const pushDetailGroup = (finalMessage: T, finalIndex: number) => {
-    if (buffer.length) pushBufferedDetailGroup(`turn-details:${activeAnchorId || ROOTLESS_ANCHOR_ID}:${messageId(finalMessage, finalIndex)}`, finalMessage, finalIndex);
+    const detail = turnDetailMetadata(finalMessage);
+    if (buffer.length || detail) pushBufferedDetailGroup(`turn-details:${activeAnchorId || detail?.afterId || ROOTLESS_ANCHOR_ID}:${messageId(finalMessage, finalIndex)}`, finalMessage, finalIndex, detail);
     items.push({ kind: 'message', message: finalMessage, sourceIndexes: [finalIndex] });
     activeAnchorId = '';
   };

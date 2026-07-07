@@ -24,7 +24,7 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("<span className=\"turn-detail-toggle-label\">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span>");
     expect(source).not.toContain('<span className="turn-detail-toggle-label">Expand</span>');
     expect(styles).toContain('.turn-detail-toggle{display:inline-grid;grid-template-columns:14px auto;');
-    expect(source).toContain("open={open} onToggle={(event) => setOpen(event.currentTarget.open)}");
+    expect(source).toContain("open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
     expect(source).toContain("const detailAnchorId = String(item.messages[0]?.id || item.id);");
     expect(source).toContain('data-message-id={!open ? detailAnchorId : undefined}');
     expect(source).toContain('suppressMessageAnchor={!open}');
@@ -39,5 +39,23 @@ describe('turn detail fold UI', () => {
     expect(styles).toContain('.turn-detail-body .tool-summary');
     expect(styles).toContain('.turn-detail-body .msg-reasoning');
     expect(styles).toContain('.desktop-compact-chat .turn-detail-body{padding:10px 12px 12px}');
+  });
+
+  test('history pages request skeleton rows and detail groups lazy-load their messages on expand', () => {
+    const source = app();
+    expect(source).toContain("const params = new URLSearchParams({ limit: String(MESSAGE_PAGE), view: 'skeleton' });");
+    expect(source).toContain("const params = new URLSearchParams({ limit: String(MESSAGE_PAGE * 2), view: 'skeleton' });");
+    expect(source).toContain("detailParams.set('view', 'details');");
+    expect(source).toContain("fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${detailParams}`)");
+    expect(source).toContain("const detailMessages = useMemo(() => loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages");
+    expect(source).toContain("loading ? t('status.loading')");
+  });
+
+  test('streaming path still appends full detail messages instead of skeleton-only rows', () => {
+    const source = app();
+    expect(source).toContain("if (createdSession) setMessages(() => [userMsg, assistantMsg]);");
+    expect(source).toContain("else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));");
+    expect(source).toContain('fetch(`/chat/stream/${encodeURIComponent(sessionId)}`');
+    expect(source).not.toContain('/chat/stream/${encodeURIComponent(sessionId)}?view=skeleton');
   });
 });

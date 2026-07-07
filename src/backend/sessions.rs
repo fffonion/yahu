@@ -249,6 +249,156 @@ fn inject_turn_durations(messages: &mut Vec<serde_json::Value>) {
     }
 }
 
+fn message_i64_id(message: &serde_json::Value) -> Option<i64> {
+    message.get("id").and_then(|id| id.as_i64().or_else(|| id.as_str()?.parse().ok()))
+}
+
+fn message_role(message: &serde_json::Value) -> &str {
+    message.get("role").and_then(|role| role.as_str()).unwrap_or("")
+}
+
+fn message_text(message: &serde_json::Value) -> &str {
+    message.get("content").and_then(|value| value.as_str()).unwrap_or("")
+}
+
+fn message_has_tool_calls(message: &serde_json::Value) -> bool {
+    let Some(value) = message.get("tool_calls").or_else(|| message.get("toolCalls")) else {
+        return false;
+    };
+    match value {
+        serde_json::Value::Array(items) => !items.is_empty(),
+        serde_json::Value::String(text) => {
+            let trimmed = text.trim();
+            !trimmed.is_empty() && trimmed != "[]" && trimmed != "null"
+        }
+        serde_json::Value::Null => false,
+        _ => true,
+    }
+}
+
+fn message_has_reasoning(message: &serde_json::Value) -> bool {
+    ["reasoning", "reasoning_content", "reasoningContent"]
+        .iter()
+        .any(|key| message.get(*key).and_then(|value| value.as_str()).is_some_and(|text| !text.trim().is_empty()))
+}
+
+fn is_completed_final_assistant_message(message: &serde_json::Value) -> bool {
+    message_role(message) == "assistant" && !message_text(message).trim().is_empty() && !message_has_tool_calls(message)
+}
+
+fn is_rootless_history_detail_candidate(message: &serde_json::Value) -> bool {
+    message_role(message) == "tool" || message_has_tool_calls(message)
+}
+
+fn annotate_turn_details(final_message: &mut serde_json::Value, details: &[serde_json::Value], after_id: Option<String>) {
+    if details.is_empty() {
+        return;
+    }
+    let tool_count = details
+        .iter()
+        .filter(|message| message_role(message) == "tool")
+        .count();
+    let thinking_count = details.iter().filter(|message| message_has_reasoning(message)).count();
+    let Some(before_id) = nav_message_id(final_message) else {
+        return;
+    };
+    let mut detail = serde_json::Map::new();
+    detail.insert("count".to_string(), serde_json::json!(details.len()));
+    detail.insert("tool_count".to_string(), serde_json::json!(tool_count));
+    detail.insert("thinking_count".to_string(), serde_json::json!(thinking_count));
+    if let Some(after_id) = after_id.filter(|id| !id.is_empty()) {
+        detail.insert("after_id".to_string(), serde_json::json!(after_id));
+    }
+    detail.insert("before_id".to_string(), serde_json::json!(before_id));
+    if let Some(obj) = final_message.as_object_mut() {
+        obj.insert("turn_details".to_string(), serde_json::Value::Object(detail));
+    }
+}
+
+fn history_skeleton_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    let mut skeleton = Vec::new();
+    let mut detail_buffer: Vec<serde_json::Value> = Vec::new();
+    let mut active_anchor_id: Option<String> = None;
+    let mut previous_visible_id: Option<String> = None;
+
+    for message in messages {
+        let role = message_role(message);
+        if role == "user" || role == "system" {
+            skeleton.append(&mut detail_buffer);
+            active_anchor_id = nav_message_id(message);
+            previous_visible_id = active_anchor_id.clone();
+            skeleton.push(message.clone());
+            continue;
+        }
+
+        if is_completed_final_assistant_message(message) {
+            let mut final_message = message.clone();
+            annotate_turn_details(&mut final_message, &detail_buffer, active_anchor_id.clone().or_else(|| previous_visible_id.clone()));
+            detail_buffer.clear();
+            active_anchor_id = None;
+            previous_visible_id = nav_message_id(&final_message);
+            skeleton.push(final_message);
+            continue;
+        }
+
+        if active_anchor_id.is_some() || is_rootless_history_detail_candidate(message) {
+            if active_anchor_id.is_none() {
+                active_anchor_id = previous_visible_id.clone();
+            }
+            detail_buffer.push(message.clone());
+            continue;
+        }
+
+        previous_visible_id = nav_message_id(message);
+        skeleton.push(message.clone());
+    }
+
+    skeleton
+}
+
+fn page_bounds(messages: &[serde_json::Value], query: &ChatMessagesQuery, limit: usize) -> (usize, usize) {
+    if let Some(around) = query.around {
+        let center = messages
+            .iter()
+            .position(|msg| message_i64_id(msg) == Some(around))
+            .unwrap_or_else(|| messages.len().saturating_sub(1));
+        let half = limit / 2;
+        let start = center.saturating_sub(half);
+        let end = (start + limit).min(messages.len());
+        (end.saturating_sub(limit), end)
+    } else if let Some(before) = query.before {
+        let end = messages
+            .iter()
+            .position(|msg| message_i64_id(msg) == Some(before))
+            .unwrap_or(messages.len());
+        (end.saturating_sub(limit), end)
+    } else if let Some(after) = query.after {
+        let start = messages
+            .iter()
+            .position(|msg| message_i64_id(msg) == Some(after))
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+        (start, (start + limit).min(messages.len()))
+    } else {
+        (messages.len().saturating_sub(limit), messages.len())
+    }
+}
+
+fn detail_range_messages(messages: &[serde_json::Value], query: &ChatMessagesQuery, limit: usize) -> (Vec<serde_json::Value>, bool, bool, usize) {
+    let start = query
+        .after
+        .and_then(|after| messages.iter().position(|msg| message_i64_id(msg) == Some(after)).map(|idx| idx + 1))
+        .unwrap_or(0);
+    let end = query
+        .before
+        .and_then(|before| messages.iter().position(|msg| message_i64_id(msg) == Some(before)))
+        .unwrap_or(messages.len())
+        .max(start);
+    let total = end.saturating_sub(start);
+    let page_end = (start + limit).min(end);
+    (messages[start..page_end].to_vec(), false, page_end < end, total)
+}
+
 async fn chat_messages_page(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
@@ -265,39 +415,31 @@ async fn chat_messages_page(
         }
     };
     inject_turn_durations(&mut all);
-    let (start, end) = if let Some(around) = query.around {
-        let center = all
-            .iter()
-            .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(around))
-            .unwrap_or_else(|| all.len().saturating_sub(1));
-        let half = limit / 2;
-        let start = center.saturating_sub(half);
-        let end = (start + limit).min(all.len());
-        (end.saturating_sub(limit), end)
-    } else if let Some(before) = query.before {
-        let end = all
-            .iter()
-            .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(before))
-            .unwrap_or(all.len());
-        (end.saturating_sub(limit), end)
-    } else if let Some(after) = query.after {
-        let start = all
-            .iter()
-            .position(|msg| msg.get("id").and_then(|id| id.as_i64()) == Some(after))
-            .map(|idx| idx + 1)
-            .unwrap_or(0);
-        (start, (start + limit).min(all.len()))
-    } else {
-        (all.len().saturating_sub(limit), all.len())
-    };
-    let page: Vec<_> = all[start..end].to_vec();
+    let view = query.view.as_deref().unwrap_or("full");
     let (started_at, last_active) = stitched_message_boundary_times(&all);
+    if view == "details" {
+        let (page, has_older, has_newer, total) = detail_range_messages(&all, &query, limit);
+        return Json(serde_json::json!({
+            "object": "list",
+            "data": page,
+            "total": total,
+            "has_older": has_older,
+            "has_newer": has_newer,
+            "started_at": started_at,
+            "last_active": last_active
+        }))
+        .into_response();
+    }
+
+    let page_source = if view == "skeleton" { history_skeleton_messages(&all) } else { all.clone() };
+    let (start, end) = page_bounds(&page_source, &query, limit);
+    let page: Vec<_> = page_source[start..end].to_vec();
     Json(serde_json::json!({
         "object": "list",
         "data": page,
         "total": all.len(),
         "has_older": start > 0,
-        "has_newer": end < all.len(),
+        "has_newer": end < page_source.len(),
         "started_at": started_at,
         "last_active": last_active
     }))

@@ -831,7 +831,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("current".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20) }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -894,7 +894,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("child".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20) }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -916,6 +916,69 @@ mod tests {
             "fixed yahu",
             "next real prompt",
         ]);
+    }
+
+    #[tokio::test]
+    async fn chat_messages_skeleton_defers_turn_details_until_requested() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source) VALUES ('s1',NULL,1,NULL,NULL,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','do it',1,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,reasoning_content,timestamp,active) VALUES ('s1','assistant','I will inspect','[{\"id\":\"call_1\"}]','plan',2,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','{\"ok\":true}','terminal',3,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','assistant','final answer',4,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','next prompt',5,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','unfinished detail','terminal',6,1)", []).unwrap();
+        drop(conn);
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let skeleton = chat_messages_page(
+            State(state.clone()),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("skeleton".to_string()) }),
+        ).await;
+        let skeleton_body = axum::body::to_bytes(skeleton.into_body(), usize::MAX).await.unwrap();
+        let skeleton_page: serde_json::Value = serde_json::from_slice(&skeleton_body).unwrap();
+        let skeleton_data = skeleton_page["data"].as_array().unwrap();
+        let skeleton_roles: Vec<_> = skeleton_data.iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
+        let skeleton_texts: Vec<_> = skeleton_data.iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
+
+        assert_eq!(skeleton_roles, vec!["user", "assistant", "user"]);
+        assert_eq!(skeleton_texts, vec!["do it", "final answer", "next prompt"]);
+        assert_eq!(skeleton_data[1]["turn_details"]["count"], 2);
+        assert_eq!(skeleton_data[1]["turn_details"]["tool_count"], 1);
+        assert_eq!(skeleton_data[1]["turn_details"]["thinking_count"], 1);
+        assert_eq!(skeleton_data[1]["turn_details"]["after_id"], "1");
+        assert_eq!(skeleton_data[1]["turn_details"]["before_id"], "4");
+
+        let details = chat_messages_page(
+            State(state),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery { before: Some(4), after: Some(1), around: None, limit: Some(20), view: Some("details".to_string()) }),
+        ).await;
+        let details_body = axum::body::to_bytes(details.into_body(), usize::MAX).await.unwrap();
+        let details_page: serde_json::Value = serde_json::from_slice(&details_body).unwrap();
+        let details_texts: Vec<_> = details_page["data"].as_array().unwrap().iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
+        assert_eq!(details_texts, vec!["I will inspect", "{\"ok\":true}"]);
     }
 
     #[tokio::test]
@@ -951,7 +1014,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("child".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(1) }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(1), view: None }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -1038,7 +1101,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("current".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20) }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -1126,7 +1189,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("current".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20) }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -1764,7 +1827,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("s1".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(3) }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(3), view: None }),
         ).await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         let page: serde_json::Value = serde_json::from_slice(&body).unwrap();

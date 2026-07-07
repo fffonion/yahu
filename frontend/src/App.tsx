@@ -14,7 +14,7 @@ import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTo
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
 import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
-import { buildDesktopTurnBlocks, buildTurnDetailItems, type TurnDetailBlock, type TurnDetailGroupItem } from './turnDetails';
+import { buildDesktopTurnBlocks, buildTurnDetailItems, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
@@ -44,7 +44,7 @@ function sessionWithPreservedMessageCount(next: Session, current?: Session | nul
   return merged;
 }
 type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number; costUsd?: number };
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 type SessionModelOverride = { model: string; provider: string };
@@ -354,6 +354,22 @@ function mergeTurnMetrics(base?: ChatTurnMetrics, next?: ChatTurnMetrics): ChatT
   const merged = { ...(base || {}), ...(next || {}) };
   return Object.keys(merged).length ? merged : undefined;
 }
+function readTurnDetails(raw: any): TurnDetailMetadata | undefined {
+  const detail = asRecordish(raw?.turnDetails) || asRecordish(raw?.turn_details);
+  if (!detail) return undefined;
+  const count = Number(detail.count || 0);
+  if (!Number.isFinite(count) || count <= 0) return undefined;
+  const out: TurnDetailMetadata = { count };
+  const toolCount = Number(detail.toolCount ?? detail.tool_count ?? 0);
+  const thinkingCount = Number(detail.thinkingCount ?? detail.thinking_count ?? 0);
+  if (Number.isFinite(toolCount) && toolCount > 0) out.toolCount = toolCount;
+  if (Number.isFinite(thinkingCount) && thinkingCount > 0) out.thinkingCount = thinkingCount;
+  const afterId = String(detail.afterId ?? detail.after_id ?? '').trim();
+  const beforeId = String(detail.beforeId ?? detail.before_id ?? '').trim();
+  if (afterId) out.afterId = afterId;
+  if (beforeId) out.beforeId = beforeId;
+  return out;
+}
 function numericTimestampMs(value: string | number | undefined): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   const numeric = typeof value === 'number' ? value : Number(value);
@@ -408,6 +424,8 @@ function normalizeMessage(raw: any): ChatMessage {
   };
   if (tokenCount !== undefined) msg.tokenCount = tokenCount;
   if (metrics) msg.turnMetrics = metrics;
+  const turnDetails = readTurnDetails(raw);
+  if (turnDetails) msg.turnDetails = turnDetails;
   if (platformSender.senderName) msg.platformSenderName = platformSender.senderName;
   if (platformSender.senderId) msg.platformSenderId = platformSender.senderId;
   if (typeof raw.model === 'string' && raw.model.trim()) msg.model = raw.model.trim();
@@ -1124,7 +1142,7 @@ export default function App() {
     loadingMessagesRef.current = true;
     setLoadingMessages(true);
     try {
-      const params = new URLSearchParams({ limit: String(MESSAGE_PAGE) });
+      const params = new URLSearchParams({ limit: String(MESSAGE_PAGE), view: 'skeleton' });
       if (direction === 'older') {
         const before = numericId(messagesRef.current[0]?.id);
         if (!before) { pendingHistoryScrollAnchorRef.current = null; return; }
@@ -1150,7 +1168,7 @@ export default function App() {
         ({ chunk, pageHasOlder, pageHasNewer, boundaryPage } = await backfillOlderChunkToTurnBoundary({
           firstPage: page,
           firstChunk: chunk,
-          fetchBefore: async (before, limit) => fetchMessagePage(new URLSearchParams({ limit: String(limit), before })),
+          fetchBefore: async (before, limit) => fetchMessagePage(new URLSearchParams({ limit: String(limit), before, view: 'skeleton' })),
           normalizeChunk: normalizePageChunk,
           numericId,
           pageLimit: MESSAGE_PAGE,
@@ -1214,7 +1232,7 @@ export default function App() {
     loadingMessagesRef.current = true;
     setLoadingMessages(true);
     try {
-      const params = new URLSearchParams({ limit: String(MESSAGE_PAGE * 2) });
+      const params = new URLSearchParams({ limit: String(MESSAGE_PAGE * 2), view: 'skeleton' });
       params.set('around', around);
       const res = await fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${params}`);
       if (!res.ok) throw new Error(await res.text());
@@ -2563,26 +2581,50 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
     </div>
   </div>;
 }
-function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; turnStartedAt?: string | number }) {
+function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt, sessionId }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; turnStartedAt?: string | number; sessionId?: string }) {
   const [open, setOpen] = useState(false);
-  const toolCount = item.messages.filter(isToolLikeMessage).length;
-  const thinkingCount = item.messages.filter((message) => String(message.reasoning || '').trim()).length;
-  const parts = [toolCount ? tf('chat.toolsCount', toolCount) : '', thinkingCount ? tf('chat.thinkingCount', thinkingCount) : ''].filter(Boolean).join(' · ') || tf('chat.detailsCount', item.messages.length);
+  const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const detailMessages = useMemo(() => loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages, [loadedMessages, item.messages, showReasoning]);
+  const toolCount = item.detail?.toolCount ?? detailMessages.filter(isToolLikeMessage).length;
+  const thinkingCount = item.detail?.thinkingCount ?? detailMessages.filter((message) => String(message.reasoning || '').trim()).length;
+  const detailCount = item.detail?.count ?? detailMessages.length;
+  const parts = [toolCount ? tf('chat.toolsCount', toolCount) : '', thinkingCount ? tf('chat.thinkingCount', thinkingCount) : ''].filter(Boolean).join(' · ') || tf('chat.detailsCount', detailCount);
   const detailAnchorId = String(item.messages[0]?.id || item.id);
-  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={t('chat.details')} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+  const loadDetails = () => {
+    if (!sessionId || !item.detail?.beforeId || loading || loadedMessages.length) return;
+    const detailParams = new URLSearchParams({ limit: String(MESSAGE_PAGE * 4) });
+    detailParams.set('view', 'details');
+    if (item.detail.afterId) detailParams.set('after', item.detail.afterId);
+    detailParams.set('before', item.detail.beforeId);
+    setLoading(true);
+    setError('');
+    fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${detailParams}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      })
+      .then((page: MessagePage) => setLoadedMessages(normalizeChatHistoryChunk<ChatMessage>(page.data || [], normalizeMessage)))
+      .catch((err: any) => setError(err?.message || String(err)))
+      .finally(() => setLoading(false));
+  };
+  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={t('chat.details')} open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
     <summary className="turn-detail-summary"><span className="turn-detail-toggle"><ChevronRight className="turn-detail-chevron" /><span className="turn-detail-toggle-label">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span></span><span className="turn-detail-title">{t('chat.details')}</span><em>{parts}</em></summary>
     <div className="turn-detail-body">
-      {item.messages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} suppressMessageAnchor={!open} />)}
+      {loading ? t('status.loading') : null}
+      {error && <p className="error-text">{error}</p>}
+      {detailMessages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} suppressMessageAnchor={!open} />)}
     </div>
   </details>;
 }
 
-function DesktopTurnBlock({ block, showReasoning, assistantName }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string }) {
+function DesktopTurnBlock({ block, showReasoning, assistantName, sessionId }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; sessionId?: string }) {
   let lastUserTimestamp: string | number | undefined;
   return <article className="desktop-turn-block" data-turn-block-id={block.id}>
     {block.items.map((item) => {
       if (item.kind === 'detailGroup') {
-        return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={lastUserTimestamp} />;
+        return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={lastUserTimestamp} sessionId={sessionId} />;
       }
       const message = item.message;
       const turnStartedAt = message.role === 'assistant' ? lastUserTimestamp : undefined;
@@ -2908,7 +2950,7 @@ function ChatMain(props: any) {
             const showSplit = splitIdx >= 0 && block.sourceIndexes.includes(splitIdx);
             return <React.Fragment key={block.id}>
               {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-              <DesktopTurnBlock block={block} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />
+              <DesktopTurnBlock block={block} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} sessionId={props.activeSessionId} />
             </React.Fragment>;
           });
         }
@@ -2917,7 +2959,7 @@ function ChatMain(props: any) {
           const sourceIndex = item.sourceIndexes[0] ?? -1;
           const showSplit = splitIdx >= 0 && item.sourceIndexes.includes(splitIdx);
           if (item.kind === 'detailGroup') {
-            const group = <TurnDetailGroup item={item} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={lastUserTimestamp} />;
+            const group = <TurnDetailGroup item={item} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={lastUserTimestamp} sessionId={props.activeSessionId} />;
             return <React.Fragment key={item.id}>
               {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
               {group}

@@ -185,6 +185,7 @@ struct ChatMessagesQuery {
     after: Option<i64>,
     around: Option<i64>,
     limit: Option<usize>,
+    view: Option<String>,
 }
 
 #[derive(Deserialize)]

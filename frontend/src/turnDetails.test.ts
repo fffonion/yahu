@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildDesktopTurnBlocks, buildTurnDetailItems } from './turnDetails';
 
-type Msg = { id: string; role: string; content?: string; pending?: boolean; reasoning?: string; toolName?: string; toolCalls?: unknown };
+type Msg = { id: string; role: string; content?: string; pending?: boolean; reasoning?: string; toolName?: string; toolCalls?: unknown; turnDetails?: { count: number; toolCount?: number; thinkingCount?: number; afterId?: string; beforeId?: string } };
 
 const user: Msg = { id: 'u1', role: 'user', content: 'do it' };
 const prelude: Msg = { id: 'a1', role: 'assistant', content: 'I will inspect', reasoning: 'plan', toolCalls: [{ id: 'call_1' }] };
@@ -17,6 +17,24 @@ describe('turn detail grouping', () => {
     if (items[1].kind !== 'detailGroup') throw new Error('expected detail group');
     expect(items[1].messages.map((message) => message.id)).toEqual(['a1', 't1']);
     expect(items[1].sourceIndexes).toEqual([1, 2]);
+  });
+
+  test('creates a lazy detail group from skeleton metadata without preloaded detail messages', () => {
+    const skeletonFinal: Msg = { id: 'a2', role: 'assistant', content: 'final answer', turnDetails: { count: 2, toolCount: 1, thinkingCount: 1, afterId: 'u1', beforeId: 'a2' } };
+    const items = buildTurnDetailItems([user, skeletonFinal]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message']);
+    if (items[1].kind !== 'detailGroup') throw new Error('expected lazy detail group');
+    expect(items[1].messages).toEqual([]);
+    expect(items[1].detail).toEqual({ count: 2, toolCount: 1, thinkingCount: 1, afterId: 'u1', beforeId: 'a2' });
+    expect(items[1].id).toBe('turn-details:u1:a2');
+  });
+
+  test('does not replace active streaming detail rows with a lazy skeleton group', () => {
+    const streamingFinal: Msg = { id: 'a2', role: 'assistant', content: 'partial answer', pending: true, turnDetails: { count: 2, afterId: 'u1', beforeId: 'a2' } };
+    const items = buildTurnDetailItems([user, prelude, tool, streamingFinal]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message', 'message']);
   });
 
   test('keeps streaming intermediate messages visible until the final assistant answer arrives', () => {
