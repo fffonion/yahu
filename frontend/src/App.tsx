@@ -363,12 +363,10 @@ function formatTurnDuration(ms?: number): string {
   const rest = Math.round(seconds % 60);
   return `time ${minutes}m ${rest}s`;
 }
-function formatTurnTokenCount(value?: number): string {
-  if (!Number.isFinite(value || 0) || !value || value <= 0) return 'tokens —';
+function formatTurnTokenCount(value: number): string {
   return `tokens ${Math.round(value).toLocaleString()}`;
 }
-function formatTurnCost(value?: number): string {
-  if (!Number.isFinite(value || 0) || value === undefined || value <= 0) return 'cost —';
+function formatTurnCost(value: number): string {
   if (value < 0.0001) return `cost $${value.toFixed(6)}`;
   if (value < 0.01) return `cost $${value.toFixed(4)}`;
   return `cost $${value.toFixed(3)}`;
@@ -381,7 +379,10 @@ function messageTurnMetadata(message: ChatMessage, turnStartedAt?: string | numb
   const elapsedMs = metrics.elapsedMs ?? (endMs !== undefined && startMs !== undefined && endMs >= startMs ? endMs - startMs : undefined);
   const totalTokens = metrics.totalTokens ?? message.tokenCount ?? ((metrics.inputTokens || metrics.outputTokens) ? (metrics.inputTokens || 0) + (metrics.outputTokens || 0) : undefined);
   const detail = metrics.inputTokens || metrics.outputTokens ? ` (in ${Math.round(metrics.inputTokens || 0).toLocaleString()} / out ${Math.round(metrics.outputTokens || 0).toLocaleString()})` : '';
-  return `${formatTurnDuration(elapsedMs)} · ${formatTurnTokenCount(totalTokens)}${detail} · ${formatTurnCost(metrics.costUsd)}`;
+  const metadataParts = [formatTurnDuration(elapsedMs)];
+  if (totalTokens !== undefined) metadataParts.push(`${formatTurnTokenCount(totalTokens)}${detail}`);
+  if (metrics.costUsd !== undefined) metadataParts.push(formatTurnCost(metrics.costUsd));
+  return metadataParts.join(' · ');
 }
 function normalizeMessage(raw: any): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);

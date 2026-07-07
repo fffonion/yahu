@@ -32,6 +32,16 @@ describe('final assistant message metadata', () => {
     expect(styles).toContain('.msg-turn-metadata{margin-top:10px;color:color-mix(in srgb,var(--muted) 82%,transparent);font-size:11px;line-height:1.35}');
   });
 
+  test('omits unavailable token and cost metadata instead of rendering dash placeholders', () => {
+    const source = app();
+    expect(source).not.toContain("return 'tokens —';");
+    expect(source).not.toContain("return 'cost —';");
+    expect(source).toContain('const metadataParts = [formatTurnDuration(elapsedMs)];');
+    expect(source).toContain('if (totalTokens !== undefined) metadataParts.push(`${formatTurnTokenCount(totalTokens)}${detail}`);');
+    expect(source).toContain('if (metrics.costUsd !== undefined) metadataParts.push(formatTurnCost(metrics.costUsd));');
+    expect(source).toContain("return metadataParts.join(' · ');");
+  });
+
   test('live streaming stores elapsed time and usage on the completed assistant row', () => {
     const source = app();
     expect(source).toContain('const turnStartedAtMs = Date.now();');
