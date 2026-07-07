@@ -18,7 +18,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.sending': { en: 'Sending...', 'zh-CN': '发送中...', 'zh-TW': '發送中...', ja: '送信中...' },
   'chat.loadHistory': { en: 'Load older messages...', 'zh-CN': '加载更早消息...', 'zh-TW': '載入更早訊息...', ja: '古いメッセージを読み込む...' },
   'chat.loadingHistory': { en: 'Loading...', 'zh-CN': '加载中...', 'zh-TW': '載入中...', ja: '読み込み中...' },
-  'chat.inputPlaceholder': { en: 'Message Hermes Agent...', 'zh-CN': '给 Hermes Agent 发消息...', 'zh-TW': '給 Hermes Agent 發訊息...', ja: 'Hermes Agentにメッセージ...' },
+  'chat.inputPlaceholder': { en: '', 'zh-CN': '', 'zh-TW': '', ja: '' },
   'chat.draftTitle': { en: 'Draft', 'zh-CN': '草稿', 'zh-TW': '草稿', ja: '下書き' },
   'chat.you': { en: 'You', 'zh-CN': '你', 'zh-TW': '你', ja: 'あなた' },
   'chat.system': { en: 'System', 'zh-CN': '系统', 'zh-TW': '系統', ja: 'システム' },
@@ -389,7 +389,9 @@ export function getLang(): Lang {
 export function t(key: string): string {
   const entry = translations[key];
   if (!entry) return key;
-  return entry[currentLang] || entry.en || key;
+  if (Object.prototype.hasOwnProperty.call(entry, currentLang)) return entry[currentLang];
+  if (Object.prototype.hasOwnProperty.call(entry, 'en')) return entry.en;
+  return key;
 }
 
 export function tf(key: string, ...args: (string | number)[]): string {
