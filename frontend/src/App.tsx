@@ -14,6 +14,7 @@ import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTo
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
 import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages } from './messageVisibility';
+import { buildTurnDetailItems, type TurnDetailGroupItem } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
@@ -71,7 +72,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'stream-stop-run-control-v1';
+const APP_BUILD_ID = 'turn-detail-fold-v1';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -2547,6 +2548,18 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
   </div>;
 }
 
+function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; turnStartedAt?: string | number }) {
+  const toolCount = item.messages.filter((message) => isToolLikeMessage(message)).length;
+  const thinkingCount = item.messages.filter((message) => String(message.reasoning || '').trim()).length;
+  const parts = [toolCount ? `${toolCount} tools` : '', thinkingCount ? `${thinkingCount} thinking` : ''].filter(Boolean).join(' · ') || `${item.messages.length} details`;
+  return <details className="turn-detail-group" aria-label="Turn tools and thinking">
+    <summary className="turn-detail-summary"><ChevronRight className="turn-detail-chevron" /><span>Tools & thinking</span><em>{parts}</em></summary>
+    <div className="turn-detail-body">
+      {item.messages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} />)}
+    </div>
+  </details>;
+}
+
 function MessageView({ message, showReasoning = false, assistantName, turnStartedAt }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; turnStartedAt?: string | number }) {
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
@@ -2804,6 +2817,7 @@ function ChatMain(props: any) {
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
+  const turnDetailItems = useMemo(() => buildTurnDetailItems(visibleMessages), [visibleMessages]);
   const [chatImageModal, setChatImageModal] = useState<ChatLightboxImage | null>(null);
   const chatLightboxImages = useMemo(() => visibleMessages.flatMap((message: ChatMessage) => chatMediaImagesFromMarkdown(message.content || '').map((image, index) => ({ ...image, key: `${message.id}:${index}:${image.path}`, messageId: message.id }))), [visibleMessages]);
   const onChatMediaClick = (event: React.MouseEvent<HTMLElement>) => {
@@ -2857,11 +2871,21 @@ function ChatMain(props: any) {
       {(() => {
         const splitIdx = findNewMessageSplitIndex(visibleMessages, props.newMessageBoundaryId);
         let lastUserTimestamp: string | number | undefined;
-        return visibleMessages.map((m: ChatMessage, i: number) => {
+        return turnDetailItems.map((item) => {
+          const sourceIndex = item.sourceIndexes[0] ?? -1;
+          const showSplit = splitIdx >= 0 && item.sourceIndexes.includes(splitIdx);
+          if (item.kind === 'detailGroup') {
+            const group = <TurnDetailGroup item={item} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={lastUserTimestamp} />;
+            return <React.Fragment key={item.id}>
+              {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
+              {group}
+            </React.Fragment>;
+          }
+          const m = item.message;
           const turnStartedAt = m.role === 'assistant' ? lastUserTimestamp : undefined;
           if (m.role === 'user') lastUserTimestamp = m.timestamp;
-          return <React.Fragment key={m.id}>
-            {i === splitIdx && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
+          return <React.Fragment key={m.id || sourceIndex}>
+            {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
             <MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={turnStartedAt} />
           </React.Fragment>;
         });
