@@ -14,7 +14,7 @@ import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTo
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
 import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages } from './messageVisibility';
-import { buildTurnDetailItems, type TurnDetailGroupItem } from './turnDetails';
+import { buildDesktopTurnBlocks, buildTurnDetailItems, type TurnDetailBlock, type TurnDetailGroupItem } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
@@ -72,12 +72,13 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'turn-detail-fold-v1';
+const APP_BUILD_ID = 'desktop-compact-chat-v1';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
 const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const SHOW_REASONING_KEY = 'showReasoning';
+const DESKTOP_COMPACT_MESSAGES_KEY = 'desktopCompactMessages';
 const HIDE_CRON_SESSIONS_KEY = 'hideCronSessions';
 const THEME_OPTIONS: Array<{ id: Theme; label: string }> = [
   { id: 'hermes-light', label: 'Hermes Light' },
@@ -676,6 +677,7 @@ export default function App() {
   const [userMessageNav, setUserMessageNav] = useState<UserMessageNavItem[]>([]);
   const [contextWindowSnapshot, setContextWindowSnapshot] = useState<ContextWindowSnapshot | null>(null);
   const [showReasoning, setShowReasoning] = useState(() => localStorage.getItem(SHOW_REASONING_KEY) === '1');
+  const [desktopCompactMessages, setDesktopCompactMessages] = useState(() => localStorage.getItem(DESKTOP_COMPACT_MESSAGES_KEY) === '1');
   const [showToolCalls, setShowToolCalls] = useState(true);
   const [hasOlder, setHasOlder] = useState(false);
   const [hasNewer, setHasNewer] = useState(false);
@@ -855,6 +857,7 @@ export default function App() {
   useEffect(() => localStorage.setItem(COMPOSER_ENTER_MODE_KEY, composerEnterMode), [composerEnterMode]);
   useEffect(() => localStorage.setItem('effort', effort), [effort]);
   useEffect(() => localStorage.setItem(SHOW_REASONING_KEY, showReasoning ? '1' : '0'), [showReasoning]);
+  useEffect(() => localStorage.setItem(DESKTOP_COMPACT_MESSAGES_KEY, desktopCompactMessages ? '1' : '0'), [desktopCompactMessages]);
   useEffect(() => localStorage.setItem(HIDE_CRON_SESSIONS_KEY, hideCronSessions ? '1' : '0'), [hideCronSessions]);
   useEffect(() => localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds))), [pinnedIds]);
 
@@ -2016,7 +2019,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} createSessionArtifact={createSessionArtifact} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} createSessionArtifact={createSessionArtifact} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2560,6 +2563,21 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt }: 
   </details>;
 }
 
+function DesktopTurnBlock({ block, showReasoning, assistantName }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string }) {
+  let lastUserTimestamp: string | number | undefined;
+  return <article className="desktop-turn-block" data-turn-block-id={block.id}>
+    {block.items.map((item) => {
+      if (item.kind === 'detailGroup') {
+        return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={lastUserTimestamp} />;
+      }
+      const message = item.message;
+      const turnStartedAt = message.role === 'assistant' ? lastUserTimestamp : undefined;
+      if (message.role === 'user') lastUserTimestamp = message.timestamp;
+      return <MessageView key={message.id || item.sourceIndexes.join('-')} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={turnStartedAt} />;
+    })}
+  </article>;
+}
+
 function MessageView({ message, showReasoning = false, assistantName, turnStartedAt }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; turnStartedAt?: string | number }) {
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
@@ -2818,6 +2836,7 @@ function ChatMain(props: any) {
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
   const turnDetailItems = useMemo(() => buildTurnDetailItems(visibleMessages), [visibleMessages]);
+  const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
   const [chatImageModal, setChatImageModal] = useState<ChatLightboxImage | null>(null);
   const chatLightboxImages = useMemo(() => visibleMessages.flatMap((message: ChatMessage) => chatMediaImagesFromMarkdown(message.content || '').map((image, index) => ({ ...image, key: `${message.id}:${index}:${image.path}`, messageId: message.id }))), [visibleMessages]);
   const onChatMediaClick = (event: React.MouseEvent<HTMLElement>) => {
@@ -2861,7 +2880,7 @@ function ChatMain(props: any) {
     const timer = window.setTimeout(updateActiveNavigatorIds, 80);
     return () => { cancelAnimationFrame(raf); window.clearTimeout(timer); };
   }, [visibleMessages.length, props.activeSessionId, props.userMessageNav, props.showReasoning, props.showToolCalls, updateActiveNavigatorIds]);
-  return <main className="main-panel chat-main-panel">
+  return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}`}>
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
@@ -2870,6 +2889,15 @@ function ChatMain(props: any) {
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {(() => {
         const splitIdx = findNewMessageSplitIndex(visibleMessages, props.newMessageBoundaryId);
+        if (props.desktopCompactMessages) {
+          return desktopTurnBlocks.map((block) => {
+            const showSplit = splitIdx >= 0 && block.sourceIndexes.includes(splitIdx);
+            return <React.Fragment key={block.id}>
+              {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
+              <DesktopTurnBlock block={block} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />
+            </React.Fragment>;
+          });
+        }
         let lastUserTimestamp: string | number | undefined;
         return turnDetailItems.map((item) => {
           const sourceIndex = item.sourceIndexes[0] ?? -1;
@@ -2904,6 +2932,7 @@ function ChatMain(props: any) {
           <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
           <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
+          <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={props.desktopCompactMessages ? 'Use card chat layout' : 'Use compact chat layout'} title={props.desktopCompactMessages ? 'Use card chat layout' : 'Use compact chat layout'} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
           {props.streaming && <button type="button" className="stop-stream-btn mobile-icon-only" aria-label="Stop streaming" title="Stop streaming" onClick={props.stopStreaming}><Square /></button>}
           <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? 'Queue follow-up' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Queue' : 'Send'}</span></button>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildTurnDetailItems } from './turnDetails';
+import { buildDesktopTurnBlocks, buildTurnDetailItems } from './turnDetails';
 
 type Msg = { id: string; role: string; content?: string; pending?: boolean; reasoning?: string; toolName?: string; toolCalls?: unknown };
 
@@ -30,5 +30,20 @@ describe('turn detail grouping', () => {
     const items = buildTurnDetailItems([user, prelude, tool]);
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message']);
+  });
+
+  test('desktop turn blocks wrap each user turn including detail groups and final answer', () => {
+    const first = buildTurnDetailItems([user, prelude, tool, final]);
+    const secondUser: Msg = { id: 'u2', role: 'user', content: 'next' };
+    const pending: Msg = { id: 'a3', role: 'assistant', content: 'working', pending: true, reasoning: 'live' };
+    const second = buildTurnDetailItems([secondUser, pending]);
+
+    const blocks = buildDesktopTurnBlocks([...first, ...second]);
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message']);
+    expect(blocks[0].sourceIndexes).toEqual([0, 1, 2, 3]);
+    expect(blocks[1].items.map((item) => item.kind)).toEqual(['message', 'message']);
+    expect(blocks[1].sourceIndexes).toEqual([0, 1]);
   });
 });

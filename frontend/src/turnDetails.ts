@@ -15,6 +15,12 @@ export type TurnDetailGroupItem<T> = {
   finalIndex: number;
 };
 
+export type TurnDetailBlock<T> = {
+  id: string;
+  items: Array<TurnDetailItem<T>>;
+  sourceIndexes: number[];
+};
+
 export type TurnDetailItem<T> = TurnDetailMessageItem<T> | TurnDetailGroupItem<T>;
 
 function messageId(message: MessageVisibilityInput, fallback: number) {
@@ -76,4 +82,21 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
 
   flushBufferAsMessages();
   return items;
+}
+
+export function buildDesktopTurnBlocks<T extends MessageVisibilityInput>(items: Array<TurnDetailItem<T>>): Array<TurnDetailBlock<T>> {
+  const blocks: Array<TurnDetailBlock<T>> = [];
+  let current: TurnDetailBlock<T> | null = null;
+  const append = (item: TurnDetailItem<T>) => {
+    const sourceIndexes = item.sourceIndexes || [];
+    if (!current || (item.kind === 'message' && item.message.role === 'user')) {
+      const firstId = item.kind === 'message' ? messageId(item.message, sourceIndexes[0] ?? blocks.length) : item.id;
+      current = { id: `desktop-turn:${firstId}:${blocks.length}`, items: [], sourceIndexes: [] };
+      blocks.push(current);
+    }
+    current.items.push(item);
+    current.sourceIndexes.push(...sourceIndexes);
+  };
+  items.forEach(append);
+  return blocks;
 }

@@ -7,7 +7,7 @@ const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 describe('turn detail fold UI', () => {
   test('chat history renders final-turn intermediate tool and thinking rows inside a second-level collapsed details group', () => {
     const source = app();
-    expect(source).toContain("import { buildTurnDetailItems");
+    expect(source).toContain("buildTurnDetailItems");
     expect(source).toContain("<TurnDetailGroup");
     expect(source).toContain('className="turn-detail-group"');
     expect(source).toContain('className="turn-detail-summary"');
