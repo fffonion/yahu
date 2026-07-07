@@ -92,7 +92,11 @@ describe('chat user message navigator', () => {
     expect(source).toContain('return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? \'desktop-compact-chat\' : \'\'}`}>');
     expect(styles).toContain('.chat-main-panel .chat-scroll{padding-left:78px}');
     expect(styles).not.toContain('.main-panel:has(.chat-user-minimap) .chat-scroll{padding-left:78px}');
-    expect(styles).toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:46px}.chat-user-minimap{left:6px;top:50%;bottom:auto;transform:translateY(-50%);width:34px;max-height:var(--user-minimap-max-height,75%);overflow:visible;pointer-events:auto}.user-minimap-track{width:34px;max-height:var(--user-minimap-max-height,75%)}');
+    expect(styles).toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:44px}.chat-user-minimap{left:6px;top:50%;bottom:auto;transform:translateY(-50%);width:34px;max-height:var(--user-minimap-max-height,75%);overflow:visible;pointer-events:auto}.user-minimap-track{width:34px;max-height:var(--user-minimap-max-height,75%)}');
+    const mobileRule = styles.match(/@media \(max-width:760px\)\{\.chat-main-panel \.chat-scroll\{padding-left:(\d+)px\}\.chat-user-minimap\{left:(\d+)px;[^}]*width:(\d+)px;/);
+    expect(mobileRule).not.toBeNull();
+    const [, padding, left, width] = mobileRule || [];
+    expect(Number(padding) - (Number(left) + Number(width))).toBe(4);
     expect(styles).toContain('.user-minimap-hit{width:34px;flex-shrink:0}');
     expect(styles).not.toContain('.chat-user-minimap{display:none}');
   });
