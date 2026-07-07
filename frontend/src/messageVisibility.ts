@@ -69,10 +69,6 @@ export function shouldRenderMessage(message: MessageVisibilityInput, showReasoni
   return false;
 }
 
-function isLocalStreamAssistantMessage(message: MessageVisibilityInput): boolean {
-  return message.role === 'assistant' && String(message.id || '').startsWith('assistant_');
-}
-
 function parseMaybeJsonValue(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
@@ -108,51 +104,19 @@ function rememberToolCallInputs(message: MessageVisibilityInput, inputs: Map<str
   }
 }
 
-export function dedupeVisibleChatMessages<T extends MessageVisibilityInput>(messages: T[]): T[] {
-  const result: T[] = [];
-  const assistantByTurnContent = new Map<string, number>();
+export function withToolCallInputs<T extends MessageVisibilityInput>(messages: T[]): T[] {
   const toolInputsByCallId = new Map<string, unknown>();
-  let turn = 0;
-  let lastUserResultIndex = -1;
-  for (const rawMessage of messages) {
-    let msg = rawMessage;
-    rememberToolCallInputs(msg, toolInputsByCallId);
-    const toolCallId = String(msg.toolCallId || '').trim();
-    if (msg.role === 'tool' && msg.toolInput === undefined && toolCallId && toolInputsByCallId.has(toolCallId)) {
-      msg = { ...msg, toolInput: toolInputsByCallId.get(toolCallId) };
+  let changed = false;
+  const result = messages.map((rawMessage) => {
+    rememberToolCallInputs(rawMessage, toolInputsByCallId);
+    const toolCallId = String(rawMessage.toolCallId || '').trim();
+    if (rawMessage.role === 'tool' && rawMessage.toolInput === undefined && toolCallId && toolInputsByCallId.has(toolCallId)) {
+      changed = true;
+      return { ...rawMessage, toolInput: toolInputsByCallId.get(toolCallId) };
     }
-    if (msg.role === 'user') {
-      turn += 1;
-      assistantByTurnContent.clear();
-      lastUserResultIndex = result.length;
-      result.push(msg);
-      continue;
-    }
-    const isAssistantAnswer = msg.role === 'assistant' && String(msg.content || '').trim() && !isToolLikeMessage(msg);
-    if (isAssistantAnswer) {
-      const fuzzyExisting = result.findIndex((m, i) => {
-        if (i <= lastUserResultIndex || m.role !== 'assistant' || isToolLikeMessage(m)) return false;
-        return !result.slice(i + 1).some((later) => isToolLikeMessage(later));
-      });
-      if (fuzzyExisting >= 0) {
-        const previous = result[fuzzyExisting];
-        const preferCurrent = (isLocalStreamAssistantMessage(previous) && !isLocalStreamAssistantMessage(msg)) || String(msg.content || '').length > String(previous.content || '').length;
-        result[fuzzyExisting] = preferCurrent ? { ...previous, ...msg, pending: Boolean(previous.pending && msg.pending) } : { ...previous, pending: Boolean(previous.pending && msg.pending) };
-        continue;
-      }
-      const key = `${turn}\u0000${String(msg.content || '').trim()}`;
-      const existing = assistantByTurnContent.get(key);
-      if (existing !== undefined) {
-        const previous = result[existing];
-        const preferCurrent = isLocalStreamAssistantMessage(previous) && !isLocalStreamAssistantMessage(msg);
-        result[existing] = preferCurrent ? { ...previous, ...msg, pending: Boolean(previous.pending && msg.pending) } : { ...previous, pending: Boolean(previous.pending && msg.pending) };
-        continue;
-      }
-      assistantByTurnContent.set(key, result.length);
-    }
-    result.push(msg);
-  }
-  return result;
+    return rawMessage;
+  });
+  return changed ? result : messages;
 }
 
 export function renderableMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): T[] {

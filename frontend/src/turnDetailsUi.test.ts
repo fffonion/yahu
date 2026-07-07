@@ -27,6 +27,8 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("open={open} onToggle={(event) => setOpen(event.currentTarget.open)}");
     expect(source).toContain("const detailAnchorId = String(item.messages[0]?.id || item.id);");
     expect(source).toContain('data-message-id={!open ? detailAnchorId : undefined}');
+    expect(source).toContain('suppressMessageAnchor={!open}');
+    expect(source).toContain('data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}');
   });
 
   test('outer turn detail group has compact collapsed styling separate from inner tool and reasoning folds', () => {
@@ -36,5 +38,6 @@ describe('turn detail fold UI', () => {
     expect(styles).toContain('.turn-detail-group:not([open]) .turn-detail-body{display:none}');
     expect(styles).toContain('.turn-detail-body .tool-summary');
     expect(styles).toContain('.turn-detail-body .msg-reasoning');
+    expect(styles).toContain('.desktop-compact-chat .turn-detail-body{padding:10px 12px 12px}');
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages, shouldRenderMessage } from './messageVisibility';
+import { isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages, shouldRenderMessage, withToolCallInputs } from './messageVisibility';
 
 const appSource = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 
@@ -33,8 +33,8 @@ describe('chat message visibility', () => {
       { id: 'a-call', role: 'assistant', content: '', pending: false, toolCalls: [{ id: 'call_1', call_id: 'call_1', function: { name: 'terminal', arguments: '{"command":"date +%F","timeout":15}' } }] },
       { id: 'tool-result', role: 'tool', content: '{"output":"2026-07-07","exit_code":0}', pending: false, toolName: 'terminal', toolCallId: 'call_1' },
     ];
-    const deduped = dedupeVisibleChatMessages(messages);
-    expect(deduped.find((message) => message.id === 'tool-result')?.toolInput).toEqual({ command: 'date +%F', timeout: 15 });
+    const prepared = withToolCallInputs(messages);
+    expect(prepared.find((message) => message.id === 'tool-result')?.toolInput).toEqual({ command: 'date +%F', timeout: 15 });
   });
 
   test('tool-like patch and terminal messages hide even when their role is not tool', () => {
@@ -65,9 +65,9 @@ describe('chat message visibility', () => {
       { id: 'a-tool', role: 'assistant', content: '<untrusted_tool_result source="search_files">matches</untrusted_tool_result>', pending: false },
       { id: 'a-final', role: 'assistant', content: 'I found the files.', pending: false },
     ];
-    const deduped = dedupeVisibleChatMessages(messages);
-    expect(deduped.map((message) => message.id)).toEqual(['u1', 'a-tool', 'a-final']);
-    expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['u1', 'a-final']);
+    const prepared = withToolCallInputs(messages);
+    expect(prepared.map((message) => message.id)).toEqual(['u1', 'a-tool', 'a-final']);
+    expect(renderableMessages(prepared, false, false).map((message) => message.id)).toEqual(['u1', 'a-final']);
   });
 
   test('keeps final assistant answers after intervening tool results instead of moving them before tools', () => {
@@ -78,7 +78,7 @@ describe('chat message visibility', () => {
       { id: 'tool-validate', role: 'tool', content: 'validation=ok', pending: false, toolName: 'terminal' },
       { id: 'a-final', role: 'assistant', content: 'Done. Uploaded the subtitles.', pending: false },
     ];
-    const visible = renderableMessages(dedupeVisibleChatMessages(messages), false, true);
+    const visible = renderableMessages(withToolCallInputs(messages), false, true);
     expect(visible.map((message) => message.id)).toEqual(['u1', 'a-progress', 'tool-write', 'tool-validate', 'a-final']);
   });
 
@@ -90,7 +90,7 @@ describe('chat message visibility', () => {
     expect(renderableMessages([prelude, { id: 'tool-result', role: 'tool', content: 'file output', pending: false }], false, false).map((message) => message.id)).toEqual(['a-pre-tool']);
     const source = appSource();
     const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-    expect(source).toContain("import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages } from './messageVisibility';");
+    expect(source).toContain("import { isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages, withToolCallInputs } from './messageVisibility';");
     expect(source).toContain("const isToolPrelude = isAssistantToolPreludeMessage(message);");
     expect(source).toContain("${isToolPrelude ? ' tool-prelude' : ''}");
     expect(styles).toContain('.msg-row.tool-prelude .msg-content{color:var(--text)}');
@@ -109,17 +109,19 @@ describe('chat message visibility', () => {
       { id: 'tool-result', role: 'tool', content: 'tool output', pending: false },
       { id: 'a-final', role: 'assistant', content: 'final answer', pending: false },
     ];
-    const deduped = dedupeVisibleChatMessages(messages);
+    const prepared = withToolCallInputs(messages);
     expect(isToolLikeMessage(messages[0])).toBe(true);
-    expect(deduped.map((message) => message.id)).toEqual(['a-tool-call', 'tool-result', 'a-final']);
-    expect(renderableMessages(deduped, false, true).map((message) => message.id)).toEqual(['tool-result', 'a-final']);
-    expect(renderableMessages(deduped, false, false).map((message) => message.id)).toEqual(['a-final']);
+    expect(prepared.map((message) => message.id)).toEqual(['a-tool-call', 'tool-result', 'a-final']);
+    expect(renderableMessages(prepared, false, true).map((message) => message.id)).toEqual(['tool-result', 'a-final']);
+    expect(renderableMessages(prepared, false, false).map((message) => message.id)).toEqual(['a-final']);
   });
 
-  test('ChatMain filters visible messages before mapping so hidden tool frames are unmounted', () => {
+  test('ChatMain filters visible messages without content-level history dedupe before mapping', () => {
     const source = appSource();
-    expect(source).toContain("import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages } from './messageVisibility';");
-    expect(source).toContain('const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);');
+    expect(source).toContain("import { isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages, withToolCallInputs } from './messageVisibility';");
+    expect(source).toContain('const preparedMessages = useMemo(() => withToolCallInputs<ChatMessage>(props.messages), [props.messages]);');
+    expect(source).toContain('const visibleMessages = renderableMessages<ChatMessage>(preparedMessages, props.showReasoning, props.showToolCalls);');
+    expect(source).not.toContain('dedupeVisibleChatMessages');
     expect(source).toContain('<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={turnStartedAt} />');
     expect(source).not.toContain('if (!shouldRenderMessage(message, showReasoning, showToolCalls)) return null;');
     expect(source).not.toContain('showToolCalls?: boolean');

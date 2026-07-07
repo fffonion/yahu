@@ -35,52 +35,83 @@ function isCompletedFinalAssistant(message: MessageVisibilityInput) {
     && !isToolLikeMessage(message);
 }
 
+function isRootlessDetailCandidate(message: MessageVisibilityInput) {
+  return isAssistantToolPreludeMessage(message) || isToolLikeMessage(message);
+}
+
 export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages: T[]): Array<TurnDetailItem<T>> {
   const items: Array<TurnDetailItem<T>> = [];
-  let activeUserId = '';
+  let activeAnchorId = '';
   let buffer: Array<{ message: T; index: number }> = [];
-  let turnHasFinal = false;
 
   const flushBufferAsMessages = () => {
     for (const entry of buffer) items.push({ kind: 'message', message: entry.message, sourceIndexes: [entry.index] });
     buffer = [];
+    if (activeAnchorId === 'rootless') activeAnchorId = '';
+  };
+
+  const flushTrailingBuffer = () => {
+    if (activeAnchorId === 'rootless' && buffer.length && !buffer.some((entry) => entry.message.pending)) {
+      const last = buffer[buffer.length - 1];
+      items.push({
+        kind: 'detailGroup',
+        id: `turn-details:rootless:trailing-${messageId(last.message, last.index)}`,
+        messages: buffer.map((entry) => entry.message),
+        sourceIndexes: buffer.map((entry) => entry.index),
+        finalMessage: last.message,
+        finalIndex: last.index,
+      });
+      buffer = [];
+      activeAnchorId = '';
+      return;
+    }
+    flushBufferAsMessages();
+  };
+
+  const pushDetailGroup = (finalMessage: T, finalIndex: number) => {
+    if (buffer.length) {
+      items.push({
+        kind: 'detailGroup',
+        id: `turn-details:${activeAnchorId || 'rootless'}:${messageId(finalMessage, finalIndex)}`,
+        messages: buffer.map((entry) => entry.message),
+        sourceIndexes: buffer.map((entry) => entry.index),
+        finalMessage,
+        finalIndex,
+      });
+      buffer = [];
+    }
+    items.push({ kind: 'message', message: finalMessage, sourceIndexes: [finalIndex] });
+    activeAnchorId = '';
   };
 
   messages.forEach((message, index) => {
     if (message.role === 'user') {
       flushBufferAsMessages();
-      activeUserId = messageId(message, index);
-      turnHasFinal = false;
-      items.push({ kind: 'message', message, sourceIndexes: [index] });
-      return;
-    }
-
-    if (!activeUserId || turnHasFinal) {
+      activeAnchorId = messageId(message, index);
       items.push({ kind: 'message', message, sourceIndexes: [index] });
       return;
     }
 
     if (isCompletedFinalAssistant(message)) {
-      if (buffer.length) {
-        items.push({
-          kind: 'detailGroup',
-          id: `turn-details:${activeUserId}:${messageId(message, index)}`,
-          messages: buffer.map((entry) => entry.message),
-          sourceIndexes: buffer.map((entry) => entry.index),
-          finalMessage: message,
-          finalIndex: index,
-        });
-        buffer = [];
-      }
-      items.push({ kind: 'message', message, sourceIndexes: [index] });
-      turnHasFinal = true;
+      pushDetailGroup(message, index);
       return;
     }
 
-    buffer.push({ message, index });
+    if (activeAnchorId) {
+      buffer.push({ message, index });
+      return;
+    }
+
+    if (isRootlessDetailCandidate(message)) {
+      activeAnchorId = 'rootless';
+      buffer.push({ message, index });
+      return;
+    }
+
+    items.push({ kind: 'message', message, sourceIndexes: [index] });
   });
 
-  flushBufferAsMessages();
+  flushTrailingBuffer();
   return items;
 }
 

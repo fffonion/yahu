@@ -13,7 +13,7 @@ import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
-import { dedupeVisibleChatMessages, isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages } from './messageVisibility';
+import { isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages, withToolCallInputs } from './messageVisibility';
 import { buildDesktopTurnBlocks, buildTurnDetailItems, type TurnDetailBlock, type TurnDetailGroupItem } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
@@ -770,12 +770,6 @@ export default function App() {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToastMessage(''), 2600);
   }, []);
-  useEffect(() => {
-    setMessages((prev) => {
-      const next = dedupeVisibleChatMessages(prev);
-      return next.length === prev.length ? prev : next;
-    });
-  }, [messages]);
   const scrollLatestAfterRenderRef = useRef(false);
   const pendingHistoryScrollAnchorRef = useRef<MessageScrollAnchor | null>(null);
   const pendingJumpMessageIdRef = useRef('');
@@ -1535,8 +1529,8 @@ export default function App() {
           scrollLatestAfterRenderRef.current = true;
           clearNewMessages();
         } else {
-          const previousVisible = renderableMessages(dedupeVisibleChatMessages(prev), showReasoningRef.current, showToolCallsRef.current);
-          const nextVisible = renderableMessages(dedupeVisibleChatMessages(next), showReasoningRef.current, showToolCallsRef.current);
+          const previousVisible = renderableMessages(withToolCallInputs(prev), showReasoningRef.current, showToolCallsRef.current);
+          const nextVisible = renderableMessages(withToolCallInputs(next), showReasoningRef.current, showToolCallsRef.current);
           const marker = computeNewMessageMarker(previousVisible, nextVisible, newMessageBoundaryIdRef.current);
           newMessageBoundaryIdRef.current = marker.firstId;
           setNewMessageBoundaryId(marker.firstId);
@@ -2385,12 +2379,12 @@ function getToolIcon(toolName: string): React.ReactNode {
   return <Settings />;
 }
 
-function ToolMessageView({ message }: { message: ChatMessage }) {
+function ToolMessageView({ message, suppressMessageAnchor = false }: { message: ChatMessage; suppressMessageAnchor?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const summary = useMemo(() => summarizeToolMessage(message.content, message.toolName, message.toolInput), [message.content, message.toolName, message.toolInput]);
   const toolName = summary.toolName;
   const isError = summary.status !== 'ok';
-  return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={message.id || undefined}>
+  return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
       <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
         <span className="tool-inline-icon">{getToolIcon(toolName)}</span>
@@ -2580,7 +2574,7 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt }: 
   return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={t('chat.details')} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary className="turn-detail-summary"><span className="turn-detail-toggle"><ChevronRight className="turn-detail-chevron" /><span className="turn-detail-toggle-label">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span></span><span className="turn-detail-title">{t('chat.details')}</span><em>{parts}</em></summary>
     <div className="turn-detail-body">
-      {item.messages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} />)}
+      {item.messages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} suppressMessageAnchor={!open} />)}
     </div>
   </details>;
 }
@@ -2600,8 +2594,8 @@ function DesktopTurnBlock({ block, showReasoning, assistantName }: { block: Turn
   </article>;
 }
 
-function MessageView({ message, showReasoning = false, assistantName, turnStartedAt }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; turnStartedAt?: string | number }) {
-  if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
+function MessageView({ message, showReasoning = false, assistantName, turnStartedAt, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; turnStartedAt?: string | number; suppressMessageAnchor?: boolean }) {
+  if (isToolLikeMessage(message)) return <ToolMessageView message={message} suppressMessageAnchor={suppressMessageAnchor} />;
   const isPending = !!message.pending;
   const isToolPrelude = isAssistantToolPreludeMessage(message);
   const fallback = isPending ? '…' : '';
@@ -2610,7 +2604,7 @@ function MessageView({ message, showReasoning = false, assistantName, turnStarte
   const turnMetadata = messageTurnMetadata(message, turnStartedAt);
   const showTurnMetadata = message.role === 'assistant' && !isPending && !isToolPrelude && !!turnMetadata;
   return (
-    <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}${isToolPrelude ? ' tool-prelude' : ''}`} data-message-id={message.id || undefined}>
+    <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}${isToolPrelude ? ' tool-prelude' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
       <div className="msg-content">
         <div className="msg-meta">
           <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>
@@ -2856,7 +2850,8 @@ function ChatMain(props: any) {
   const currentModelOption = exactCurrentOption || currentOption;
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
-  const visibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), props.showReasoning, props.showToolCalls);
+  const preparedMessages = useMemo(() => withToolCallInputs<ChatMessage>(props.messages), [props.messages]);
+  const visibleMessages = renderableMessages<ChatMessage>(preparedMessages, props.showReasoning, props.showToolCalls);
   const turnDetailItems = useMemo(() => buildTurnDetailItems(visibleMessages), [visibleMessages]);
   const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
   const [chatImageModal, setChatImageModal] = useState<ChatLightboxImage | null>(null);
@@ -2875,7 +2870,7 @@ function ChatMain(props: any) {
   const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
     const scroller = props.chatScrollRef.current;
-    const nextVisibleMessages = renderableMessages<ChatMessage>(dedupeVisibleChatMessages<ChatMessage>(props.messages), nextShowReasoning, nextShowToolCalls);
+    const nextVisibleMessages = renderableMessages<ChatMessage>(withToolCallInputs<ChatMessage>(props.messages), nextShowReasoning, nextShowToolCalls);
     const nextVisibleIds = new Set(nextVisibleMessages.map((message) => String(message.id || '')).filter(Boolean));
     const anchor = captureMessageScrollAnchor(scroller, nextVisibleIds);
     apply();

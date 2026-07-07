@@ -32,6 +32,28 @@ describe('turn detail grouping', () => {
     expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message']);
   });
 
+  test('starts a new folded detail segment when tools appear after a completed final answer', () => {
+    const nextPrelude: Msg = { id: 'a3', role: 'assistant', content: 'continuing from restored context', toolCalls: [{ id: 'call_2' }] };
+    const nextTool: Msg = { id: 't2', role: 'tool', content: '{"ok":2}', toolName: 'terminal' };
+    const nextFinal: Msg = { id: 'a4', role: 'assistant', content: 'second final' };
+    const items = buildTurnDetailItems([user, prelude, tool, final, nextPrelude, nextTool, nextFinal]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message', 'detailGroup', 'message']);
+    expect(items[3]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:a4' });
+    if (items[3].kind !== 'detailGroup') throw new Error('expected second detail group');
+    expect(items[3].messages.map((message) => message.id)).toEqual(['a3', 't2']);
+  });
+
+  test('folds a trailing rootless tool segment at the loaded history window boundary', () => {
+    const trailingTool: Msg = { id: 't2', role: 'tool', content: '{"ok":2}', toolName: 'terminal' };
+    const items = buildTurnDetailItems([user, prelude, tool, final, trailingTool]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message', 'detailGroup']);
+    expect(items[3]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:trailing-t2' });
+    if (items[3].kind !== 'detailGroup') throw new Error('expected trailing detail group');
+    expect(items[3].messages.map((message) => message.id)).toEqual(['t2']);
+  });
+
   test('desktop turn blocks wrap each user turn including detail groups and final answer', () => {
     const first = buildTurnDetailItems([user, prelude, tool, final]);
     const secondUser: Msg = { id: 'u2', role: 'user', content: 'next' };
