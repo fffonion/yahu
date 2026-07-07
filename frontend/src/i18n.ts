@@ -32,6 +32,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.hideThinking': { en: 'Hide reasoning / thinking', 'zh-CN': '隐藏 reasoning / thinking', 'zh-TW': '隱藏 reasoning / thinking', ja: 'reasoning / thinkingを非表示' },
   'chat.showToolCalls': { en: 'Show tool calls', 'zh-CN': '显示 tool calls', 'zh-TW': '顯示 tool calls', ja: 'tool callsを表示' },
   'chat.hideToolCalls': { en: 'Hide tool calls', 'zh-CN': '隐藏 tool calls', 'zh-TW': '隱藏 tool calls', ja: 'tool callsを非表示' },
+  'chat.compactMode': { en: 'Compact mode', 'zh-CN': '紧凑模式', 'zh-TW': '緊湊模式', ja: 'コンパクトモード' },
   'chat.send': { en: 'Send', 'zh-CN': '发送', 'zh-TW': '發送', ja: '送信' },
   'chat.renameTitle': { en: 'Rename session', 'zh-CN': '重命名', 'zh-TW': '重新命名', ja: 'セッション名変更' },
   'chat.deleteTitle': { en: 'Delete session', 'zh-CN': '删除会话', 'zh-TW': '刪除會話', ja: 'セッション削除' },

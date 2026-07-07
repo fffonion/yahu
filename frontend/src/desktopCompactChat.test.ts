@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+const i18n = () => readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
 
 describe('desktop compact chat toggle', () => {
   test('composer renders compact toggle immediately after tool toggle', () => {
@@ -14,6 +15,16 @@ describe('desktop compact chat toggle', () => {
     expect(source).toContain("desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`}");
     expect(source.indexOf('reasoning-view-toggle')).toBeLessThan(source.indexOf('tool-call-view-toggle'));
     expect(source.indexOf('tool-call-view-toggle')).toBeLessThan(source.indexOf('desktop-compact-view-toggle'));
+  });
+
+  test('desktop compact toggle uses localized compact mode copy', () => {
+    const source = app();
+    const messages = i18n();
+    expect(source).toContain("aria-label={t('chat.compactMode')}");
+    expect(source).toContain("title={t('chat.compactMode')}");
+    expect(source).not.toContain('Use card chat layout');
+    expect(source).not.toContain('Use compact chat layout');
+    expect(messages).toContain("'chat.compactMode': { en: 'Compact mode', 'zh-CN': '紧凑模式', 'zh-TW': '緊湊模式', ja: 'コンパクトモード' }");
   });
 
   test('desktop compact mode uses flat left-aligned user turns with a divider', () => {
