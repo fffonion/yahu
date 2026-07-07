@@ -5,11 +5,14 @@ const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const i18n = () => readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
 
 function section(source: string, start: string, end: string) {
-  return source.slice(source.indexOf(start), source.indexOf(end));
+  const startIndex = source.indexOf(start);
+  if (startIndex < 0) return '';
+  const endIndex = end ? source.indexOf(end, startIndex) : source.length;
+  return source.slice(startIndex, endIndex < 0 ? source.length : endIndex);
 }
 
 describe('page i18n coverage', () => {
-  test('Insights, Workspace, and Cron UI copy uses translation keys instead of fixed English text', () => {
+  test('core UI copy uses translation keys instead of fixed English text', () => {
     const source = app();
     const targets = [
       section(source, 'function InsightsMain', 'function ChatSidebar'),
@@ -17,6 +20,9 @@ describe('page i18n coverage', () => {
       section(source, 'function CronSidebar', 'function MemoryPanel'),
       section(source, 'function CustomDialog', 'function ModeSidebar'),
       section(source, 'function ModeSidebar', 'function InsightsMain'),
+      section(source, 'function ChatImageLightbox', 'function TurnDetailGroup'),
+      section(source, 'function MessageView', 'function FollowUpQueue'),
+      section(source, 'function ImageBrowserMain', ''),
     ].join('\n');
 
     for (const text of [
@@ -44,6 +50,28 @@ describe('page i18n coverage', () => {
       'Appearance',
       '<span>Theme</span>',
       '>Confirm<',
+      'Tools & thinking',
+      '>Thinking<',
+      'Turn tools and thinking',
+      'Expand</span>',
+      '>Gallery<',
+      'Download selected</span>',
+      'Organize</span>',
+      'Delete selected</span>',
+      'No images found</h2>',
+      'Scroll to load more',
+      'End of images',
+      'Download HEIC</button>',
+      'Download PNG</button>',
+      '>Metadata</h2>',
+      '>Files</span>',
+      '>Source</span>',
+      'PNG metadata</span>',
+      'No PNG text chunk</p>',
+      'aria-label="Metadata"',
+      'aria-label="Previous"',
+      'aria-label="Next"',
+      'aria-label="Delete"',
     ]) {
       expect(targets).not.toContain(text);
     }
@@ -61,8 +89,54 @@ describe('page i18n coverage', () => {
       'cron.deliverAll',
       'theme.appearance',
       'dialog.confirm',
+      'chat.details',
+      'chat.expandDetails',
+      'chat.collapseDetails',
+      'chat.emptyDesc',
+      'chat.sessionTimes',
+      'chat.stopStreaming',
+      'chat.queueFollowUp',
+      'chat.queuedFollowUps',
+      'chat.steerNow',
+      'chat.editQueuedFollowUp',
+      'gallery.title',
+      'gallery.downloadSelected',
+      'gallery.organize',
+      'gallery.deleteSelected',
+      'gallery.selectImages',
+      'gallery.cancelSelection',
+      'gallery.refresh',
+      'gallery.metadata',
+      'gallery.dimensions',
+      'gallery.files',
+      'gallery.source',
+      'gallery.download',
+      'gallery.downloadHEIC',
+      'gallery.downloadPNG',
+      'gallery.noImages',
+      'gallery.noImagesDesc',
+      'gallery.scrollMore',
+      'gallery.end',
+      'gallery.pngMetadata',
+      'gallery.noPngText',
+      'gallery.delete',
+      'gallery.deleteImagesTitle',
     ]) {
       expect(source).toContain(`t('${key}')`);
+    }
+
+    for (const key of [
+      'chat.toolsCount',
+      'chat.thinkingCount',
+      'chat.detailsCount',
+      'gallery.messageId',
+      'gallery.selectImage',
+      'gallery.imageNotFound',
+      'gallery.refreshComplete',
+      'gallery.generatingHeic',
+      'gallery.deleteConfirm',
+    ]) {
+      expect(source).toContain(`tf('${key}'`);
     }
   });
 
@@ -79,8 +153,93 @@ describe('page i18n coverage', () => {
       'cron.deliverAll',
       'theme.appearance',
       'dialog.confirm',
+      'chat.details',
+      'chat.expandDetails',
+      'chat.collapseDetails',
+      'chat.toolsCount',
+      'chat.thinkingCount',
+      'chat.detailsCount',
+      'chat.emptyDesc',
+      'chat.sessionTimes',
+      'chat.stopStreaming',
+      'chat.queueFollowUp',
+      'chat.queue',
+      'chat.model',
+      'chat.reasoning',
+      'chat.queuedFollowUps',
+      'chat.steerNow',
+      'chat.steer',
+      'chat.editQueuedFollowUp',
+      'gallery.title',
+      'gallery.loaded',
+      'gallery.select',
+      'gallery.cancel',
+      'gallery.selectImages',
+      'gallery.cancelSelection',
+      'gallery.refresh',
+      'gallery.download',
+      'gallery.downloadHEIC',
+      'gallery.downloadPNG',
+      'gallery.downloadSelected',
+      'gallery.generateHeic',
+      'gallery.organize',
+      'gallery.delete',
+      'gallery.deleteSelected',
+      'gallery.previous',
+      'gallery.next',
+      'gallery.close',
+      'gallery.metadata',
+      'gallery.dimensions',
+      'gallery.files',
+      'gallery.source',
+      'gallery.messageId',
+      'gallery.loading',
+      'gallery.selectImage',
+      'gallery.imageNotFound',
+      'gallery.refreshComplete',
+      'gallery.deleteImagesTitle',
+      'gallery.pngMetadata',
+      'gallery.noPngText',
+      'gallery.noImages',
+      'gallery.noImagesDesc',
+      'gallery.scrollMore',
+      'gallery.end',
+      'gallery.refreshing',
+      'gallery.refreshedNone',
+      'gallery.generatingHeic',
+      'gallery.heicDone',
+      'gallery.imagesUnavailable',
+      'gallery.refreshFailed',
+      'gallery.deleteConfirm',
+      'settings.summary',
+      'nav.closeList',
+      'tool.invocation',
+      'tool.result',
+      'artifacts.noHighlights',
+      'status.modelsUnavailable',
+      'status.sessionsUnavailable',
+      'status.sessionDetailUnavailable',
+      'status.sessionModelSelected',
+      'status.draftConversation',
+      'status.messagesUnavailable',
+      'status.skillFileUnavailable',
+      'status.skillUnavailable',
+      'status.skillsUnavailable',
+      'status.skillToggleFailed',
+      'status.skillEnabled',
+      'status.skillDisabled',
+      'status.skillFolderUnavailable',
+      'status.running',
+      'status.cannotCreateSession',
+      'status.cannotUploadAttachments',
+      'status.stopped',
+      'status.error',
+      'status.renamedSession',
+      'status.deletedSession',
+      'status.memoryUnavailable',
+      'status.disconnected',
     ]) {
-      const line = source.split('\n').find((item) => item.includes(`'${key}'`)) || '';
+      const line = source.split('\n').find((item: string) => item.includes(`'${key}'`)) || '';
       expect(line).toContain('en:');
       expect(line).toContain("'zh-CN':");
       expect(line).toContain("'zh-TW':");

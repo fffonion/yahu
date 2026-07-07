@@ -10,7 +10,7 @@ describe('mobile image modal metadata controls', () => {
     const styles = css();
     expect(source).toContain('modalMetadataOpen');
     expect(source).toContain('setModalMetadataOpen');
-    expect(source).toContain('aria-label="Metadata"');
+    expect(source).toContain("aria-label={t('gallery.metadata')}");
     expect(source).toContain('metadata-open');
     expect(styles).toContain('.image-modal.metadata-open .modal-meta{display:block');
     expect(styles).toContain('.modal-meta{display:none');

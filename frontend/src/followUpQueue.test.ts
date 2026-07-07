@@ -50,8 +50,8 @@ describe('chat follow-up queue and steer behaviour', () => {
   test('settings exposes follow-up behaviour choice', () => {
     const source = app();
     expect(source).toContain('followUpBehaviour: FollowUpBehaviour');
-    expect(source).toContain("<option value=\"queue\">Queue</option>");
-    expect(source).toContain("<option value=\"steer\">Steer</option>");
+    expect(source).toContain('<option value="queue">{t(\'chat.queue\')}</option>');
+    expect(source).toContain('<option value="steer">{t(\'chat.steer\')}</option>');
     expect(source).toContain('settings.followUpBehaviour');
   });
 

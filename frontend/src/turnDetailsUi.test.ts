@@ -11,16 +11,21 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("<TurnDetailGroup");
     expect(source).toContain('className="turn-detail-group"');
     expect(source).toContain('className="turn-detail-summary"');
-    expect(source).toContain('aria-label="Turn tools and thinking"');
+    expect(source).toContain('aria-label={t(\'chat.details\')}');
+    expect(source).toContain('<span className="turn-detail-title">{t(\'chat.details\')}</span>');
+    expect(source).not.toContain('Tools & thinking');
+    expect(source).not.toContain('Turn tools and thinking');
   });
 
-  test('outer turn detail summary exposes a visible expand control', () => {
+  test('outer turn detail summary exposes a visible translated expand control', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('className="turn-detail-toggle"');
-    expect(source).toContain('<span className="turn-detail-toggle-label">Expand</span>');
+    expect(source).toContain('<span className="turn-detail-toggle-label">{t(\'chat.expandDetails\')}</span>');
+    expect(source).not.toContain('<span className="turn-detail-toggle-label">Expand</span>');
     expect(styles).toContain('.turn-detail-toggle{display:inline-grid;grid-template-columns:14px auto;');
-    expect(styles).toContain('.turn-detail-group[open] .turn-detail-toggle-label::before{content:"Collapse"}');
+    expect(source).toContain('onToggle={(event) => { const detail = event.currentTarget; detail.style.setProperty(\'--turn-detail-toggle-label\', `"${detail.open ? t(\'chat.collapseDetails\') : t(\'chat.expandDetails\')}"`); }}');
+    expect(styles).toContain('.turn-detail-group[open] .turn-detail-toggle-label::before{content:var(--turn-detail-toggle-label)}');
   });
 
   test('outer turn detail group has compact collapsed styling separate from inner tool and reasoning folds', () => {

@@ -19,7 +19,7 @@ describe('image browser download and refresh parity', () => {
   test('HEIC download labels are generic download labels and image browser button text is smaller', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("const downloadButtonLabel = (item: ImageEntry) => item.heic_status === 'missing' ? 'Generate HEIC' : 'Download';");
+    expect(source).toContain("const downloadButtonLabel = (item: ImageEntry) => item.heic_status === 'missing' ? t('gallery.generateHeic') : t('gallery.download');");
     expect(source).toContain('aria-label={downloadButtonLabel(item)}');
     expect(source).toContain('aria-label={downloadButtonLabel(modal)}');
     expect(source).not.toContain("item.download_label}</span>");

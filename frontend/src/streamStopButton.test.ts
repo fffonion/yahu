@@ -22,7 +22,7 @@ describe('stream stop button', () => {
     const source = app();
     expect(source).toContain('streaming={currentSessionStreaming}');
     expect(source).toContain('stopStreaming={stopStreaming}');
-    expect(source).toContain('{props.streaming && <button type="button" className="stop-stream-btn mobile-icon-only" aria-label="Stop streaming" title="Stop streaming" onClick={props.stopStreaming}><Square /></button>}');
+    expect(source).toContain('{props.streaming && <button type="button" className="stop-stream-btn mobile-icon-only" aria-label={t(\'chat.stopStreaming\')} title={t(\'chat.stopStreaming\')} onClick={props.stopStreaming}><Square /></button>}');
     expect(source).toContain('className="send-btn mobile-icon-only"');
     expect(source.indexOf('stop-stream-btn mobile-icon-only')).toBeLessThan(source.indexOf('className="send-btn mobile-icon-only"'));
     expect(source).not.toContain('<span className="btn-label">Stop</span>');

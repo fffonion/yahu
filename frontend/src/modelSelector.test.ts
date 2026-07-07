@@ -53,7 +53,7 @@ describe('composer model selector', () => {
   test('bottom model and reasoning controls are icon-only with searchable capped menus', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain('ariaLabel="Model"');
+    expect(source).toContain("ariaLabel={t('chat.model')}");
     expect(source).toContain('hideLabel');
     expect(source).toContain('searchable');
     expect(source).not.toContain('label="Model"');

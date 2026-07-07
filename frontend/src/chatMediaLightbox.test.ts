@@ -21,10 +21,10 @@ describe('chat media image lightbox', () => {
     expect(source).toContain('function ChatImageLightbox(');
     expect(source).toContain('className={`image-modal chat-image-modal');
     expect(source).toContain('onClick={onChatMediaClick}');
-    expect(source).toContain('aria-label="Download image"');
-    expect(source).toContain('aria-label="Metadata"');
-    expect(source).toContain('aria-label="Previous image"');
-    expect(source).toContain('aria-label="Next image"');
+    expect(source).toContain('aria-label={t(\'gallery.download\')}');
+    expect(source).toContain('aria-label={t(\'gallery.metadata\')}');
+    expect(source).toContain('aria-label={t(\'gallery.previous\')}');
+    expect(source).toContain('aria-label={t(\'gallery.next\')}');
     expect(source).not.toContain('chat-image-modal-delete');
     expect(source).not.toContain('aria-label="Delete chat image"');
   });

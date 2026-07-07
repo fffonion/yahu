@@ -25,7 +25,7 @@ describe('final assistant message metadata', () => {
     expect(source).toContain('function messageTurnMetadata(message: ChatMessage, turnStartedAt?: string | number): string');
     expect(source).toContain('const turnMetadata = messageTurnMetadata(message, turnStartedAt);');
     expect(source).toContain("message.role === 'assistant' && !isPending && !isToolPrelude");
-    expect(source).toContain('<div className="msg-turn-metadata" aria-label="Turn metadata">{turnMetadata}</div>');
+    expect(source).toContain('<div className="msg-turn-metadata" aria-label={t(\'chat.details\')}>{turnMetadata}</div>');
     expect(source).toContain('let lastUserTimestamp: string | number | undefined;');
     expect(source).toContain('const turnStartedAt = m.role === \'assistant\' ? lastUserTimestamp : undefined;');
     expect(source).toContain('<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={turnStartedAt} />');

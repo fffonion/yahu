@@ -21,8 +21,8 @@ describe('tool message structured layout css', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('toolInput: rawToolInput(raw)');
-    expect(source).toContain('title="Invocation"');
-    expect(source).toContain('title="Result"');
+    expect(source).toContain("title={t('tool.invocation')}");
+    expect(source).toContain("title={t('tool.result')}");
     expect(styles).toContain('.tool-detail-section{display:grid;gap:7px}');
   });
 

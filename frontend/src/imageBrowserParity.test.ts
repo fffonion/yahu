@@ -18,8 +18,8 @@ describe('image browser parity with standalone Hermes image browser', () => {
     const source = app();
     expect(source).toContain('sentinelRef');
     expect(source).toContain('IntersectionObserver');
-    expect(source).toContain('Scroll to load more');
-    expect(source).not.toContain('Load more');
+    expect(source).toContain("loading ? t('gallery.loading') : hasMore ? t('gallery.scrollMore') : t('gallery.end')");
+    expect(source).not.toContain('Scroll to load more');
     expect(source).not.toContain('className="load-more"');
   });
 
@@ -62,9 +62,12 @@ describe('image browser parity with standalone Hermes image browser', () => {
     const source = app();
     expect(source).toContain("['B', 'KB', 'MB', 'GB', 'TB']");
     expect(source).toContain('selecting, setSelecting');
-    expect(source).toContain('Download selected');
-    expect(source).toContain('Organize');
-    expect(source).toContain('Delete selected');
+    expect(source).toContain("t('gallery.downloadSelected')");
+    expect(source).toContain("t('gallery.organize')");
+    expect(source).toContain("t('gallery.deleteSelected')");
+    expect(source).not.toContain('Download selected</span>');
+    expect(source).not.toContain('Organize</span>');
+    expect(source).not.toContain('Delete selected</span>');
     expect(source).toContain('selected.size > 0');
     expect(source).not.toContain('ZIP {selected.size');
   });

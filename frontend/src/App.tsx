@@ -72,7 +72,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'thinking-block-chevron-v1';
+const APP_BUILD_ID = 'details-i18n-v1';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -958,7 +958,7 @@ export default function App() {
         }
       }
       setStatus(t('status.modelsLoaded'));
-    } catch (err: any) { setStatus(`Models unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('status.modelsUnavailable', err.message)); }
   }, [activeSession?.model, activeSession?.provider, model, selectedModelProvider, setStatus]);
 
   const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod, force = false) => {
@@ -992,7 +992,7 @@ export default function App() {
       setSessions((old) => list.map((session) => sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id))));
       if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
-    } catch (err: any) { setStatus(`Sessions unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('status.sessionsUnavailable', err.message)); }
   }, [filter, headers, switchActiveSession]);
 
   const loadSessionDetail = useCallback(async (sessionId: string) => {
@@ -1005,7 +1005,7 @@ export default function App() {
       const detail = (body.data || body.session || body) as Session;
       setActiveSessionDetail((old) => sessionWithPreservedMessageCount(detail, old));
       setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(detail, s) } : s) : [detail, ...old]);
-    } catch (err: any) { setStatus(`Session detail unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('status.sessionDetailUnavailable', err.message)); }
   }, [apiBase, headers]);
 
   const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {
@@ -1060,7 +1060,7 @@ export default function App() {
       setActiveSessionDetail((old) => old?.id === activeSessionId ? { ...old, model: resolvedModel, provider } : old);
       setSessions((old) => old.map((s) => s.id === activeSessionId ? { ...s, model: resolvedModel, provider } : s));
     }
-    setStatus('Session model selected');
+    setStatus(t('status.sessionModelSelected'));
   }, [activeSessionId]);
 
   const refreshSessionTitleOnce = useCallback(async (sessionId: string) => {
@@ -1114,7 +1114,7 @@ export default function App() {
     setHasNewer(false);
     setInput('');
     setAttachments([]);
-    setStatus('Draft conversation');
+    setStatus(t('status.draftConversation'));
     setSessionMenu(null);
     writeHashRoute({ mode: 'chat' });
   }, [model, models, selectedModelProvider, writeHashRoute]);
@@ -1164,7 +1164,7 @@ export default function App() {
       setHasOlder(merged.hasOlder);
       setHasNewer(merged.hasNewer);
       if (direction === 'latest') scrollLatestAfterRenderRef.current = true;
-    } catch (err: any) { setStatus(`Messages unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('status.messagesUnavailable', err.message)); }
     finally {
       if (req === messageRequestRef.current) {
         loadingMessagesRef.current = false;
@@ -1217,7 +1217,7 @@ export default function App() {
       hasNewerRef.current = Boolean(page.has_newer);
       setHasOlder(Boolean(page.has_older));
       setHasNewer(Boolean(page.has_newer));
-    } catch (err: any) { setStatus(`Messages unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('status.messagesUnavailable', err.message)); }
     finally {
       if (req === messageRequestRef.current) {
         loadingMessagesRef.current = false;
@@ -1268,7 +1268,7 @@ export default function App() {
   }, []);
   const openSkillFile = useCallback(async (skillName: string, path = 'SKILL.md') => {
     const res = await fetch(`/skills/file?name=${encodeURIComponent(skillName)}&path=${encodeURIComponent(path)}`);
-    if (!res.ok) { setStatus(`Skill file unavailable: ${await res.text()}`); return; }
+    if (!res.ok) { setStatus(tf('status.skillFileUnavailable', await res.text())); return; }
     const blob = await res.blob();
     if (blob.type.startsWith('image/')) setSkillPreview({ path, content: '', kind: 'image', url: URL.createObjectURL(blob) });
     else setSkillPreview({ path, content: await blob.text(), kind: 'text' });
@@ -1282,7 +1282,7 @@ export default function App() {
     try {
       await loadSkillFiles(skill, '');
       await openSkillFile(skill.name, 'SKILL.md');
-    } catch (err: any) { setStatus(`Skill unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('status.skillUnavailable', err.message)); }
   }, [loadSkillFiles, openSkillFile, writeHashRoute]);
   const loadSkills = useCallback(async () => {
     try {
@@ -1291,13 +1291,13 @@ export default function App() {
       const body = await res.json();
       const list: Skill[] = body.data || body.skills || [];
       setSkillList(list);
-    } catch (err: any) { setStatus(`Skills: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('status.skillsUnavailable', err.message)); }
   }, []);
   const toggleSkillEnabled = useCallback(async (skill: Skill, enabled: boolean) => {
     const res = await fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
-    if (!res.ok) { setStatus(`Skill toggle failed: ${await res.text()}`); return; }
+    if (!res.ok) { setStatus(tf('status.skillToggleFailed', await res.text())); return; }
     setSkillList((old) => old.map((item) => item.name === skill.name ? { ...item, enabled } : item));
-    setStatus(`${enabled ? 'Enabled' : 'Disabled'} skill: ${skill.name}`);
+    setStatus(tf(enabled ? 'status.skillEnabled' : 'status.skillDisabled', skill.name));
   }, []);
   const openSkillMenu = (skill: Skill, event: React.MouseEvent) => {
     event.preventDefault();
@@ -1359,7 +1359,7 @@ export default function App() {
     try {
       await loadSkillFiles(selectedSkill, path);
       setExpandedSkillPaths((old) => new Set(old).add(path));
-    } catch (err: any) { setStatus(`Skill folder unavailable: ${err.message}`); }
+    } catch (err: any) { setStatus(tf('status.skillFolderUnavailable', err.message)); }
   }, [expandedSkillPaths, loadSkillFiles, selectedSkill]);
 
   const resetCronForm = useCallback(() => { setCronName(''); setCronSchedule('0 9 * * *'); setCronPrompt(''); setCronScript(''); setCronDeliver(''); setCronOutput(null); setCronEditingId(''); }, []);
@@ -1627,7 +1627,7 @@ export default function App() {
     const trimmed = text.trim();
     if (!trimmed) return;
     updateFollowUpQueue(sessionId, (items) => [...items, { id: uid('fu'), text: trimmed, createdAt: Date.now() }]);
-    setStatus(`Queued follow-up: ${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`);
+    setStatus(tf('chat.queuedFollowUpStatus', `${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`));
   };
   const removeQueuedFollowUp = (sessionId: string, itemId: string) => updateFollowUpQueue(sessionId, (items) => items.filter((item) => item.id !== itemId));
   const moveQueuedItem = (itemId: string, direction: -1 | 1) => updateFollowUpQueue(activeSessionId, (items) => {
@@ -1664,9 +1664,9 @@ export default function App() {
       const sessionProvider = providerRef.current || activeSession?.provider || activeSessionDetail?.provider || '';
       const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}/chat`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(`/steer ${text}`, sessionModel, effort, sessionProvider)) });
       if (!res.ok) throw new Error(await res.text());
-      setStatus(`Steered: ${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`);
+      setStatus(tf('chat.steeredStatus', `${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`));
     } catch (err: any) {
-      setStatus(`Steer failed: ${err.message || err}`);
+      setStatus(tf('chat.steerFailed', err.message || err));
       enqueueFollowUp(trimmed, sessionId);
     }
   };
@@ -1675,7 +1675,7 @@ export default function App() {
     const text = turnText.trim();
     if (!text && turnAttachments.length === 0) return;
     messageRequestRef.current += 1;
-    setBusy(true); setStatus('Running');
+    setBusy(true); setStatus(t('status.running'));
     let sessionId = initialSessionId;
     let effectiveSessionId = sessionId;
     let createdSession: Session | null = null;
@@ -1693,13 +1693,13 @@ export default function App() {
         setHasOlder(false);
         setHasNewer(false);
       }
-    } catch (err: any) { setStatus(`Cannot create session: ${err.message}`); setBusy(false); return; }
+    } catch (err: any) { setStatus(tf('status.cannotCreateSession', err.message)); setBusy(false); return; }
     const stick = isNearBottom(chatScrollRef.current, 180);
     let payloadAttachments: Attachment[] = turnAttachments;
     try {
       payloadAttachments = await uploadAttachments(turnAttachments);
     } catch (err: any) {
-      setStatus(`Cannot upload attachments: ${err.message || err}`);
+      setStatus(tf('status.cannotUploadAttachments', err.message || err));
       setBusy(false);
       return;
     }
@@ -1716,7 +1716,7 @@ export default function App() {
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
     setHasNewer(false);
     if (clearComposer) { setInput(''); setAttachments([]); }
-    setStatus('Running');
+    setStatus(t('status.running'));
     if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
     let controller: AbortController | null = null;
     try {
@@ -1797,10 +1797,10 @@ export default function App() {
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: m.content } : m));
-        setStatus('Stopped');
+        setStatus(t('status.stopped'));
       } else {
         setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: `Request failed: ${err.message}` } : m));
-        setStatus(`Error: ${err.message}`);
+        setStatus(tf('status.error', err.message));
       }
     } finally {
       setBusy(false);
@@ -1903,7 +1903,7 @@ export default function App() {
     setSessions((old) => old.map((item) => updatedIds.has(item.id) ? { ...item, title: titles[item.id] || body.title || nextTitle } : item));
     setActiveSessionDetail((old) => old && updatedIds.has(old.id) ? { ...old, title: titles[old.id] || body.title || nextTitle } : old);
     await loadSessions(filter);
-    setStatus('Renamed session');
+    setStatus(t('status.renamedSession'));
   };
   const deleteSession = async (session: Session) => {
     setSessionMenu(null);
@@ -1918,7 +1918,7 @@ export default function App() {
     });
     if (activeSessionId === session.id) { setMessages([]); setActiveSessionDetail(null); }
     await loadSessions(filter);
-    setStatus('Deleted session');
+    setStatus(t('status.deletedSession'));
   };
   const openWorkspaceMenu = (entry: WorkspaceEntry, event: React.MouseEvent) => {
     event.preventDefault();
@@ -1997,7 +1997,7 @@ export default function App() {
         </div>}
         {!sidebarCollapsed && <ThemeCard theme={theme} setTheme={setTheme} />}
       </aside>
-      {mobileSidebarOpen && <button type="button" className="mobile-sidebar-backdrop" aria-label="Close list" onClick={closeMobileSidebar} />}
+      {mobileSidebarOpen && <button type="button" className="mobile-sidebar-backdrop" aria-label={t('nav.closeList')} onClick={closeMobileSidebar} />}
       {sessionMenu && <div className="session-context-menu" role="menu" style={{ left: sessionMenu.x, top: sessionMenu.y }} onContextMenu={(event) => event.preventDefault()}>
         <button type="button" role="menuitem" onClick={() => renameSession(sessionMenu.session)}><Pencil /> {t('chat.rename')}</button>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSession(sessionMenu.session)}><Trash2 /> {t('chat.delete')}</button>
@@ -2161,7 +2161,7 @@ function ArtifactsMain(props: { artifacts: SessionArtifact[]; selectedArtifactId
           <div className="artifact-document-titlebar"><div><h2>{selected.title}</h2><p>{t('artifacts.latestVersion')} v{activeVersion.version} · {artifactDate(activeVersion.createdAt)}</p><p className="artifact-version-help">{t('artifacts.versionHelp')}</p></div><div className="artifact-actions"><select value={activeVersion.version} onChange={(event) => setVersionIndex(Math.max(0, Number(event.target.value) - 1))}>{versions.map((version) => <option key={version.version} value={version.version}>v{version.version}</option>)}</select><button type="button" className="artifact-copy-prompt" onClick={copyPrompt}><FileText /> {t('artifacts.copyPrompt')}</button></div></div>
           <div className="artifact-metrics"><ArtifactMetric label="Messages" value={activeVersion.summary.totalMessages} /><ArtifactMetric label="Assistant" value={activeVersion.summary.assistantMessages} /><ArtifactMetric label="Tools" value={activeVersion.summary.toolMessages} /><ArtifactMetric label="Evidence" value={(activeVersion.evidence || []).length} /></div>
           {!!activeVersion.sections?.length && <section className="artifact-section artifact-brief"><h3>{t('artifacts.brief')}</h3><div className="artifact-section-list">{activeVersion.sections.map((section) => <div className={`artifact-brief-block ${section.id}`} key={section.id}><strong>{section.title}</strong><ul>{section.items.map((item, index) => <li key={`${section.id}-${index}`}>{item}</li>)}</ul></div>)}</div></section>}
-          <section className="artifact-section"><h3>{t('artifacts.highlights')}</h3>{activeVersion.highlights.length ? <ul>{activeVersion.highlights.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p className="artifact-muted">No highlights yet.</p>}</section>
+          <section className="artifact-section"><h3>{t('artifacts.highlights')}</h3>{activeVersion.highlights.length ? <ul>{activeVersion.highlights.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p className="artifact-muted">{t('artifacts.noHighlights')}</p>}</section>
           {!!activeVersion.evidence?.length && <section className="artifact-section"><h3>{t('artifacts.toolEvidence')}</h3><div className="artifact-evidence-grid">{activeVersion.evidence.map((item) => <article className={`artifact-evidence-card ${item.category}`} key={item.id}><div className="artifact-evidence-meta"><span>{item.category}</span><small className="artifact-evidence-status">{item.status}</small></div><strong>{item.title}</strong><p>{item.summary}</p><ul>{item.findings.map((finding, index) => <li key={`${item.id}-${index}`}>{finding}</li>)}</ul><pre>{item.rawExcerpt}</pre></article>)}</div></section>}
           {!!activeVersion.diffs?.length && <section className="artifact-section artifact-diff-panel"><h3>{t('artifacts.codeDiff')}</h3><div className="artifact-diff-list">{activeVersion.diffs.map((item) => <article className="artifact-diff-card" key={item.id}><div className="artifact-diff-head"><strong>{item.file}</strong><span>+{item.added} / -{item.removed}</span></div><pre>{item.excerpt.split('\n').map((line, index) => <span className={artifactDiffLineClass(line)} key={`${item.id}-${index}`}>{line || ' '}</span>)}</pre></article>)}</div></section>}
           <section className="artifact-section"><h3>{t('artifacts.timeline')}</h3><div className="artifact-timeline">{activeVersion.timeline.map((item) => <div className={`artifact-timeline-row ${item.role}`} key={item.id}><span>{item.role}</span><div><strong>{item.title}</strong><p>{item.excerpt}</p></div></div>)}</div></section>
@@ -2378,8 +2378,8 @@ function ToolMessageView({ message }: { message: ChatMessage }) {
         <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
       </button>
       {expanded && <div className="tool-detail">
-        {summary.input !== undefined && <ToolDetailSection title="Invocation" value={summary.input} />}
-        <ToolDetailSection title="Result" value={summary.result} />
+        {summary.input !== undefined && <ToolDetailSection title={t('tool.invocation')} value={summary.input} />}
+        <ToolDetailSection title={t('tool.result')} value={summary.result} />
       </div>}
     </div>
   </article>;
@@ -2536,17 +2536,17 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
   return <div className={`image-modal chat-image-modal ${metadataOpen ? 'metadata-open' : ''}`} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={cancelPointer}>
     <img ref={imgRef} className="image-modal-img" src={current.src} alt={current.name} onLoad={(event) => { setDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight }); applyZoom(); }} onClick={(event) => event.stopPropagation()} />
     <aside className="modal-meta" onClick={(event) => event.stopPropagation()}>
-      <h2>Metadata</h2>
-      <p className="metadata-dim">Dimensions: {dimensions ? `${dimensions.width} × ${dimensions.height}` : '—'}</p>
-      <section className="metadata-files-section"><span>Files</span><p>{current.name}</p><p>Message {current.messageId}</p></section>
-      <section className="metadata-png-section"><span>Source</span><p>{current.path}</p></section>
+      <h2>{t('gallery.metadata')}</h2>
+      <p className="metadata-dim">{t('gallery.dimensions')}: {dimensions ? `${dimensions.width} × ${dimensions.height}` : '—'}</p>
+      <section className="metadata-files-section"><span>{t('gallery.files')}</span><p>{current.name}</p><p>{tf('gallery.messageId', current.messageId)}</p></section>
+      <section className="metadata-png-section"><span>{t('gallery.source')}</span><p>{current.path}</p></section>
     </aside>
     <div className="modalbar" onClick={(event) => event.stopPropagation()}>
-      <button className="mobile-icon-only" aria-label="Download image" onClick={downloadCurrent}><Download /></button>
-      <button className={`mobile-icon-only modal-metadata-toggle ${metadataOpen ? 'active' : ''}`} aria-label="Metadata" aria-expanded={metadataOpen} onClick={() => setMetadataOpen((value) => !value)}><Info /></button>
-      <button className="mobile-icon-only" aria-label="Previous image" disabled={index <= 0} onClick={() => selectRelative(-1)}><ChevronLeft /></button>
-      <button className="mobile-icon-only" aria-label="Next image" disabled={index < 0 || index >= items.length - 1} onClick={() => selectRelative(1)}><ChevronRight /></button>
-      <button className="mobile-icon-only" aria-label="Close" onClick={onClose}><X /></button>
+      <button className="mobile-icon-only" aria-label={t('gallery.download')} onClick={downloadCurrent}><Download /></button>
+      <button className={`mobile-icon-only modal-metadata-toggle ${metadataOpen ? 'active' : ''}`} aria-label={t('gallery.metadata')} aria-expanded={metadataOpen} onClick={() => setMetadataOpen((value) => !value)}><Info /></button>
+      <button className="mobile-icon-only" aria-label={t('gallery.previous')} disabled={index <= 0} onClick={() => selectRelative(-1)}><ChevronLeft /></button>
+      <button className="mobile-icon-only" aria-label={t('gallery.next')} disabled={index < 0 || index >= items.length - 1} onClick={() => selectRelative(1)}><ChevronRight /></button>
+      <button className="mobile-icon-only" aria-label={t('gallery.close')} onClick={onClose}><X /></button>
     </div>
   </div>;
 }
@@ -2554,9 +2554,9 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
 function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; turnStartedAt?: string | number }) {
   const toolCount = item.messages.filter((message) => isToolLikeMessage(message)).length;
   const thinkingCount = item.messages.filter((message) => String(message.reasoning || '').trim()).length;
-  const parts = [toolCount ? `${toolCount} tools` : '', thinkingCount ? `${thinkingCount} thinking` : ''].filter(Boolean).join(' · ') || `${item.messages.length} details`;
-  return <details className="turn-detail-group" aria-label="Turn tools and thinking">
-    <summary className="turn-detail-summary"><span className="turn-detail-toggle"><ChevronRight className="turn-detail-chevron" /><span className="turn-detail-toggle-label">Expand</span></span><span className="turn-detail-title">Tools & thinking</span><em>{parts}</em></summary>
+  const parts = [toolCount ? tf('chat.toolsCount', toolCount) : '', thinkingCount ? tf('chat.thinkingCount', thinkingCount) : ''].filter(Boolean).join(' · ') || tf('chat.detailsCount', item.messages.length);
+  return <details className="turn-detail-group" aria-label={t('chat.details')} onToggle={(event) => { const detail = event.currentTarget; detail.style.setProperty('--turn-detail-toggle-label', `"${detail.open ? t('chat.collapseDetails') : t('chat.expandDetails')}"`); }}>
+    <summary className="turn-detail-summary"><span className="turn-detail-toggle"><ChevronRight className="turn-detail-chevron" /><span className="turn-detail-toggle-label">{t('chat.expandDetails')}</span></span><span className="turn-detail-title">{t('chat.details')}</span><em>{parts}</em></summary>
     <div className="turn-detail-body">
       {item.messages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} />)}
     </div>
@@ -2593,14 +2593,14 @@ function MessageView({ message, showReasoning = false, assistantName, turnStarte
         <div className="msg-meta">
           <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>
           <time>{formatChatMessageTime(message.timestamp)}</time>
-          {isPending && <span className="stream-state" aria-label="streaming"><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">streaming</span></span>}
+          {isPending && <span className="stream-state" aria-label={t('chat.streaming')}><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">{t('chat.streaming')}</span></span>}
         </div>
         <div className="msg-body">
           <div className="md-content" dangerouslySetInnerHTML={{ __html: html }} />
           {isPending && <span className="stream-caret" aria-hidden="true" />}
         </div>
-        {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label="Reasoning / thinking"><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>Thinking</span></summary><pre>{message.reasoning}</pre></details>}
-        {showTurnMetadata && <div className="msg-turn-metadata" aria-label="Turn metadata">{turnMetadata}</div>}
+        {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={t('chat.details')}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{t('chat.details')}</span></summary><pre>{message.reasoning}</pre></details>}
+        {showTurnMetadata && <div className="msg-turn-metadata" aria-label={t('chat.details')}>{turnMetadata}</div>}
       </div>
     </article>
   );
@@ -2753,7 +2753,7 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
     onJumpToMessage(sessionId, item.id);
   }, [isMobileNavigator, onJumpToMessage, sessionId, showPopup]);
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
-  return <nav ref={navRef} className="chat-user-minimap" aria-label="User message navigator" onMouseLeave={() => { if (!isMobileNavigator) hidePopup(); }}>
+  return <nav ref={navRef} className="chat-user-minimap" aria-label={t('chat.userNavigator')} onMouseLeave={() => { if (!isMobileNavigator) hidePopup(); }}>
     <div ref={trackRef} className={`user-minimap-track${scrollFade.before ? ' can-scroll-before' : ''}${scrollFade.after ? ' can-scroll-after' : ''}`} onScroll={updateNavigatorMetrics}>
       {items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }} onFocus={(event) => showPopup(item, event.currentTarget)} onBlur={() => { if (!isMobileNavigator) hidePopup(); }} onClick={(event) => handleNavigatorClick(item, event)}>
         <span className="user-minimap-bar" />
@@ -2881,12 +2881,12 @@ function ChatMain(props: any) {
     return () => { cancelAnimationFrame(raf); window.clearTimeout(timer); };
   }, [visibleMessages.length, props.activeSessionId, props.userMessageNav, props.showReasoning, props.showToolCalls, updateActiveNavigatorIds]);
   return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}`}>
-    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
+    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatMediaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
-      {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
-      {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
+      {props.loadingMessages && <div className="history-loading" aria-live="polite">{t('chat.loadingHistory')}</div>}
+      {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>{t('chat.emptyDesc')}</p></div>}
       {(() => {
         const splitIdx = findNewMessageSplitIndex(visibleMessages, props.newMessageBoundaryId);
         if (props.desktopCompactMessages) {
@@ -2929,13 +2929,13 @@ function ChatMain(props: any) {
         <div className="composer-footer">
           <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
-          <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
-          <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
+          <DropdownControl icon={<Bot />} ariaLabel={t('chat.model')} value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
+          <DropdownControl icon={<Brain />} ariaLabel={t('chat.reasoning')} value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
           <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
           <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={t('chat.compactMode')} title={t('chat.compactMode')} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>
-          {props.streaming && <button type="button" className="stop-stream-btn mobile-icon-only" aria-label="Stop streaming" title="Stop streaming" onClick={props.stopStreaming}><Square /></button>}
-          <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? 'Queue follow-up' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Queue' : 'Send'}</span></button>
+          {props.streaming && <button type="button" className="stop-stream-btn mobile-icon-only" aria-label={t('chat.stopStreaming')} title={t('chat.stopStreaming')} onClick={props.stopStreaming}><Square /></button>}
+          <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? t('chat.queueFollowUp') : t('chat.send')}><Send /> <span className="btn-label">{props.busy ? t('chat.queue') : t('chat.send')}</span></button>
         </div>
       </div>
     </footer>
@@ -2946,7 +2946,7 @@ function FollowUpQueueView({ items, onSteer, onEdit, onReorder }: { items: Follo
   const dragIdx = React.useRef<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = React.useState<number | null>(null);
   if (!items.length) return null;
-  return <div className="followup-queue" aria-label="Queued follow-ups">
+  return <div className="followup-queue" aria-label={t('chat.queuedFollowUps')}>
     {items.map((item, index) => <div
       className={`followup-item${dragOverIdx === index ? ' drag-over' : ''}`}
       key={item.id}
@@ -2962,8 +2962,8 @@ function FollowUpQueueView({ items, onSteer, onEdit, onReorder }: { items: Follo
         onDragEnd={() => { dragIdx.current = null; setDragOverIdx(null); document.querySelectorAll('.followup-item.dragging').forEach((el) => el.classList.remove('dragging')); }}
       ><GripVertical /></span>
       <span className="followup-text">{item.text}</span>
-      <button type="button" className="followup-action" onClick={() => onSteer(item)} title="Steer now">Steer</button>
-      <button type="button" className="followup-action" onClick={() => onEdit(item)} title="Edit queued follow-up"><Pencil /></button>
+      <button type="button" className="followup-action" onClick={() => onSteer(item)} title={t('chat.steerNow')}>{t('chat.steer')}</button>
+      <button type="button" className="followup-action" onClick={() => onEdit(item)} title={t('chat.editQueuedFollowUp')}><Pencil /></button>
     </div>)}
   </div>;
 }
@@ -2995,10 +2995,10 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
   const filteredCats = query ? cats.filter((cat) => grouped[cat].some((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query))) : cats;
   const filteredSkills = (cat: string) => query ? grouped[cat].filter((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query)) : grouped[cat];
   const toggleCat = (cat: string) => setExpandedCats(new Set(expandedCats.has(cat) ? [...expandedCats].filter((c) => c !== cat) : [...expandedCats, cat]));
-  return <><div className="cron-sidebar-head"><div><h2>Skills</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
+  return <><div className="cron-sidebar-head"><div><h2>{t('skills.title')}</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
 function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void }) {
-  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || 'Skills'}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} /></main>;
+  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || t('skills.title')}</h1><span>{skill?.description || t('skills.select')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} /></main>;
 }
 function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile, openSkillFileMenu }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void; openSkillFileMenu: (skill: Skill, entry: WorkspaceEntry, event: React.MouseEvent) => void }) {
   const triggerSkillDownload = (skill: Skill) => {
@@ -3106,7 +3106,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
 }
 function MemoryPanel({ setStatus, showToast }: { setStatus: (v: string) => void; showToast: (v: string) => void }) {
   const [doc, setDoc] = useState<MemoryDoc>({ memory: '', user: '' });
-  const load = useCallback(async () => { try { const res = await fetch('/memory'); if (!res.ok) throw new Error(await res.text()); setDoc(await res.json()); } catch (err: any) { setStatus(`Memory unavailable: ${err.message}`); } }, [setStatus]);
+  const load = useCallback(async () => { try { const res = await fetch('/memory'); if (!res.ok) throw new Error(await res.text()); setDoc(await res.json()); } catch (err: any) { setStatus(tf('status.memoryUnavailable', err.message)); } }, [setStatus]);
   useEffect(() => { load(); }, [load]);
   const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); if (res.ok) { setStatus(t('memory.saved')); showToast(t('memory.saved')); } else setStatus(await res.text()); };
   return <section className="admin-content memory-grid"><label><span>MEMORY.md</span><textarea value={doc.memory} onChange={(e) => setDoc({ ...doc, memory: e.target.value })}/></label><label><span>USER.md</span><textarea value={doc.user} onChange={(e) => setDoc({ ...doc, user: e.target.value })}/></label><button className="save-memory" onClick={save}>{t('memory.save')}</button></section>;
@@ -3155,7 +3155,7 @@ function SettingsMain(props: { apiServerUrl: string; apiBase: string; setApiBase
       setTimeout(() => { window.location.reload(); }, 3000);
     } catch (e: any) { setUpdateStatus('error'); setUpdateError(e?.message || 'Update failed'); }
   };
-  return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>API, language, theme, and follow-ups</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={'settings' as Mode} /></header><section className="settings-content"><label><span>{t('settings.apiUrl')}</span><input value={props.apiServerUrl || '—'} readOnly /></label><label><span>{t('settings.apiProxyBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">Queue</option><option value="steer">Steer</option></select></label><label><span>{t('settings.composerEnterMode')}</span><select value={props.composerEnterMode} onChange={(e) => props.setComposerEnterMode(e.target.value as ComposerEnterMode)}><option value="enter-send">{t('settings.enterSend')}</option><option value="enter-newline">{t('settings.enterNewline')}</option></select></label><button className="mobile-icon-only settings-save-btn" aria-label={t('settings.save')} onClick={saveSettings}><Save /> <span className="btn-label">{t('settings.save')}</span></button><button className="mobile-icon-only" aria-label="Refresh connection" onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button><div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}><h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('settings.update')}</h3><p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: 13 }}>{t('settings.version')}: <code>{currentVer || '...'}</code></p><div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><button className="btn-wide" onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'applying' || updateStatus === 'restarting'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-2)', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'checking' ? t('settings.checkingUpdate') : <><RefreshCw size={15} /> {t('settings.checkUpdate')}</>}</button>{updateInfo && <span style={{ fontSize: 13 }}>{updateInfo.available ? <span style={{ color: 'var(--green)' }}>{t('settings.updateAvailable')}: {updateInfo.latest}</span> : <span style={{ color: 'var(--muted)' }}>{t('settings.upToDate')}</span>}</span>}{updateInfo?.available && updateInfo.release_url && <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>{t('settings.viewRelease')}</a>}</div><div className="update-project-link-row"><a className="project-link" href="https://github.com/fffonion/yahu" target="_blank" rel="noopener noreferrer" aria-label="GitHub project"><GitHubIcon /> <span>GitHub · fffonion/yahu</span></a></div>{updateInfo?.available && <button className="btn-wide" onClick={applyUpdate} disabled={updateStatus === 'applying' || updateStatus === 'restarting'} style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--accent)', borderRadius: 12, background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'applying' ? t('settings.installingUpdate') : updateStatus === 'restarting' ? t('settings.restartingUpdate') : <><Download size={15} /> {t('settings.installUpdate')}</>}</button>}{updateStatus === 'error' && <p style={{ margin: '8px 0 0', color: 'var(--danger)', fontSize: 13 }}>{updateError}</p>}</div></section></main>;
+  return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>{t('settings.summary')}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={'settings' as Mode} /></header><section className="settings-content"><label><span>{t('settings.apiUrl')}</span><input value={props.apiServerUrl || '—'} readOnly /></label><label><span>{t('settings.apiProxyBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">{t('chat.queue')}</option><option value="steer">{t('chat.steer')}</option></select></label><label><span>{t('settings.composerEnterMode')}</span><select value={props.composerEnterMode} onChange={(e) => props.setComposerEnterMode(e.target.value as ComposerEnterMode)}><option value="enter-send">{t('settings.enterSend')}</option><option value="enter-newline">{t('settings.enterNewline')}</option></select></label><button className="mobile-icon-only settings-save-btn" aria-label={t('settings.save')} onClick={saveSettings}><Save /> <span className="btn-label">{t('settings.save')}</span></button><button className="mobile-icon-only" aria-label={t('settings.refreshConn')} onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button><div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}><h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('settings.update')}</h3><p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: 13 }}>{t('settings.version')}: <code>{currentVer || '...'}</code></p><div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><button className="btn-wide" onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'applying' || updateStatus === 'restarting'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-2)', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'checking' ? t('settings.checkingUpdate') : <><RefreshCw size={15} /> {t('settings.checkUpdate')}</>}</button>{updateInfo && <span style={{ fontSize: 13 }}>{updateInfo.available ? <span style={{ color: 'var(--green)' }}>{t('settings.updateAvailable')}: {updateInfo.latest}</span> : <span style={{ color: 'var(--muted)' }}>{t('settings.upToDate')}</span>}</span>}{updateInfo?.available && updateInfo.release_url && <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>{t('settings.viewRelease')}</a>}</div><div className="update-project-link-row"><a className="project-link" href="https://github.com/fffonion/yahu" target="_blank" rel="noopener noreferrer" aria-label="GitHub · fffonion/yahu"><GitHubIcon /> <span>GitHub · fffonion/yahu</span></a></div>{updateInfo?.available && <button className="btn-wide" onClick={applyUpdate} disabled={updateStatus === 'applying' || updateStatus === 'restarting'} style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--accent)', borderRadius: 12, background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'applying' ? t('settings.installingUpdate') : updateStatus === 'restarting' ? t('settings.restartingUpdate') : <><Download size={15} /> {t('settings.installUpdate')}</>}</button>}{updateStatus === 'error' && <p style={{ margin: '8px 0 0', color: 'var(--danger)', fontSize: 13 }}>{updateError}</p>}</div></section></main>;
 }
 
 function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, writeHashRoute, mode, onNavigateToSettings }: { theme: Theme; setTheme: (v: Theme) => void; requestConfirm: (title: string, message: string, danger?: boolean) => Promise<boolean>; initialImageFilename?: string; writeHashRoute: (route: HashRoute) => void; mode?: Mode; onNavigateToSettings?: () => void }) {
@@ -3205,7 +3205,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     const digits = unit === 0 ? 0 : value >= 10 ? 1 : 2;
     return `${value.toFixed(digits).replace(/\.0+$/, '')} ${units[unit]}`;
   };
-  const downloadButtonLabel = (item: ImageEntry) => item.heic_status === 'missing' ? 'Generate HEIC' : 'Download';
+  const downloadButtonLabel = (item: ImageEntry) => item.heic_status === 'missing' ? t('gallery.generateHeic') : t('gallery.download');
   const triggerBrowserDownload = (url: string, filename: string) => {
     const a = document.createElement('a');
     a.href = url;
@@ -3369,7 +3369,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
         mergeImage(entry);
         setModal(entry);
       })
-      .catch(() => setNotice(`Image not found: ${initialImageFilename}`));
+      .catch(() => setNotice(tf('gallery.imageNotFound', initialImageFilename)));
   }, [initialImageFilename]);
   const loadStats = useCallback(async () => {
     try { const res = await fetch('/image-api/stats', { cache: 'no-store' }); if (res.ok) setStats(await res.json()); }
@@ -3395,7 +3395,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       setHasMore(more);
       setNotice('');
       await loadStats();
-    } catch (err: any) { setNotice(`Image API unavailable: ${err.message}`); }
+    } catch (err: any) { setNotice(`${t('gallery.imagesUnavailable')}: ${err.message}`); }
     finally {
       loadingRef.current = false;
       setLoading(false);
@@ -3415,7 +3415,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const refreshIncremental = useCallback(async () => {
     if (refreshBusyRef.current) return;
     refreshBusyRef.current = true;
-    setNotice('Refreshing…');
+    setNotice(t('gallery.refreshing'));
     try {
       const oldMap = new Map(imagesRef.current.map((item) => [item.filename, item]));
       const after = imagesRef.current.reduce((max, item) => Math.max(max, Number(item.modified_at || 0)), 0);
@@ -3435,10 +3435,10 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
         mergeImage(item);
       }
       if ((payload.new_items || []).length >= MAX_PAGE_SIZE) { hasMoreRef.current = true; setHasMore(true); }
-      if (added || updated) setNotice(`Refresh complete: added ${added}, updated ${updated}`);
-      else if (window.innerWidth > 760) setNotice('Refresh complete: no new images');
+      if (added || updated) setNotice(tf('gallery.refreshComplete', added, updated));
+      else if (window.innerWidth > 760) setNotice(t('gallery.refreshedNone'));
       await loadStats();
-    } catch (err: any) { setNotice(`Refresh failed: ${err.message || err}`); }
+    } catch (err: any) { setNotice(`${t('gallery.refreshFailed')}: ${err.message || err}`); }
     finally { refreshBusyRef.current = false; }
   }, [loadStats]);
   const refresh = refreshIncremental;
@@ -3465,7 +3465,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     es.onmessage = (ev) => { try { const msg = JSON.parse(ev.data); if (msg.type === 'image' && msg.data) mergeImage(msg.data); if (msg.type === 'resync') refresh(); } catch { /* ignore */ } };
     es.addEventListener('delete', (ev) => { try { const msg = JSON.parse((ev as MessageEvent).data); removeImages(msg.filenames || [msg.filename]); } catch { /* ignore */ } });
     es.addEventListener('resync', refresh);
-    es.onerror = () => setNotice('disconnected');
+    es.onerror = () => setNotice(t('status.disconnected'));
     return () => es.close();
   }, [refresh]);
   useEffect(() => {
@@ -3663,7 +3663,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const deleteNames = async (names: string[]) => {
     if (!names.length) return;
     const nextModalAfterDelete = modal && names.includes(modal.filename) ? nextImageAfterRemoval(imagesRef.current, names, modal.filename) : null;
-    if (!await requestConfirm('Delete images', `Delete ${names.length} image(s)? This cannot be undone.`, true)) return;
+    if (!await requestConfirm(t('gallery.deleteImagesTitle'), tf('gallery.deleteConfirm', names.length), true)) return;
     const res = await fetch('/image-api/batch-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filenames: names }) });
     if (!res.ok) { setNotice(await res.text()); return; }
     removeImages(names, nextModalAfterDelete); setSelecting(false); await loadStats();
@@ -3686,10 +3686,10 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     setSelecting(false); setSelected(new Set()); loadImages(true);
   };
   const generateHeic = async (item: ImageEntry): Promise<ImageEntry | null> => {
-    setNotice(`Generating HEIC for ${item.filename}...`);
+    setNotice(tf('gallery.generatingHeic', item.filename));
     const res = await fetch(`/image-api/images/${enc(item.filename)}/heic`, { method: 'POST' });
     if (!res.ok) { setNotice(await res.text()); return null; }
-    const updated: ImageEntry = await res.json(); mergeImage(updated); setModal((old) => old?.filename === updated.filename ? updated : old); setNotice('HEIC generated.');
+    const updated: ImageEntry = await res.json(); mergeImage(updated); setModal((old) => old?.filename === updated.filename ? updated : old); setNotice(t('gallery.heicDone'));
     return updated;
   };
   const downloadOne = async (item: ImageEntry) => {
@@ -3708,43 +3708,43 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   }).slice(0, 8);
   return <main className="image-browser">
     <header className="image-toolbar header-no-drawer">
-      <div><h1>Gallery</h1><span>{images.length}/{stats.total_images || '—'} loaded · {formatImageBytes(stats.total_bytes)}{notice ? ` · ${notice}` : ''}</span></div>
+      <div><h1>{t('gallery.title')}</h1><span>{images.length}/{stats.total_images || '—'} {t('gallery.loaded')} · {formatImageBytes(stats.total_bytes)}{notice ? ` · ${notice}` : ''}</span></div>
       <div className="image-actions">
-        {selecting && selected.size > 0 && <><button className="mobile-icon-only" aria-label="Download selected" onClick={() => downloadSelectedFiles(selectedList)}><Download /> <span className="btn-label">Download selected</span></button><button className="mobile-icon-only" aria-label="Organize" onClick={organizeTime}><CalendarClock /> <span className="btn-label">Organize</span></button><button className="danger mobile-icon-only" aria-label="Delete selected" onClick={() => deleteNames(selectedList)}><Trash2 /> <span className="btn-label">Delete selected</span></button></>}
-        <button className="icon-btn mobile-icon-only" aria-label={selecting ? 'Cancel selection' : 'Select images'} onClick={toggleSelectionMode}><CheckSquare /> <span className="btn-label">{selecting ? 'Cancel' : 'Select'}</span></button>
-        <button className="icon-btn" aria-label="Refresh" onClick={refresh}><RefreshCw /></button>
+        {selecting && selected.size > 0 && <><button className="mobile-icon-only" aria-label={t('gallery.downloadSelected')} onClick={() => downloadSelectedFiles(selectedList)}><Download /> <span className="btn-label">{t('gallery.downloadSelected')}</span></button><button className="mobile-icon-only" aria-label={t('gallery.organize')} onClick={organizeTime}><CalendarClock /> <span className="btn-label">{t('gallery.organize')}</span></button><button className="danger mobile-icon-only" aria-label={t('gallery.deleteSelected')} onClick={() => deleteNames(selectedList)}><Trash2 /> <span className="btn-label">{t('gallery.deleteSelected')}</span></button></>}
+        <button className="icon-btn mobile-icon-only" aria-label={selecting ? t('gallery.cancelSelection') : t('gallery.selectImages')} onClick={toggleSelectionMode}><CheckSquare /> <span className="btn-label">{selecting ? t('gallery.cancel') : t('gallery.select')}</span></button>
+        <button className="icon-btn" aria-label={t('gallery.refresh')} onClick={refresh}><RefreshCw /></button>
         <HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} />
       </div>
     </header>
     <section className="image-grid-wrap" ref={scrollRef} onScroll={onImageScroll}>
       <div className="image-grid" ref={gridRef}>{images.map((item) => <article className={`image-card ${selecting ? 'selecting' : ''} ${selected.has(item.filename) ? 'selected' : ''}`} key={item.filename} onClick={() => selecting ? toggleSelect(item.filename) : openImageModal(item)} onContextMenu={(event) => { event.preventDefault(); setImageMenu({ item, x: event.clientX, y: event.clientY }); }}>
-        {selecting && <button type="button" aria-label={`Select ${item.filename}`} className={`image-checkbox ${selected.has(item.filename) ? 'checked' : ''}`} onClick={(event) => { event.stopPropagation(); toggleSelect(item.filename); }} />}
+        {selecting && <button type="button" aria-label={tf('gallery.selectImage', item.filename)} className={`image-checkbox ${selected.has(item.filename) ? 'checked' : ''}`} onClick={(event) => { event.stopPropagation(); toggleSelect(item.filename); }} />}
         <img loading="eager" decoding="async" src={item.image_url} alt={item.filename} onLoad={(event) => event.currentTarget.classList.add('loaded')} />
         <div className="image-overlay"><span className="image-name" title={item.filename}>{item.filename}</span><button className="mobile-icon-only" aria-label={downloadButtonLabel(item)} onClick={(event) => { event.stopPropagation(); downloadOne(item); }}>{item.heic_status === 'missing' ? <RefreshCw /> : <Download />}</button></div>
       </article>)}</div>
-      {images.length === 0 && !loading && <div className="empty-state"><ImageIcon className="big-mark" /><h2>No images found</h2><p>The binary reads the configured image directory; default is HERMES_HOME/cache/images.</p></div>}
-      <div ref={sentinelRef} className="image-sentinel">{loading ? 'Loading…' : hasMore ? 'Scroll to load more…' : 'End of images'}</div>
+      {images.length === 0 && !loading && <div className="empty-state"><ImageIcon className="big-mark" /><h2>{t('gallery.noImages')}</h2><p>{t('gallery.noImagesDesc')}</p></div>}
+      <div ref={sentinelRef} className="image-sentinel">{loading ? t('gallery.loading') : hasMore ? t('gallery.scrollMore') : t('gallery.end')}</div>
     </section>
     {imageMenu && <div className="image-context-menu" role="menu" style={{ left: imageMenu.x, top: imageMenu.y }} onContextMenu={(event) => event.preventDefault()} onClick={() => setImageMenu(null)}>
-      <button type="button" role="menuitem" onClick={() => { triggerBrowserDownload(imageMenu.item.heic_url || imageMenu.item.png_url, imageMenu.item.heic_filename || imageMenu.item.filename); }}><Download /> Download HEIC</button>
-      <button type="button" role="menuitem" onClick={() => { triggerBrowserDownload(imageMenu.item.png_url || imageMenu.item.image_url, imageMenu.item.filename); }}><Download /> Download PNG</button>
-      <button type="button" role="menuitem" className="danger" onClick={() => { deleteNames([imageMenu.item.filename]); }}><Trash2 /> Delete</button>
+      <button type="button" role="menuitem" onClick={() => { triggerBrowserDownload(imageMenu.item.heic_url || imageMenu.item.png_url, imageMenu.item.heic_filename || imageMenu.item.filename); }}><Download /> {t('gallery.downloadHEIC')}</button>
+      <button type="button" role="menuitem" onClick={() => { triggerBrowserDownload(imageMenu.item.png_url || imageMenu.item.image_url, imageMenu.item.filename); }}><Download /> {t('gallery.downloadPNG')}</button>
+      <button type="button" role="menuitem" className="danger" onClick={() => { deleteNames([imageMenu.item.filename]); }}><Trash2 /> {t('gallery.delete')}</button>
     </div>}
     {modal && <div className={`image-modal ${metadataPlacement === 'bottom' ? 'metadata-bottom' : ''} ${modalMetadataOpen ? 'metadata-open' : ''}`} onClick={onModalBackdropClick} onWheel={onModalWheel} onPointerDown={onModalPointerDown} onPointerMove={onModalPointerMove} onPointerUp={finishModalPointer} onPointerCancel={cancelModalPointer}>
       <img ref={modalImgRef} className="image-modal-img" src={modalImageUrl(modal)} alt={modal.filename} onLoad={adjustMetadataPlacement} onClick={onModalImageClick} />
       <aside className={`modal-meta ${metadataPlacement === 'bottom' ? 'metadata-bottom' : ''}`} onClick={(event) => event.stopPropagation()}>
-        <h2>Metadata</h2>
-        {metadata?.dimensions && <p className="metadata-dim">Dimensions: {metadata.dimensions.width} × {metadata.dimensions.height}</p>}
-        <section className="metadata-files-section"><span>Files</span><p>PNG {metadata?.png ? formatImageBytes(metadata.png.size) : formatImageBytes(modal.size)}</p><p>WebP {metadata?.webp ? formatImageBytes((metadata.webp as any).size) : '—'}</p><p>HEIC {metadata?.heic ? formatImageBytes((metadata.heic as any).size) : modal.heic_status}</p></section>
-        <section className="metadata-png-section"><span>PNG metadata</span>{metadataEntries.length ? metadataEntries.map((entry) => <p key={entry.keyword}><b>{entry.keyword}</b><br />{entry.value}</p>) : <p>No PNG text chunk</p>}</section>
+        <h2>{t('gallery.metadata')}</h2>
+        {metadata?.dimensions && <p className="metadata-dim">{t('gallery.dimensions')}: {metadata.dimensions.width} × {metadata.dimensions.height}</p>}
+        <section className="metadata-files-section"><span>{t('gallery.files')}</span><p>PNG {metadata?.png ? formatImageBytes(metadata.png.size) : formatImageBytes(modal.size)}</p><p>WebP {metadata?.webp ? formatImageBytes((metadata.webp as any).size) : '—'}</p><p>HEIC {metadata?.heic ? formatImageBytes((metadata.heic as any).size) : modal.heic_status}</p></section>
+        <section className="metadata-png-section"><span>{t('gallery.pngMetadata')}</span>{metadataEntries.length ? metadataEntries.map((entry) => <p key={entry.keyword}><b>{entry.keyword}</b><br />{entry.value}</p>) : <p>{t('gallery.noPngText')}</p>}</section>
       </aside>
       <div className="modalbar" onClick={(event) => event.stopPropagation()}>
         <button className="mobile-icon-only" aria-label={downloadButtonLabel(modal)} onClick={() => downloadOne(modal)}>{modal.heic_status === 'missing' ? <RefreshCw /> : <Download />}</button>
-        <button className={`mobile-icon-only modal-metadata-toggle ${modalMetadataOpen ? 'active' : ''}`} aria-label="Metadata" aria-expanded={modalMetadataOpen} onClick={() => setModalMetadataOpen((value) => !value)}><Info /></button>
-        <button className="mobile-icon-only" aria-label="Previous" disabled={modalIndex <= 0} onClick={() => navigateModal(-1)}><ChevronLeft /></button>
-        <button className="mobile-icon-only" aria-label="Next" disabled={modalIndex < 0 || (!hasMore && modalIndex >= images.length - 1)} onClick={() => navigateModal(1)}><ChevronRight /></button>
-        <button className="mobile-icon-only" aria-label="Close" onClick={closeImageModal}><X /></button>
-        <button className="danger mobile-icon-only" aria-label="Delete" onClick={() => deleteNames([modal.filename])}><Trash2 /></button>
+        <button className={`mobile-icon-only modal-metadata-toggle ${modalMetadataOpen ? 'active' : ''}`} aria-label={t('gallery.metadata')} aria-expanded={modalMetadataOpen} onClick={() => setModalMetadataOpen((value) => !value)}><Info /></button>
+        <button className="mobile-icon-only" aria-label={t('gallery.previous')} disabled={modalIndex <= 0} onClick={() => navigateModal(-1)}><ChevronLeft /></button>
+        <button className="mobile-icon-only" aria-label={t('gallery.next')} disabled={modalIndex < 0 || (!hasMore && modalIndex >= images.length - 1)} onClick={() => navigateModal(1)}><ChevronRight /></button>
+        <button className="mobile-icon-only" aria-label={t('gallery.close')} onClick={closeImageModal}><X /></button>
+        <button className="danger mobile-icon-only" aria-label={t('gallery.delete')} onClick={() => deleteNames([modal.filename])}><Trash2 /></button>
       </div>
     </div>}
   </main>;

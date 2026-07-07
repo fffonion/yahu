@@ -12,7 +12,7 @@ describe('settings project link', () => {
     expect(app).toContain('className="update-project-link-row"');
     expect(app).toContain('className="project-link"');
     expect(app).toContain('href="https://github.com/fffonion/yahu"');
-    expect(app).toContain('aria-label="GitHub project"');
+    expect(app).toContain('aria-label="GitHub · fffonion/yahu"');
     expect(app).toContain('<GitHubIcon /> <span>GitHub · fffonion/yahu</span>');
     expect(app.indexOf("{t('settings.checkUpdate')}")).toBeLessThan(app.indexOf('className="update-project-link-row"'));
     expect(app.indexOf('className="update-project-link-row"')).toBeGreaterThan(app.indexOf("{t('settings.update')}</h3>"));

@@ -6,7 +6,7 @@ describe('chat attachment upload wiring', () => {
 
   test('uploads selected files to yahu local cache before streaming to Hermes API Server', () => {
     expect(source).toContain("fetch('/chat/attachments'");
-    expect(source).toContain('setBusy(true); setStatus(\'Running\');');
+    expect(source).toContain("setBusy(true); setStatus(t('status.running'));");
     expect(source).toContain('payloadAttachments = await uploadAttachments(turnAttachments)');
     expect(source).toContain('buildChatInputWithAttachments(text, items)');
   });
