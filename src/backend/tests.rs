@@ -845,6 +845,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_history_trims_compression_child_carryover_prefix_without_content_dedupe() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        )
+        .unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source) VALUES ('root',NULL,10,20,'compression','telegram')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source) VALUES ('child','root',20,NULL,NULL,'telegram')", []).unwrap();
+        for (sid, role, content, ts) in [
+            ("root", "user", "who is lei", 11.0),
+            ("root", "assistant", "lei answer", 12.0),
+            ("root", "user", "fix yahu", 19.0),
+            ("child", "user", "who is lei", 21.000),
+            ("child", "assistant", "lei answer", 21.001),
+            ("child", "user", "fix yahu", 21.002),
+            ("child", "assistant", "", 21.003),
+            ("child", "tool", "read source", 21.004),
+            ("child", "assistant", "fixed yahu", 21.005),
+            ("child", "user", "next real prompt", 90.0),
+        ] {
+            conn.execute(
+                "INSERT INTO messages (session_id,role,content,timestamp,active) VALUES (?1,?2,?3,?4,1)",
+                rusqlite::params![sid, role, content, ts],
+            )
+            .unwrap();
+        }
+        drop(conn);
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let resp = chat_messages_page(
+            State(state),
+            AxumPath("child".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20) }),
+        )
+        .await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let texts: Vec<_> = page["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|message| message["content"].as_str().unwrap_or(""))
+            .collect();
+
+        assert_eq!(page["total"], 7);
+        assert_eq!(texts, vec![
+            "who is lei",
+            "lei answer",
+            "fix yahu",
+            "",
+            "read source",
+            "fixed yahu",
+            "next real prompt",
+        ]);
+    }
+
+    #[tokio::test]
     async fn chat_messages_page_reports_stitched_boundary_timestamps() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");

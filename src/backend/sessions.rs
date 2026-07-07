@@ -469,6 +469,12 @@ struct ContextWindowMessages {
     compression_boundary_id: Option<serde_json::Value>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionMessageJoinMode {
+    ContextWindow,
+    VisibleHistory,
+}
+
 #[derive(Clone, Debug)]
 struct SessionLineageEntry {
     id: String,
@@ -833,8 +839,68 @@ fn row_to_session_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_jso
     Ok(serde_json::Value::Object(map))
 }
 
+fn nav_message_timestamp_seconds(message: &serde_json::Value) -> Option<f64> {
+    ["timestamp", "created_at", "createdAt", "time"].iter().find_map(|key| {
+        let value = message.get(*key)?;
+        value.as_f64().or_else(|| value.as_str().and_then(|text| text.parse::<f64>().ok()))
+    })
+}
+
+fn compression_carryover_prefix_len(messages: &[serde_json::Value]) -> usize {
+    const CARRYOVER_BATCH_GAP_SECONDS: f64 = 2.0;
+    if messages.is_empty() || nav_message_timestamp_seconds(&messages[0]).is_none() {
+        return 0;
+    }
+    let mut batch_end = messages.len();
+    let mut previous_timestamp = nav_message_timestamp_seconds(&messages[0]);
+    for (index, message) in messages.iter().enumerate().skip(1) {
+        let timestamp = nav_message_timestamp_seconds(message);
+        if let (Some(previous), Some(current)) = (previous_timestamp, timestamp)
+            && current - previous > CARRYOVER_BATCH_GAP_SECONDS
+        {
+            batch_end = index;
+            break;
+        }
+        if timestamp.is_some() {
+            previous_timestamp = timestamp;
+        }
+    }
+    let leading_batch = &messages[..batch_end];
+    if leading_batch
+        .iter()
+        .filter(|message| message.get("role").and_then(|role| role.as_str()) == Some("user"))
+        .take(2)
+        .count()
+        < 2
+    {
+        return 0;
+    }
+    leading_batch
+        .iter()
+        .rposition(|message| message.get("role").and_then(|role| role.as_str()) == Some("user"))
+        .map(|index| index + 1)
+        .unwrap_or(0)
+}
+
+fn trim_compression_carryover_prefix(
+    messages: &mut Vec<serde_json::Value>,
+    previous_entry: Option<&SessionLineageEntry>,
+    mode: SessionMessageJoinMode,
+) {
+    if mode != SessionMessageJoinMode::VisibleHistory
+        || !previous_entry.is_some_and(SessionLineageEntry::compression_ended)
+    {
+        return;
+    }
+    let prefix_len = compression_carryover_prefix_len(messages).min(messages.len());
+    if prefix_len > 0 {
+        messages.drain(..prefix_len);
+    }
+}
+
 fn messages_with_context_boundary_from_entries(
     entries: &[SessionLineageEntry],
+    mode: SessionMessageJoinMode,
     mut fetch_entry_messages: impl FnMut(&str) -> anyhow::Result<Vec<serde_json::Value>>,
 ) -> anyhow::Result<ContextWindowMessages> {
     let mut messages = Vec::new();
@@ -842,7 +908,8 @@ fn messages_with_context_boundary_from_entries(
     let mut boundary_start = 0usize;
     let mut compression_boundary_id = None;
     for (idx, entry) in entries.iter().enumerate() {
-        let entry_messages = fetch_entry_messages(&entry.id)?;
+        let mut entry_messages = fetch_entry_messages(&entry.id)?;
+        trim_compression_carryover_prefix(&mut entry_messages, idx.checked_sub(1).and_then(|prev| entries.get(prev)), mode);
         let mut entry_boundary_id = None;
         for message in entry_messages {
             if let Some(key) = nav_message_id(&message)
@@ -890,14 +957,24 @@ fn fetch_local_lineage_context_messages(
     state: &AppState,
     session_id: &str,
 ) -> anyhow::Result<Option<ContextWindowMessages>> {
-    fetch_local_context_messages_with_entries(state, session_id, local_session_lineage_entries)
+    fetch_local_context_messages_with_entries(
+        state,
+        session_id,
+        SessionMessageJoinMode::ContextWindow,
+        local_session_lineage_entries,
+    )
 }
 
 fn fetch_local_history_context_messages(
     state: &AppState,
     session_id: &str,
 ) -> anyhow::Result<Option<ContextWindowMessages>> {
-    fetch_local_context_messages_with_entries(state, session_id, local_session_history_entries)
+    fetch_local_context_messages_with_entries(
+        state,
+        session_id,
+        SessionMessageJoinMode::VisibleHistory,
+        local_session_history_entries,
+    )
 }
 
 fn fetch_local_history_entries(
@@ -922,6 +999,7 @@ fn fetch_local_history_entries(
 fn fetch_local_context_messages_with_entries(
     state: &AppState,
     session_id: &str,
+    mode: SessionMessageJoinMode,
     entry_loader: fn(&rusqlite::Connection, &str) -> rusqlite::Result<Vec<SessionLineageEntry>>,
 ) -> anyhow::Result<Option<ContextWindowMessages>> {
     let db_path = state.hermes_home.join("state.db");
@@ -936,7 +1014,7 @@ fn fetch_local_context_messages_with_entries(
     if entries.is_empty() {
         return Ok(None);
     }
-    let context = messages_with_context_boundary_from_entries(&entries, |entry_id| {
+    let context = messages_with_context_boundary_from_entries(&entries, mode, |entry_id| {
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_content \
              FROM messages WHERE active = 1 AND session_id = ?1 ORDER BY id"
@@ -1069,13 +1147,15 @@ async fn session_lineage_entries(state: &AppState, session_id: &str) -> Vec<Sess
 async fn fetch_api_context_window_messages(
     state: &AppState,
     entries: &[SessionLineageEntry],
+    mode: SessionMessageJoinMode,
 ) -> anyhow::Result<ContextWindowMessages> {
     let mut messages = Vec::new();
     let mut seen = HashSet::new();
     let mut boundary_start = 0usize;
     let mut compression_boundary_id = None;
     for (idx, entry) in entries.iter().enumerate() {
-        let entry_messages = fetch_session_messages_by_id(state, &entry.id).await?;
+        let mut entry_messages = fetch_session_messages_by_id(state, &entry.id).await?;
+        trim_compression_carryover_prefix(&mut entry_messages, idx.checked_sub(1).and_then(|prev| entries.get(prev)), mode);
         let mut entry_boundary_id = None;
         let mut saw_session_scoped_message = false;
         let mut saw_entry_message = false;
@@ -1127,7 +1207,7 @@ async fn fetch_context_window_messages(
     session_id: &str,
 ) -> anyhow::Result<ContextWindowMessages> {
     let entries = context_window_entries(state, session_id).await;
-    match fetch_api_context_window_messages(state, &entries).await {
+    match fetch_api_context_window_messages(state, &entries, SessionMessageJoinMode::ContextWindow).await {
         Ok(context) => Ok(context),
         Err(err) => {
             warn!(session_id = %session_id, error = %err, "API Server fetch failed; falling back to local state.db");
@@ -1157,7 +1237,7 @@ async fn fetch_session_history_context_messages(
     session_id: &str,
 ) -> anyhow::Result<ContextWindowMessages> {
     let entries = session_history_entries(state, session_id).await;
-    match fetch_api_context_window_messages(state, &entries).await {
+    match fetch_api_context_window_messages(state, &entries, SessionMessageJoinMode::VisibleHistory).await {
         Ok(context) => Ok(context),
         Err(err) => {
             warn!(session_id = %session_id, error = %err, "API Server history fetch failed; falling back to local state.db");
