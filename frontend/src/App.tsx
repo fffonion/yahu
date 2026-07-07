@@ -2540,16 +2540,46 @@ function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: 
 
 function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
   const navRef = useRef<HTMLElement | null>(null);
+  const popupTimerRef = useRef<number | null>(null);
+  const isMobileNavigator = useMediaQuery('(max-width: 760px)');
   const [popup, setPopup] = useState<{ item: UserMessageNavItem; top: number } | null>(null);
-  const showPopup = useCallback((item: UserMessageNavItem, target: HTMLElement) => {
+  const clearPopupTimer = useCallback(() => {
+    if (popupTimerRef.current === null) return;
+    window.clearTimeout(popupTimerRef.current);
+    popupTimerRef.current = null;
+  }, []);
+  const hidePopup = useCallback(() => { clearPopupTimer(); setPopup(null); }, [clearPopupTimer]);
+  const showPopup = useCallback((item: UserMessageNavItem, target: HTMLElement, autoHide = false) => {
+    clearPopupTimer();
     const navRect = navRef.current?.getBoundingClientRect();
     const targetRect = target.getBoundingClientRect();
     setPopup({ item, top: targetRect.top + targetRect.height / 2 - (navRect?.top ?? 0) });
-  }, []);
+    if (autoHide) popupTimerRef.current = window.setTimeout(() => setPopup(null), 3000);
+  }, [clearPopupTimer]);
+  useEffect(() => () => clearPopupTimer(), [clearPopupTimer]);
+  useEffect(() => {
+    if (!isMobileNavigator || !popup) return;
+    const closeMobilePopupOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && navRef.current?.contains(target)) return;
+      hidePopup();
+    };
+    document.addEventListener('pointerdown', closeMobilePopupOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeMobilePopupOnOutsidePointer);
+  }, [hidePopup, isMobileNavigator, popup]);
+  const handleNavigatorClick = useCallback((item: UserMessageNavItem, event: React.MouseEvent<HTMLButtonElement>) => {
+    if (isMobileNavigator) {
+      event.preventDefault();
+      event.stopPropagation();
+      showPopup(item, event.currentTarget, true);
+      return;
+    }
+    onJumpToMessage(sessionId, item.id);
+  }, [isMobileNavigator, onJumpToMessage, sessionId, showPopup]);
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
-  return <nav ref={navRef} className="chat-user-minimap" aria-label="User message navigator" onMouseLeave={() => setPopup(null)}>
+  return <nav ref={navRef} className="chat-user-minimap" aria-label="User message navigator" onMouseLeave={() => { if (!isMobileNavigator) hidePopup(); }}>
     <div className="user-minimap-track">
-      {items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onPointerEnter={(event) => showPopup(item, event.currentTarget)} onFocus={(event) => showPopup(item, event.currentTarget)} onBlur={() => setPopup(null)} onClick={() => onJumpToMessage(sessionId, item.id)}>
+      {items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }} onFocus={(event) => showPopup(item, event.currentTarget)} onBlur={() => { if (!isMobileNavigator) hidePopup(); }} onClick={(event) => handleNavigatorClick(item, event)}>
         <span className="user-minimap-bar" />
       </button>)}
     </div>

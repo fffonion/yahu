@@ -48,7 +48,7 @@ describe('chat user message navigator', () => {
     expect(source).toContain("className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`}");
     expect(source).toContain('items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? \' active\' : \'\'}`} key={item.id}');
     expect(source).toContain('<div className="user-minimap-track">');
-    expect(source).toContain('onPointerEnter={(event) => showPopup(item, event.currentTarget)}');
+    expect(source).toContain('onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }}');
     expect(source).toContain('data-nav-index={item.index} data-nav-total={item.total}');
     expect(source).not.toContain('const NAVIGATOR_RADIUS = 3;');
     expect(source).not.toContain('function navigatorVisibleItems');
@@ -86,5 +86,23 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:46px}.chat-user-minimap{left:6px;top:50%;bottom:auto;transform:translateY(-50%);width:34px;max-height:min(52dvh,420px);overflow:visible;pointer-events:auto}.user-minimap-track{width:34px;max-height:min(52dvh,420px);mask-image:none;');
     expect(styles).toContain('.user-minimap-hit{width:34px;flex-shrink:0}');
     expect(styles).not.toContain('.chat-user-minimap{display:none}');
+  });
+
+  test('mobile minimap taps open a temporary popup and outside chat taps close it', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("const isMobileNavigator = useMediaQuery('(max-width: 760px)');");
+    expect(source).toContain('const popupTimerRef = useRef<number | null>(null);');
+    expect(source).toContain('window.setTimeout(() => setPopup(null), 3000);');
+    expect(source).toContain("document.addEventListener('pointerdown', closeMobilePopupOnOutsidePointer);");
+    expect(source).toContain('if (target && navRef.current?.contains(target)) return;');
+    expect(source).toContain('if (isMobileNavigator) {');
+    expect(source).toContain('event.preventDefault();');
+    expect(source).toContain('event.stopPropagation();');
+    expect(source).toContain('showPopup(item, event.currentTarget, true);');
+    expect(source).toContain('onClick={(event) => handleNavigatorClick(item, event)}');
+    expect(source).toContain('onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }}');
+    expect(styles).toContain('@media (max-width:760px){.user-minimap-popup{left:28px;width:min(300px,calc(100vw - 48px));');
+    expect(styles).not.toContain('.user-minimap-popup{display:none}}');
   });
 });
