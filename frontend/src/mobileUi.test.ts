@@ -161,6 +161,14 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.composer-footer .send-btn{margin-left:0;flex:0 0 auto}');
   });
 
+  test('mobile compact composer uses a shorter inactive text field without changing send button size', () => {
+    const styles = css();
+    expect(styles).toContain('@media (max-width:760px){.composer-wrap.composer-compact .composer-box textarea{height:38px;min-height:38px;max-height:38px;overflow:hidden;padding:7px 56px 7px 14px}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-box{min-height:46px}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:4px;width:auto;border-top:0;background:transparent;padding:0}');
+    expect(styles).toContain('.send-btn,.files-chip,.image-actions button,.modalbar button,.settings-content button:not(.btn-wide){width:38px;height:38px;padding:0;justify-content:center}');
+  });
+
   test('mobile bottom nav paints above the composer reserved area but below open dropdown menus', () => {
     const styles = css();
     const composerZ = Number(styles.match(/\.composer-wrap\{[^}]*z-index:(\d+)/)?.[1]);
