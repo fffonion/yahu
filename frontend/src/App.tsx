@@ -72,7 +72,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'mobile-minimap-gap-v1';
+const APP_BUILD_ID = 'turn-detail-expand-toggle-v1';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -2556,7 +2556,7 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt }: 
   const thinkingCount = item.messages.filter((message) => String(message.reasoning || '').trim()).length;
   const parts = [toolCount ? `${toolCount} tools` : '', thinkingCount ? `${thinkingCount} thinking` : ''].filter(Boolean).join(' · ') || `${item.messages.length} details`;
   return <details className="turn-detail-group" aria-label="Turn tools and thinking">
-    <summary className="turn-detail-summary"><ChevronRight className="turn-detail-chevron" /><span>Tools & thinking</span><em>{parts}</em></summary>
+    <summary className="turn-detail-summary"><span className="turn-detail-toggle"><ChevronRight className="turn-detail-chevron" /><span className="turn-detail-toggle-label">Expand</span></span><span className="turn-detail-title">Tools & thinking</span><em>{parts}</em></summary>
     <div className="turn-detail-body">
       {item.messages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} />)}
     </div>

@@ -14,6 +14,15 @@ describe('turn detail fold UI', () => {
     expect(source).toContain('aria-label="Turn tools and thinking"');
   });
 
+  test('outer turn detail summary exposes a visible expand control', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('className="turn-detail-toggle"');
+    expect(source).toContain('<span className="turn-detail-toggle-label">Expand</span>');
+    expect(styles).toContain('.turn-detail-toggle{display:inline-grid;grid-template-columns:14px auto;');
+    expect(styles).toContain('.turn-detail-group[open] .turn-detail-toggle-label::before{content:"Collapse"}');
+  });
+
   test('outer turn detail group has compact collapsed styling separate from inner tool and reasoning folds', () => {
     const styles = css();
     expect(styles).toContain('.turn-detail-group');
