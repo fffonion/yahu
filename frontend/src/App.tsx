@@ -45,6 +45,7 @@ type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?
 type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
+type SessionModelOverride = { model: string; provider: string };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
 type ArtifactContextMenu = { artifact: SessionArtifact; x: number; y: number } | null;
@@ -70,7 +71,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'stream-stop-button-v1';
+const APP_BUILD_ID = 'model-switch-override-v1';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -663,6 +664,7 @@ export default function App() {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [model, setModelState] = useState(readStoredModel);
   const [selectedModelProvider, setSelectedModelProvider] = useState('');
+  const [sessionModelOverrides, setSessionModelOverrides] = useState<Record<string, SessionModelOverride>>({});
   const [followUpBehaviour, setFollowUpBehaviour] = useState<FollowUpBehaviour>(() => normalizeFollowUpBehaviour(localStorage.getItem(FOLLOW_UP_BEHAVIOUR_KEY)));
   const [composerEnterMode, setComposerEnterMode] = useState<ComposerEnterMode>(() => normalizeComposerEnterMode(localStorage.getItem(COMPOSER_ENTER_MODE_KEY)));
   const [followUpQueues, setFollowUpQueues] = useState<Record<string, FollowUpQueueItem[]>>(readFollowUpQueues);
@@ -743,12 +745,14 @@ export default function App() {
   const searchVersionRef = useRef(0);
   const modelRef = useRef(model);
   const providerRef = useRef(selectedModelProvider);
+  const sessionModelOverridesRef = useRef(sessionModelOverrides);
   const showReasoningRef = useRef(showReasoning);
   const showToolCallsRef = useRef(showToolCalls);
   const newMessageBoundaryIdRef = useRef(newMessageBoundaryId);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { providerRef.current = selectedModelProvider; }, [selectedModelProvider]);
+  useEffect(() => { sessionModelOverridesRef.current = sessionModelOverrides; }, [sessionModelOverrides]);
   useEffect(() => { showReasoningRef.current = showReasoning; }, [showReasoning]);
   useEffect(() => { showToolCallsRef.current = showToolCalls; }, [showToolCalls]);
   useEffect(() => { loadingMessagesRef.current = loadingMessages; }, [loadingMessages]);
@@ -906,6 +910,14 @@ export default function App() {
   }, [activeSessionId, messages]);
 
   useEffect(() => {
+    const override = activeSessionId ? sessionModelOverrides[activeSessionId] : undefined;
+    if (override?.model) {
+      modelRef.current = override.model;
+      providerRef.current = override.provider;
+      setModelState((current) => override.model !== current ? override.model : current);
+      setSelectedModelProvider((current) => override.provider !== current ? override.provider : current);
+      return;
+    }
     const activeModel = realModelOrEmpty(activeSession?.model);
     const activeProvider = String(activeSession?.provider || '').trim();
     if (activeModel) {
@@ -914,7 +926,7 @@ export default function App() {
       setModelState((current) => activeModel !== current ? activeModel : current);
       setSelectedModelProvider((current) => activeProvider !== current ? activeProvider : current);
     }
-  }, [activeSession?.model, activeSession?.provider]);
+  }, [activeSessionId, activeSession?.model, activeSession?.provider, sessionModelOverrides]);
 
   const filteredSessions = useMemo(() => {
     return splitSidebarSessions(sessions, pinnedIds, hideCronSessions);
@@ -1034,6 +1046,9 @@ export default function App() {
     providerRef.current = provider;
     setModelState(resolvedModel);
     setSelectedModelProvider(provider);
+    if (activeSessionId) {
+      setSessionModelOverrides((old) => ({ ...old, [activeSessionId]: { model: resolvedModel, provider } }));
+    }
     if (activeSessionId === DRAFT_SESSION_ID) setActiveSessionDetail((old) => old ? { ...old, model: resolvedModel, provider } : old);
     if (activeSessionId && activeSessionId !== DRAFT_SESSION_ID) {
       setActiveSessionDetail((old) => old?.id === activeSessionId ? { ...old, model: resolvedModel, provider } : old);
@@ -1680,8 +1695,9 @@ export default function App() {
       return;
     }
     const userText = text || payloadAttachments.map((a) => a.name).join(', ');
-    const sessionModel = realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model || '';
-    const sessionProvider = providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || '';
+    const sessionOverride = sessionModelOverridesRef.current[sessionId];
+    const sessionModel = sessionOverride?.model || realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model || '';
+    const sessionProvider = sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || '');
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
     const turnStartedAtMs = Date.now();
@@ -1951,6 +1967,7 @@ export default function App() {
   const wideMode = mode !== 'chat';
   const activeCronJob = cronJobs.find((job) => jobId(job) === cronEditingId) || null;
 
+  const activeSessionModelOverride = activeSessionId ? sessionModelOverrides[activeSessionId] : undefined;
   return (
     <div className={`app-shell ${wideMode ? 'wide-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''}`}>
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
@@ -1993,7 +2010,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} createSessionArtifact={createSessionArtifact} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} createSessionArtifact={createSessionArtifact} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2765,8 +2782,9 @@ function ChatMain(props: any) {
     collapseComposerForHistory();
     if (shouldLoadOlderFromWheel(e.currentTarget, e.deltaY, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
   };
-  const sessionModel = realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id || '';
-  const sessionProvider = String(props.selectedModelProvider || active?.provider || props.activeSessionDetail?.provider || '').trim();
+  const sessionModelOverride = props.activeSessionModelOverride as SessionModelOverride | undefined;
+  const sessionModel = sessionModelOverride?.model || realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id || '';
+  const sessionProvider = String(sessionModelOverride?.provider ?? (props.selectedModelProvider || active?.provider || props.activeSessionDetail?.provider || '')).trim();
   const currentModel = sessionModel;
   const activeTitle = active?.id === DRAFT_SESSION_ID ? 'New conversation' : active ? sessionDisplayTitle(active) : 'Hermes Agent';
   const headerTimes = sessionHeaderTimes(active, props.messages);
