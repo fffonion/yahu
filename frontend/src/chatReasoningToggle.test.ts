@@ -31,9 +31,12 @@ describe('chat reasoning display toggle', () => {
   test('pre-tool assistant text stays visible but its thinking block is collapsed by default', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("<details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label=\"Reasoning / thinking\"><summary>Thinking</summary><pre>{message.reasoning}</pre></details>");
+    expect(source).toContain("<details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label=\"Reasoning / thinking\"><summary><span className=\"reasoning-chevron\"><ChevronRight /></span> <span>Thinking</span></summary><pre>{message.reasoning}</pre></details>");
     expect(source).not.toContain("<section className=\"msg-reasoning\"");
     expect(styles).toContain('.msg-reasoning>summary');
+    expect(styles).toContain('.reasoning-chevron{display:inline-grid;place-items:center;width:15px;height:15px;color:var(--muted);transition:transform .15s ease;flex:0 0 auto}');
+    expect(styles).toContain('.reasoning-chevron svg{width:15px;height:15px}');
+    expect(styles).toContain('.msg-reasoning[open] .reasoning-chevron{transform:rotate(90deg)}');
     expect(styles).toContain('.msg-reasoning-collapsed:not([open]) pre{display:none}');
   });
 

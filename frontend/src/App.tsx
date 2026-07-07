@@ -72,7 +72,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'skill-tool-icon-v1';
+const APP_BUILD_ID = 'thinking-block-chevron-v1';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -2599,7 +2599,7 @@ function MessageView({ message, showReasoning = false, assistantName, turnStarte
           <div className="md-content" dangerouslySetInnerHTML={{ __html: html }} />
           {isPending && <span className="stream-caret" aria-hidden="true" />}
         </div>
-        {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label="Reasoning / thinking"><summary>Thinking</summary><pre>{message.reasoning}</pre></details>}
+        {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label="Reasoning / thinking"><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>Thinking</span></summary><pre>{message.reasoning}</pre></details>}
         {showTurnMetadata && <div className="msg-turn-metadata" aria-label="Turn metadata">{turnMetadata}</div>}
       </div>
     </article>
