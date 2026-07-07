@@ -28,6 +28,8 @@ describe('composer model selector', () => {
     expect(source).toContain('const sessionModel = realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model ||');
     expect(source).toContain('const sessionProvider = providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider ||');
     expect(source).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
+    expect(source).toContain('fetch(`/chat/stream/${encodeURIComponent(sessionId)}`, { method: \'POST\'');
+    expect(source).not.toContain('apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`)');
     expect(source).toContain('setSelectedModelProvider((current) => activeProvider !== current ? activeProvider : current)');
     expect(source).toContain('}, [activeSession?.model, activeSession?.provider]);');
     expect(source).not.toContain('if (activeModel && activeModel !== model) setModelState(activeModel);');

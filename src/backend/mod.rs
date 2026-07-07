@@ -264,7 +264,10 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/memory", get(memory_get).put(memory_put))
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
-        .route("/sessions/{session_id}/title", patch(rename_session_lineage))
+        .route(
+            "/sessions/{session_id}/title",
+            patch(rename_session_lineage),
+        )
         .route("/chat/messages/{session_id}", get(chat_messages_page))
         .route("/chat/user-nav/{session_id}", get(chat_user_nav))
         .route(
@@ -272,6 +275,7 @@ pub async fn run() -> anyhow::Result<()> {
             get(chat_context_window),
         )
         .route("/chat/attachments", post(chat_upload_attachments))
+        .route("/chat/stream/{session_id}", post(chat_stream))
         .route("/chat/media", get(chat_media_file))
         .route("/version", get(yahu_version))
         .route("/update/check", get(check_update))

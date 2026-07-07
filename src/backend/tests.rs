@@ -1150,8 +1150,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(request.session_id, "existing-session");
-        assert_eq!(request.command, "/model anthropic/claude-haiku-4.5 --provider anthropic");
-        assert_eq!(request.body["input"], "/model anthropic/claude-haiku-4.5 --provider anthropic");
+        assert_eq!(request.command, "/model anthropic/claude-haiku-4.5 --provider anthropic --session");
+        assert_eq!(request.body["input"], "/model anthropic/claude-haiku-4.5 --provider anthropic --session");
         assert_eq!(request.body["reasoning_effort"], "none");
     }
 
@@ -1163,6 +1163,87 @@ mod tests {
             &Method::POST,
             body.to_string().as_bytes(),
         ).is_none());
+    }
+
+    #[tokio::test]
+    async fn yahu_chat_stream_sends_model_switch_before_actual_stream() {
+        use std::sync::Mutex;
+
+        #[derive(Clone)]
+        struct OrderApiState {
+            calls: Arc<Mutex<Vec<serde_json::Value>>>,
+        }
+
+        async fn api_chat(
+            State(state): State<OrderApiState>,
+            AxumPath(session_id): AxumPath<String>,
+            body: Body,
+        ) -> Json<serde_json::Value> {
+            let bytes = to_bytes(body, usize::MAX).await.unwrap();
+            let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            state.calls.lock().unwrap().push(serde_json::json!({
+                "kind": "model",
+                "session_id": session_id,
+                "body": payload,
+            }));
+            Json(serde_json::json!({"ok": true}))
+        }
+
+        async fn api_stream(
+            State(state): State<OrderApiState>,
+            AxumPath(session_id): AxumPath<String>,
+            body: Body,
+        ) -> Response<Body> {
+            let bytes = to_bytes(body, usize::MAX).await.unwrap();
+            let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            state.calls.lock().unwrap().push(serde_json::json!({
+                "kind": "stream",
+                "session_id": session_id,
+                "body": payload,
+            }));
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/event-stream")
+                .body(Body::from("event: done\ndata: {}\n\n"))
+                .unwrap()
+        }
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let api_state = OrderApiState { calls: calls.clone() };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let api_app = Router::new()
+            .route("/api/sessions/{session_id}/chat", post(api_chat))
+            .route("/api/sessions/{session_id}/chat/stream", post(api_stream))
+            .with_state(api_state);
+        tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let body = serde_json::json!({
+            "input": "hello",
+            "model": "gpt-5.5",
+            "provider": "openai-codex",
+            "reasoning_effort": "medium"
+        });
+        let resp = chat_stream(
+            State(state),
+            AxumPath("session-1".to_string()),
+            HeaderMap::new(),
+            Body::from(body.to_string()),
+        ).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let _ = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+
+        let calls = calls.lock().unwrap().clone();
+        assert_eq!(calls.len(), 2, "calls: {calls:?}");
+        assert_eq!(calls[0]["kind"], "model");
+        assert_eq!(calls[0]["body"]["input"], "/model gpt-5.5 --provider openai-codex --session");
+        assert_eq!(calls[1]["kind"], "stream");
+        assert_eq!(calls[1]["body"]["input"], "hello");
+        assert_eq!(calls[1]["body"]["reasoning_effort"], "medium");
+        assert!(calls[1]["body"].get("model").is_none(), "stream body must not carry model: {calls:?}");
+        assert!(calls[1]["body"].get("provider").is_none(), "stream body must not carry provider: {calls:?}");
     }
 
     #[test]

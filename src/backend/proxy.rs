@@ -11,7 +11,7 @@ async fn proxy_hermes(
     let stream_session_id = proxied_chat_stream_session_id(&path, &method);
     let req_method =
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET);
-    let bytes = match to_bytes(body, MAX_PROXY_BODY).await {
+    let mut bytes = match to_bytes(body, MAX_PROXY_BODY).await {
         Ok(bytes) => bytes,
         Err(err) => {
             return json_error(StatusCode::BAD_REQUEST, &format!("cannot read body: {err}"));
@@ -40,6 +40,10 @@ async fn proxy_hermes(
                 &format!("Hermes API model switch failed: {err}"),
             );
         }
+        match chat_stream_actual_body_bytes(&model_request.source_body) {
+            Ok(next) => bytes = next.into(),
+            Err(err) => return json_error(StatusCode::BAD_REQUEST, &err),
+        }
     }
     let mut builder = state.client.request(req_method, url).body(bytes);
     for (key, value) in headers.iter() {
@@ -59,6 +63,85 @@ async fn proxy_hermes(
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
             &format!("Hermes API proxy failed: {err}"),
+        ),
+    }
+}
+
+async fn chat_stream(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response<Body> {
+    let bytes = match to_bytes(body, MAX_PROXY_BODY).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return json_error(StatusCode::BAD_REQUEST, &format!("cannot read body: {err}"));
+        }
+    };
+    let body_value = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+        Ok(value) => value,
+        Err(err) => {
+            return json_error(StatusCode::BAD_REQUEST, &format!("cannot parse chat body: {err}"));
+        }
+    };
+
+    begin_chat_stream_snapshot(&state, &session_id).await;
+    if let Some(input) = chat_stream_input_text(body_value.get("input").unwrap_or(&serde_json::Value::Null))
+        .filter(|text| !text.is_empty())
+    {
+        publish_chat_stream_message(
+            &state,
+            &session_id,
+            serde_json::json!({
+                "id": format!("user_{}", chat_stream_run_id()),
+                "role": "user",
+                "content": input,
+                "timestamp": unix_now_seconds(),
+            }),
+        )
+        .await;
+    }
+
+    if let Some(model_request) = chat_stream_model_switch_request_for_body(session_id.clone(), body_value.clone()) {
+        if let Err(err) = send_model_switch_instruction(&state, &model_request).await {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("Hermes API model switch failed: {err}"),
+            );
+        }
+    }
+
+    let bytes = match chat_stream_actual_body_bytes(&body_value) {
+        Ok(bytes) => bytes,
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err),
+    };
+    let url = format!(
+        "{}/api/sessions/{}/chat/stream",
+        state.api_url,
+        path_segment(&session_id)
+    );
+    let mut builder = state.client.post(url).body(bytes);
+    for (key, value) in headers.iter() {
+        let name = key.as_str().to_ascii_lowercase();
+        if !should_forward_proxy_header(&name) {
+            continue;
+        }
+        builder = builder.header(key.as_str(), value.as_bytes());
+    }
+    if !headers.contains_key(header::CONTENT_TYPE) {
+        builder = builder.header(header::CONTENT_TYPE, "application/json");
+    }
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        builder = builder.bearer_auth(key);
+    }
+    match builder.send().await {
+        Ok(resp) => response_from_reqwest(state.clone(), Some(session_id), resp).await,
+        Err(err) => json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("Hermes API chat stream failed: {err}"),
         ),
     }
 }
@@ -83,6 +166,7 @@ struct ChatStreamModelSwitchRequest {
     session_id: String,
     command: String,
     body: serde_json::Value,
+    source_body: serde_json::Value,
 }
 
 fn chat_stream_model_switch_request(
@@ -92,6 +176,13 @@ fn chat_stream_model_switch_request(
 ) -> Option<ChatStreamModelSwitchRequest> {
     let session_id = proxied_chat_stream_session_id(path, method)?;
     let body = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    chat_stream_model_switch_request_for_body(session_id, body)
+}
+
+fn chat_stream_model_switch_request_for_body(
+    session_id: String,
+    body: serde_json::Value,
+) -> Option<ChatStreamModelSwitchRequest> {
     let model = body
         .get("model")
         .and_then(|value| value.as_str())
@@ -103,9 +194,9 @@ fn chat_stream_model_switch_request(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let command = if let Some(provider) = provider {
-        format!("/model {model} --provider {provider}")
+        format!("/model {model} --provider {provider} --session")
     } else {
-        format!("/model {model}")
+        format!("/model {model} --session")
     };
     let mut switch_body = serde_json::json!({"input": command});
     if let Some(reasoning_effort) = body.get("reasoning_effort") {
@@ -115,7 +206,17 @@ fn chat_stream_model_switch_request(
         session_id,
         command,
         body: switch_body,
+        source_body: body,
     })
+}
+
+fn chat_stream_actual_body_bytes(body: &serde_json::Value) -> Result<Vec<u8>, String> {
+    let mut body = body.clone();
+    if let Some(map) = body.as_object_mut() {
+        map.remove("model");
+        map.remove("provider");
+    }
+    serde_json::to_vec(&body).map_err(|err| format!("cannot serialize chat body: {err}"))
 }
 
 async fn send_model_switch_instruction(
