@@ -47,7 +47,7 @@ describe('chat user message navigator', () => {
     const styles = css();
     expect(source).toContain("className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`}");
     expect(source).toContain('items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? \' active\' : \'\'}`} key={item.id}');
-    expect(source).toContain('<div className="user-minimap-track">');
+    expect(source).toContain('className={`user-minimap-track${scrollFade.before ? \' can-scroll-before\' : \'\'}${scrollFade.after ? \' can-scroll-after\' : \'\'}`}');
     expect(source).toContain('onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }}');
     expect(source).toContain('data-nav-index={item.index} data-nav-total={item.total}');
     expect(source).not.toContain('const NAVIGATOR_RADIUS = 3;');
@@ -55,10 +55,14 @@ describe('chat user message navigator', () => {
     expect(source).not.toContain('function currentNavigatorIndex');
     expect(source).not.toContain('Math.min(1, item.position)');
     expect(source).not.toContain('function minimapHitStyle');
-    expect(styles).toContain('.chat-user-minimap{position:absolute;left:10px;width:54px;z-index:90;top:50%;transform:translateY(-50%);max-height:min(52dvh,420px);overflow:visible;pointer-events:auto}');
-    expect(styles).toContain('.user-minimap-track{display:flex;flex-direction:column;gap:0;max-height:min(52dvh,420px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;pointer-events:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;mask-image:linear-gradient(to bottom,transparent 0%,black 6px,black calc(100% - 6px),transparent 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 6px,black calc(100% - 6px),transparent 100%);scrollbar-width:none}');
+    expect(styles).toContain('.chat-user-minimap{position:absolute;left:10px;width:54px;z-index:90;top:50%;transform:translateY(-50%);max-height:var(--user-minimap-max-height,75%);overflow:visible;pointer-events:auto}');
+    expect(styles).toContain('.user-minimap-track{display:flex;flex-direction:column;gap:0;max-height:var(--user-minimap-max-height,75%);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;pointer-events:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;mask-image:none;-webkit-mask-image:none;scrollbar-width:none}');
+    expect(styles).toContain('.user-minimap-track.can-scroll-before{mask-image:linear-gradient(to bottom,transparent 0%,black 10px,black 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 10px,black 100%)}');
+    expect(styles).toContain('.user-minimap-track.can-scroll-after{mask-image:linear-gradient(to bottom,black 0%,black calc(100% - 10px),transparent 100%);-webkit-mask-image:linear-gradient(to bottom,black 0%,black calc(100% - 10px),transparent 100%)}');
+    expect(styles).toContain('.user-minimap-track.can-scroll-before.can-scroll-after{mask-image:linear-gradient(to bottom,transparent 0%,black 10px,black calc(100% - 10px),transparent 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 10px,black calc(100% - 10px),transparent 100%)}');
     expect(styles).toContain('.user-minimap-track::-webkit-scrollbar{display:none;width:0;height:0}');
     expect(styles).not.toContain('height:80%;max-height:80%;');
+    expect(styles).not.toContain('max-height:min(52dvh,420px)');
     expect(styles).toContain('.user-minimap-hit{position:relative;width:54px;height:8px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:flex-start;pointer-events:auto;cursor:pointer;flex-shrink:0}');
     expect(styles).toContain('.user-minimap-bar{width:9px;');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar,.user-minimap-hit:focus-visible .user-minimap-bar{width:21px;');
@@ -83,7 +87,7 @@ describe('chat user message navigator', () => {
     expect(source).toContain('return <main className="main-panel chat-main-panel">');
     expect(styles).toContain('.chat-main-panel .chat-scroll{padding-left:78px}');
     expect(styles).not.toContain('.main-panel:has(.chat-user-minimap) .chat-scroll{padding-left:78px}');
-    expect(styles).toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:46px}.chat-user-minimap{left:6px;top:50%;bottom:auto;transform:translateY(-50%);width:34px;max-height:min(52dvh,420px);overflow:visible;pointer-events:auto}.user-minimap-track{width:34px;max-height:min(52dvh,420px);mask-image:none;');
+    expect(styles).toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:46px}.chat-user-minimap{left:6px;top:50%;bottom:auto;transform:translateY(-50%);width:34px;max-height:var(--user-minimap-max-height,75%);overflow:visible;pointer-events:auto}.user-minimap-track{width:34px;max-height:var(--user-minimap-max-height,75%)}');
     expect(styles).toContain('.user-minimap-hit{width:34px;flex-shrink:0}');
     expect(styles).not.toContain('.chat-user-minimap{display:none}');
   });
@@ -104,5 +108,21 @@ describe('chat user message navigator', () => {
     expect(source).toContain('onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }}');
     expect(styles).toContain('@media (max-width:760px){.user-minimap-popup{left:28px;width:min(300px,calc(100vw - 48px));');
     expect(styles).not.toContain('.user-minimap-popup{display:none}}');
+  });
+
+  test('sizes minimap from the chat history viewport and fades only scrollable edges', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('chatScrollRef={props.chatScrollRef}');
+    expect(source).toContain('chatScrollRef: React.RefObject<HTMLElement | null>');
+    expect(source).toContain('nav.style.setProperty(\'--user-minimap-max-height\', `${Math.floor(scroller.clientHeight * 0.75)}px`);');
+    expect(source).toContain('className={`user-minimap-track${scrollFade.before ? \' can-scroll-before\' : \'\'}${scrollFade.after ? \' can-scroll-after\' : \'\'}`}');
+    expect(source).toContain('before: track.scrollTop > 1');
+    expect(source).toContain('after: track.scrollTop + track.clientHeight < track.scrollHeight - 1');
+    expect(source).toContain("typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateNavigatorMetrics) : null;");
+    expect(styles).toContain('max-height:var(--user-minimap-max-height,75%)');
+    expect(styles).toContain('.user-minimap-track.can-scroll-before');
+    expect(styles).toContain('.user-minimap-track.can-scroll-after');
+    expect(styles).not.toContain('max-height:min(52dvh,420px)');
   });
 });

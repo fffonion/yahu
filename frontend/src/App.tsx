@@ -2538,11 +2538,24 @@ function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: 
   return active;
 }
 
-function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage }: { items: UserMessageNavItem[]; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void }) {
+function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatScrollRef }: { items: UserMessageNavItem[]; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void; chatScrollRef: React.RefObject<HTMLElement | null> }) {
   const navRef = useRef<HTMLElement | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
   const popupTimerRef = useRef<number | null>(null);
   const isMobileNavigator = useMediaQuery('(max-width: 760px)');
   const [popup, setPopup] = useState<{ item: UserMessageNavItem; top: number } | null>(null);
+  const [scrollFade, setScrollFade] = useState({ before: false, after: false });
+  const updateNavigatorMetrics = useCallback(() => {
+    const nav = navRef.current;
+    const track = trackRef.current;
+    const scroller = chatScrollRef.current;
+    if (nav && scroller) nav.style.setProperty('--user-minimap-max-height', `${Math.floor(scroller.clientHeight * 0.75)}px`);
+    if (!track) return;
+    setScrollFade({
+      before: track.scrollTop > 1,
+      after: track.scrollTop + track.clientHeight < track.scrollHeight - 1,
+    });
+  }, [chatScrollRef]);
   const clearPopupTimer = useCallback(() => {
     if (popupTimerRef.current === null) return;
     window.clearTimeout(popupTimerRef.current);
@@ -2556,6 +2569,19 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage }: { i
     setPopup({ item, top: targetRect.top + targetRect.height / 2 - (navRect?.top ?? 0) });
     if (autoHide) popupTimerRef.current = window.setTimeout(() => setPopup(null), 3000);
   }, [clearPopupTimer]);
+  useLayoutEffect(() => {
+    updateNavigatorMetrics();
+    const scroller = chatScrollRef.current;
+    const track = trackRef.current;
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateNavigatorMetrics) : null;
+    if (scroller) observer?.observe(scroller);
+    if (track) observer?.observe(track);
+    window.addEventListener('resize', updateNavigatorMetrics);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateNavigatorMetrics);
+    };
+  }, [chatScrollRef, items.length, updateNavigatorMetrics]);
   useEffect(() => () => clearPopupTimer(), [clearPopupTimer]);
   useEffect(() => {
     if (!isMobileNavigator || !popup) return;
@@ -2578,7 +2604,7 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage }: { i
   }, [isMobileNavigator, onJumpToMessage, sessionId, showPopup]);
   if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
   return <nav ref={navRef} className="chat-user-minimap" aria-label="User message navigator" onMouseLeave={() => { if (!isMobileNavigator) hidePopup(); }}>
-    <div className="user-minimap-track">
+    <div ref={trackRef} className={`user-minimap-track${scrollFade.before ? ' can-scroll-before' : ''}${scrollFade.after ? ' can-scroll-after' : ''}`} onScroll={updateNavigatorMetrics}>
       {items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }} onFocus={(event) => showPopup(item, event.currentTarget)} onBlur={() => { if (!isMobileNavigator) hidePopup(); }} onClick={(event) => handleNavigatorClick(item, event)}>
         <span className="user-minimap-bar" />
       </button>)}
@@ -2704,7 +2730,7 @@ function ChatMain(props: any) {
   return <main className="main-panel chat-main-panel">
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label="Session times">{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
-    <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} />
+    <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatMediaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">Loading history…</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
