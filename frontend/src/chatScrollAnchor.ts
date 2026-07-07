@@ -2,8 +2,13 @@ export type MessageScrollAnchor = { id: string; topOffset: number };
 
 type AnchorRow = HTMLElement & { dataset: DOMStringMap };
 
+function isClosedDetailDescendant(row: AnchorRow): boolean {
+  const detail = row.closest?.('.turn-detail-group') as (HTMLDetailsElement | null);
+  return !!detail && !detail.open && detail !== row;
+}
+
 function messageRows(scroller: HTMLElement): AnchorRow[] {
-  return Array.from(scroller.querySelectorAll<AnchorRow>('[data-message-id]'));
+  return Array.from(scroller.querySelectorAll<AnchorRow>('[data-message-id]')).filter((row) => !isClosedDetailDescendant(row));
 }
 
 export function captureMessageScrollAnchor(scroller: HTMLElement | null, eligibleIds?: Set<string>): MessageScrollAnchor | null {

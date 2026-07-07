@@ -1140,13 +1140,34 @@ export default function App() {
         if (!after) return;
         params.set('after', after);
       }
+      const normalizePageChunk = (items: any[]) => (items || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
       const res = await fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${params}`);
       if (!res.ok) throw new Error(await res.text());
-      const page: MessagePage = await res.json();
+      let page: MessagePage = await res.json();
+      let chunk = normalizePageChunk(page.data || []);
+      let pageHasOlder = Boolean(page.has_older);
+      let pageHasNewer = Boolean(page.has_newer);
+      let boundaryPage = page;
+      if (direction === 'older') {
+        for (let guard = 0; guard < 16 && pageHasOlder && chunk.length > 0 && chunk.length < RAW_MESSAGE_WINDOW; guard += 1) {
+          const firstRole = chunk[0]?.role;
+          if (firstRole === 'user' || firstRole === 'system') break;
+          const before = numericId(chunk[0]?.id);
+          if (!before) break;
+          const boundaryParams = new URLSearchParams({ limit: String(MESSAGE_PAGE), before });
+          const boundaryRes = await fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${boundaryParams}`);
+          if (!boundaryRes.ok) throw new Error(await boundaryRes.text());
+          const olderPage: MessagePage = await boundaryRes.json();
+          const olderChunk = normalizePageChunk(olderPage.data || []);
+          pageHasOlder = Boolean(olderPage.has_older);
+          if (!olderChunk.length) break;
+          chunk = [...olderChunk, ...chunk];
+          boundaryPage = { ...olderPage, total: page.total, last_active: page.last_active };
+        }
+      }
       if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
       updateSessionMessageCount(sessionId, page.total);
-      updateSessionBoundaryTimes(sessionId, page);
-      const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
+      updateSessionBoundaryTimes(sessionId, direction === 'older' ? boundaryPage : page);
       const merged = mergeMessageWindow<ChatMessage>({
         current: direction === 'latest' ? [] : messagesRef.current,
         chunk,
@@ -1154,8 +1175,8 @@ export default function App() {
         limit: RAW_MESSAGE_WINDOW,
         hasOlder: hasOlderRef.current,
         hasNewer: hasNewerRef.current,
-        pageHasOlder: Boolean(page.has_older),
-        pageHasNewer: Boolean(page.has_newer),
+        pageHasOlder,
+        pageHasNewer,
       });
       messagesRef.current = merged.messages;
       setMessages(merged.messages);
@@ -2555,7 +2576,8 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt }: 
   const toolCount = item.messages.filter(isToolLikeMessage).length;
   const thinkingCount = item.messages.filter((message) => String(message.reasoning || '').trim()).length;
   const parts = [toolCount ? tf('chat.toolsCount', toolCount) : '', thinkingCount ? tf('chat.thinkingCount', thinkingCount) : ''].filter(Boolean).join(' · ') || tf('chat.detailsCount', item.messages.length);
-  return <details className="turn-detail-group" aria-label={t('chat.details')} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+  const detailAnchorId = String(item.messages[0]?.id || item.id);
+  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={t('chat.details')} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary className="turn-detail-summary"><span className="turn-detail-toggle"><ChevronRight className="turn-detail-chevron" /><span className="turn-detail-toggle-label">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span></span><span className="turn-detail-title">{t('chat.details')}</span><em>{parts}</em></summary>
     <div className="turn-detail-body">
       {item.messages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} />)}

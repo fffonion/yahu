@@ -39,4 +39,14 @@ describe('chat history scroll triggers', () => {
     expect(css).toContain('.chat-scroll{position:relative;overflow:auto;');
     expect(css).toContain('.history-loading{position:absolute;top:10px;left:50%;transform:translateX(-50%);');
   });
+
+  test('older history requests backfill to a user or system boundary before merging compact detail turns', () => {
+    const app = appSource();
+    expect(app).toContain('const normalizePageChunk = (items: any[]) =>');
+    expect(app).toContain("if (firstRole === 'user' || firstRole === 'system') break;");
+    expect(app).toContain("const boundaryParams = new URLSearchParams({ limit: String(MESSAGE_PAGE), before });");
+    expect(app).toContain('guard < 16 && pageHasOlder && chunk.length > 0 && chunk.length < RAW_MESSAGE_WINDOW');
+    expect(app).toContain('chunk = [...olderChunk, ...chunk];');
+    expect(app).toContain('pageHasOlder = Boolean(olderPage.has_older);');
+  });
 });

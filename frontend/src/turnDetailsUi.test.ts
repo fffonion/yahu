@@ -25,7 +25,8 @@ describe('turn detail fold UI', () => {
     expect(source).not.toContain('<span className="turn-detail-toggle-label">Expand</span>');
     expect(styles).toContain('.turn-detail-toggle{display:inline-grid;grid-template-columns:14px auto;');
     expect(source).toContain("open={open} onToggle={(event) => setOpen(event.currentTarget.open)}");
-    expect(source).toContain("const [open, setOpen] = useState(false);");
+    expect(source).toContain("const detailAnchorId = String(item.messages[0]?.id || item.id);");
+    expect(source).toContain('data-message-id={!open ? detailAnchorId : undefined}');
   });
 
   test('outer turn detail group has compact collapsed styling separate from inner tool and reasoning folds', () => {
