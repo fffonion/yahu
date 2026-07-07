@@ -41,7 +41,8 @@ function sessionWithPreservedMessageCount(next: Session, current?: Session | nul
   if (!nextTitle && currentTitle) merged.title = current?.title;
   return merged;
 }
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number; costUsd?: number };
+type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary'; mime: string; size: number; dataUrl?: string; text?: string; uploadedPath?: string };
@@ -315,10 +316,78 @@ function readTokenCount(raw: any): number | undefined {
   const value = Number(raw?.token_count ?? raw?.tokenCount ?? 0);
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
+function numericMetric(source: any, keys: string[]): number | undefined {
+  const record = asRecordish(source);
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = Number(record[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return undefined;
+}
+function usageRecord(raw: any): any {
+  return asRecordish(raw?.usage) || asRecordish(raw?.response?.usage) || asRecordish(raw?.result?.usage) || asRecordish(raw?.message?.usage) || null;
+}
+function readTurnMetrics(raw: any): ChatTurnMetrics | undefined {
+  if (!raw) return undefined;
+  const usage = usageRecord(raw) || raw;
+  const elapsedMs = numericMetric(raw, ['duration_ms', 'elapsed_ms', 'latency_ms', 'time_ms']) ?? numericMetric(raw?.timing, ['duration_ms', 'elapsed_ms', 'latency_ms', 'time_ms']);
+  const inputTokens = numericMetric(usage, ['input_tokens', 'prompt_tokens']);
+  const outputTokens = numericMetric(usage, ['output_tokens', 'completion_tokens']);
+  const totalTokens = numericMetric(usage, ['total_tokens', 'tokens', 'token_count']) ?? numericMetric(raw, ['token_count', 'tokenCount']);
+  const costUsd = numericMetric(usage, ['cost_usd', 'estimated_cost_usd', 'actual_cost_usd', 'cost']) ?? numericMetric(raw, ['cost_usd', 'estimated_cost_usd', 'actual_cost_usd']);
+  const metrics: ChatTurnMetrics = {};
+  if (elapsedMs !== undefined) metrics.elapsedMs = elapsedMs;
+  if (inputTokens !== undefined) metrics.inputTokens = inputTokens;
+  if (outputTokens !== undefined) metrics.outputTokens = outputTokens;
+  if (totalTokens !== undefined) metrics.totalTokens = totalTokens;
+  if (costUsd !== undefined) metrics.costUsd = costUsd;
+  return Object.keys(metrics).length ? metrics : undefined;
+}
+function mergeTurnMetrics(base?: ChatTurnMetrics, next?: ChatTurnMetrics): ChatTurnMetrics | undefined {
+  const merged = { ...(base || {}), ...(next || {}) };
+  return Object.keys(merged).length ? merged : undefined;
+}
+function numericTimestampMs(value: string | number | undefined): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  return numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+}
+function formatTurnDuration(ms?: number): string {
+  if (!Number.isFinite(ms || 0) || !ms || ms <= 0) return 'time —';
+  if (ms < 1000) return `time ${Math.round(ms)}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `time ${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `time ${minutes}m ${rest}s`;
+}
+function formatTurnTokenCount(value?: number): string {
+  if (!Number.isFinite(value || 0) || !value || value <= 0) return 'tokens —';
+  return `tokens ${Math.round(value).toLocaleString()}`;
+}
+function formatTurnCost(value?: number): string {
+  if (!Number.isFinite(value || 0) || value === undefined || value <= 0) return 'cost —';
+  if (value < 0.0001) return `cost $${value.toFixed(6)}`;
+  if (value < 0.01) return `cost $${value.toFixed(4)}`;
+  return `cost $${value.toFixed(3)}`;
+}
+function messageTurnMetadata(message: ChatMessage, turnStartedAt?: string | number): string {
+  if (message.role !== 'assistant' || message.pending || isAssistantToolPreludeMessage(message) || !message.content.trim()) return '';
+  const metrics = message.turnMetrics || {};
+  const endMs = numericTimestampMs(message.timestamp);
+  const startMs = numericTimestampMs(turnStartedAt);
+  const elapsedMs = metrics.elapsedMs ?? (endMs !== undefined && startMs !== undefined && endMs >= startMs ? endMs - startMs : undefined);
+  const totalTokens = metrics.totalTokens ?? message.tokenCount ?? ((metrics.inputTokens || metrics.outputTokens) ? (metrics.inputTokens || 0) + (metrics.outputTokens || 0) : undefined);
+  const detail = metrics.inputTokens || metrics.outputTokens ? ` (in ${Math.round(metrics.inputTokens || 0).toLocaleString()} / out ${Math.round(metrics.outputTokens || 0).toLocaleString()})` : '';
+  return `${formatTurnDuration(elapsedMs)} · ${formatTurnTokenCount(totalTokens)}${detail} · ${formatTurnCost(metrics.costUsd)}`;
+}
 function normalizeMessage(raw: any): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);
   const platformSender = raw.role === 'user' ? parsePlatformSenderMessage(parts.content) : { content: parts.content };
   const tokenCount = readTokenCount(raw);
+  const metrics = readTurnMetrics(raw);
   const msg: ChatMessage = {
     id: String(raw.id || uid('m')),
     role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',
@@ -331,6 +400,7 @@ function normalizeMessage(raw: any): ChatMessage {
     toolCallId: String(raw.toolCallId || raw.tool_call_id || raw.call_id || '').trim() || undefined,
   };
   if (tokenCount !== undefined) msg.tokenCount = tokenCount;
+  if (metrics) msg.turnMetrics = metrics;
   if (platformSender.senderName) msg.platformSenderName = platformSender.senderName;
   if (platformSender.senderId) msg.platformSenderId = platformSender.senderId;
   if (typeof raw.model === 'string' && raw.model.trim()) msg.model = raw.model.trim();
@@ -1606,7 +1676,8 @@ export default function App() {
     const sessionProvider = providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || '';
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
-    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, timestamp: Date.now() / 1000, model: sessionModel, provider: sessionProvider };
+    const turnStartedAtMs = Date.now();
+    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, timestamp: turnStartedAtMs / 1000, model: sessionModel, provider: sessionProvider };
     const payloadInput = buildPayload(text, payloadAttachments);
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
@@ -1622,6 +1693,7 @@ export default function App() {
       let buffer = '';
       let finalText = '';
       let reasoningText = '';
+      let turnMetrics: ChatTurnMetrics | undefined;
       const scrollWithStream = () => {
         if (isNearBottom(chatScrollRef.current, 220)) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
       };
@@ -1645,6 +1717,7 @@ export default function App() {
             try { payload = JSON.parse(data); } catch { continue; }
             const payloadSessionId = typeof payload?.session_id === 'string' ? payload.session_id.trim() : '';
             if (payloadSessionId && payloadSessionId !== effectiveSessionId) effectiveSessionId = payloadSessionId;
+            turnMetrics = mergeTurnMetrics(turnMetrics, readTurnMetrics(payload));
             if (event === 'assistant.delta') {
               const delta = payload.delta || '';
               finalText += delta;
@@ -1663,6 +1736,7 @@ export default function App() {
               animator.setTarget(finalText);
             }
             if (event === 'run.completed' && payload?.messages?.[0]?.content && !finalText) {
+              turnMetrics = mergeTurnMetrics(turnMetrics, readTurnMetrics(payload.messages?.[0]));
               const messageParts = normalizeMessageParts(payload.messages[0].content, payload.messages[0]);
               finalText = messageParts.content;
               if (messageParts.reasoning) reasoningText = messageParts.reasoning;
@@ -1678,7 +1752,8 @@ export default function App() {
       // before flipping `pending: false`, so the caret / shimmer / glow run for the full duration.
       await animator.finish(finalText);
       sessionId = await reconcileEffectiveSession(sessionId, effectiveSessionId, createdSession);
-      setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning, timestamp: Date.now() / 1000 } : m));
+      const completedMetrics = mergeTurnMetrics(turnMetrics, { elapsedMs: Date.now() - turnStartedAtMs });
+      setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning, timestamp: Date.now() / 1000, turnMetrics: completedMetrics } : m));
       setStatus(t('chat.connected'));
       await refreshSessionTitleOnce(sessionId);
       await loadWorkspace(workspacePath);
@@ -2431,13 +2506,15 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
   </div>;
 }
 
-function MessageView({ message, showReasoning = false, assistantName }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string }) {
+function MessageView({ message, showReasoning = false, assistantName, turnStartedAt }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; turnStartedAt?: string | number }) {
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} />;
   const isPending = !!message.pending;
   const isToolPrelude = isAssistantToolPreludeMessage(message);
   const fallback = isPending ? '…' : '';
   const senderLabel = messageSenderLabel(message, assistantName);
   const html = markdownText(message.content || fallback);
+  const turnMetadata = messageTurnMetadata(message, turnStartedAt);
+  const showTurnMetadata = message.role === 'assistant' && !isPending && !isToolPrelude && !!turnMetadata;
   return (
     <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}${isToolPrelude ? ' tool-prelude' : ''}`} data-message-id={message.id || undefined}>
       <div className="msg-content">
@@ -2451,6 +2528,7 @@ function MessageView({ message, showReasoning = false, assistantName }: { messag
           {isPending && <span className="stream-caret" aria-hidden="true" />}
         </div>
         {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label="Reasoning / thinking"><summary>Thinking</summary><pre>{message.reasoning}</pre></details>}
+        {showTurnMetadata && <div className="msg-turn-metadata" aria-label="Turn metadata">{turnMetadata}</div>}
       </div>
     </article>
   );
@@ -2736,12 +2814,15 @@ function ChatMain(props: any) {
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>Streaming chat through Hermes API Server. Message history is loaded in pages.</p></div>}
       {(() => {
         const splitIdx = findNewMessageSplitIndex(visibleMessages, props.newMessageBoundaryId);
-        return visibleMessages.map((m: ChatMessage, i: number) => (
-          <React.Fragment key={m.id}>
+        let lastUserTimestamp: string | number | undefined;
+        return visibleMessages.map((m: ChatMessage, i: number) => {
+          const turnStartedAt = m.role === 'assistant' ? lastUserTimestamp : undefined;
+          if (m.role === 'user') lastUserTimestamp = m.timestamp;
+          return <React.Fragment key={m.id}>
             {i === splitIdx && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-            <MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />
-          </React.Fragment>
-        ));
+            <MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={turnStartedAt} />
+          </React.Fragment>;
+        });
       })()}
     </section>
     <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />

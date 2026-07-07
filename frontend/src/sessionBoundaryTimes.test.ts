@@ -15,8 +15,8 @@ describe('session boundary times', () => {
 
   test('streaming local assistant updates carry timestamps for live latest header changes', () => {
     const app = source();
-    expect(app).toContain("const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, timestamp: Date.now() / 1000, model: sessionModel, provider: sessionProvider };");
+    expect(app).toContain("const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, timestamp: turnStartedAtMs / 1000, model: sessionModel, provider: sessionProvider };");
     expect(app).toContain('{ ...m, content: text, pending: true, timestamp: Date.now() / 1000 }');
-    expect(app).toContain('{ ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning, timestamp: Date.now() / 1000 }');
+    expect(app).toContain('{ ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning, timestamp: Date.now() / 1000, turnMetrics: completedMetrics }');
   });
 });

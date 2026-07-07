@@ -57,9 +57,9 @@ describe('chat user message navigator', () => {
     expect(source).not.toContain('function minimapHitStyle');
     expect(styles).toContain('.chat-user-minimap{position:absolute;left:10px;width:54px;z-index:90;top:50%;transform:translateY(-50%);max-height:var(--user-minimap-max-height,75%);overflow:visible;pointer-events:auto}');
     expect(styles).toContain('.user-minimap-track{display:flex;flex-direction:column;gap:0;max-height:var(--user-minimap-max-height,75%);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;pointer-events:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;mask-image:none;-webkit-mask-image:none;scrollbar-width:none}');
-    expect(styles).toContain('.user-minimap-track.can-scroll-before{mask-image:linear-gradient(to bottom,transparent 0%,black 10px,black 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 10px,black 100%)}');
-    expect(styles).toContain('.user-minimap-track.can-scroll-after{mask-image:linear-gradient(to bottom,black 0%,black calc(100% - 10px),transparent 100%);-webkit-mask-image:linear-gradient(to bottom,black 0%,black calc(100% - 10px),transparent 100%)}');
-    expect(styles).toContain('.user-minimap-track.can-scroll-before.can-scroll-after{mask-image:linear-gradient(to bottom,transparent 0%,black 10px,black calc(100% - 10px),transparent 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 10px,black calc(100% - 10px),transparent 100%)}');
+    expect(styles).toContain('.user-minimap-track.can-scroll-before{mask-image:linear-gradient(to bottom,transparent 0%,black 18px,black 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 18px,black 100%)}');
+    expect(styles).toContain('.user-minimap-track.can-scroll-after{mask-image:linear-gradient(to bottom,black 0%,black calc(100% - 18px),transparent 100%);-webkit-mask-image:linear-gradient(to bottom,black 0%,black calc(100% - 18px),transparent 100%)}');
+    expect(styles).toContain('.user-minimap-track.can-scroll-before.can-scroll-after{mask-image:linear-gradient(to bottom,transparent 0%,black 18px,black calc(100% - 18px),transparent 100%);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 18px,black calc(100% - 18px),transparent 100%)}');
     expect(styles).toContain('.user-minimap-track::-webkit-scrollbar{display:none;width:0;height:0}');
     expect(styles).not.toContain('height:80%;max-height:80%;');
     expect(styles).not.toContain('max-height:min(52dvh,420px)');
