@@ -122,3 +122,7 @@ export function withToolCallInputs<T extends MessageVisibilityInput>(messages: T
 export function renderableMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): T[] {
   return messages.filter((message) => shouldRenderMessage(message, showReasoning, showToolCalls));
 }
+
+export function visibleChatMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): T[] {
+  return renderableMessages(withToolCallInputs(messages), showReasoning, showToolCalls);
+}

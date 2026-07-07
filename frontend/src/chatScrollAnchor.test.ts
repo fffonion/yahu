@@ -24,11 +24,17 @@ function row(id: string, top: number, bottom: number, options: { detail?: FakeDe
   };
 }
 
-function scroller(rows: FakeRow[], top = 100) {
+function scroller(rows: FakeRow[], top = 100, queries: string[] = []) {
   return {
     scrollTop: 250,
     getBoundingClientRect: () => ({ top }),
-    querySelectorAll: () => rows,
+    querySelectorAll: (selector: string) => {
+      queries.push(selector);
+      const match = selector.match(/^\[data-message-id="(.+)"\]$/);
+      if (!match) return rows;
+      const id = match[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+      return rows.filter((item) => item.dataset.messageId === id);
+    },
   };
 }
 
@@ -72,6 +78,21 @@ describe('chat scroll anchor preservation', () => {
     ]) as any;
     restoreMessageScrollAnchor(fakeScroller, { id: 'detail-first', topOffset: -10 });
 
+    expect(fakeScroller.scrollTop).toBe(230);
+  });
+
+  test('restores by querying the captured id directly before falling back to a full row scan', () => {
+    const queries: string[] = [];
+    const fakeScroller = scroller([
+      row('other', 10, 50),
+      row('answer-1', 70, 120),
+      row('answer-2', 140, 210),
+    ], 100, queries) as any;
+
+    restoreMessageScrollAnchor(fakeScroller, { id: 'answer-1', topOffset: -10 });
+
+    expect(queries[0]).toBe('[data-message-id="answer-1"]');
+    expect(queries).not.toContain('[data-message-id]');
     expect(fakeScroller.scrollTop).toBe(230);
   });
 });

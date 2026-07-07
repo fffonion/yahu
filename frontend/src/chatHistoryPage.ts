@@ -54,15 +54,32 @@ export async function backfillOlderChunkToTurnBoundary<T extends ChatHistoryMess
   const pageHasNewer = Boolean(firstPage.has_newer);
   let boundaryPage = firstPage;
 
+  const seenBefore = new Set<string>();
+  const seenMessageIds = new Set(chunk.map((message) => String(message.id || '')).filter(Boolean));
+
   for (let guard = 0; guard < maxPages && pageHasOlder && chunk.length > 0 && chunk.length < rawWindowLimit; guard += 1) {
     if (HISTORY_BOUNDARY_ROLES.has(String(chunk[0]?.role || ''))) break;
     const before = numericId(chunk[0]?.id);
-    if (!before) break;
+    if (!before || seenBefore.has(before)) {
+      pageHasOlder = false;
+      break;
+    }
+    seenBefore.add(before);
     const olderPage = await fetchBefore(before, pageLimit);
     const olderChunk = normalizeChunk(olderPage.data || []);
     pageHasOlder = Boolean(olderPage.has_older);
-    if (!olderChunk.length) break;
-    chunk = [...olderChunk, ...chunk];
+    const newOlderChunk = olderChunk.filter((message) => {
+      const id = String(message.id || '').trim();
+      if (!id) return true;
+      if (seenMessageIds.has(id)) return false;
+      seenMessageIds.add(id);
+      return true;
+    });
+    if (!newOlderChunk.length) {
+      pageHasOlder = false;
+      break;
+    }
+    chunk = [...newOlderChunk, ...chunk];
     boundaryPage = { ...olderPage, total: firstPage.total, last_active: firstPage.last_active };
   }
 

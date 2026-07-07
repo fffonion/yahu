@@ -57,4 +57,22 @@ describe('chat history page helpers', () => {
 
     expect(result.chunk.map((message) => message.id)).toEqual(['30', '31']);
   });
+
+  test('stops older backfill when an overlapping page contributes no new messages', async () => {
+    const calls: string[] = [];
+    const firstPage: ChatHistoryPageRaw = { data: [{ id: 30, role: 'tool' }, { id: 31, role: 'assistant' }], has_older: true, has_newer: false };
+    const result = await backfillOlderChunkToTurnBoundary({
+      firstPage,
+      firstChunk: normalizeChatHistoryChunk(firstPage.data, normalize),
+      fetchBefore: async (before) => { calls.push(before); return { data: [{ id: 30, role: 'tool' }], has_older: true }; },
+      normalizeChunk: (items) => normalizeChatHistoryChunk(items, normalize),
+      numericId,
+      pageLimit: 24,
+      rawWindowLimit: 120,
+    });
+
+    expect(calls).toEqual(['30']);
+    expect(result.chunk.map((message) => message.id)).toEqual(['30', '31']);
+    expect(result.pageHasOlder).toBe(false);
+  });
 });

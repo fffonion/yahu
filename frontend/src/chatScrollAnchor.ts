@@ -11,6 +11,16 @@ function messageRows(scroller: HTMLElement): AnchorRow[] {
   return Array.from(scroller.querySelectorAll<AnchorRow>('[data-message-id]')).filter((row) => !isClosedDetailDescendant(row));
 }
 
+function messageIdSelector(id: string): string {
+  const css = globalThis.CSS?.escape ? globalThis.CSS.escape(id) : id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `[data-message-id="${css}"]`;
+}
+
+function rowsForMessageId(scroller: HTMLElement, id: string): AnchorRow[] {
+  const matched = Array.from(scroller.querySelectorAll<AnchorRow>(messageIdSelector(id))).filter((row) => !isClosedDetailDescendant(row));
+  return matched.length ? matched : messageRows(scroller).filter((row) => String(row.dataset.messageId || '') === id);
+}
+
 export function captureMessageScrollAnchor(scroller: HTMLElement | null, eligibleIds?: Set<string>): MessageScrollAnchor | null {
   if (!scroller) return null;
   const rows = messageRows(scroller).filter((row) => String(row.dataset.messageId || '').trim());
@@ -27,7 +37,7 @@ export function captureMessageScrollAnchor(scroller: HTMLElement | null, eligibl
 export function restoreMessageScrollAnchor(scroller: HTMLElement | null, anchor: MessageScrollAnchor | null): boolean {
   if (!scroller || !anchor?.id) return false;
   const scrollerTop = scroller.getBoundingClientRect().top;
-  const row = messageRows(scroller).find((candidate) => String(candidate.dataset.messageId || '') === anchor.id);
+  const row = rowsForMessageId(scroller, anchor.id)[0];
   if (!row) return false;
   scroller.scrollTop += row.getBoundingClientRect().top - scrollerTop - anchor.topOffset;
   return true;

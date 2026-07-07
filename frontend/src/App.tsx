@@ -13,7 +13,7 @@ import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
-import { isAssistantToolPreludeMessage, isToolLikeMessage, renderableMessages, withToolCallInputs } from './messageVisibility';
+import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
 import { buildDesktopTurnBlocks, buildTurnDetailItems, type TurnDetailBlock, type TurnDetailGroupItem } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
@@ -1527,8 +1527,8 @@ export default function App() {
           scrollLatestAfterRenderRef.current = true;
           clearNewMessages();
         } else {
-          const previousVisible = renderableMessages(withToolCallInputs(prev), showReasoningRef.current, showToolCallsRef.current);
-          const nextVisible = renderableMessages(withToolCallInputs(next), showReasoningRef.current, showToolCallsRef.current);
+          const previousVisible = visibleChatMessages(prev, showReasoningRef.current, showToolCallsRef.current);
+          const nextVisible = visibleChatMessages(next, showReasoningRef.current, showToolCallsRef.current);
           const marker = computeNewMessageMarker(previousVisible, nextVisible, newMessageBoundaryIdRef.current);
           newMessageBoundaryIdRef.current = marker.firstId;
           setNewMessageBoundaryId(marker.firstId);
@@ -2848,8 +2848,7 @@ function ChatMain(props: any) {
   const currentModelOption = exactCurrentOption || currentOption;
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
-  const preparedMessages = useMemo(() => withToolCallInputs<ChatMessage>(props.messages), [props.messages]);
-  const visibleMessages = renderableMessages<ChatMessage>(preparedMessages, props.showReasoning, props.showToolCalls);
+  const visibleMessages = useMemo(() => visibleChatMessages<ChatMessage>(props.messages, props.showReasoning, props.showToolCalls), [props.messages, props.showReasoning, props.showToolCalls]);
   const turnDetailItems = useMemo(() => buildTurnDetailItems(visibleMessages), [visibleMessages]);
   const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
   const [chatImageModal, setChatImageModal] = useState<ChatLightboxImage | null>(null);
@@ -2868,7 +2867,7 @@ function ChatMain(props: any) {
   const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
     const scroller = props.chatScrollRef.current;
-    const nextVisibleMessages = renderableMessages<ChatMessage>(withToolCallInputs<ChatMessage>(props.messages), nextShowReasoning, nextShowToolCalls);
+    const nextVisibleMessages = visibleChatMessages<ChatMessage>(props.messages, nextShowReasoning, nextShowToolCalls);
     const nextVisibleIds = new Set(nextVisibleMessages.map((message) => String(message.id || '')).filter(Boolean));
     const anchor = captureMessageScrollAnchor(scroller, nextVisibleIds);
     apply();
