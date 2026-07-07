@@ -15,13 +15,15 @@ describe('session right-click context menu', () => {
     expect(source).toContain('deleteSession');
   });
 
-  test('rename and delete use Hermes session API endpoints', () => {
+  test('rename and delete use yahu session proxy endpoints instead of browser apiBase', () => {
     const source = app();
+    expect(source).toContain("const SESSION_API_BASE = '/hermes';");
     expect(source).toContain("method: 'PATCH'");
     expect(source).toContain('JSON.stringify({ title: nextTitle })');
     expect(source).toContain('const patched = (body.data || body.session || body) as Session;');
     expect(source).toContain("method: 'DELETE'");
-    expect(source).toContain('/api/sessions/${encodeURIComponent(session.id)}');
+    expect(source).toContain('apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(session.id)}`)');
+    expect(source).not.toContain('fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(session.id)}`), { method: \'PATCH\'');
   });
 
   test('session list refresh preserves a renamed title when search rows omit titles', () => {

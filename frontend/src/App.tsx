@@ -69,6 +69,7 @@ type UserMessageNavItem = { id: string; role: 'user'; content: string; assistant
 type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: boolean; compressed?: boolean };
 
 const DEFAULT_API_BASE = '/hermes';
+const SESSION_API_BASE = '/hermes';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -978,7 +979,7 @@ export default function App() {
     if (!sessionId) return;
     if (sessionId === DRAFT_SESSION_ID) return;
     try {
-      const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(sessionId)}`), { headers: headers(false) });
+      const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}`), { headers: headers(false) });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const body = await res.json();
       const detail = (body.data || body.session || body) as Session;
@@ -1055,7 +1056,7 @@ export default function App() {
     setSessions((old) => [effectiveSession, ...old.filter((s) => s.id !== previousSessionId && s.id !== effectiveSessionId)]);
     writeHashRoute({ mode: 'chat', sessionId: effectiveSessionId });
     if (createdSession && previousSessionId !== effectiveSessionId) {
-      await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(previousSessionId)}`), { method: 'DELETE', headers: headers(false) }).catch(() => null);
+      await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(previousSessionId)}`), { method: 'DELETE', headers: headers(false) }).catch(() => null);
     }
     await loadSessionDetail(effectiveSessionId);
     return effectiveSessionId;
@@ -1065,7 +1066,7 @@ export default function App() {
     const sessionModel = realModelOrEmpty(modelRef.current) || models[0]?.id || '';
     const sessionProvider = providerRef.current;
     const sessionBody = sessionProvider ? { model: sessionModel, provider: sessionProvider } : { model: sessionModel };
-    const res = await fetch(apiJoin(apiBase, '/api/sessions'), { method: 'POST', headers: headers(), body: JSON.stringify(sessionBody) });
+    const res = await fetch(apiJoin(SESSION_API_BASE, '/api/sessions'), { method: 'POST', headers: headers(), body: JSON.stringify(sessionBody) });
     if (!res.ok) throw new Error(await res.text());
     const body = await res.json();
     return (body.session || body.data || body) as Session;
@@ -1631,7 +1632,7 @@ export default function App() {
     try {
       const sessionModel = realModelOrEmpty(modelRef.current) || activeSession?.model || activeSessionDetail?.model || '';
       const sessionProvider = providerRef.current || activeSession?.provider || activeSessionDetail?.provider || '';
-      const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(sessionId)}/chat`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(`/steer ${text}`, sessionModel, effort, sessionProvider)) });
+      const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}/chat`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(`/steer ${text}`, sessionModel, effort, sessionProvider)) });
       if (!res.ok) throw new Error(await res.text());
       setStatus(`Steered: ${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`);
     } catch (err: any) {
@@ -1687,7 +1688,7 @@ export default function App() {
     setStatus('Running');
     if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
     try {
-      const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)) });
+      const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)) });
       if (!res.ok || !res.body) throw new Error(await res.text());
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -1852,7 +1853,7 @@ export default function App() {
     setSessionMenu(null);
     const nextTitle = await requestPrompt(t('chat.renameTitle'), t('chat.renameTitle'), sessionDisplayTitle(session));
     if (nextTitle === null) return;
-    const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(session.id)}`), { method: 'PATCH', headers: headers(), body: JSON.stringify({ title: nextTitle }) });
+    const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(session.id)}`), { method: 'PATCH', headers: headers(), body: JSON.stringify({ title: nextTitle }) });
     if (!res.ok) { setStatus(`Rename failed: ${await res.text()}`); return; }
     const body = await res.json();
     const patched = (body.data || body.session || body) as Session;
@@ -1865,7 +1866,7 @@ export default function App() {
   const deleteSession = async (session: Session) => {
     setSessionMenu(null);
     if (!await requestConfirm(t('chat.deleteTitle'), t('chat.deleteConfirm'), true)) return;
-    const res = await fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(session.id)}`), { method: 'DELETE', headers: headers(false) });
+    const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(session.id)}`), { method: 'DELETE', headers: headers(false) });
     if (!res.ok) { setStatus(`Delete failed: ${await res.text()}`); return; }
     setPinnedIds((old) => { const next = new Set(old); next.delete(session.id); return next; });
     setSessions((old) => {
