@@ -1334,4 +1334,75 @@ mod tests {
         assert!((price.estimate(1_000_000, 100_000, 9_000_000, 0) - 12.5).abs() < 0.000001);
     }
 
+    #[tokio::test]
+    async fn chat_messages_page_injects_turn_duration_on_assistant_without_preceding_user_in_page() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        // user1(ts=100) → tool1(ts=105) → assistant1 content(ts=110)
+        // → user2(ts=200) → tool2(ts=205) → assistant2 content(ts=212.5)
+        // → user3(ts=300)
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('s1',NULL,1,NULL,'telegram')", []).unwrap();
+        for (id, role, content, ts) in [
+            (1i64, "user", "user1 msg", 100.0f64),
+            (2, "assistant", "", 105.0),  // tool-calls assistant (empty content)
+            (3, "tool", "tool1 output", 105.0),
+            (4, "assistant", "reply1", 110.0),
+            (5, "user", "user2 msg", 200.0),
+            (6, "assistant", "", 205.0),  // tool-calls assistant
+            (7, "tool", "tool2 output", 205.0),
+            (8, "assistant", "reply2", 212.5),
+            (9, "user", "user3 msg", 300.0),
+        ] {
+            conn.execute(
+                "INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES (?1,'s1',?2,?3,?4,1)",
+                rusqlite::params![id, role, content, ts],
+            ).unwrap();
+        }
+        drop(conn);
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        // Request only 3 messages from the tail — user2 and its turn are NOT in this window
+        let resp = chat_messages_page(
+            State(state),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(3) }),
+        ).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(page["total"], 9);
+        assert_eq!(page["data"].as_array().unwrap().len(), 3);
+        // The last 3 messages: tool2 (id=7), assistant reply2 (id=8), user3 (id=9)
+        // user2 (ts=200 → id=5) is NOT in the page
+        let data = page["data"].as_array().unwrap();
+        assert_eq!(data[0]["id"], 7);   // tool2 — no duration
+        assert!(data[0].get("duration_ms").is_none(), "tool must not have duration_ms");
+        assert_eq!(data[1]["id"], 8);   // assistant reply2 — MUST have duration_ms
+        assert_eq!(data[1]["role"], "assistant");
+        assert!(data[1].get("duration_ms").is_some(), "assistant with content must have duration_ms");
+        assert_eq!(data[1]["duration_ms"], 12500.0); // (212.5 - 200) * 1000
+        assert_eq!(data[1]["content"], "reply2");
+        assert_eq!(data[2]["id"], 9);   // user3 — no duration
+        assert!(data[2].get("duration_ms").is_none(), "user must not have duration_ms");
+    }
+
 }

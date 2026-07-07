@@ -166,13 +166,48 @@ fn json_value_contains_query(value: &serde_json::Value, needle: &str) -> bool {
     }
 }
 
+fn inject_turn_durations(messages: &mut Vec<serde_json::Value>) {
+    let mut last_user_ts: Option<f64> = None;
+    for message in messages.iter_mut() {
+        let role = message
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let ts = message.get("timestamp").and_then(|v| v.as_f64());
+        if role == "user" {
+            last_user_ts = ts;
+        } else if role == "assistant" {
+            let content = message
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if content.is_empty() {
+                continue;
+            }
+            if let Some(msg_ts) = ts {
+                if let Some(prev_user_ts) = last_user_ts {
+                    if msg_ts >= prev_user_ts {
+                        let duration_ms = (msg_ts - prev_user_ts) * 1000.0;
+                        if let Some(obj) = message.as_object_mut() {
+                            if let Some(n) = serde_json::Number::from_f64(duration_ms) {
+                                obj.insert("duration_ms".to_string(), serde_json::Value::Number(n));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 async fn chat_messages_page(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<ChatMessagesQuery>,
 ) -> Response<Body> {
     let limit = query.limit.unwrap_or(24).clamp(1, 80);
-    let all = match fetch_session_history_messages(&state, &session_id).await {
+    let mut all = match fetch_session_history_messages(&state, &session_id).await {
         Ok(messages) => messages,
         Err(err) => {
             return json_error(
@@ -181,6 +216,7 @@ async fn chat_messages_page(
             );
         }
     };
+    inject_turn_durations(&mut all);
     let (start, end) = if let Some(around) = query.around {
         let center = all
             .iter()
