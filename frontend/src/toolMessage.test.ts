@@ -36,6 +36,15 @@ describe('summarizeToolMessage', () => {
     expect(summary.toolName).toBe('read_file');
   });
 
+  test('keeps skill tool fallback name when the result contains the skill name field', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ success: true, name: 'yahu', description: 'Use when developing yahu', content: '# Yahu' }),
+      'functions.skill_view',
+    );
+    expect(summary.title).toBe('skill view');
+    expect(summary.toolName).toBe('functions.skill_view');
+  });
+
   test('falls back to structured output for non-json tool content', () => {
     const summary = summarizeToolMessage('plain output');
     expect(summary.title).toBe('tool');

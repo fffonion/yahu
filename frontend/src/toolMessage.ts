@@ -87,8 +87,10 @@ function commandFromInput(toolName: string, input: unknown): string {
 export function summarizeToolMessage(content: string, fallbackToolName = '', fallbackInput?: unknown): ToolSummary {
   const parsed = parseUntrustedToolResult(content) ?? tryParseJson(content);
   const root = asRecord(parsed);
-  const contentToolName = cleanToolName(root?.source) || cleanToolName(root?.tool_name) || cleanToolName(root?.name) || cleanToolName(root?.tool) || cleanToolName(root?.recipient_name) || cleanToolName(root?.function);
-  const toolName = contentToolName || cleanToolName(fallbackToolName) || 'tool';
+  const fallbackName = cleanToolName(fallbackToolName);
+  const explicitContentToolName = cleanToolName(root?.source) || cleanToolName(root?.tool_name) || cleanToolName(root?.tool) || cleanToolName(root?.recipient_name) || cleanToolName(root?.function);
+  const contentToolName = explicitContentToolName || (!fallbackName ? cleanToolName(root?.name) : '');
+  const toolName = contentToolName || fallbackName || 'tool';
   const usesSourceName = !!cleanToolName(root?.source);
   const rawStatus = root?.status;
   const status = (() => {
