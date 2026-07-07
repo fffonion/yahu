@@ -15,15 +15,17 @@ describe('session right-click context menu', () => {
     expect(source).toContain('deleteSession');
   });
 
-  test('rename and delete use yahu session proxy endpoints instead of browser apiBase', () => {
+  test('rename uses yahu lineage title endpoint and delete uses yahu session proxy', () => {
     const source = app();
     expect(source).toContain("const SESSION_API_BASE = '/hermes';");
-    expect(source).toContain("method: 'PATCH'");
+    expect(source).toContain("fetch(`/sessions/${encodeURIComponent(session.id)}/title`, { method: 'PATCH'");
     expect(source).toContain('JSON.stringify({ title: nextTitle })');
-    expect(source).toContain('const patched = (body.data || body.session || body) as Session;');
+    expect(source).toContain('const titles = body.titles && typeof body.titles === \'object\' ? body.titles as Record<string, string> : {};');
+    expect(source).toContain('const updatedIds = new Set<string>(Array.isArray(body.updated_ids) ? body.updated_ids : [session.id]);');
     expect(source).toContain("method: 'DELETE'");
     expect(source).toContain('apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(session.id)}`)');
     expect(source).not.toContain('fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(session.id)}`), { method: \'PATCH\'');
+    expect(source).not.toContain('const patched = (body.data || body.session || body) as Session;');
   });
 
   test('session list refresh preserves a renamed title when search rows omit titles', () => {

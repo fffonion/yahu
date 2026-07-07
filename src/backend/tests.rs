@@ -513,6 +513,81 @@ mod tests {
     }
 
     #[test]
+    fn session_title_base_strips_lineage_suffix() {
+        assert_eq!(session_title_base("Project rename #3"), "Project rename");
+        assert_eq!(session_title_base("Project rename #1"), "Project rename #1");
+        assert_eq!(session_title_for_lineage_index("Project rename", 2), "Project rename #3");
+    }
+
+    #[tokio::test]
+    async fn session_lineage_rename_patches_child_and_parent_titles() {
+        use std::sync::Mutex;
+
+        #[derive(Clone)]
+        struct RenameApiState {
+            patched: Arc<Mutex<Vec<(String, String)>>>,
+        }
+
+        async fn api_session(
+            State(state): State<RenameApiState>,
+            AxumPath(session_id): AxumPath<String>,
+            method: Method,
+            body: Body,
+        ) -> Json<serde_json::Value> {
+            if method == Method::PATCH {
+                let bytes = to_bytes(body, usize::MAX).await.unwrap();
+                let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                state.patched.lock().unwrap().push((
+                    session_id.clone(),
+                    payload["title"].as_str().unwrap_or_default().to_string(),
+                ));
+            }
+            let parent = match session_id.as_str() {
+                "child" => Some("parent"),
+                "parent" => Some("root"),
+                _ => None,
+            };
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": parent, "title": "old"}
+            }))
+        }
+
+        let patched = Arc::new(Mutex::new(Vec::new()));
+        let api_state = RenameApiState { patched: patched.clone() };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let api_app = Router::new()
+            .route("/api/sessions/{session_id}", any(api_session))
+            .with_state(api_state);
+        tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let resp = rename_session_lineage(
+            State(state),
+            AxumPath("child".to_string()),
+            Json(SessionRenamePayload { title: "Unified title".to_string() }),
+        ).await;
+        let body = axum::body::to_bytes(resp.into_response().into_body(), usize::MAX).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["title"], "Unified title #3");
+        assert_eq!(payload["base_title"], "Unified title");
+        assert_eq!(payload["updated_ids"], serde_json::json!(["root", "parent", "child"]));
+        assert_eq!(payload["titles"], serde_json::json!({
+            "root": "Unified title",
+            "parent": "Unified title #2",
+            "child": "Unified title #3",
+        }));
+        assert_eq!(*patched.lock().unwrap(), vec![
+            ("root".to_string(), "Unified title".to_string()),
+            ("parent".to_string(), "Unified title #2".to_string()),
+            ("child".to_string(), "Unified title #3".to_string()),
+        ]);
+    }
+
+    #[test]
     fn session_watch_reads_api_server_data_and_legacy_messages_shapes() {
         let data_body = serde_json::json!({
             "object": "list",

@@ -70,6 +70,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
+const APP_BUILD_ID = 'session-api-proxy-sw-v3';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -837,6 +838,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', applyCurrentHashRoute);
   }, [applyHashRoute]);
 
+  useEffect(() => { document.documentElement.dataset.yahuBuild = APP_BUILD_ID; }, []);
   useEffect(() => { document.documentElement.classList.toggle('dark', isDarkTheme(theme)); document.documentElement.dataset.theme = theme; delete document.documentElement.dataset.skin; localStorage.setItem('theme', theme); localStorage.removeItem('skin'); }, [theme]);
   useEffect(() => { fetch('/runtime-config').then((res) => res.ok ? res.json() : null).then((config: RuntimeConfig | null) => { if (config?.api_url) setApiServerUrl(config.api_url); if (config?.api_proxy_base && !localStorage.getItem('apiBase')) setApiBase(config.api_proxy_base); }).catch(() => {}); }, []);
   useEffect(() => localStorage.setItem('apiBase', apiBase), [apiBase]);
@@ -1853,13 +1855,13 @@ export default function App() {
     setSessionMenu(null);
     const nextTitle = await requestPrompt(t('chat.renameTitle'), t('chat.renameTitle'), sessionDisplayTitle(session));
     if (nextTitle === null) return;
-    const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(session.id)}`), { method: 'PATCH', headers: headers(), body: JSON.stringify({ title: nextTitle }) });
+    const res = await fetch(`/sessions/${encodeURIComponent(session.id)}/title`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ title: nextTitle }) });
     if (!res.ok) { setStatus(`Rename failed: ${await res.text()}`); return; }
     const body = await res.json();
-    const patched = (body.data || body.session || body) as Session;
-    const title = patched.title || nextTitle;
-    setSessions((old) => old.map((item) => item.id === session.id ? { ...item, title } : item));
-    setActiveSessionDetail((old) => old?.id === session.id ? { ...old, title } : old);
+    const titles = body.titles && typeof body.titles === 'object' ? body.titles as Record<string, string> : {};
+    const updatedIds = new Set<string>(Array.isArray(body.updated_ids) ? body.updated_ids : [session.id]);
+    setSessions((old) => old.map((item) => updatedIds.has(item.id) ? { ...item, title: titles[item.id] || body.title || nextTitle } : item));
+    setActiveSessionDetail((old) => old && updatedIds.has(old.id) ? { ...old, title: titles[old.id] || body.title || nextTitle } : old);
     await loadSessions(filter);
     setStatus('Renamed session');
   };

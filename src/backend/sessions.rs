@@ -23,6 +23,108 @@ async fn sessions_search(
     }
 }
 
+#[derive(Deserialize)]
+struct SessionRenamePayload {
+    title: String,
+}
+
+fn session_title_for_lineage_index(base: &str, index: usize) -> String {
+    if index == 0 {
+        base.to_string()
+    } else {
+        format!("{base} #{}", index + 1)
+    }
+}
+
+fn session_title_base(title: &str) -> String {
+    let trimmed = title.trim();
+    if let Some((base, suffix)) = trimmed.rsplit_once(" #") {
+        if suffix.parse::<usize>().is_ok_and(|value| value > 1) {
+            return base.trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+async fn rename_session_lineage(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+    Json(payload): Json<SessionRenamePayload>,
+) -> Response<Body> {
+    let base_title = session_title_base(&payload.title);
+    if base_title.is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "title is required");
+    }
+    let entries = session_history_entries(&state, &session_id).await;
+    let mut updated_ids = Vec::new();
+    let mut titles = serde_json::Map::new();
+    let mut requested_title = base_title.clone();
+    for (index, entry) in entries.into_iter().enumerate() {
+        if updated_ids.iter().any(|id: &String| id == &entry.id) {
+            continue;
+        }
+        let title = session_title_for_lineage_index(&base_title, index);
+        if entry.id == session_id {
+            requested_title = title.clone();
+        }
+        match patch_session_title(&state, &entry.id, &title).await {
+            Ok(_) => {
+                titles.insert(entry.id.clone(), serde_json::json!(title));
+                updated_ids.push(entry.id);
+            }
+            Err(err) => {
+                return json_error(
+                    StatusCode::BAD_GATEWAY,
+                    &format!("session title update failed for {}: {err}", entry.id),
+                );
+            }
+        }
+    }
+    if updated_ids.is_empty() {
+        match patch_session_title(&state, &session_id, &base_title).await {
+            Ok(_) => {
+                titles.insert(session_id.clone(), serde_json::json!(base_title));
+                updated_ids.push(session_id.clone());
+            }
+            Err(err) => {
+                return json_error(
+                    StatusCode::BAD_GATEWAY,
+                    &format!("session title update failed for {session_id}: {err}"),
+                );
+            }
+        }
+    }
+    Json(serde_json::json!({
+        "object": "yahu.session.lineage_rename",
+        "id": session_id,
+        "title": requested_title,
+        "base_title": base_title,
+        "titles": titles,
+        "updated_ids": updated_ids,
+    })).into_response()
+}
+
+async fn patch_session_title(state: &AppState, session_id: &str, title: &str) -> anyhow::Result<()> {
+    let mut req = state.client.patch(format!(
+        "{}/api/sessions/{}",
+        state.api_url.trim_end_matches('/'),
+        path_segment(session_id)
+    )).json(&serde_json::json!({"title": title}));
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        req = req.bearer_auth(key);
+    }
+    let resp = req.send().await?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("{status}: {text}")
+    }
+}
+
 async fn fetch_sessions_from_api_server(
     state: &AppState,
     query: &str,
@@ -1060,10 +1162,7 @@ async fn fetch_api_context_window_messages(
     Ok(ContextWindowMessages { messages, boundary_start, compression_boundary_id })
 }
 
-async fn fetch_context_window_messages(
-    state: &AppState,
-    session_id: &str,
-) -> anyhow::Result<ContextWindowMessages> {
+async fn context_window_entries(state: &AppState, session_id: &str) -> Vec<SessionLineageEntry> {
     let mut entries = session_lineage_entries(state, session_id).await;
     if entries.len() <= 1 {
         match fetch_local_lineage_entries(state, session_id) {
@@ -1074,6 +1173,14 @@ async fn fetch_context_window_messages(
             Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local session lineage metadata"),
         }
     }
+    entries
+}
+
+async fn fetch_context_window_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<ContextWindowMessages> {
+    let entries = context_window_entries(state, session_id).await;
     match fetch_api_context_window_messages(state, &entries).await {
         Ok(context) => Ok(context),
         Err(err) => {
@@ -1087,10 +1194,7 @@ async fn fetch_context_window_messages(
     }
 }
 
-async fn fetch_session_history_context_messages(
-    state: &AppState,
-    session_id: &str,
-) -> anyhow::Result<ContextWindowMessages> {
+async fn session_history_entries(state: &AppState, session_id: &str) -> Vec<SessionLineageEntry> {
     let mut entries = session_lineage_entries(state, session_id).await;
     match fetch_local_history_entries(state, session_id) {
         Ok(Some(local_entries)) if local_entries.len() > entries.len() => {
@@ -1099,6 +1203,14 @@ async fn fetch_session_history_context_messages(
         Ok(_) => {}
         Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local session history metadata"),
     }
+    entries
+}
+
+async fn fetch_session_history_context_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<ContextWindowMessages> {
+    let entries = session_history_entries(state, session_id).await;
     match fetch_api_context_window_messages(state, &entries).await {
         Ok(context) => Ok(context),
         Err(err) => {

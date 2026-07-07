@@ -264,6 +264,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/memory", get(memory_get).put(memory_put))
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
+        .route("/sessions/{session_id}/title", patch(rename_session_lineage))
         .route("/chat/messages/{session_id}", get(chat_messages_page))
         .route("/chat/user-nav/{session_id}", get(chat_user_nav))
         .route(
