@@ -17,6 +17,18 @@ async fn proxy_hermes(
             return json_error(StatusCode::BAD_REQUEST, &format!("cannot read body: {err}"));
         }
     };
+    if let Some(model_request) = chat_stream_model_switch_request(&path, &method, &bytes) {
+        if let Err(err) = send_model_switch_instruction(&state, &model_request).await {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("Hermes API model switch failed: {err}"),
+            );
+        }
+        match chat_stream_actual_body_bytes(&model_request.source_body) {
+            Ok(next) => bytes = next.into(),
+            Err(err) => return json_error(StatusCode::BAD_REQUEST, &err),
+        }
+    }
     if let Some(session_id) = &stream_session_id {
         begin_chat_stream_snapshot(&state, session_id).await;
         if let Some(input) = chat_stream_request_input_text(&bytes) {
@@ -31,18 +43,6 @@ async fn proxy_hermes(
                 }),
             )
             .await;
-        }
-    }
-    if let Some(model_request) = chat_stream_model_switch_request(&path, &method, &bytes) {
-        if let Err(err) = send_model_switch_instruction(&state, &model_request).await {
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                &format!("Hermes API model switch failed: {err}"),
-            );
-        }
-        match chat_stream_actual_body_bytes(&model_request.source_body) {
-            Ok(next) => bytes = next.into(),
-            Err(err) => return json_error(StatusCode::BAD_REQUEST, &err),
         }
     }
     let mut builder = state.client.request(req_method, url).body(bytes);
@@ -86,6 +86,15 @@ async fn chat_stream(
         }
     };
 
+    if let Some(model_request) = chat_stream_model_switch_request_for_body(session_id.clone(), body_value.clone()) {
+        if let Err(err) = send_model_switch_instruction(&state, &model_request).await {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("Hermes API model switch failed: {err}"),
+            );
+        }
+    }
+
     begin_chat_stream_snapshot(&state, &session_id).await;
     if let Some(input) = chat_stream_input_text(body_value.get("input").unwrap_or(&serde_json::Value::Null))
         .filter(|text| !text.is_empty())
@@ -101,15 +110,6 @@ async fn chat_stream(
             }),
         )
         .await;
-    }
-
-    if let Some(model_request) = chat_stream_model_switch_request_for_body(session_id.clone(), body_value.clone()) {
-        if let Err(err) = send_model_switch_instruction(&state, &model_request).await {
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                &format!("Hermes API model switch failed: {err}"),
-            );
-        }
     }
 
     let bytes = match chat_stream_actual_body_bytes(&body_value) {

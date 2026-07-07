@@ -1246,6 +1246,102 @@ mod tests {
         assert!(calls[1]["body"].get("provider").is_none(), "stream body must not carry provider: {calls:?}");
     }
 
+    #[tokio::test]
+    async fn yahu_chat_stream_does_not_publish_user_snapshot_before_model_switch_completes() {
+        use std::sync::Mutex;
+        use tokio::sync::{mpsc, oneshot};
+
+        #[derive(Clone)]
+        struct SlowModelApiState {
+            calls: Arc<Mutex<Vec<String>>>,
+            model_started: mpsc::UnboundedSender<()>,
+            release_model: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
+        }
+
+        async fn slow_api_chat(
+            State(state): State<SlowModelApiState>,
+            AxumPath(_session_id): AxumPath<String>,
+            body: Body,
+        ) -> Json<serde_json::Value> {
+            let bytes = to_bytes(body, usize::MAX).await.unwrap();
+            let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            state.calls.lock().unwrap().push(format!("model:{}", payload["input"].as_str().unwrap_or_default()));
+            let _ = state.model_started.send(());
+            let release = state.release_model.lock().unwrap().take().unwrap();
+            let _ = release.await;
+            Json(serde_json::json!({"ok": true}))
+        }
+
+        async fn slow_api_stream(
+            State(state): State<SlowModelApiState>,
+            AxumPath(_session_id): AxumPath<String>,
+            body: Body,
+        ) -> Response<Body> {
+            let bytes = to_bytes(body, usize::MAX).await.unwrap();
+            let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            state.calls.lock().unwrap().push(format!("stream:{}", payload["input"].as_str().unwrap_or_default()));
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/event-stream")
+                .body(Body::from("event: done\ndata: {}\n\n"))
+                .unwrap()
+        }
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (model_started_tx, mut model_started_rx) = mpsc::unbounded_channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let api_state = SlowModelApiState {
+            calls: calls.clone(),
+            model_started: model_started_tx,
+            release_model: Arc::new(Mutex::new(Some(release_rx))),
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let api_app = Router::new()
+            .route("/api/sessions/{session_id}/chat", post(slow_api_chat))
+            .route("/api/sessions/{session_id}/chat/stream", post(slow_api_stream))
+            .with_state(api_state);
+        tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let body = serde_json::json!({
+            "input": "hello after model",
+            "model": "gpt-5.5",
+            "provider": "openai-codex",
+            "reasoning_effort": "medium"
+        });
+        let state_for_call = state.clone();
+        let stream_task = tokio::spawn(async move {
+            chat_stream(
+                State(state_for_call),
+                AxumPath("session-1".to_string()),
+                HeaderMap::new(),
+                Body::from(body.to_string()),
+            ).await
+        });
+
+        model_started_rx.recv().await.unwrap();
+        let active = state.active_chat_streams.read().await;
+        assert!(
+            active.get("session-1").is_none_or(|messages| messages.is_empty()),
+            "user snapshot must wait until model switch succeeds: {active:?}"
+        );
+        drop(active);
+
+        release_tx.send(()).unwrap();
+        let resp = stream_task.await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let _ = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            [
+                "model:/model gpt-5.5 --provider openai-codex --session".to_string(),
+                "stream:hello after model".to_string()
+            ]
+        );
+    }
+
     #[test]
     fn chat_stream_broadcast_ring_is_small_because_payloads_are_full_snapshots() {
         assert!(CHAT_STREAM_BROADCAST_CAPACITY <= 32);
