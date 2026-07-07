@@ -251,7 +251,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.send-btn,.files-chip,.image-actions button,.modalbar button,.settings-content button');
   });
 
-  test('mobile agent replies adapt to the viewport while tool icons live inside full-width cards', () => {
+  test('mobile agent replies use compact text layout without chat cards', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('<span className="tool-inline-icon">{getToolIcon(toolName)}</span>');
@@ -270,20 +270,24 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.msg-row.tool .tool-inline-icon{display:grid;grid-column:1}');
     expect(source).not.toContain('<div className="avatar">');
     expect(styles).toContain('.msg-row.assistant .msg-body pre,.msg-row.system .msg-body pre,.msg-row.tool .msg-body pre{white-space:pre-wrap;overflow-wrap:anywhere}');
+    expect(styles).toContain('.msg-content{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0}');
+    expect(styles).toContain('.msg-row.user .msg-content{grid-column:1;justify-self:end;max-width:100%}');
+    expect(styles).toContain('.tool-card{background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}');
+    expect(styles).toContain('.tool-detail{border-top:0;background:transparent;padding:4px 0 0;max-height:none}');
   });
 
   test('mobile chat rows and tool summaries cannot widen the viewport', () => {
     const styles = css();
-    expect(styles).toContain('.chat-scroll{padding:10px 10px 12px}');
+    expect(styles).toContain('.chat-scroll{padding:6px 10px 12px}');
     expect(styles).toContain('.main-panel,.chat-header,.chat-scroll{min-width:0;width:100%;max-width:100vw;overflow-x:hidden}');
     expect(styles).toContain('.composer-wrap{min-width:0;width:100%;max-width:100vw;overflow:visible;position:relative;z-index:160;padding:10px 10px calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom,0px))}');
     expect(styles).toContain('.chat-header>div:first-of-type{min-width:0;flex:1 1 auto}');
-    expect(styles).toContain('.msg-row{grid-template-columns:minmax(0,1fr);width:100%;min-width:0;max-width:100%;gap:8px}');
+    expect(styles).toContain('.msg-row{grid-template-columns:minmax(0,1fr);width:100%;min-width:0;max-width:100%;gap:6px}');
     expect(styles).toContain('.msg-row .avatar{display:none}');
-    expect(styles).toContain('.msg-row.user .msg-content{grid-column:1;justify-self:end;max-width:92%}');
+    expect(styles).toContain('.msg-row.user .msg-content{grid-column:1;justify-self:end;max-width:100%}');
     expect(styles).toContain('.msg-body pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:hidden}');
     expect(styles).toContain('.msg-body pre code{white-space:inherit;overflow-wrap:anywhere;word-break:break-word}');
-    expect(styles).toContain('.tool-summary{grid-template-columns:18px max-content minmax(0,1fr) 18px;padding:9px 10px;gap:1ch}');
+    expect(styles).toContain('.tool-summary{grid-template-columns:18px max-content minmax(0,1fr) 18px;padding:4px 0;gap:.75ch}');
     expect(styles).toContain('.tool-title,.tool-subtitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}');
     expect(styles).toContain('.session-header-times{display:none}');
   });
