@@ -112,38 +112,137 @@ async fn chat_stream(
         .await;
     }
 
-    let bytes = match chat_stream_actual_body_bytes(&body_value) {
-        Ok(bytes) => bytes,
+    let run_body = match chat_stream_run_body(&state, &session_id, &body_value).await {
+        Ok(value) => value,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err),
     };
-    let url = format!(
-        "{}/api/sessions/{}/chat/stream",
-        state.api_url,
-        path_segment(&session_id)
-    );
-    let mut builder = state.client.post(url).body(bytes);
+    let run_url = format!("{}/v1/runs", state.api_url);
+    let mut run_builder = state.client.post(run_url).json(&run_body);
     for (key, value) in headers.iter() {
         let name = key.as_str().to_ascii_lowercase();
         if !should_forward_proxy_header(&name) {
             continue;
         }
-        builder = builder.header(key.as_str(), value.as_bytes());
-    }
-    if !headers.contains_key(header::CONTENT_TYPE) {
-        builder = builder.header(header::CONTENT_TYPE, "application/json");
+        run_builder = run_builder.header(key.as_str(), value.as_bytes());
     }
     if let Some(key) = &state.api_key
         && !key.is_empty()
     {
-        builder = builder.bearer_auth(key);
+        run_builder = run_builder.bearer_auth(key);
     }
-    match builder.send().await {
+    let run_resp = match run_builder.send().await {
+        Ok(resp) => resp,
+        Err(err) => {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("Hermes API run start failed: {err}"),
+            );
+        }
+    };
+    if !run_resp.status().is_success() {
+        let status = run_resp.status();
+        let text = run_resp.text().await.unwrap_or_default();
+        return json_error(StatusCode::BAD_GATEWAY, &format!("Hermes API run start failed: {status}: {text}"));
+    }
+    let run_json = match run_resp.json::<serde_json::Value>().await {
+        Ok(value) => value,
+        Err(err) => return json_error(StatusCode::BAD_GATEWAY, &format!("cannot parse run start response: {err}")),
+    };
+    let Some(run_id) = run_json.get("run_id").and_then(|value| value.as_str()).map(str::to_string) else {
+        return json_error(StatusCode::BAD_GATEWAY, "Hermes API run start response missing run_id");
+    };
+    state
+        .active_chat_run_ids
+        .write()
+        .await
+        .insert(session_id.clone(), run_id.clone());
+
+    let events_url = format!("{}/v1/runs/{}/events", state.api_url, path_segment(&run_id));
+    let mut events_builder = state.client.get(events_url);
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        events_builder = events_builder.bearer_auth(key);
+    }
+    match events_builder.send().await {
         Ok(resp) => response_from_reqwest(state.clone(), Some(session_id), resp).await,
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
-            &format!("Hermes API chat stream failed: {err}"),
+            &format!("Hermes API run events failed: {err}"),
         ),
     }
+}
+
+async fn stop_chat_stream(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response<Body> {
+    let Some(run_id) = state.active_chat_run_ids.read().await.get(&session_id).cloned() else {
+        return Json(serde_json::json!({"ok": true, "status": "not_running"})).into_response();
+    };
+    let url = format!("{}/v1/runs/{}/stop", state.api_url, path_segment(&run_id));
+    let mut req = state.client.post(url);
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        req = req.bearer_auth(key);
+    }
+    match req.send().await {
+        Ok(resp) if resp.status().is_success() || resp.status() == reqwest::StatusCode::NOT_FOUND => {
+            state.active_chat_run_ids.write().await.remove(&session_id);
+            Json(serde_json::json!({"ok": true, "run_id": run_id, "status": "stopping"})).into_response()
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            json_error(StatusCode::BAD_GATEWAY, &format!("Hermes API run stop failed: {status}: {text}"))
+        }
+        Err(err) => json_error(StatusCode::BAD_GATEWAY, &format!("Hermes API run stop failed: {err}")),
+    }
+}
+
+async fn chat_stream_run_body(
+    state: &Arc<AppState>,
+    session_id: &str,
+    source_body: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut body = source_body.clone();
+    if let Some(map) = body.as_object_mut() {
+        map.remove("model");
+        map.remove("provider");
+        if let Some(system_message) = map.remove("system_message")
+            && !map.contains_key("instructions")
+        {
+            map.insert("instructions".to_string(), system_message);
+        }
+        map.insert("session_id".to_string(), serde_json::Value::String(session_id.to_string()));
+        let history = fetch_session_history_messages(state, session_id)
+            .await
+            .unwrap_or_default();
+        let conversation_history = chat_stream_conversation_history(&history);
+        if !conversation_history.is_empty() {
+            map.insert("conversation_history".to_string(), serde_json::Value::Array(conversation_history));
+        }
+    }
+    serde_json::to_vec(&body).map_err(|err| format!("cannot serialize run body: {err}"))?;
+    Ok(body)
+}
+
+fn chat_stream_conversation_history(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .filter_map(|message| {
+            let role = message.get("role").and_then(|value| value.as_str())?;
+            if !matches!(role, "user" | "assistant") {
+                return None;
+            }
+            let content = normalize_stream_content(message.get("content")?);
+            if content.trim().is_empty() {
+                return None;
+            }
+            Some(serde_json::json!({"role": role, "content": content}))
+        })
+        .collect()
 }
 
 fn should_forward_proxy_header(name: &str) -> bool {
@@ -426,7 +525,34 @@ fn chat_streaming_body(
                     continue;
                 }
                 let payload = serde_json::from_str::<serde_json::Value>(&data).unwrap_or(serde_json::Value::Null);
-                if event == "assistant.delta" {
+                let effective_event = payload
+                    .get("event")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(event.as_str())
+                    .to_string();
+                if let Some(run_id) = payload.get("run_id").and_then(|value| value.as_str()) {
+                    state.active_chat_run_ids.write().await.insert(session_id.clone(), run_id.to_string());
+                }
+                let mut outbound_event = effective_event.clone();
+                let mut outbound_payload = payload.clone();
+                if effective_event == "message.delta" {
+                    let delta = payload.get("delta").and_then(|value| value.as_str()).unwrap_or_default();
+                    final_text.push_str(delta);
+                    outbound_event = "assistant.delta".to_string();
+                    outbound_payload = serde_json::json!({"session_id": session_id, "delta": delta});
+                    publish_chat_stream_message(
+                        &state,
+                        &session_id,
+                        serde_json::json!({
+                            "id": assistant_id,
+                            "role": "assistant",
+                            "content": final_text,
+                            "reasoning": reasoning_text,
+                            "pending": true,
+                            "timestamp": unix_now_seconds(),
+                        }),
+                    ).await;
+                } else if effective_event == "assistant.delta" {
                     if let Some(delta) = payload.get("delta").and_then(|value| value.as_str()) {
                         final_text.push_str(delta);
                     }
@@ -442,7 +568,7 @@ fn chat_streaming_body(
                             "timestamp": unix_now_seconds(),
                         }),
                     ).await;
-                } else if matches!(event.as_str(), "reasoning.delta" | "assistant.reasoning.delta" | "thinking.delta" | "assistant.thinking.delta") {
+                } else if matches!(effective_event.as_str(), "reasoning.delta" | "assistant.reasoning.delta" | "thinking.delta" | "assistant.thinking.delta") {
                     let delta = payload
                         .get("delta")
                         .or_else(|| payload.get("text"))
@@ -462,8 +588,11 @@ fn chat_streaming_body(
                             "timestamp": unix_now_seconds(),
                         }),
                     ).await;
-                } else if matches!(event.as_str(), "tool.started" | "tool.completed" | "tool.progress") {
+                } else if matches!(effective_event.as_str(), "tool.started" | "tool.completed" | "tool.progress") {
                     let tool_name = stream_payload_tool_name(&payload);
+                    if let Some(map) = outbound_payload.as_object_mut() {
+                        map.insert("tool_name".to_string(), serde_json::Value::String(tool_name.clone()));
+                    }
                     publish_chat_stream_message(
                         &state,
                         &session_id,
@@ -472,7 +601,7 @@ fn chat_streaming_body(
                             "role": "tool",
                             "tool_name": tool_name,
                             "content": serde_json::json!({
-                                "status": event,
+                                "status": effective_event,
                                 "tool_name": stream_payload_tool_name(&payload),
                                 "delta": payload.get("delta").cloned().unwrap_or(serde_json::Value::Null),
                                 "payload": payload,
@@ -480,7 +609,7 @@ fn chat_streaming_body(
                             "timestamp": unix_now_seconds(),
                         }),
                     ).await;
-                } else if event == "assistant.completed" {
+                } else if effective_event == "assistant.completed" {
                     if let Some(content) = payload.get("content") {
                         final_text = normalize_stream_content(content);
                     }
@@ -496,9 +625,11 @@ fn chat_streaming_body(
                             "timestamp": unix_now_seconds(),
                         }),
                     ).await;
-                } else if event == "run.completed" || event == "done" {
-                    if event == "run.completed" {
-                        if let Some(content) = payload
+                } else if matches!(effective_event.as_str(), "run.completed" | "done" | "run.cancelled" | "run.failed") {
+                    if effective_event == "run.completed" {
+                        if let Some(output) = payload.get("output").and_then(|value| value.as_str()).filter(|value| !value.is_empty()) {
+                            final_text = output.to_string();
+                        } else if let Some(content) = payload
                             .get("messages")
                             .and_then(|messages| messages.as_array())
                             .and_then(|messages| messages.iter().find(|message| message.get("role").and_then(|role| role.as_str()) == Some("assistant")))
@@ -509,6 +640,11 @@ fn chat_streaming_body(
                                 final_text = content_text;
                             }
                         }
+                        outbound_payload = serde_json::json!({
+                            "session_id": session_id,
+                            "messages": [{"role": "assistant", "content": final_text}],
+                            "usage": payload.get("usage").cloned().unwrap_or(serde_json::Value::Null),
+                        });
                         publish_chat_stream_message(
                             &state,
                             &session_id,
@@ -522,12 +658,16 @@ fn chat_streaming_body(
                             }),
                         ).await;
                     }
+                    if matches!(effective_event.as_str(), "run.completed" | "done" | "run.cancelled" | "run.failed") {
+                        state.active_chat_run_ids.write().await.remove(&session_id);
+                    }
                     let state_for_clear = state.clone();
                     let session_for_clear = session_id.clone();
                     tokio::spawn(async move { clear_chat_stream_snapshot_later(state_for_clear, session_for_clear).await; });
                 }
+                let outbound_data = serde_json::to_string(&outbound_payload).unwrap_or_else(|_| "{}".to_string());
+                yield Ok(axum::body::Bytes::from(format!("event: {}\ndata: {}\n\n", outbound_event, outbound_data)));
             }
-            yield Ok(chunk);
         }
     }
 }

@@ -71,7 +71,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'model-switch-override-v2';
+const APP_BUILD_ID = 'stream-stop-run-control-v1';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -1603,7 +1603,10 @@ export default function App() {
   const buildPayload = (text: string, items: Attachment[]) => buildChatInputWithAttachments(text, items);
   const followUpQueue = followUpQueues[followUpQueueKey(activeSessionId)] || [];
   const currentSessionStreaming = !!activeSessionId && streamingSessionId === activeSessionId;
-  const stopStreaming = () => { chatAbortRef.current?.abort(); };
+  const stopStreaming = () => {
+    if (activeSessionId) fetch(`/chat/stream/${encodeURIComponent(activeSessionId)}/stop`, { method: 'POST', headers: headers() }).catch(() => {});
+    chatAbortRef.current?.abort();
+  };
   const persistFollowUpQueues = (queues: Record<string, FollowUpQueueItem[]>) => {
     const next = Object.fromEntries(Object.entries(queues).filter(([, items]) => items.length > 0));
     localStorage.setItem(FOLLOW_UP_QUEUES_KEY, JSON.stringify(next));

@@ -465,6 +465,7 @@ mod tests {
             deletes,
             chat_streams,
             active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
+            active_chat_run_ids: Arc::new(RwLock::new(HashMap::new())),
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
         }
@@ -1188,22 +1189,25 @@ mod tests {
             Json(serde_json::json!({"ok": true}))
         }
 
-        async fn api_stream(
+        async fn api_run(
             State(state): State<OrderApiState>,
-            AxumPath(session_id): AxumPath<String>,
             body: Body,
-        ) -> Response<Body> {
+        ) -> Json<serde_json::Value> {
             let bytes = to_bytes(body, usize::MAX).await.unwrap();
             let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             state.calls.lock().unwrap().push(serde_json::json!({
                 "kind": "stream",
-                "session_id": session_id,
+                "session_id": payload.get("session_id").cloned().unwrap_or_default(),
                 "body": payload,
             }));
+            Json(serde_json::json!({"run_id":"run-test","status":"started"}))
+        }
+
+        async fn api_run_events() -> Response<Body> {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/event-stream")
-                .body(Body::from("event: done\ndata: {}\n\n"))
+                .body(Body::from("data: {\"event\":\"run.completed\",\"run_id\":\"run-test\",\"output\":\"done\"}\n\n"))
                 .unwrap()
         }
 
@@ -1213,7 +1217,8 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let api_app = Router::new()
             .route("/api/sessions/{session_id}/chat", post(api_chat))
-            .route("/api/sessions/{session_id}/chat/stream", post(api_stream))
+            .route("/v1/runs", post(api_run))
+            .route("/v1/runs/{run_id}/events", get(api_run_events))
             .with_state(api_state);
         tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
         let temp = tempfile::tempdir().unwrap();
@@ -1271,18 +1276,21 @@ mod tests {
             Json(serde_json::json!({"ok": true}))
         }
 
-        async fn slow_api_stream(
+        async fn slow_api_run(
             State(state): State<SlowModelApiState>,
-            AxumPath(_session_id): AxumPath<String>,
             body: Body,
-        ) -> Response<Body> {
+        ) -> Json<serde_json::Value> {
             let bytes = to_bytes(body, usize::MAX).await.unwrap();
             let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             state.calls.lock().unwrap().push(format!("stream:{}", payload["input"].as_str().unwrap_or_default()));
+            Json(serde_json::json!({"run_id":"run-slow","status":"started"}))
+        }
+
+        async fn slow_api_run_events() -> Response<Body> {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/event-stream")
-                .body(Body::from("event: done\ndata: {}\n\n"))
+                .body(Body::from("data: {\"event\":\"run.completed\",\"run_id\":\"run-slow\",\"output\":\"done\"}\n\n"))
                 .unwrap()
         }
 
@@ -1298,7 +1306,8 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let api_app = Router::new()
             .route("/api/sessions/{session_id}/chat", post(slow_api_chat))
-            .route("/api/sessions/{session_id}/chat/stream", post(slow_api_stream))
+            .route("/v1/runs", post(slow_api_run))
+            .route("/v1/runs/{run_id}/events", get(slow_api_run_events))
             .with_state(api_state);
         tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
         let temp = tempfile::tempdir().unwrap();
@@ -1339,6 +1348,41 @@ mod tests {
                 "stream:hello after model".to_string()
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn yahu_chat_stream_stop_calls_active_run_stop() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Clone)]
+        struct StopApiState {
+            calls: Arc<AtomicUsize>,
+        }
+
+        async fn api_stop_run(
+            State(state): State<StopApiState>,
+            AxumPath(run_id): AxumPath<String>,
+        ) -> Json<serde_json::Value> {
+            assert_eq!(run_id, "run-123");
+            state.calls.fetch_add(1, Ordering::SeqCst);
+            Json(serde_json::json!({"run_id":"run-123","status":"stopping"}))
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let api_app = Router::new()
+            .route("/v1/runs/{run_id}/stop", post(api_stop_run))
+            .with_state(StopApiState { calls: calls.clone() });
+        tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        state.active_chat_run_ids.write().await.insert("session-1".to_string(), "run-123".to_string());
+
+        let resp = stop_chat_stream(State(state), AxumPath("session-1".to_string())).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]

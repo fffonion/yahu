@@ -117,6 +117,7 @@ struct AppState {
     deletes: broadcast::Sender<String>,
     chat_streams: broadcast::Sender<String>,
     active_chat_streams: Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>,
+    active_chat_run_ids: Arc<RwLock<HashMap<String, String>>>,
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
 }
@@ -235,6 +236,7 @@ pub async fn run() -> anyhow::Result<()> {
         deletes,
         chat_streams,
         active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
+        active_chat_run_ids: Arc::new(RwLock::new(HashMap::new())),
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
     });
@@ -276,6 +278,7 @@ pub async fn run() -> anyhow::Result<()> {
         )
         .route("/chat/attachments", post(chat_upload_attachments))
         .route("/chat/stream/{session_id}", post(chat_stream))
+        .route("/chat/stream/{session_id}/stop", post(stop_chat_stream))
         .route("/chat/media", get(chat_media_file))
         .route("/version", get(yahu_version))
         .route("/update/check", get(check_update))

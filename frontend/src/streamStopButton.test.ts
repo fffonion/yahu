@@ -10,7 +10,9 @@ describe('stream stop button', () => {
     expect(source).toContain('const [streamingSessionId, setStreamingSessionId] = useState(\'\');');
     expect(source).toContain('const chatAbortRef = useRef<AbortController | null>(null);');
     expect(source).toContain('const currentSessionStreaming = !!activeSessionId && streamingSessionId === activeSessionId;');
-    expect(source).toContain('const stopStreaming = () => { chatAbortRef.current?.abort(); };');
+    expect(source).toContain('const stopStreaming = () => {');
+    expect(source).toContain('fetch(`/chat/stream/${encodeURIComponent(activeSessionId)}/stop`, { method: \'POST\', headers: headers() }).catch(() => {});');
+    expect(source).toContain('chatAbortRef.current?.abort();');
     expect(source).toContain('chatAbortRef.current = controller;');
     expect(source).toContain('signal: controller.signal');
     expect(source).toContain('setStreamingSessionId(sessionId);');
