@@ -72,7 +72,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'turn-detail-expand-toggle-v1';
+const APP_BUILD_ID = 'desktop-compact-user-divider-v1';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -2932,8 +2932,8 @@ function ChatMain(props: any) {
           <DropdownControl icon={<Bot />} ariaLabel="Model" value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
           <DropdownControl icon={<Brain />} ariaLabel="Reasoning" value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
           <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
-          <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={props.desktopCompactMessages ? 'Use card chat layout' : 'Use compact chat layout'} title={props.desktopCompactMessages ? 'Use card chat layout' : 'Use compact chat layout'} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
+          <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={props.desktopCompactMessages ? 'Use card chat layout' : 'Use compact chat layout'} title={props.desktopCompactMessages ? 'Use card chat layout' : 'Use compact chat layout'} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>
           {props.streaming && <button type="button" className="stop-stream-btn mobile-icon-only" aria-label="Stop streaming" title="Stop streaming" onClick={props.stopStreaming}><Square /></button>}
           <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? 'Queue follow-up' : 'Send'}><Send /> <span className="btn-label">{props.busy ? 'Queue' : 'Send'}</span></button>
         </div>
