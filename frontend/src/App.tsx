@@ -71,7 +71,7 @@ type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: bo
 
 const DEFAULT_API_BASE = '/hermes';
 const SESSION_API_BASE = '/hermes';
-const APP_BUILD_ID = 'model-switch-override-v1';
+const APP_BUILD_ID = 'model-switch-override-v2';
 const DRAFT_SESSION_ID = '__webui_draft_session__';
 const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
@@ -1047,7 +1047,9 @@ export default function App() {
     setModelState(resolvedModel);
     setSelectedModelProvider(provider);
     if (activeSessionId) {
-      setSessionModelOverrides((old) => ({ ...old, [activeSessionId]: { model: resolvedModel, provider } }));
+      const nextOverrides = { ...sessionModelOverridesRef.current, [activeSessionId]: { model: resolvedModel, provider } };
+      sessionModelOverridesRef.current = nextOverrides;
+      setSessionModelOverrides(nextOverrides);
     }
     if (activeSessionId === DRAFT_SESSION_ID) setActiveSessionDetail((old) => old ? { ...old, model: resolvedModel, provider } : old);
     if (activeSessionId && activeSessionId !== DRAFT_SESSION_ID) {

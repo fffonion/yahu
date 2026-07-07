@@ -22,7 +22,9 @@ describe('composer model selector', () => {
     expect(source).toContain('setSelectedModelProvider(provider)');
     expect(source).toContain('modelRef.current = resolvedModel');
     expect(source).toContain('providerRef.current = provider');
-    expect(source).toContain('setSessionModelOverrides((old) => ({ ...old, [activeSessionId]: { model: resolvedModel, provider } }))');
+    expect(source).toContain('const nextOverrides = { ...sessionModelOverridesRef.current, [activeSessionId]: { model: resolvedModel, provider } };');
+    expect(source).toContain('sessionModelOverridesRef.current = nextOverrides;');
+    expect(source).toContain('setSessionModelOverrides(nextOverrides)');
     expect(source).toContain('const sessionOverride = sessionModelOverridesRef.current[sessionId]');
     expect(source).toContain('const sessionModel = sessionOverride?.model || realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model ||');
     expect(source).toContain('const sessionProvider = sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider ||');
