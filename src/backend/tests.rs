@@ -486,8 +486,7 @@ mod tests {
                 "object": "list",
                 "data": [
                     {"id":"s1","source":"telegram","model":"minimax/m3","title":"MiniMax billing","preview":"token cache math","started_at":1.0,"message_count":1},
-                    {"id":"tool1","source":"tool","model":"minimax/m3","title":"Tool internal","preview":"cache","started_at":2.0,"message_count":1},
-                    {"id":"s2","source":"api_server","model":"gpt-5.5","title":"Other","preview":"unrelated","started_at":3.0,"message_count":1}
+                    {"id":"tool1","source":"tool","model":"minimax/m3","title":"Tool internal","preview":"cache","started_at":2.0,"message_count":1}
                 ],
                 "has_more": false
             }))
@@ -1348,8 +1347,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn session_search_uses_api_server_messages_when_list_preview_does_not_match() {
+    async fn session_search_trusts_api_server_query_results_without_history_scan() {
         use std::collections::HashMap;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Clone)]
+        struct SearchApiState {
+            message_requests: Arc<AtomicUsize>,
+        }
 
         async fn api_sessions(
             Query(query): Query<HashMap<String, String>>,
@@ -1358,6 +1363,7 @@ mod tests {
                 query.get("include_children").map(String::as_str),
                 Some("false")
             );
+            assert_eq!(query.get("q").map(String::as_str), Some("cache"));
             Json(serde_json::json!({
                 "object": "list",
                 "data": [
@@ -1368,18 +1374,19 @@ mod tests {
             }))
         }
 
-        async fn api_messages(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
-            let data = if session_id == "s1" {
-                serde_json::json!([{ "id": 1, "role": "user", "content": "please do token cache math" }])
-            } else {
-                serde_json::json!([{ "id": 2, "role": "user", "content": "unrelated" }])
-            };
-            Json(serde_json::json!({"object":"list","data":data}))
+        async fn api_messages(
+            State(state): State<SearchApiState>,
+            AxumPath(_session_id): AxumPath<String>,
+        ) -> Json<serde_json::Value> {
+            state.message_requests.fetch_add(1, Ordering::SeqCst);
+            Json(serde_json::json!({"object":"list","data":[{"id":1,"role":"user","content":"cache inside long history"}]}))
         }
 
+        let message_requests = Arc::new(AtomicUsize::new(0));
         let app = Router::new()
             .route("/api/sessions", get(api_sessions))
-            .route("/api/sessions/{session_id}/messages", get(api_messages));
+            .route("/api/sessions/{session_id}/messages", get(api_messages))
+            .with_state(SearchApiState { message_requests: message_requests.clone() });
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -1392,8 +1399,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["id"], "s1");
+        assert_eq!(rows[1]["id"], "s2");
+        assert_eq!(message_requests.load(Ordering::SeqCst), 0);
     }
 
     #[test]

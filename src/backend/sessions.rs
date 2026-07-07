@@ -167,15 +167,9 @@ async fn fetch_sessions_from_api_server(
             if !is_client_visible_session(&row) {
                 continue;
             }
-            let matches = session_matches_query(&row, trimmed)
-                || session_messages_match_query(state, &row, trimmed)
-                    .await
-                    .unwrap_or(false);
-            if matches {
-                rows.push(row);
-                if rows.len() >= limit {
-                    return Ok(rows);
-                }
+            rows.push(row);
+            if rows.len() >= limit {
+                return Ok(rows);
             }
         }
 
@@ -217,55 +211,6 @@ fn is_client_visible_session(row: &serde_json::Value) -> bool {
         .and_then(|value| value.as_str())
         .map(|source| source != "tool")
         .unwrap_or(true)
-}
-
-fn session_matches_query(row: &serde_json::Value, query: &str) -> bool {
-    let needle = query.trim().to_lowercase();
-    if needle.is_empty() {
-        return true;
-    }
-    ["id", "title", "preview", "model", "source"]
-        .iter()
-        .filter_map(|key| row.get(*key).and_then(|value| value.as_str()))
-        .any(|value| value.to_lowercase().contains(&needle))
-}
-
-async fn session_messages_match_query(
-    state: &AppState,
-    row: &serde_json::Value,
-    query: &str,
-) -> anyhow::Result<bool> {
-    let needle = query.trim().to_lowercase();
-    if needle.is_empty() {
-        return Ok(true);
-    }
-    if row
-        .get("message_count")
-        .and_then(|value| value.as_i64())
-        .is_some_and(|count| count <= 0)
-    {
-        return Ok(false);
-    }
-    let Some(session_id) = row.get("id").and_then(|value| value.as_str()) else {
-        return Ok(false);
-    };
-    let messages = fetch_session_history_messages(state, session_id).await?;
-    Ok(messages
-        .iter()
-        .any(|message| json_value_contains_query(message, &needle)))
-}
-
-fn json_value_contains_query(value: &serde_json::Value, needle: &str) -> bool {
-    match value {
-        serde_json::Value::String(text) => text.to_lowercase().contains(needle),
-        serde_json::Value::Array(items) => items
-            .iter()
-            .any(|item| json_value_contains_query(item, needle)),
-        serde_json::Value::Object(map) => map
-            .values()
-            .any(|item| json_value_contains_query(item, needle)),
-        _ => false,
-    }
 }
 
 fn inject_turn_durations(messages: &mut Vec<serde_json::Value>) {
