@@ -6,8 +6,9 @@ const source = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 describe('session boundary times', () => {
   test('chat history page boundary timestamps update the active session header source', () => {
     const app = source();
-    expect(app).toContain('type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: boolean; started_at?: number | string; last_active?: number | string }');
-    expect(app).toContain('const updateSessionBoundaryTimes = useCallback((sessionId: string, page: MessagePage) => {');
+    expect(app).toContain("import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, type ChatHistoryPageRaw } from './chatHistoryPage';");
+    expect(app).toContain("type MessagePage = ChatHistoryPageRaw & { data: any[]; total: number; has_older: boolean; has_newer: boolean; started_at?: number | string; last_active?: number | string };");
+    expect(app).toContain("const updateSessionBoundaryTimes = useCallback((sessionId: string, page: Pick<ChatHistoryPageRaw, 'started_at' | 'last_active'>) => {");
     expect(app).toContain('if (page.started_at !== undefined) patch.started_at = page.started_at;');
     expect(app).toContain('if (page.last_active !== undefined) patch.last_active = page.last_active;');
     expect(app).toContain('updateSessionBoundaryTimes(sessionId, page);');

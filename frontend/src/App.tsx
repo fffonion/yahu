@@ -18,6 +18,7 @@ import { buildDesktopTurnBlocks, buildTurnDetailItems, type TurnDetailBlock, typ
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
+import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, type ChatHistoryPageRaw } from './chatHistoryPage';
 import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
 import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMarkdownImage } from './markdown';
@@ -66,7 +67,7 @@ type ImageMetadata = { filename: string; dimensions?: { width: number; height: n
 type ChatLightboxImage = ChatMarkdownImage & { key: string; messageId: string };
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
-type MessagePage = { data: any[]; total: number; has_older: boolean; has_newer: boolean; started_at?: number | string; last_active?: number | string };
+type MessagePage = ChatHistoryPageRaw & { data: any[]; total: number; has_older: boolean; has_newer: boolean; started_at?: number | string; last_active?: number | string };
 type UserMessageNavItem = { id: string; role: 'user'; content: string; assistant_preview?: string; timestamp?: string | number; position: number; index: number; total: number };
 type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: boolean; compressed?: boolean };
 
@@ -1010,7 +1011,7 @@ export default function App() {
     setSessions((old) => old.map((session) => session.id === sessionId ? { ...session, message_count } : session));
   }, []);
 
-  const updateSessionBoundaryTimes = useCallback((sessionId: string, page: MessagePage) => {
+  const updateSessionBoundaryTimes = useCallback((sessionId: string, page: Pick<ChatHistoryPageRaw, 'started_at' | 'last_active'>) => {
     if (!sessionId || sessionId === DRAFT_SESSION_ID) return;
     const patch: Partial<Session> = {};
     if (page.started_at !== undefined) patch.started_at = page.started_at;
@@ -1134,30 +1135,27 @@ export default function App() {
         if (!after) return;
         params.set('after', after);
       }
-      const normalizePageChunk = (items: any[]) => (items || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
-      const res = await fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${params}`);
-      if (!res.ok) throw new Error(await res.text());
-      let page: MessagePage = await res.json();
+      const fetchMessagePage = async (query: URLSearchParams): Promise<MessagePage> => {
+        const response = await fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${query}`);
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      };
+      const normalizePageChunk = (items: any[] | null | undefined) => normalizeChatHistoryChunk<ChatMessage>(items, normalizeMessage);
+      const page = await fetchMessagePage(params);
       let chunk = normalizePageChunk(page.data || []);
       let pageHasOlder = Boolean(page.has_older);
       let pageHasNewer = Boolean(page.has_newer);
-      let boundaryPage = page;
+      let boundaryPage: ChatHistoryPageRaw = page;
       if (direction === 'older') {
-        for (let guard = 0; guard < 16 && pageHasOlder && chunk.length > 0 && chunk.length < RAW_MESSAGE_WINDOW; guard += 1) {
-          const firstRole = chunk[0]?.role;
-          if (firstRole === 'user' || firstRole === 'system') break;
-          const before = numericId(chunk[0]?.id);
-          if (!before) break;
-          const boundaryParams = new URLSearchParams({ limit: String(MESSAGE_PAGE), before });
-          const boundaryRes = await fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${boundaryParams}`);
-          if (!boundaryRes.ok) throw new Error(await boundaryRes.text());
-          const olderPage: MessagePage = await boundaryRes.json();
-          const olderChunk = normalizePageChunk(olderPage.data || []);
-          pageHasOlder = Boolean(olderPage.has_older);
-          if (!olderChunk.length) break;
-          chunk = [...olderChunk, ...chunk];
-          boundaryPage = { ...olderPage, total: page.total, last_active: page.last_active };
-        }
+        ({ chunk, pageHasOlder, pageHasNewer, boundaryPage } = await backfillOlderChunkToTurnBoundary({
+          firstPage: page,
+          firstChunk: chunk,
+          fetchBefore: async (before, limit) => fetchMessagePage(new URLSearchParams({ limit: String(limit), before })),
+          normalizeChunk: normalizePageChunk,
+          numericId,
+          pageLimit: MESSAGE_PAGE,
+          rawWindowLimit: RAW_MESSAGE_WINDOW,
+        }));
       }
       if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
       updateSessionMessageCount(sessionId, page.total);
@@ -1224,7 +1222,7 @@ export default function App() {
       if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
       updateSessionMessageCount(sessionId, page.total);
       updateSessionBoundaryTimes(sessionId, page);
-      const chunk = (page.data || []).filter((m: any) => ['user', 'assistant', 'tool', 'system'].includes(m.role)).map(normalizeMessage);
+      const chunk = normalizeChatHistoryChunk<ChatMessage>(page.data || [], normalizeMessage);
       messagesRef.current = chunk;
       pendingJumpMessageIdRef.current = messageId;
       setMessages(chunk);
