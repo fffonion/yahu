@@ -516,7 +516,8 @@ mod tests {
     fn session_title_base_strips_lineage_suffix() {
         assert_eq!(session_title_base("Project rename #3"), "Project rename");
         assert_eq!(session_title_base("Project rename #1"), "Project rename #1");
-        assert_eq!(session_title_for_lineage_index("Project rename", 2), "Project rename #3");
+        assert_eq!(session_title_for_lineage_index("Project rename", 2, false), "Project rename #3");
+        assert_eq!(session_title_for_lineage_index("Project rename", 2, true), "Project rename");
     }
 
     #[tokio::test]
@@ -572,18 +573,18 @@ mod tests {
         let body = axum::body::to_bytes(resp.into_response().into_body(), usize::MAX).await.unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(payload["title"], "Unified title #3");
+        assert_eq!(payload["title"], "Unified title");
         assert_eq!(payload["base_title"], "Unified title");
         assert_eq!(payload["updated_ids"], serde_json::json!(["root", "parent", "child"]));
         assert_eq!(payload["titles"], serde_json::json!({
-            "root": "Unified title",
+            "root": "Unified title #1",
             "parent": "Unified title #2",
-            "child": "Unified title #3",
+            "child": "Unified title",
         }));
         assert_eq!(*patched.lock().unwrap(), vec![
-            ("root".to_string(), "Unified title".to_string()),
+            ("root".to_string(), "Unified title #1".to_string()),
             ("parent".to_string(), "Unified title #2".to_string()),
-            ("child".to_string(), "Unified title #3".to_string()),
+            ("child".to_string(), "Unified title".to_string()),
         ]);
     }
 

@@ -28,8 +28,8 @@ struct SessionRenamePayload {
     title: String,
 }
 
-fn session_title_for_lineage_index(base: &str, index: usize) -> String {
-    if index == 0 {
+fn session_title_for_lineage_index(base: &str, index: usize, is_target: bool) -> String {
+    if is_target {
         base.to_string()
     } else {
         format!("{base} #{}", index + 1)
@@ -63,8 +63,9 @@ async fn rename_session_lineage(
         if updated_ids.iter().any(|id: &String| id == &entry.id) {
             continue;
         }
-        let title = session_title_for_lineage_index(&base_title, index);
-        if entry.id == session_id {
+        let is_target = entry.id == session_id;
+        let title = session_title_for_lineage_index(&base_title, index, is_target);
+        if is_target {
             requested_title = title.clone();
         }
         match patch_session_title(&state, &entry.id, &title).await {
