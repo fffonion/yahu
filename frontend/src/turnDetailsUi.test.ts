@@ -60,6 +60,8 @@ describe('turn detail fold UI', () => {
     expect(styles).toContain('.turn-detail-body .tool-summary');
     expect(styles).toContain('.turn-detail-body .msg-reasoning');
     expect(styles).toContain('.desktop-compact-chat .turn-detail-body{padding:10px 12px 12px}');
+    expect(styles).toContain('.desktop-compact-chat .turn-detail-body .tool-detail{padding:4px 0 0 38px}');
+    expect(styles).toContain('.desktop-compact-chat .turn-detail-body .msg-reasoning pre{padding-left:21px}');
   });
 
   test('history pages request skeleton rows and detail groups lazy-load their messages on expand', () => {
