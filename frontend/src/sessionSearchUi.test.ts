@@ -8,6 +8,8 @@ describe('session search and composer session model UI', () => {
   test('left search uses backend results instead of client-side title filtering', () => {
     const app = source();
     expect(app).toContain("fetch(`/sessions/search?");
+    expect(app).toContain("const params = new URLSearchParams({ limit: '80', _: String(Date.now()) });");
+    expect(app).toContain("cache: 'no-store'");
     expect(app).toContain('searchVersionRef');
     expect(app).not.toContain("`${s.title || ''} ${s.preview || ''}`");
   });

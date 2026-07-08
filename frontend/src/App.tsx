@@ -997,9 +997,9 @@ export default function App() {
   const loadSessions = useCallback(async (query = filter) => {
     const version = ++searchVersionRef.current;
     try {
-      const params = new URLSearchParams({ limit: '80' });
+      const params = new URLSearchParams({ limit: '80', _: String(Date.now()) });
       if (query.trim()) params.set('q', query.trim());
-      const res = await fetch(`/sessions/search?${params}`, { headers: headers(false) });
+      const res = await fetch(`/sessions/search?${params}`, { headers: headers(false), cache: 'no-store' });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const body = await res.json();
       if (version !== searchVersionRef.current) return;
