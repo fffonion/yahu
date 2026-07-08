@@ -28,10 +28,12 @@ describe('session right-click context menu', () => {
     expect(source).not.toContain('const patched = (body.data || body.session || body) as Session;');
   });
 
-  test('session list refresh preserves a renamed title when search rows omit titles', () => {
+  test('session list refresh preserves a renamed title when search rows are stale', () => {
     const source = app();
-    expect(source).toContain('const currentTitle = String(current?.title || \'\').trim();');
-    expect(source).toContain("if (!nextTitle && currentTitle) merged.title = current?.title;");
+    expect(source).toContain('const renamedSessionTitlesRef = useRef<Record<string, string>>({});');
+    expect(source).toContain('const titleOverride = renamedSessionTitlesRef.current[session.id];');
+    expect(source).toContain('if (titleOverride && String(session.title || \'\').trim() !== titleOverride) session = { ...session, title: titleOverride };');
+    expect(source).toContain('renamedSessionTitlesRef.current = { ...renamedSessionTitlesRef.current, ...titles };');
   });
 
   test('context menu is positioned above the chat sidebar and styled as a menu', () => {

@@ -771,6 +771,7 @@ export default function App() {
   const showReasoningRef = useRef(showReasoning);
   const showToolCallsRef = useRef(showToolCalls);
   const newMessageBoundaryIdRef = useRef(newMessageBoundaryId);
+  const renamedSessionTitlesRef = useRef<Record<string, string>>({});
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { providerRef.current = selectedModelProvider; }, [selectedModelProvider]);
@@ -1003,7 +1004,13 @@ export default function App() {
       const body = await res.json();
       if (version !== searchVersionRef.current) return;
       const list: Session[] = body.data || [];
-      setSessions((old) => list.map((session) => sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id))));
+      setSessions((old) => list.map((rawSession) => {
+        let session = rawSession;
+        const titleOverride = renamedSessionTitlesRef.current[session.id];
+        if (titleOverride && String(session.title || '').trim() !== titleOverride) session = { ...session, title: titleOverride };
+        else if (titleOverride) delete renamedSessionTitlesRef.current[session.id];
+        return sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id));
+      }));
       if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
     } catch (err: any) { setStatus(tf('status.sessionsUnavailable', err.message)); }
@@ -1931,6 +1938,7 @@ export default function App() {
     if (!res.ok) { setStatus(`Rename failed: ${await res.text()}`); return; }
     const body = await res.json();
     const titles = body.titles && typeof body.titles === 'object' ? body.titles as Record<string, string> : {};
+    renamedSessionTitlesRef.current = { ...renamedSessionTitlesRef.current, ...titles };
     const updatedIds = new Set<string>(Array.isArray(body.updated_ids) ? body.updated_ids : [session.id]);
     setSessions((old) => old.map((item) => updatedIds.has(item.id) ? { ...item, title: titles[item.id] || body.title || nextTitle } : item));
     setActiveSessionDetail((old) => old && updatedIds.has(old.id) ? { ...old, title: titles[old.id] || body.title || nextTitle } : old);
