@@ -58,12 +58,11 @@ function isCompletedFinalAssistant(message: MessageVisibilityInput) {
 
 export function isHermesSpecialContextMessage(message: MessageVisibilityInput): boolean {
   if (message.role !== 'assistant' || message.pending) return false;
-  const text = String(message.content || '').trim();
+  const text = String(message.content || '').trimStart();
   if (!text) return false;
-  return /\[PRIOR CONTEXT\s*(?:--|—)/i.test(text)
-    || /\[END OF PRIOR CONTEXT\s*(?:--|—)\s*COMPACTION SUMMARY BELOW\]/i.test(text)
-    || /\[CONTEXT COMPACTION\s*(?:--|—)\s*REFERENCE ONLY\]/i.test(text)
-    || /---\s*END OF CONTEXT SUMMARY\s*(?:--|—)\s*respond to the message below/i.test(text);
+  const firstLine = text.split(/\r?\n/, 1)[0]?.trim() || '';
+  return /^\[PRIOR CONTEXT\s*(?:--|—)/i.test(firstLine)
+    || /^\[CONTEXT COMPACTION\s*(?:--|—)\s*REFERENCE ONLY\]/i.test(firstLine);
 }
 
 function isRootlessDetailCandidate(message: MessageVisibilityInput) {

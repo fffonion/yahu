@@ -74,6 +74,18 @@ describe('turn detail grouping', () => {
     expect(items[1].messages.map((message) => message.id)).toEqual(['ctx2']);
   });
 
+  test('does not treat normal assistant replies that quote context markers as special context', () => {
+    const quotedMarkers: Msg = {
+      id: 'a-quoted',
+      role: 'assistant',
+      content: '搞定。部署的对话页确认：\n\n- 页面中已有 1 个 `.special-context-block`\n\n这就是你说的那种 `[PRIOR CONTEXT -- for reference only]` / `[CONTEXT COMPACTION -- REFERENCE ONLY]` 消息的处理。',
+    };
+    const items = buildTurnDetailItems([user, quotedMarkers]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message']);
+    expect(items[1]).toMatchObject({ kind: 'message', message: quotedMarkers });
+  });
+
   test('starts a new folded detail segment when tools appear after a completed final answer', () => {
     const nextPrelude: Msg = { id: 'a3', role: 'assistant', content: 'continuing from restored context', toolCalls: [{ id: 'call_2' }] };
     const nextTool: Msg = { id: 't2', role: 'tool', content: '{"ok":2}', toolName: 'terminal' };
