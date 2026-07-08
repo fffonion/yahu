@@ -230,10 +230,64 @@ fn session_rows_with_local_previews(
     state: &AppState,
     mut rows: Vec<serde_json::Value>,
 ) -> Vec<serde_json::Value> {
+    if let Err(err) = filter_session_rows_shadowed_by_local_successors(state, &mut rows) {
+        warn!(error = %err, "cannot filter stitched predecessor sessions from local metadata");
+    }
     if let Err(err) = enrich_session_previews_from_local_db(state, &mut rows) {
         warn!(error = %err, "cannot enrich session list previews from local message history");
     }
     rows
+}
+
+fn filter_session_rows_shadowed_by_local_successors(
+    state: &AppState,
+    rows: &mut Vec<serde_json::Value>,
+) -> anyhow::Result<()> {
+    if rows.len() <= 1 {
+        return Ok(());
+    }
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(());
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(
+        &conn,
+        "sessions",
+        &[
+            "id",
+            "parent_session_id",
+            "started_at",
+            "ended_at",
+            "end_reason",
+            "source",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(());
+    }
+    let row_ids = rows
+        .iter()
+        .filter_map(|row| row.get("id").and_then(|value| value.as_str()).filter(|id| !id.is_empty()))
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    let mut hidden = HashSet::new();
+    for session_id in &row_ids {
+        let successor_id = local_session_reset_successor_id(&conn, session_id)?;
+        if successor_id.is_some_and(|id| row_ids.contains(&id)) {
+            hidden.insert(session_id.clone());
+        }
+    }
+    if hidden.is_empty() {
+        return Ok(());
+    }
+    rows.retain(|row| row.get("id").and_then(|value| value.as_str()).is_none_or(|id| !hidden.contains(id)));
+    Ok(())
 }
 
 fn enrich_session_previews_from_local_db(

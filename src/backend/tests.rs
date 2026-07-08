@@ -512,6 +512,46 @@ mod tests {
         assert_eq!(rows[0]["preview"], "token cache math");
     }
 
+    #[test]
+    fn session_list_hides_reset_predecessor_when_successor_is_present() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                title TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('old',NULL,'GFS路径过短原因 #1',1,10,'session_reset','telegram','agent:main:telegram:dm:1698432746','1698432746',NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('current',NULL,'GFS路径过短原因',10.007,NULL,NULL,'telegram','agent:main:telegram:dm:1698432746','1698432746',NULL)", []).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let rows = vec![
+            serde_json::json!({"id":"current","source":"telegram","title":"GFS路径过短原因","started_at":10.007,"ended_at":null}),
+            serde_json::json!({"id":"old","source":"telegram","title":"GFS路径过短原因 #1","started_at":1.0,"ended_at":10.0,"end_reason":"session_reset"}),
+        ];
+
+        let rows = session_rows_with_local_previews(&state, rows);
+
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["current"]);
+    }
+
     #[tokio::test]
     async fn session_search_enriches_missing_preview_from_local_latest_message() {
         use std::collections::HashMap;
