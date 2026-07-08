@@ -59,17 +59,18 @@ async fn rename_session_lineage(
     let mut updated_ids = Vec::new();
     let mut titles = serde_json::Map::new();
     let mut requested_title = base_title.clone();
+    let mut assigned_titles = HashSet::new();
     for (index, entry) in entries.into_iter().enumerate() {
         if updated_ids.iter().any(|id: &String| id == &entry.id) {
             continue;
         }
         let is_target = entry.id == session_id;
-        let title = session_title_for_lineage_index(&base_title, index, is_target);
-        if is_target {
-            requested_title = title.clone();
-        }
-        match patch_session_title(&state, &entry.id, &title).await {
-            Ok(_) => {
+        let preferred_title = session_title_for_lineage_index(&base_title, index, is_target);
+        match patch_session_title_avoiding_conflicts(&state, &entry.id, &base_title, &preferred_title, &mut assigned_titles).await {
+            Ok(title) => {
+                if is_target {
+                    requested_title = title.clone();
+                }
                 titles.insert(entry.id.clone(), serde_json::json!(title));
                 updated_ids.push(entry.id);
             }
@@ -136,6 +137,61 @@ async fn patch_session_title(state: &AppState, session_id: &str, title: &str) ->
         let text = resp.text().await.unwrap_or_default();
         anyhow::bail!("{status}: {text}")
     }
+}
+
+fn is_session_title_conflict_error(err: &anyhow::Error) -> bool {
+    let text = err.to_string();
+    text.contains("invalid_title") || text.contains("already in use")
+}
+
+fn lineage_title_suffix_start(base: &str, title: &str) -> usize {
+    if title == base {
+        return 1;
+    }
+    title
+        .strip_prefix(&format!("{base} #"))
+        .and_then(|suffix| suffix.parse::<usize>().ok())
+        .map(|value| value.saturating_add(1))
+        .unwrap_or(1)
+}
+
+fn next_lineage_title_candidate(base: &str, next_suffix: &mut usize, assigned_titles: &HashSet<String>) -> String {
+    loop {
+        let candidate = format!("{base} #{}", *next_suffix);
+        *next_suffix = next_suffix.saturating_add(1);
+        if !assigned_titles.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+    }
+}
+
+async fn patch_session_title_avoiding_conflicts(
+    state: &AppState,
+    session_id: &str,
+    base: &str,
+    preferred_title: &str,
+    assigned_titles: &mut HashSet<String>,
+) -> anyhow::Result<String> {
+    let mut title = preferred_title.to_string();
+    let mut next_suffix = lineage_title_suffix_start(base, preferred_title);
+    for _ in 0..200 {
+        if assigned_titles.contains(&title.to_lowercase()) {
+            title = next_lineage_title_candidate(base, &mut next_suffix, assigned_titles);
+            continue;
+        }
+        match patch_session_title(state, session_id, &title).await {
+            Ok(()) => {
+                assigned_titles.insert(title.to_lowercase());
+                return Ok(title);
+            }
+            Err(err) if is_session_title_conflict_error(&err) => {
+                assigned_titles.insert(title.to_lowercase());
+                title = next_lineage_title_candidate(base, &mut next_suffix, assigned_titles);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    anyhow::bail!("no available title found for base '{base}'")
 }
 
 async fn fetch_sessions_from_api_server(

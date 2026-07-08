@@ -691,6 +691,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_lineage_rename_skips_globally_occupied_titles() {
+        use std::sync::Mutex;
+
+        #[derive(Clone)]
+        struct RenameApiState {
+            patched: Arc<Mutex<Vec<(String, String)>>>,
+        }
+
+        async fn api_session(
+            State(state): State<RenameApiState>,
+            AxumPath(session_id): AxumPath<String>,
+            method: Method,
+            body: Body,
+        ) -> Response<Body> {
+            if method == Method::PATCH {
+                let bytes = to_bytes(body, usize::MAX).await.unwrap();
+                let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                let title = payload["title"].as_str().unwrap_or_default().to_string();
+                if title == "yahu" || title == "yahu #2" {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": {"message": format!("Title '{title}' is already in use by session other"), "code": "invalid_title"}
+                        })),
+                    ).into_response();
+                }
+                state.patched.lock().unwrap().push((session_id.clone(), title));
+            }
+            let parent = match session_id.as_str() {
+                "child" => Some("parent"),
+                "parent" => Some("root"),
+                _ => None,
+            };
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": parent, "title": "old"}
+            })).into_response()
+        }
+
+        let patched = Arc::new(Mutex::new(Vec::new()));
+        let api_state = RenameApiState { patched: patched.clone() };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let api_app = Router::new()
+            .route("/api/sessions/{session_id}", any(api_session))
+            .with_state(api_state);
+        tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let resp = rename_session_lineage(
+            State(state),
+            AxumPath("child".to_string()),
+            Json(SessionRenamePayload { title: "yahu".to_string() }),
+        ).await;
+        let body = axum::body::to_bytes(resp.into_response().into_body(), usize::MAX).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["updated_ids"], serde_json::json!(["root", "parent", "child"]));
+        assert_eq!(payload["titles"], serde_json::json!({
+            "root": "yahu #1",
+            "parent": "yahu #3",
+            "child": "yahu #4",
+        }));
+        assert_eq!(payload["title"], "yahu #4");
+        assert_eq!(*patched.lock().unwrap(), vec![
+            ("root".to_string(), "yahu #1".to_string()),
+            ("parent".to_string(), "yahu #3".to_string()),
+            ("child".to_string(), "yahu #4".to_string()),
+        ]);
+    }
+
+    #[tokio::test]
     async fn session_lineage_rename_from_reset_predecessor_includes_successor_session() {
         use std::sync::Mutex;
 
