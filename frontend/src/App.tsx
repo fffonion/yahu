@@ -2625,7 +2625,7 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt, se
       .catch((err: any) => setError(err?.message || String(err)))
       .finally(() => setLoading(false));
   };
-  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={detailSummary} open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
+  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
     <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><span className="turn-detail-arrow" aria-hidden="true">{'>'}</span></summary>
     <div className="turn-detail-body">
       {loading ? t('status.loading') : null}

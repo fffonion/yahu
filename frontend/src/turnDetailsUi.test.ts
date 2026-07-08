@@ -30,7 +30,9 @@ describe('turn detail fold UI', () => {
     expect(styles).toContain('.turn-detail-summary::-webkit-details-marker{display:none}');
     expect(styles).toContain('.turn-detail-arrow{justify-self:end;display:inline-block;');
     expect(styles).toContain('.turn-detail-group[open] .turn-detail-arrow{transform:rotate(90deg)}');
-    expect(source).toContain("open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
+    expect(source).toContain("aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
+    expect(source).not.toContain("open={open} onToggle=");
+    expect(source).not.toContain("defaultOpen=");
     expect(source).toContain("const detailAnchorId = String(item.messages[0]?.id || item.id);");
     expect(source).toContain('data-message-id={!open ? detailAnchorId : undefined}');
     expect(source).toContain('suppressMessageAnchor={!open}');
