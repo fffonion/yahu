@@ -238,6 +238,8 @@ describe('page i18n coverage', () => {
       'status.deletedSession',
       'status.memoryUnavailable',
       'status.disconnected',
+      'chat.switchingModelStatus',
+      'chat.modelSwitchedStatus',
     ]) {
       const line = source.split('\n').find((item: string) => item.includes(`'${key}'`)) || '';
       expect(line).toContain('en:');

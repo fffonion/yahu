@@ -629,6 +629,15 @@ fn session_message_items(body: &serde_json::Value) -> Vec<serde_json::Value> {
         .and_then(|value| value.as_array())
         .cloned()
         .unwrap_or_default()
+        .into_iter()
+        .filter(|message| !is_internal_model_switch_message(message))
+        .collect()
+}
+
+fn is_internal_model_switch_message(message: &serde_json::Value) -> bool {
+    message.get("role").and_then(|value| value.as_str()) == Some("user")
+        && nav_message_text(message).trim_start().starts_with("/model ")
+        && nav_message_text(message).contains(" --session")
 }
 
 #[derive(Debug, Serialize)]

@@ -785,6 +785,18 @@ mod tests {
     }
 
     #[test]
+    fn internal_model_switch_messages_are_hidden_from_watch_and_history() {
+        let items = session_message_items(&serde_json::json!({"data":[
+            {"id":1,"role":"user","content":"/model gpt-5.5 --provider openai-codex --session"},
+            {"id":2,"role":"user","content":"real prompt"},
+            {"id":3,"role":"assistant","content":"answer"}
+        ]}));
+
+        assert_eq!(items.iter().map(|item| item["content"].as_str().unwrap_or("")).collect::<Vec<_>>(), vec!["real prompt", "answer"]);
+        assert_eq!(watch_message_window(items).len(), 2);
+    }
+
+    #[test]
     fn session_watch_reads_api_server_data_and_legacy_messages_shapes() {
         let data_body = serde_json::json!({
             "object": "list",

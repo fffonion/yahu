@@ -573,9 +573,16 @@ function modelOptionKey(item: { id: string; provider?: string }) {
 function findModelOption(options: ModelOption[], modelId: string, provider = '') {
   const id = realModelOrEmpty(modelId);
   const providerId = String(provider || '').trim();
-  return options.find((item) => item.id === id && String(item.provider || '').trim() === providerId)
-    || options.find((item) => item.id === id)
+  const matches = options.filter((item) => item.id === id);
+  return matches.find((item) => String(item.provider || '').trim() === providerId)
+    || (providerId ? undefined : matches[0])
     || undefined;
+}
+function resolveModelProvider(options: ModelOption[], modelId: string, preferredProvider = '') {
+  const exact = findModelOption(options, modelId, preferredProvider);
+  if (exact) return String(exact.provider || '').trim();
+  const id = realModelOrEmpty(modelId);
+  return String(options.find((item) => item.id === id)?.provider || preferredProvider || '').trim();
 }
 function readContextLength(row: any): number | undefined {
   const raw = row?.context_length ?? row?.contextWindow ?? row?.context_window ?? row?.limit?.context;
@@ -765,6 +772,7 @@ export default function App() {
   const hasNewerRef = useRef(false);
   const activeSessionIdRef = useRef(activeSessionId);
   const searchVersionRef = useRef(0);
+  const modelsRef = useRef<ModelOption[]>(models);
   const modelRef = useRef(model);
   const providerRef = useRef(selectedModelProvider);
   const sessionModelOverridesRef = useRef(sessionModelOverrides);
@@ -773,6 +781,7 @@ export default function App() {
   const newMessageBoundaryIdRef = useRef(newMessageBoundaryId);
   const renamedSessionTitlesRef = useRef<Record<string, string>>({});
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { modelsRef.current = models; }, [models]);
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { providerRef.current = selectedModelProvider; }, [selectedModelProvider]);
   useEffect(() => { sessionModelOverridesRef.current = sessionModelOverrides; }, [sessionModelOverrides]);
@@ -960,7 +969,7 @@ export default function App() {
       const current = realModelOrEmpty(activeSession?.model) || realModelOrEmpty(model);
       const currentProvider = String(activeSession?.provider || providerRef.current || selectedModelProvider || '').trim();
       if (list.length) {
-        const provider = current ? findModelOption(list, current, currentProvider)?.provider || currentProvider : '';
+        const provider = current ? resolveModelProvider(list, current, currentProvider) : '';
         setModels(list);
         if (!current) {
           modelRef.current = list[0].id;
@@ -1066,7 +1075,7 @@ export default function App() {
   const changeSessionModel = useCallback((nextModel: string, option?: ModelOption) => {
     const resolvedModel = realModelOrEmpty(nextModel);
     if (!resolvedModel) return;
-    const provider = String(option?.provider || '').trim();
+    const provider = resolveModelProvider(modelsRef.current, resolvedModel, option?.provider || providerRef.current);
     modelRef.current = resolvedModel;
     providerRef.current = provider;
     setModelState(resolvedModel);
@@ -1110,7 +1119,7 @@ export default function App() {
 
   const createSession = useCallback(async () => {
     const sessionModel = realModelOrEmpty(modelRef.current) || models[0]?.id || '';
-    const sessionProvider = providerRef.current;
+    const sessionProvider = resolveModelProvider(modelsRef.current, sessionModel, providerRef.current);
     const sessionBody = sessionProvider ? { model: sessionModel, provider: sessionProvider } : { model: sessionModel };
     const res = await fetch(apiJoin(SESSION_API_BASE, '/api/sessions'), { method: 'POST', headers: headers(), body: JSON.stringify(sessionBody) });
     if (!res.ok) throw new Error(await res.text());
@@ -1710,6 +1719,19 @@ export default function App() {
     }
   };
 
+  const switchSessionModel = useCallback(async (sessionId: string, sessionModel: string, sessionProvider: string) => {
+    const resolvedModel = realModelOrEmpty(sessionModel);
+    if (!sessionId || !resolvedModel) return;
+    const provider = resolveModelProvider(modelsRef.current, resolvedModel, sessionProvider);
+    const providerLabel = provider ? providerDisplayName(provider) : '';
+    const modelLabel = providerLabel ? `${providerLabel} · ${resolvedModel}` : resolvedModel;
+    showToast(tf('chat.switchingModelStatus', modelLabel));
+    const body = provider ? { model: resolvedModel, provider } : { model: resolvedModel };
+    const res = await fetch(`/chat/model-switch/${encodeURIComponent(sessionId)}`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(await res.text());
+    showToast(tf('chat.modelSwitchedStatus', modelLabel));
+  }, [headers, showToast]);
+
   const runChatTurn = async (turnText: string, turnAttachments: Attachment[], initialSessionId = activeSessionId, clearComposer = true) => {
     const text = turnText.trim();
     if (!text && turnAttachments.length === 0) return;
@@ -1745,7 +1767,14 @@ export default function App() {
     const userText = text || payloadAttachments.map((a) => a.name).join(', ');
     const sessionOverride = sessionModelOverridesRef.current[sessionId];
     const sessionModel = sessionOverride?.model || realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model || '';
-    const sessionProvider = sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || '');
+    const sessionProvider = resolveModelProvider(modelsRef.current, sessionModel, sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || ''));
+    try {
+      await switchSessionModel(sessionId, sessionModel, sessionProvider);
+    } catch (err: any) {
+      setStatus(err?.message || String(err));
+      setBusy(false);
+      return;
+    }
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
     const turnStartedAtMs = Date.now();
@@ -1762,7 +1791,7 @@ export default function App() {
       controller = new AbortController();
       chatAbortRef.current = controller;
       setStreamingSessionId(sessionId);
-      const res = await fetch(`/chat/stream/${encodeURIComponent(sessionId)}`, { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)), signal: controller.signal });
+      const res = await fetch(`/chat/stream/${encodeURIComponent(sessionId)}`, { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(payloadInput, '', effort, '')), signal: controller.signal });
       if (!res.ok || !res.body) throw new Error(await res.text());
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

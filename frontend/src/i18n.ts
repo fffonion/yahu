@@ -16,6 +16,8 @@ const translations: Record<string, Record<string, string>> = {
   'chat.streaming': { en: 'Streaming', 'zh-CN': '流式输出中', 'zh-TW': '串流中', ja: 'ストリーミング中' },
   'chat.streamingOther': { en: 'Streaming from other platform', 'zh-CN': '其他平台正在输出', 'zh-TW': '其他平台正在輸出', ja: '他のプラットフォームからストリーミング中' },
   'chat.sending': { en: 'Sending...', 'zh-CN': '发送中...', 'zh-TW': '發送中...', ja: '送信中...' },
+  'chat.switchingModelStatus': { en: 'Switching model to {0}...', 'zh-CN': '切换模型到 {0} 中...', 'zh-TW': '正在切換模型到 {0}...', ja: '{0} にモデルを切り替え中...' },
+  'chat.modelSwitchedStatus': { en: 'Model switched to {0}', 'zh-CN': '模型已经切换到 {0}', 'zh-TW': '模型已切換到 {0}', ja: 'モデルを {0} に切り替えました' },
   'chat.loadHistory': { en: 'Load older messages...', 'zh-CN': '加载更早消息...', 'zh-TW': '載入更早訊息...', ja: '古いメッセージを読み込む...' },
   'chat.loadingHistory': { en: 'Loading...', 'zh-CN': '加载中...', 'zh-TW': '載入中...', ja: '読み込み中...' },
   'chat.inputPlaceholder': { en: '', 'zh-CN': '', 'zh-TW': '', ja: '' },

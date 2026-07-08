@@ -173,6 +173,20 @@ async fn chat_stream(
     }
 }
 
+async fn chat_model_switch(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Response<Body> {
+    let Some(model_request) = chat_stream_model_switch_request_for_body(session_id, body) else {
+        return json_error(StatusCode::BAD_REQUEST, "missing model");
+    };
+    match send_model_switch_instruction(&state, &model_request).await {
+        Ok(()) => Json(serde_json::json!({"ok": true, "model": model_request.body.get("model"), "provider": model_request.body.get("provider")})).into_response(),
+        Err(err) => json_error(StatusCode::BAD_GATEWAY, &format!("Hermes API model switch failed: {err}")),
+    }
+}
+
 async fn stop_chat_stream(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,

@@ -279,6 +279,7 @@ pub async fn run() -> anyhow::Result<()> {
         )
         .route("/chat/attachments", post(chat_upload_attachments))
         .route("/chat/stream/{session_id}", post(chat_stream))
+        .route("/chat/model-switch/{session_id}", post(chat_model_switch))
         .route("/chat/stream/{session_id}/stop", post(stop_chat_stream))
         .route("/chat/media", get(chat_media_file))
         .route("/version", get(yahu_version))

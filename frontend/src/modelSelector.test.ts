@@ -15,6 +15,20 @@ describe('composer model selector', () => {
     expect(source).toContain('flattenModelOptions(body)');
   });
 
+  test('new chat sends an internal model switch before rendering or sending the user turn', () => {
+    const source = app();
+    const switchIndex = source.indexOf('await switchSessionModel(sessionId, sessionModel, sessionProvider);');
+    const userBubbleIndex = source.indexOf('const userMsg: ChatMessage =');
+    const streamIndex = source.indexOf('const res = await fetch(`/chat/stream/${encodeURIComponent(sessionId)}`');
+    expect(switchIndex).toBeGreaterThan(0);
+    expect(userBubbleIndex).toBeGreaterThan(switchIndex);
+    expect(streamIndex).toBeGreaterThan(userBubbleIndex);
+    expect(source).toContain("showToast(tf('chat.switchingModelStatus', modelLabel));");
+    expect(source).toContain("showToast(tf('chat.modelSwitchedStatus', modelLabel));");
+    expect(source).toContain('fetch(`/chat/model-switch/${encodeURIComponent(sessionId)}`, { method: \'POST\'');
+    expect(source).not.toContain('buildChatRequestBody(`/model ');
+  });
+
   test('selecting a model updates local session state and carries provider without patching session metadata', () => {
     const source = app();
     expect(source).toContain('const changeSessionModel = useCallback((nextModel: string, option?: ModelOption) =>');
@@ -27,9 +41,10 @@ describe('composer model selector', () => {
     expect(source).toContain('setSessionModelOverrides(nextOverrides)');
     expect(source).toContain('const sessionOverride = sessionModelOverridesRef.current[sessionId]');
     expect(source).toContain('const sessionModel = sessionOverride?.model || realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model ||');
-    expect(source).toContain('const sessionProvider = sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider ||');
+    expect(source).toContain('const sessionProvider = resolveModelProvider(modelsRef.current, sessionModel, sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || \'\'));');
     expect(source).toContain('const activeSessionModelOverride = activeSessionId ? sessionModelOverrides[activeSessionId] : undefined');
-    expect(source).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
+    expect(source).toContain('const sessionProvider = resolveModelProvider(modelsRef.current, sessionModel, sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || \'\'));');
+    expect(source).toContain('buildChatRequestBody(payloadInput, \'\', effort, \'\')');
     expect(source).toContain('fetch(`/chat/stream/${encodeURIComponent(sessionId)}`, { method: \'POST\'');
     expect(source).not.toContain('apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`)');
     expect(source).toContain('setSelectedModelProvider((current) => activeProvider !== current ? activeProvider : current)');
@@ -45,6 +60,8 @@ describe('composer model selector', () => {
     expect(source).toContain('seen.has(key)');
     expect(source).toContain('function modelOptionKey');
     expect(source).toContain('function findModelOption');
+    expect(source).toContain('function resolveModelProvider');
+    expect(source).toContain('const matches = options.filter((item) => item.id === id);');
     expect(source).toContain('valueProvider={sessionProvider}');
     expect(source).toContain('key={modelOptionKey(item)}');
     expect(source).not.toContain('props.models.filter((m: ModelOption) => m.id !== currentModel)');
