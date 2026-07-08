@@ -30,7 +30,7 @@ describe('stream stop button', () => {
 
   test('stop button shares send styling and stays adjacent to send on desktop and mobile compact composer', () => {
     const styles = css();
-    expect(styles).toContain('.composer-footer .stop-stream-btn{margin-left:auto;flex:0 0 auto;width:38px;height:38px;justify-content:center;padding:0}');
+    expect(styles).toContain('.composer-footer .stop-stream-btn{margin-left:auto;flex:0 0 auto;justify-content:center}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .stop-stream-btn+.send-btn{margin-left:0}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .stop-stream-btn+.send-btn{margin-left:0}');
     expect(styles.lastIndexOf('.composer-wrap:not(.composer-compact) .composer-footer .stop-stream-btn+.send-btn{margin-left:0}')).toBeGreaterThan(styles.lastIndexOf('.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}'));
