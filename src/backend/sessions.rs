@@ -1536,6 +1536,19 @@ fn fetch_local_rename_entries(
     Ok(Some(entries))
 }
 
+fn local_message_history_filter(
+    conn: &rusqlite::Connection,
+    mode: SessionMessageJoinMode,
+) -> rusqlite::Result<&'static str> {
+    if mode == SessionMessageJoinMode::VisibleHistory
+        && sqlite_table_has_columns(conn, "messages", &["compacted"])?
+    {
+        Ok("(active = 1 OR compacted = 1)")
+    } else {
+        Ok("active = 1")
+    }
+}
+
 fn fetch_local_context_messages_with_entries(
     state: &AppState,
     session_id: &str,
@@ -1554,11 +1567,13 @@ fn fetch_local_context_messages_with_entries(
     if entries.is_empty() {
         return Ok(None);
     }
+    let message_filter = local_message_history_filter(&conn, mode)?;
     let context = messages_with_context_boundary_from_entries(&entries, mode, |entry_id| {
-        let mut stmt = conn.prepare(
+        let sql = format!(
             "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_content \
-             FROM messages WHERE active = 1 AND session_id = ?1 ORDER BY id"
-        )?;
+             FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY id"
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([entry_id], row_to_session_message)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })?;

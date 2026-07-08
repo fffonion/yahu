@@ -1141,6 +1141,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_history_includes_compacted_messages_without_context_window_counting_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                compacted INTEGER NOT NULL DEFAULT 0
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source) VALUES ('s1',NULL,1,NULL,NULL,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active,compacted) VALUES ('s1','user','older compacted prompt',1,0,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active,compacted) VALUES ('s1','assistant','older compacted answer',2,0,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active,compacted) VALUES ('s1','user','current active prompt',3,1,0)", []).unwrap();
+        drop(conn);
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let resp = chat_messages_page(
+            State(state.clone()),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("full".to_string()) }),
+        )
+        .await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let texts: Vec<_> = page["data"].as_array().unwrap().iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
+        assert_eq!(texts, vec!["older compacted prompt", "older compacted answer", "current active prompt"]);
+
+        let context = fetch_local_lineage_context_messages(&state, "s1").unwrap().unwrap();
+        let context_texts: Vec<_> = context.messages.iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
+        assert_eq!(context_texts, vec!["current active prompt"]);
+    }
+
+    #[tokio::test]
     async fn chat_history_trims_compression_child_carryover_prefix_without_content_dedupe() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");
