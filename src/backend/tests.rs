@@ -719,6 +719,32 @@ mod tests {
         ]);
     }
     #[test]
+    fn local_session_rename_entries_follows_unique_successor_without_thread_metadata() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                title TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('legacy_reset',NULL,'Old #0',1,10,'session_reset','telegram',NULL,NULL,NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('legacy_next',NULL,'Old #1',10.004,20,'session_reset','telegram',NULL,NULL,NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('current',NULL,'Old',20.004,NULL,NULL,'telegram','agent:telegram:group:chat:topic','chat','topic')", []).unwrap();
+
+        let entries = local_session_rename_entries(&conn, "legacy_reset").unwrap();
+
+        assert_eq!(entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(), vec!["legacy_reset", "legacy_next", "current"]);
+    }
+
+    #[test]
     fn session_watch_reads_api_server_data_and_legacy_messages_shapes() {
         let data_body = serde_json::json!({
             "object": "list",

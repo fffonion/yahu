@@ -1126,7 +1126,7 @@ fn local_session_reset_successor_id(
     if chat_id.as_deref().unwrap_or("").trim().is_empty()
         && thread_id.as_deref().unwrap_or("").trim().is_empty()
     {
-        return Ok(None);
+        return local_unique_reset_successor_without_thread_metadata(conn, session_id, ended_at, source.as_deref());
     }
     conn.query_row(
         "SELECT id FROM sessions
@@ -1141,6 +1141,27 @@ fn local_session_reset_successor_id(
         |row| row.get::<_, String>(0),
     )
     .optional()
+}
+
+fn local_unique_reset_successor_without_thread_metadata(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    ended_at: f64,
+    source: Option<&str>,
+) -> rusqlite::Result<Option<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM sessions
+         WHERE id != ?1
+           AND started_at >= ?2 - 0.1
+           AND started_at <= ?2 + 2.0
+           AND source IS ?3
+         ORDER BY started_at ASC
+         LIMIT 2",
+    )?;
+    let ids = stmt
+        .query_map(rusqlite::params![session_id, ended_at, source], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(if ids.len() == 1 { ids.into_iter().next() } else { None })
 }
 
 fn local_session_rename_entries(
