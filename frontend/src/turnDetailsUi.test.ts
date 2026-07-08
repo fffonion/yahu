@@ -21,14 +21,15 @@ describe('turn detail fold UI', () => {
   test('outer turn detail summary is a single long bar with only a right chevron glyph', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("<summary className=\"turn-detail-summary\"><span className=\"turn-detail-copy\">{detailSummary}</span><span className=\"turn-detail-arrow\" aria-hidden=\"true\">{'>'}</span></summary>");
+    expect(source).toContain("<summary className=\"turn-detail-summary\"><span className=\"turn-detail-copy\">{detailSummary}</span><ChevronRight className=\"tool-chevron turn-detail-arrow\" aria-hidden=\"true\" /></summary>");
     expect(source).not.toContain('turn-detail-toggle');
     expect(source).not.toContain('turn-detail-toggle-label');
     expect(source).not.toContain("t('chat.expandDetails')");
     expect(source).not.toContain("t('chat.collapseDetails')");
     expect(styles).toContain('.turn-detail-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;');
     expect(styles).toContain('.turn-detail-summary::-webkit-details-marker{display:none}');
-    expect(styles).toContain('.turn-detail-arrow{justify-self:end;display:inline-block;');
+    expect(styles).toContain('.turn-detail-arrow{justify-self:end}');
+    expect(styles).toContain('.tool-chevron{width:15px;height:15px;color:var(--muted);transition:transform .15s ease}');
     expect(styles).toContain('.turn-detail-group[open] .turn-detail-arrow{transform:rotate(90deg)}');
     expect(source).toContain("aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
     expect(source).not.toContain("open={open} onToggle=");
