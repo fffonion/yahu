@@ -90,8 +90,6 @@ describe('page i18n coverage', () => {
       'theme.appearance',
       'dialog.confirm',
       'chat.details',
-      'chat.expandDetails',
-      'chat.collapseDetails',
       'chat.emptyDesc',
       'chat.sessionTimes',
       'chat.stopStreaming',
@@ -126,9 +124,7 @@ describe('page i18n coverage', () => {
     }
 
     for (const key of [
-      'chat.toolsCount',
-      'chat.thinkingCount',
-      'chat.detailsCount',
+      'chat.detailEntries',
       'gallery.messageId',
       'gallery.selectImage',
       'gallery.imageNotFound',
@@ -159,6 +155,7 @@ describe('page i18n coverage', () => {
       'chat.toolsCount',
       'chat.thinkingCount',
       'chat.detailsCount',
+      'chat.detailEntries',
       'chat.emptyDesc',
       'chat.sessionTimes',
       'chat.stopStreaming',

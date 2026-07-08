@@ -11,27 +11,42 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("<TurnDetailGroup");
     expect(source).toContain('className="turn-detail-group"');
     expect(source).toContain('className="turn-detail-summary"');
-    expect(source).toContain('aria-label={t(\'chat.details\')}');
-    expect(source).toContain('<span className="turn-detail-title">{t(\'chat.details\')}</span>');
+    expect(source).toContain('aria-label={detailSummary}');
+    expect(source).toContain('className="turn-detail-copy"');
+    expect(source).toContain("const detailSummary = tf('chat.detailEntries', detailCount);");
     expect(source).not.toContain('Tools & thinking');
     expect(source).not.toContain('Turn tools and thinking');
   });
 
-  test('outer turn detail summary exposes a visible translated expand control', () => {
+  test('outer turn detail summary is a single long bar with only a right chevron glyph', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain('className="turn-detail-toggle"');
-    expect(source).toContain('<span className="turn-detail-arrow" aria-hidden="true">{open ? \'v\' : \'>\'}</span>');
-    expect(source).toContain("<span className=\"turn-detail-toggle-label\">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span>");
-    expect(source).not.toContain('<span className="turn-detail-toggle-label">Expand</span>');
-    expect(styles).toContain('.turn-detail-summary{display:grid;grid-template-columns:28px auto minmax(0,1fr);');
-    expect(styles).toContain('.turn-detail-arrow{width:28px;height:28px;');
-    expect(styles).toContain('.turn-detail-toggle{display:inline-grid;grid-template-columns:auto;');
+    expect(source).toContain("<summary className=\"turn-detail-summary\"><span className=\"turn-detail-copy\">{detailSummary}</span><span className=\"turn-detail-arrow\" aria-hidden=\"true\">{'>'}</span></summary>");
+    expect(source).not.toContain('turn-detail-toggle');
+    expect(source).not.toContain('turn-detail-toggle-label');
+    expect(source).not.toContain("t('chat.expandDetails')");
+    expect(source).not.toContain("t('chat.collapseDetails')");
+    expect(styles).toContain('.turn-detail-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;');
+    expect(styles).toContain('.turn-detail-summary::-webkit-details-marker{display:none}');
+    expect(styles).toContain('.turn-detail-arrow{justify-self:end;display:inline-block;');
+    expect(styles).toContain('.turn-detail-group[open] .turn-detail-arrow{transform:rotate(90deg)}');
     expect(source).toContain("open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
     expect(source).toContain("const detailAnchorId = String(item.messages[0]?.id || item.id);");
     expect(source).toContain('data-message-id={!open ? detailAnchorId : undefined}');
     expect(source).toContain('suppressMessageAnchor={!open}');
     expect(source).toContain('data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}');
+  });
+
+  test('normal and compact chat paths both render the same turn detail group component', () => {
+    const source = app();
+    const compactIndex = source.indexOf('if (props.desktopCompactMessages)');
+    const compactGroupIndex = source.indexOf('<DesktopTurnBlock block={block}', compactIndex);
+    const normalMapIndex = source.indexOf('return turnDetailItems.map((item) => {', compactIndex);
+    const normalGroupIndex = source.indexOf('<TurnDetailGroup item={item}', normalMapIndex);
+    expect(compactIndex).toBeGreaterThan(-1);
+    expect(compactGroupIndex).toBeGreaterThan(compactIndex);
+    expect(normalMapIndex).toBeGreaterThan(compactGroupIndex);
+    expect(normalGroupIndex).toBeGreaterThan(normalMapIndex);
   });
 
   test('outer turn detail group has compact collapsed styling separate from inner tool and reasoning folds', () => {

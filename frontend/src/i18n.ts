@@ -41,6 +41,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.toolsCount': { en: '{0} tools', 'zh-CN': '{0} 个工具', 'zh-TW': '{0} 個工具', ja: 'ツール {0} 件' },
   'chat.thinkingCount': { en: '{0} thinking', 'zh-CN': '{0} 条思考', 'zh-TW': '{0} 條思考', ja: '思考 {0} 件' },
   'chat.detailsCount': { en: '{0} details', 'zh-CN': '{0} 条详情', 'zh-TW': '{0} 條詳情', ja: '詳細 {0} 件' },
+  'chat.detailEntries': { en: '{0} entries in detail', 'zh-CN': '{0} 条详情', 'zh-TW': '{0} 條詳情', ja: '詳細 {0} 件' },
   'chat.emptyDesc': { en: 'Streaming chat through Hermes API Server. Message history is loaded in pages.', 'zh-CN': '通过 Hermes API Server 流式聊天，消息历史按页加载。', 'zh-TW': '透過 Hermes API Server 串流聊天，訊息歷史按頁載入。', ja: 'Hermes API Server 経由でストリーミングし、履歴はページ単位で読み込みます。' },
   'chat.sessionTimes': { en: 'Session times', 'zh-CN': '会话时间', 'zh-TW': '會話時間', ja: 'セッション時刻' },
   'chat.stopStreaming': { en: 'Stop streaming', 'zh-CN': '停止输出', 'zh-TW': '停止輸出', ja: 'ストリーミング停止' },

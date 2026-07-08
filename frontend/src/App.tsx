@@ -2625,10 +2625,8 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt, se
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const detailMessages = useMemo(() => loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages, [loadedMessages, item.messages, showReasoning]);
-  const toolCount = item.detail?.toolCount ?? detailMessages.filter(isToolLikeMessage).length;
-  const thinkingCount = item.detail?.thinkingCount ?? detailMessages.filter((message) => String(message.reasoning || '').trim()).length;
   const detailCount = item.detail?.count ?? detailMessages.length;
-  const parts = [toolCount ? tf('chat.toolsCount', toolCount) : '', thinkingCount ? tf('chat.thinkingCount', thinkingCount) : ''].filter(Boolean).join(' · ') || tf('chat.detailsCount', detailCount);
+  const detailSummary = tf('chat.detailEntries', detailCount);
   const detailAnchorId = String(item.messages[0]?.id || item.id);
   const loadDetails = () => {
     if (!sessionId || !item.detail?.beforeId || loading || loadedMessages.length) return;
@@ -2647,8 +2645,8 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt, se
       .catch((err: any) => setError(err?.message || String(err)))
       .finally(() => setLoading(false));
   };
-  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={t('chat.details')} open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
-    <summary className="turn-detail-summary"><span className="turn-detail-arrow" aria-hidden="true">{open ? 'v' : '>'}</span><span className="turn-detail-toggle"><span className="turn-detail-toggle-label">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span></span><span className="turn-detail-title">{t('chat.details')}</span><em>{parts}</em></summary>
+  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={detailSummary} open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
+    <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><span className="turn-detail-arrow" aria-hidden="true">{'>'}</span></summary>
     <div className="turn-detail-body">
       {loading ? t('status.loading') : null}
       {error && <p className="error-text">{error}</p>}
