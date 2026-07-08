@@ -22,17 +22,18 @@ describe('stream stop button', () => {
     const source = app();
     expect(source).toContain('streaming={currentSessionStreaming}');
     expect(source).toContain('stopStreaming={stopStreaming}');
-    expect(source).toContain('{props.streaming && <button type="button" className="stop-stream-btn mobile-icon-only" aria-label={t(\'chat.stopStreaming\')} title={t(\'chat.stopStreaming\')} onClick={props.stopStreaming}><Square /></button>}');
+    expect(source).toContain('{props.streaming && <button type="button" className="send-btn stop-stream-btn mobile-icon-only" aria-label={t(\'chat.stopStreaming\')} title={t(\'chat.stopStreaming\')} onClick={props.stopStreaming}><Square /></button>}');
     expect(source).toContain('className="send-btn mobile-icon-only"');
-    expect(source.indexOf('stop-stream-btn mobile-icon-only')).toBeLessThan(source.indexOf('className="send-btn mobile-icon-only"'));
+    expect(source.indexOf('send-btn stop-stream-btn mobile-icon-only')).toBeLessThan(source.indexOf('className="send-btn mobile-icon-only"'));
     expect(source).not.toContain('<span className="btn-label">Stop</span>');
   });
 
-  test('stop button keeps send button spacing on desktop and mobile compact composer', () => {
+  test('stop button shares send styling and stays adjacent to send on desktop and mobile compact composer', () => {
     const styles = css();
-    expect(styles).toContain('.composer-footer .stop-stream-btn{margin-left:auto;flex:0 0 auto;width:38px;height:38px;justify-content:center;padding:0;color:var(--danger)}');
-    expect(styles).toContain('.composer-footer .stop-stream-btn+.send-btn{margin-left:0}');
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .stop-stream-btn{margin-left:auto}');
-    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .stop-stream-btn{pointer-events:auto}');
+    expect(styles).toContain('.composer-footer .stop-stream-btn{margin-left:auto;flex:0 0 auto;width:38px;height:38px;justify-content:center;padding:0}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .stop-stream-btn+.send-btn{margin-left:0}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .stop-stream-btn+.send-btn{margin-left:0}');
+    expect(styles.lastIndexOf('.composer-wrap:not(.composer-compact) .composer-footer .stop-stream-btn+.send-btn{margin-left:0}')).toBeGreaterThan(styles.lastIndexOf('.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}'));
+    expect(styles).not.toContain('stop-stream-btn{margin-left:auto;flex:0 0 auto;width:38px;height:38px;justify-content:center;padding:0;color:var(--danger)}');
   });
 });
