@@ -182,7 +182,7 @@ async fn fetch_sessions_from_api_server(
             }
             rows.push(row);
             if rows.len() >= limit {
-                return Ok(rows);
+                return Ok(session_rows_with_local_previews(state, rows));
             }
         }
 
@@ -192,7 +192,7 @@ async fn fetch_sessions_from_api_server(
             .unwrap_or(data_len == page_size);
         offset = offset.saturating_add(page_size);
         if trimmed.is_empty() || !has_more || data_len == 0 || offset >= max_scan {
-            return Ok(rows);
+            return Ok(session_rows_with_local_previews(state, rows));
         }
     }
 }
@@ -224,6 +224,112 @@ fn is_client_visible_session(row: &serde_json::Value) -> bool {
         .and_then(|value| value.as_str())
         .map(|source| source != "tool")
         .unwrap_or(true)
+}
+
+fn session_rows_with_local_previews(
+    state: &AppState,
+    mut rows: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    if let Err(err) = enrich_session_previews_from_local_db(state, &mut rows) {
+        warn!(error = %err, "cannot enrich session list previews from local message history");
+    }
+    rows
+}
+
+fn enrich_session_previews_from_local_db(
+    state: &AppState,
+    rows: &mut [serde_json::Value],
+) -> anyhow::Result<()> {
+    if rows.iter().all(session_row_has_preview) {
+        return Ok(());
+    }
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(());
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(&conn, "messages", &["session_id", "role", "content"])? {
+        return Ok(());
+    }
+    let has_active = sqlite_table_has_columns(&conn, "messages", &["active"])?;
+    for row in rows.iter_mut() {
+        if session_row_has_preview(row) {
+            continue;
+        }
+        let Some(session_id) = row.get("id").and_then(|value| value.as_str()).filter(|id| !id.is_empty()) else {
+            continue;
+        };
+        let Some(preview) = local_latest_session_preview(&conn, session_id, has_active)? else {
+            continue;
+        };
+        if let Some(obj) = row.as_object_mut() {
+            obj.insert("preview".to_string(), serde_json::Value::String(preview));
+        }
+    }
+    Ok(())
+}
+
+fn session_row_has_preview(row: &serde_json::Value) -> bool {
+    row.get("preview")
+        .and_then(|value| value.as_str())
+        .is_some_and(|text| !text.trim().is_empty())
+}
+
+fn local_latest_session_preview(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    has_active: bool,
+) -> rusqlite::Result<Option<String>> {
+    let sql = if has_active {
+        "SELECT content FROM messages
+         WHERE active = 1
+           AND session_id = ?1
+           AND role IN ('assistant', 'user')
+           AND content IS NOT NULL
+           AND trim(content) != ''
+         ORDER BY id DESC
+         LIMIT 20"
+    } else {
+        "SELECT content FROM messages
+         WHERE session_id = ?1
+           AND role IN ('assistant', 'user')
+           AND content IS NOT NULL
+           AND trim(content) != ''
+         ORDER BY id DESC
+         LIMIT 20"
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map([session_id], |row| row.get::<_, String>(0))?;
+    for row in rows {
+        let preview = session_preview_from_raw_content(&row?);
+        if !preview.is_empty() {
+            return Ok(Some(preview));
+        }
+    }
+    Ok(None)
+}
+
+fn session_preview_from_raw_content(raw: &str) -> String {
+    fn value_text(value: &serde_json::Value) -> String {
+        match value {
+            serde_json::Value::String(text) => text.clone(),
+            serde_json::Value::Object(map) => ["text", "content", "output", "message"]
+                .iter()
+                .find_map(|key| map.get(*key).map(value_text).filter(|text| !text.trim().is_empty()))
+                .unwrap_or_default(),
+            serde_json::Value::Array(items) => items
+                .iter()
+                .map(value_text)
+                .find(|text| !text.trim().is_empty())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+    let value = json_or_string_field(Some(raw.to_string()));
+    nav_text_excerpt(&value_text(&value), 180)
 }
 
 fn inject_turn_durations(messages: &mut Vec<serde_json::Value>) {

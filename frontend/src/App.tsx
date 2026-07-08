@@ -920,11 +920,12 @@ export default function App() {
     showToast(t('artifacts.created'));
   }, [activeSession, activeSessionDetail, activeSessionId, artifacts, showToast, writeHashRoute]);
   useEffect(() => {
+    if (streamingSessionId !== activeSessionId) return;
     const activePreview = latestSessionPreviewFromMessages(messages);
     if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID || !activePreview) return;
     setSessions((old) => old.map((session) => session.id === activeSessionId && session.preview !== activePreview ? { ...session, preview: activePreview } : session));
     setActiveSessionDetail((old) => old?.id === activeSessionId && old.preview !== activePreview ? { ...old, preview: activePreview } : old);
-  }, [activeSessionId, messages]);
+  }, [activeSessionId, messages, streamingSessionId]);
 
   useEffect(() => {
     const override = activeSessionId ? sessionModelOverrides[activeSessionId] : undefined;

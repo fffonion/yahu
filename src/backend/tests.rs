@@ -512,6 +512,53 @@ mod tests {
         assert_eq!(rows[0]["preview"], "token cache math");
     }
 
+    #[tokio::test]
+    async fn session_search_enriches_missing_preview_from_local_latest_message() {
+        use std::collections::HashMap;
+
+        async fn api_sessions(
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<serde_json::Value> {
+            assert_eq!(query.get("include_children").map(String::as_str), Some("false"));
+            Json(serde_json::json!({
+                "object": "list",
+                "data": [
+                    {"id":"s1","source":"telegram","title":"Needs preview","started_at":1.0,"message_count":3}
+                ],
+                "has_more": false
+            }))
+        }
+
+        let app = Router::new().route("/api/sessions", get(api_sessions));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('s1','user','first prompt',1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('s1','tool','tool output should not be preview',1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('s1','assistant','latest answer from rust',1)", []).unwrap();
+        drop(conn);
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let rows = fetch_sessions_from_api_server(&state, "", 10)
+            .await
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["preview"], "latest answer from rust");
+    }
+
     #[test]
     fn session_title_base_strips_lineage_suffix() {
         assert_eq!(session_title_base("Project rename #3"), "Project rename");
