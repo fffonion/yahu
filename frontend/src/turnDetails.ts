@@ -22,6 +22,7 @@ export type TurnDetailGroupItem<T> = {
   finalMessage: T;
   finalIndex: number;
   detail?: TurnDetailMetadata;
+  defaultOpen?: boolean;
 };
 
 export type SpecialContextGroupItem<T> = {
@@ -84,7 +85,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
     activeAnchorId = '';
   };
 
-  const pushBufferedDetailGroup = (id: string, finalMessage: T, finalIndex: number, detail?: TurnDetailMetadata) => {
+  const pushBufferedDetailGroup = (id: string, finalMessage: T, finalIndex: number, detail?: TurnDetailMetadata, options?: { defaultOpen?: boolean }) => {
     items.push({
       kind: 'detailGroup',
       id,
@@ -93,6 +94,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
       finalMessage,
       finalIndex,
       detail,
+      defaultOpen: options?.defaultOpen || undefined,
     });
     resetBuffer();
   };
@@ -103,9 +105,11 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
   };
 
   const flushTrailingBuffer = () => {
-    if (activeAnchorId === ROOTLESS_ANCHOR_ID && buffer.length && !buffer.some((entry) => entry.message.pending)) {
+    if (buffer.length && !buffer.some((entry) => entry.message.pending)) {
       const last = buffer[buffer.length - 1];
-      pushBufferedDetailGroup(`turn-details:${ROOTLESS_ANCHOR_ID}:trailing-${messageId(last.message, last.index)}`, last.message, last.index);
+      const isUnfinishedUserTurn = !!activeAnchorId && activeAnchorId !== ROOTLESS_ANCHOR_ID;
+      const suffix = isUnfinishedUserTurn ? `unfinished-${messageId(last.message, last.index)}` : `trailing-${messageId(last.message, last.index)}`;
+      pushBufferedDetailGroup(`turn-details:${activeAnchorId || ROOTLESS_ANCHOR_ID}:${suffix}`, last.message, last.index, undefined, { defaultOpen: isUnfinishedUserTurn });
       return;
     }
     flushBufferAsMessages();

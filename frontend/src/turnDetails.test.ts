@@ -44,10 +44,21 @@ describe('turn detail grouping', () => {
     expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message', 'message']);
   });
 
-  test('does not fold normal multi-message history without a completed final answer', () => {
+  test('defaults unfinished user-turn details open when no final assistant answer exists', () => {
     const items = buildTurnDetailItems([user, prelude, tool]);
 
-    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message']);
+    expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup']);
+    if (items[1].kind !== 'detailGroup') throw new Error('expected unfinished detail group');
+    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1:unfinished-t1', defaultOpen: true });
+    expect(items[1].messages.map((message) => message.id)).toEqual(['a1', 't1']);
+  });
+
+  test('completed final-answer detail groups stay closed by default', () => {
+    const items = buildTurnDetailItems([user, prelude, tool, final]);
+
+    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1:a2' });
+    if (items[1].kind !== 'detailGroup') throw new Error('expected completed detail group');
+    expect(items[1].defaultOpen).toBeUndefined();
   });
 
   test('renders Hermes prior-context and compaction summaries as a special block, not as a final answer', () => {

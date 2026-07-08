@@ -2599,7 +2599,8 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
   </div>;
 }
 function TurnDetailGroup({ item, showReasoning, assistantName, sessionId }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; sessionId?: string }) {
-  const [open, setOpen] = useState(false);
+  const detailsRef = useRef<HTMLDetailsElement | null>(null);
+  const [open, setOpen] = useState(() => !!item.defaultOpen);
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -2624,7 +2625,13 @@ function TurnDetailGroup({ item, showReasoning, assistantName, sessionId }: { it
       .catch((err: any) => setError(err?.message || String(err)))
       .finally(() => setLoading(false));
   };
-  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
+  useLayoutEffect(() => {
+    const node = detailsRef.current;
+    if (!node || !item.defaultOpen) return;
+    node.open = true;
+    setOpen(true);
+  }, [item.defaultOpen]);
+  return <details ref={detailsRef} className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
     <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><ChevronRight className="tool-chevron turn-detail-arrow" aria-hidden="true" /></summary>
     <div className="turn-detail-body">
       {loading ? t('status.loading') : null}
