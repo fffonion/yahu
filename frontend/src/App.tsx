@@ -2619,7 +2619,7 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt, se
       .finally(() => setLoading(false));
   };
   return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={t('chat.details')} open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
-    <summary className="turn-detail-summary"><span className="turn-detail-toggle"><ChevronRight className="turn-detail-chevron" /><span className="turn-detail-toggle-label">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span></span><span className="turn-detail-title">{t('chat.details')}</span><em>{parts}</em></summary>
+    <summary className="turn-detail-summary"><span className="turn-detail-arrow" aria-hidden="true">{open ? 'v' : '>'}</span><span className="turn-detail-toggle"><span className="turn-detail-toggle-label">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span></span><span className="turn-detail-title">{t('chat.details')}</span><em>{parts}</em></summary>
     <div className="turn-detail-body">
       {loading ? t('status.loading') : null}
       {error && <p className="error-text">{error}</p>}

@@ -21,9 +21,12 @@ describe('turn detail fold UI', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('className="turn-detail-toggle"');
+    expect(source).toContain('<span className="turn-detail-arrow" aria-hidden="true">{open ? \'v\' : \'>\'}</span>');
     expect(source).toContain("<span className=\"turn-detail-toggle-label\">{open ? t('chat.collapseDetails') : t('chat.expandDetails')}</span>");
     expect(source).not.toContain('<span className="turn-detail-toggle-label">Expand</span>');
-    expect(styles).toContain('.turn-detail-toggle{display:inline-grid;grid-template-columns:14px auto;');
+    expect(styles).toContain('.turn-detail-summary{display:grid;grid-template-columns:28px auto minmax(0,1fr);');
+    expect(styles).toContain('.turn-detail-arrow{width:28px;height:28px;');
+    expect(styles).toContain('.turn-detail-toggle{display:inline-grid;grid-template-columns:auto;');
     expect(source).toContain("open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
     expect(source).toContain("const detailAnchorId = String(item.messages[0]?.id || item.id);");
     expect(source).toContain('data-message-id={!open ? detailAnchorId : undefined}');
