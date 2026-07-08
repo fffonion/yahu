@@ -29,6 +29,21 @@ mod tests {
         assert_eq!(exp - iat, SESSION_TTL);
     }
 
+    #[tokio::test]
+    async fn static_app_shell_assets_are_not_http_cached() {
+        let root = static_assets("/".parse::<Uri>().unwrap()).await;
+        assert_eq!(
+            root.headers().get(header::CACHE_CONTROL).and_then(|value| value.to_str().ok()),
+            Some("no-store")
+        );
+
+        let sw = static_assets("/sw.js".parse::<Uri>().unwrap()).await;
+        assert_eq!(
+            sw.headers().get(header::CACHE_CONTROL).and_then(|value| value.to_str().ok()),
+            Some("no-store")
+        );
+    }
+
     #[test]
     fn old_session_token_gets_refresh_cookie() {
         let old_iat = now_secs().saturating_sub(SESSION_REFRESH_AFTER + 1);
