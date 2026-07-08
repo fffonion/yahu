@@ -50,6 +50,30 @@ describe('turn detail grouping', () => {
     expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message']);
   });
 
+  test('renders Hermes prior-context and compaction summaries as a special block, not as a final answer', () => {
+    const priorContext: Msg = {
+      id: 'ctx1',
+      role: 'assistant',
+      content: `[PRIOR CONTEXT -- for reference only; not a new message]\nold transcript\n\n[END OF PRIOR CONTEXT -- COMPACTION SUMMARY BELOW]\n\n[CONTEXT COMPACTION -- REFERENCE ONLY]\nsummary\n--- END OF CONTEXT SUMMARY -- respond to the message below, not the summary above ---`,
+    };
+    const items = buildTurnDetailItems([user, priorContext, final]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'specialContextGroup', 'message']);
+    expect(items[1]).toMatchObject({ kind: 'specialContextGroup', id: 'special-context:u1:ctx1' });
+    if (items[1].kind !== 'specialContextGroup') throw new Error('expected special context group');
+    expect(items[1].messages.map((message) => message.id)).toEqual(['ctx1']);
+    expect(items[2]).toMatchObject({ kind: 'message', message: final });
+  });
+
+  test('keeps a trailing Hermes compaction summary in a special block without waiting for a later final answer', () => {
+    const compaction: Msg = { id: 'ctx2', role: 'assistant', content: '[CONTEXT COMPACTION -- REFERENCE ONLY]\nsummary only' };
+    const items = buildTurnDetailItems([user, compaction]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'specialContextGroup']);
+    if (items[1].kind !== 'specialContextGroup') throw new Error('expected special context group');
+    expect(items[1].messages.map((message) => message.id)).toEqual(['ctx2']);
+  });
+
   test('starts a new folded detail segment when tools appear after a completed final answer', () => {
     const nextPrelude: Msg = { id: 'a3', role: 'assistant', content: 'continuing from restored context', toolCalls: [{ id: 'call_2' }] };
     const nextTool: Msg = { id: 't2', role: 'tool', content: '{"ok":2}', toolName: 'terminal' };

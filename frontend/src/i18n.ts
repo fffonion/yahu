@@ -58,7 +58,8 @@ const translations: Record<string, Record<string, string>> = {
   'chat.send': { en: 'Send', 'zh-CN': '发送', 'zh-TW': '發送', ja: '送信' },
   'chat.renameTitle': { en: 'Rename session', 'zh-CN': '重命名', 'zh-TW': '重新命名', ja: 'セッション名変更' },
   'chat.deleteTitle': { en: 'Delete session', 'zh-CN': '删除会话', 'zh-TW': '刪除會話', ja: 'セッション削除' },
-  'chat.deleteConfirm': { en: 'Delete this session? This cannot be undone.', 'zh-CN': '确定删除此会话？此操作不可撤销。', 'zh-TW': '確定刪除此會話？此操作不可撤銷。', ja: 'このセッションを削除しますか？元に戻せません。' },
+  'chat.actionFailed': { en: 'Action failed', 'zh-CN': '操作失败', 'zh-TW': '操作失敗', ja: 'アクション失敗' },
+  'chat.specialContext': { en: 'Context summary', 'zh-CN': '上下文摘要', 'zh-TW': '上下文摘要', ja: 'コンテキスト概要' },
 
   // Cron
   'cron.title': { en: 'Cron', 'zh-CN': '定时任务', 'zh-TW': '定時任務', ja: 'Cron' },

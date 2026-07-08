@@ -14,7 +14,7 @@ import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTo
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
 import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
-import { buildDesktopTurnBlocks, buildTurnDetailItems, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata } from './turnDetails';
+import { buildDesktopTurnBlocks, buildTurnDetailItems, type SpecialContextGroupItem, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
@@ -2634,12 +2634,25 @@ function TurnDetailGroup({ item, showReasoning, assistantName, sessionId }: { it
   </details>;
 }
 
+function SpecialContextGroup({ item }: { item: SpecialContextGroupItem<ChatMessage> }) {
+  const title = t('chat.specialContext');
+  const anchorId = String(item.messages[0]?.id || item.id);
+  const content = item.messages.map((message) => String(message.content || '').trim()).filter(Boolean).join('\n\n');
+  return <details className="special-context-block" data-message-id={anchorId} aria-label={title}>
+    <summary className="special-context-summary"><span className="special-context-copy">{title}</span><ChevronRight className="tool-chevron special-context-arrow" aria-hidden="true" /></summary>
+    <pre className="special-context-body">{content}</pre>
+  </details>;
+}
+
 function DesktopTurnBlock({ block, showReasoning, assistantName, sessionId }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; sessionId?: string }) {
   let lastUserTimestamp: string | number | undefined;
   return <article className="desktop-turn-block" data-turn-block-id={block.id}>
     {block.items.map((item) => {
       if (item.kind === 'detailGroup') {
         return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} sessionId={sessionId} />;
+      }
+      if (item.kind === 'specialContextGroup') {
+        return <SpecialContextGroup key={item.id} item={item} />;
       }
       const message = item.message;
       if (message.role === 'user') lastUserTimestamp = message.timestamp;
@@ -2977,6 +2990,12 @@ function ChatMain(props: any) {
             return <React.Fragment key={item.id}>
               {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
               {group}
+            </React.Fragment>;
+          }
+          if (item.kind === 'specialContextGroup') {
+            return <React.Fragment key={item.id}>
+              {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
+              <SpecialContextGroup item={item} />
             </React.Fragment>;
           }
           const m = item.message;

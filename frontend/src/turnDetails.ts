@@ -24,13 +24,20 @@ export type TurnDetailGroupItem<T> = {
   detail?: TurnDetailMetadata;
 };
 
+export type SpecialContextGroupItem<T> = {
+  kind: 'specialContextGroup';
+  id: string;
+  messages: T[];
+  sourceIndexes: number[];
+};
+
 export type TurnDetailBlock<T> = {
   id: string;
   items: Array<TurnDetailItem<T>>;
   sourceIndexes: number[];
 };
 
-export type TurnDetailItem<T> = TurnDetailMessageItem<T> | TurnDetailGroupItem<T>;
+export type TurnDetailItem<T> = TurnDetailMessageItem<T> | TurnDetailGroupItem<T> | SpecialContextGroupItem<T>;
 
 type MessageWithTurnDetails = MessageVisibilityInput & { turnDetails?: TurnDetailMetadata };
 
@@ -44,8 +51,19 @@ function isCompletedFinalAssistant(message: MessageVisibilityInput) {
   return message.role === 'assistant'
     && !message.pending
     && !!String(message.content || '').trim()
+    && !isHermesSpecialContextMessage(message)
     && !isAssistantToolPreludeMessage(message)
     && !isToolLikeMessage(message);
+}
+
+export function isHermesSpecialContextMessage(message: MessageVisibilityInput): boolean {
+  if (message.role !== 'assistant' || message.pending) return false;
+  const text = String(message.content || '').trim();
+  if (!text) return false;
+  return /\[PRIOR CONTEXT\s*(?:--|—)/i.test(text)
+    || /\[END OF PRIOR CONTEXT\s*(?:--|—)\s*COMPACTION SUMMARY BELOW\]/i.test(text)
+    || /\[CONTEXT COMPACTION\s*(?:--|—)\s*REFERENCE ONLY\]/i.test(text)
+    || /---\s*END OF CONTEXT SUMMARY\s*(?:--|—)\s*respond to the message below/i.test(text);
 }
 
 function isRootlessDetailCandidate(message: MessageVisibilityInput) {
@@ -101,11 +119,27 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
     activeAnchorId = '';
   };
 
+  const pushSpecialContextGroup = (message: T, index: number, anchor: string) => {
+    items.push({
+      kind: 'specialContextGroup',
+      id: `special-context:${anchor}:${messageId(message, index)}`,
+      messages: [message],
+      sourceIndexes: [index],
+    });
+  };
+
   messages.forEach((message, index) => {
     if (message.role === 'user') {
       flushBufferAsMessages();
       activeAnchorId = messageId(message, index);
       items.push({ kind: 'message', message, sourceIndexes: [index] });
+      return;
+    }
+
+    if (isHermesSpecialContextMessage(message)) {
+      const savedAnchor = activeAnchorId || ROOTLESS_ANCHOR_ID;
+      flushBufferAsMessages();
+      pushSpecialContextGroup(message, index, savedAnchor);
       return;
     }
 

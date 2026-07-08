@@ -75,6 +75,19 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("loading ? t('status.loading')");
   });
 
+  test('special context block has collapsed details styling and i18n copy', () => {
+    const source = app();
+    expect(source).toContain('import { buildDesktopTurnBlocks, buildTurnDetailItems, type SpecialContextGroupItem, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata }');
+    expect(source).toContain('function SpecialContextGroup');
+    expect(source).toContain('className="special-context-block"');
+    expect(source).toContain('className="special-context-summary"');
+    expect(source).toContain('className="special-context-copy"');
+    expect(source).toContain('className="special-context-body"');
+    expect(source).toContain("className=\"tool-chevron special-context-arrow\"");
+    expect(source).toContain("const title = t('chat.specialContext');");
+    expect(source).toContain('<SpecialContextGroup item={item} />');
+  });
+
   test('streaming path still appends full detail messages instead of skeleton-only rows', () => {
     const source = app();
     expect(source).toContain("if (createdSession) setMessages(() => [userMsg, assistantMsg]);");
