@@ -1719,19 +1719,6 @@ export default function App() {
     }
   };
 
-  const switchSessionModel = useCallback(async (sessionId: string, sessionModel: string, sessionProvider: string) => {
-    const resolvedModel = realModelOrEmpty(sessionModel);
-    if (!sessionId || !resolvedModel) return;
-    const provider = resolveModelProvider(modelsRef.current, resolvedModel, sessionProvider);
-    const providerLabel = provider ? providerDisplayName(provider) : '';
-    const modelLabel = providerLabel ? `${providerLabel} · ${resolvedModel}` : resolvedModel;
-    showToast(tf('chat.switchingModelStatus', modelLabel));
-    const body = provider ? { model: resolvedModel, provider } : { model: resolvedModel };
-    const res = await fetch(`/chat/model-switch/${encodeURIComponent(sessionId)}`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
-    if (!res.ok) throw new Error(await res.text());
-    showToast(tf('chat.modelSwitchedStatus', modelLabel));
-  }, [headers, showToast]);
-
   const runChatTurn = async (turnText: string, turnAttachments: Attachment[], initialSessionId = activeSessionId, clearComposer = true) => {
     const text = turnText.trim();
     if (!text && turnAttachments.length === 0) return;
@@ -1768,13 +1755,6 @@ export default function App() {
     const sessionOverride = sessionModelOverridesRef.current[sessionId];
     const sessionModel = sessionOverride?.model || realModelOrEmpty(modelRef.current) || createdSession?.model || activeSession?.model || activeSessionDetail?.model || '';
     const sessionProvider = resolveModelProvider(modelsRef.current, sessionModel, sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || ''));
-    try {
-      await switchSessionModel(sessionId, sessionModel, sessionProvider);
-    } catch (err: any) {
-      setStatus(err?.message || String(err));
-      setBusy(false);
-      return;
-    }
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
     const turnStartedAtMs = Date.now();
@@ -1791,7 +1771,7 @@ export default function App() {
       controller = new AbortController();
       chatAbortRef.current = controller;
       setStreamingSessionId(sessionId);
-      const res = await fetch(`/chat/stream/${encodeURIComponent(sessionId)}`, { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(payloadInput, '', effort, '')), signal: controller.signal });
+      const res = await fetch(`/chat/stream/${encodeURIComponent(sessionId)}`, { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)), signal: controller.signal });
       if (!res.ok || !res.body) throw new Error(await res.text());
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

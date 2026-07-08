@@ -15,18 +15,16 @@ describe('composer model selector', () => {
     expect(source).toContain('flattenModelOptions(body)');
   });
 
-  test('new chat sends an internal model switch before rendering or sending the user turn', () => {
+  test('new chat sends selected model with the real stream turn instead of a slash-command switch', () => {
     const source = app();
-    const switchIndex = source.indexOf('await switchSessionModel(sessionId, sessionModel, sessionProvider);');
     const userBubbleIndex = source.indexOf('const userMsg: ChatMessage =');
     const streamIndex = source.indexOf('const res = await fetch(`/chat/stream/${encodeURIComponent(sessionId)}`');
-    expect(switchIndex).toBeGreaterThan(0);
-    expect(userBubbleIndex).toBeGreaterThan(switchIndex);
+    expect(userBubbleIndex).toBeGreaterThan(0);
     expect(streamIndex).toBeGreaterThan(userBubbleIndex);
-    expect(source).toContain("showToast(tf('chat.switchingModelStatus', modelLabel));");
-    expect(source).toContain("showToast(tf('chat.modelSwitchedStatus', modelLabel));");
-    expect(source).toContain('fetch(`/chat/model-switch/${encodeURIComponent(sessionId)}`, { method: \'POST\'');
+    expect(source).not.toContain('switchSessionModel');
+    expect(source).not.toContain('/chat/model-switch');
     expect(source).not.toContain('buildChatRequestBody(`/model ');
+    expect(source).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
   });
 
   test('selecting a model updates local session state and carries provider without patching session metadata', () => {
@@ -44,7 +42,7 @@ describe('composer model selector', () => {
     expect(source).toContain('const sessionProvider = resolveModelProvider(modelsRef.current, sessionModel, sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || \'\'));');
     expect(source).toContain('const activeSessionModelOverride = activeSessionId ? sessionModelOverrides[activeSessionId] : undefined');
     expect(source).toContain('const sessionProvider = resolveModelProvider(modelsRef.current, sessionModel, sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || \'\'));');
-    expect(source).toContain('buildChatRequestBody(payloadInput, \'\', effort, \'\')');
+    expect(source).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
     expect(source).toContain('fetch(`/chat/stream/${encodeURIComponent(sessionId)}`, { method: \'POST\'');
     expect(source).not.toContain('apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`)');
     expect(source).toContain('setSelectedModelProvider((current) => activeProvider !== current ? activeProvider : current)');

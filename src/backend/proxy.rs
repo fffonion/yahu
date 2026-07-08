@@ -11,24 +11,12 @@ async fn proxy_hermes(
     let stream_session_id = proxied_chat_stream_session_id(&path, &method);
     let req_method =
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET);
-    let mut bytes = match to_bytes(body, MAX_PROXY_BODY).await {
+    let bytes = match to_bytes(body, MAX_PROXY_BODY).await {
         Ok(bytes) => bytes,
         Err(err) => {
             return json_error(StatusCode::BAD_REQUEST, &format!("cannot read body: {err}"));
         }
     };
-    if let Some(model_request) = chat_stream_model_switch_request(&path, &method, &bytes) {
-        if let Err(err) = send_model_switch_instruction(&state, &model_request).await {
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                &format!("Hermes API model switch failed: {err}"),
-            );
-        }
-        match chat_stream_actual_body_bytes(&model_request.source_body) {
-            Ok(next) => bytes = next.into(),
-            Err(err) => return json_error(StatusCode::BAD_REQUEST, &err),
-        }
-    }
     if let Some(session_id) = &stream_session_id {
         begin_chat_stream_snapshot(&state, session_id).await;
         if let Some(input) = chat_stream_request_input_text(&bytes) {
@@ -85,15 +73,6 @@ async fn chat_stream(
             return json_error(StatusCode::BAD_REQUEST, &format!("cannot parse chat body: {err}"));
         }
     };
-
-    if let Some(model_request) = chat_stream_model_switch_request_for_body(session_id.clone(), body_value.clone()) {
-        if let Err(err) = send_model_switch_instruction(&state, &model_request).await {
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                &format!("Hermes API model switch failed: {err}"),
-            );
-        }
-    }
 
     begin_chat_stream_snapshot(&state, &session_id).await;
     if let Some(input) = chat_stream_input_text(body_value.get("input").unwrap_or(&serde_json::Value::Null))
@@ -173,20 +152,6 @@ async fn chat_stream(
     }
 }
 
-async fn chat_model_switch(
-    State(state): State<Arc<AppState>>,
-    AxumPath(session_id): AxumPath<String>,
-    Json(body): Json<serde_json::Value>,
-) -> Response<Body> {
-    let Some(model_request) = chat_stream_model_switch_request_for_body(session_id, body) else {
-        return json_error(StatusCode::BAD_REQUEST, "missing model");
-    };
-    match send_model_switch_instruction(&state, &model_request).await {
-        Ok(()) => Json(serde_json::json!({"ok": true, "model": model_request.body.get("model"), "provider": model_request.body.get("provider")})).into_response(),
-        Err(err) => json_error(StatusCode::BAD_GATEWAY, &format!("Hermes API model switch failed: {err}")),
-    }
-}
-
 async fn stop_chat_stream(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
@@ -222,8 +187,6 @@ async fn chat_stream_run_body(
 ) -> Result<serde_json::Value, String> {
     let mut body = source_body.clone();
     if let Some(map) = body.as_object_mut() {
-        map.remove("model");
-        map.remove("provider");
         if let Some(system_message) = map.remove("system_message")
             && !map.contains_key("instructions")
         {
@@ -272,89 +235,6 @@ fn should_forward_proxy_header(name: &str) -> bool {
             | "transfer-encoding"
     ) && !name.starts_with("sec-fetch-")
         && !name.starts_with("sec-ch-")
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ChatStreamModelSwitchRequest {
-    session_id: String,
-    command: String,
-    body: serde_json::Value,
-    source_body: serde_json::Value,
-}
-
-fn chat_stream_model_switch_request(
-    path: &str,
-    method: &Method,
-    bytes: &[u8],
-) -> Option<ChatStreamModelSwitchRequest> {
-    let session_id = proxied_chat_stream_session_id(path, method)?;
-    let body = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
-    chat_stream_model_switch_request_for_body(session_id, body)
-}
-
-fn chat_stream_model_switch_request_for_body(
-    session_id: String,
-    body: serde_json::Value,
-) -> Option<ChatStreamModelSwitchRequest> {
-    let model = body
-        .get("model")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && *value != "hermes-agent")?;
-    let provider = body
-        .get("provider")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let command = if let Some(provider) = provider {
-        format!("/model {model} --provider {provider} --session")
-    } else {
-        format!("/model {model} --session")
-    };
-    let mut switch_body = serde_json::json!({"input": command});
-    if let Some(reasoning_effort) = body.get("reasoning_effort") {
-        switch_body["reasoning_effort"] = reasoning_effort.clone();
-    }
-    Some(ChatStreamModelSwitchRequest {
-        session_id,
-        command,
-        body: switch_body,
-        source_body: body,
-    })
-}
-
-fn chat_stream_actual_body_bytes(body: &serde_json::Value) -> Result<Vec<u8>, String> {
-    let mut body = body.clone();
-    if let Some(map) = body.as_object_mut() {
-        map.remove("model");
-        map.remove("provider");
-    }
-    serde_json::to_vec(&body).map_err(|err| format!("cannot serialize chat body: {err}"))
-}
-
-async fn send_model_switch_instruction(
-    state: &Arc<AppState>,
-    request: &ChatStreamModelSwitchRequest,
-) -> Result<(), String> {
-    let url = format!(
-        "{}/api/sessions/{}/chat",
-        state.api_url,
-        path_segment(&request.session_id)
-    );
-    let mut builder = state.client.post(url).json(&request.body);
-    if let Some(key) = &state.api_key
-        && !key.is_empty()
-    {
-        builder = builder.bearer_auth(key);
-    }
-    let resp = builder.send().await.map_err(|err| err.to_string())?;
-    if resp.status().is_success() {
-        Ok(())
-    } else {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        Err(format!("{status}: {text}"))
-    }
 }
 
 async fn response_from_reqwest(
