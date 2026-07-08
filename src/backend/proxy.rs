@@ -74,6 +74,15 @@ async fn chat_stream(
         }
     };
 
+    if let Some(model_request) = chat_stream_model_switch_request_for_body(session_id.clone(), body_value.clone())
+        && let Err(err) = send_model_switch_instruction(&state, &model_request).await
+    {
+        return json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("Hermes API model switch failed: {err}"),
+        );
+    }
+
     begin_chat_stream_snapshot(&state, &session_id).await;
     if let Some(input) = chat_stream_input_text(body_value.get("input").unwrap_or(&serde_json::Value::Null))
         .filter(|text| !text.is_empty())
@@ -185,7 +194,7 @@ async fn chat_stream_run_body(
     session_id: &str,
     source_body: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mut body = source_body.clone();
+    let mut body = chat_stream_actual_body(source_body)?;
     if let Some(map) = body.as_object_mut() {
         if let Some(system_message) = map.remove("system_message")
             && !map.contains_key("instructions")
@@ -220,6 +229,74 @@ fn chat_stream_conversation_history(messages: &[serde_json::Value]) -> Vec<serde
             Some(serde_json::json!({"role": role, "content": content}))
         })
         .collect()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ChatStreamModelSwitchRequest {
+    session_id: String,
+    command: String,
+    body: serde_json::Value,
+}
+
+fn chat_stream_model_switch_request_for_body(
+    session_id: String,
+    body: serde_json::Value,
+) -> Option<ChatStreamModelSwitchRequest> {
+    let model = body
+        .get("model")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "hermes-agent")?;
+    let provider = body
+        .get("provider")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let command = if let Some(provider) = provider {
+        format!("/model {model} --provider {provider} --session")
+    } else {
+        format!("/model {model} --session")
+    };
+    let mut switch_body = serde_json::json!({"input": command});
+    if let Some(reasoning_effort) = body.get("reasoning_effort") {
+        switch_body["reasoning_effort"] = reasoning_effort.clone();
+    }
+    Some(ChatStreamModelSwitchRequest { session_id, command, body: switch_body })
+}
+
+fn chat_stream_actual_body(source_body: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut body = source_body.clone();
+    if let Some(map) = body.as_object_mut() {
+        map.remove("model");
+        map.remove("provider");
+    }
+    serde_json::to_vec(&body).map_err(|err| format!("cannot serialize chat body: {err}"))?;
+    Ok(body)
+}
+
+async fn send_model_switch_instruction(
+    state: &Arc<AppState>,
+    request: &ChatStreamModelSwitchRequest,
+) -> Result<(), String> {
+    let url = format!(
+        "{}/api/sessions/{}/chat",
+        state.api_url,
+        path_segment(&request.session_id)
+    );
+    let mut builder = state.client.post(url).json(&request.body);
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        builder = builder.bearer_auth(key);
+    }
+    let resp = builder.send().await.map_err(|err| err.to_string())?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        Err(format!("{status}: {text}"))
+    }
 }
 
 fn should_forward_proxy_header(name: &str) -> bool {

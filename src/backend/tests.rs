@@ -1491,8 +1491,34 @@ mod tests {
         assert!(state.fingerprints.contains_key(&((API_MESSAGE_WATCH_WINDOW + 24) as i64)));
     }
 
+    #[test]
+    fn chat_stream_model_switch_request_builds_provider_command() {
+        let body = serde_json::json!({
+            "input": "hello",
+            "model": "gpt-5.5",
+            "provider": "openai-codex",
+            "reasoning_effort": "medium"
+        });
+        let request = chat_stream_model_switch_request_for_body("session-1".to_string(), body).unwrap();
+
+        assert_eq!(request.session_id, "session-1");
+        assert_eq!(request.command, "/model gpt-5.5 --provider openai-codex --session");
+        assert_eq!(request.body["input"], "/model gpt-5.5 --provider openai-codex --session");
+        assert_eq!(request.body["reasoning_effort"], "medium");
+    }
+
+    #[test]
+    fn chat_stream_run_body_removes_model_switch_fields() {
+        let body = serde_json::json!({"input":"hello","model":"gpt-5.5","provider":"openai-codex"});
+        let sanitized = chat_stream_actual_body(&body).unwrap();
+
+        assert_eq!(sanitized["input"], "hello");
+        assert!(sanitized.get("model").is_none(), "run body must not carry model: {sanitized:?}");
+        assert!(sanitized.get("provider").is_none(), "run body must not carry provider: {sanitized:?}");
+    }
+
     #[tokio::test]
-    async fn yahu_chat_stream_sends_selected_model_on_actual_run_without_slash_command() {
+    async fn yahu_chat_stream_sends_internal_model_switch_before_actual_stream() {
         use std::sync::Mutex;
 
         #[derive(Clone)]
@@ -1508,7 +1534,7 @@ mod tests {
             let bytes = to_bytes(body, usize::MAX).await.unwrap();
             let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             state.calls.lock().unwrap().push(serde_json::json!({
-                "kind": "unexpected_chat",
+                "kind": "model",
                 "session_id": session_id,
                 "body": payload,
             }));
@@ -1566,12 +1592,14 @@ mod tests {
         let _ = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
 
         let calls = calls.lock().unwrap().clone();
-        assert_eq!(calls.len(), 1, "calls: {calls:?}");
-        assert_eq!(calls[0]["kind"], "stream");
-        assert_eq!(calls[0]["body"]["input"], "hello");
-        assert_eq!(calls[0]["body"]["reasoning_effort"], "medium");
-        assert_eq!(calls[0]["body"]["model"], "gpt-5.5");
-        assert_eq!(calls[0]["body"]["provider"], "openai-codex");
+        assert_eq!(calls.len(), 2, "calls: {calls:?}");
+        assert_eq!(calls[0]["kind"], "model");
+        assert_eq!(calls[0]["body"]["input"], "/model gpt-5.5 --provider openai-codex --session");
+        assert_eq!(calls[1]["kind"], "stream");
+        assert_eq!(calls[1]["body"]["input"], "hello");
+        assert_eq!(calls[1]["body"]["reasoning_effort"], "medium");
+        assert!(calls[1]["body"].get("model").is_none(), "stream body must not carry model: {calls:?}");
+        assert!(calls[1]["body"].get("provider").is_none(), "stream body must not carry provider: {calls:?}");
     }
 
     #[tokio::test]
