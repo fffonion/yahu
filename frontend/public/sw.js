@@ -1,4 +1,4 @@
-const CACHE = 'yahu-v3';
+const CACHE = 'yahu-v4';
 const PRECACHE = ['/manifest.json', '/icon.svg', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -28,7 +28,7 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(request));
     return;
   }
-  if (url.pathname.startsWith('/hermes') || url.pathname.startsWith('/api') || url.pathname.startsWith('/chat') || url.pathname.startsWith('/login') || url.pathname.startsWith('/logout') || url.pathname.startsWith('/health') || url.pathname.startsWith('/workspace') || url.pathname.startsWith('/images') || url.pathname.startsWith('/image-') || url.pathname.startsWith('/skills') || url.pathname.startsWith('/memory') || url.pathname.startsWith('/cron') || url.pathname.startsWith('/insights') || url.pathname.startsWith('/models') || url.pathname.startsWith('/watch')) return;
+  if (url.pathname.startsWith('/hermes') || url.pathname.startsWith('/api') || url.pathname.startsWith('/sessions') || url.pathname.startsWith('/chat') || url.pathname.startsWith('/login') || url.pathname.startsWith('/logout') || url.pathname.startsWith('/health') || url.pathname.startsWith('/workspace') || url.pathname.startsWith('/images') || url.pathname.startsWith('/image-') || url.pathname.startsWith('/skills') || url.pathname.startsWith('/memory') || url.pathname.startsWith('/cron') || url.pathname.startsWith('/insights') || url.pathname.startsWith('/models') || url.pathname.startsWith('/watch')) return;
 
   e.respondWith(fetch(request));
 });
