@@ -29,6 +29,20 @@ mod tests {
         assert_eq!(exp - iat, SESSION_TTL);
     }
 
+    #[test]
+    fn turn_duration_injection_skips_synthetic_subsecond_history_deltas() {
+        let mut messages = vec![
+            serde_json::json!({"id": 1, "role": "user", "content": "prompt", "timestamp": 1000.0}),
+            serde_json::json!({"id": 2, "role": "assistant", "content": "synthetic replay row", "reasoning": "thinking", "timestamp": 1000.0001}),
+            serde_json::json!({"id": 3, "role": "assistant", "content": "real response", "reasoning": "thinking", "timestamp": 1012.0}),
+        ];
+
+        inject_turn_durations(&mut messages);
+
+        assert!(messages[1].get("duration_ms").is_none(), "subsecond synthetic history deltas must not render as 0ms");
+        assert_eq!(messages[2]["duration_ms"].as_f64().unwrap(), 12_000.0);
+    }
+
     #[tokio::test]
     async fn static_app_shell_assets_are_not_http_cached() {
         let root = static_assets("/".parse::<Uri>().unwrap()).await;

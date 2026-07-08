@@ -442,6 +442,8 @@ fn session_preview_from_raw_content(raw: &str) -> String {
     nav_text_excerpt(&value_text(&value), 180)
 }
 
+const MIN_HISTORICAL_TURN_DURATION_MS: f64 = 1000.0;
+
 fn inject_turn_durations(messages: &mut Vec<serde_json::Value>) {
     let mut last_user_ts: Option<f64> = None;
     for message in messages.iter_mut() {
@@ -465,6 +467,9 @@ fn inject_turn_durations(messages: &mut Vec<serde_json::Value>) {
                 if let Some(prev_user_ts) = last_user_ts {
                     if msg_ts >= prev_user_ts {
                         let duration_ms = (msg_ts - prev_user_ts) * 1000.0;
+                        if duration_ms < MIN_HISTORICAL_TURN_DURATION_MS {
+                            continue;
+                        }
                         if let Some(obj) = message.as_object_mut() {
                             if let Some(n) = serde_json::Number::from_f64(duration_ms) {
                                 obj.insert("duration_ms".to_string(), serde_json::Value::Number(n));

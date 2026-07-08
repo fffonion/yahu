@@ -31,6 +31,12 @@ describe('final assistant message metadata', () => {
     expect(styles).toContain('.msg-turn-metadata{margin-top:10px;color:color-mix(in srgb,var(--muted) 82%,transparent);font-size:11px;line-height:1.35}');
   });
 
+  test('formats subsecond elapsed time as under one second, never 0ms', () => {
+    const source = app();
+    expect(source).toContain("if (ms < 1000) return 'time <1s';");
+    expect(source).not.toContain('Math.round(ms)}ms');
+  });
+
   test('omits unavailable token and cost metadata instead of rendering dash placeholders', () => {
     const source = app();
     expect(source).not.toContain("return 'tokens —';");

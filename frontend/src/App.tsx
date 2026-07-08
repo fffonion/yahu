@@ -378,7 +378,7 @@ function numericTimestampMs(value: string | number | undefined): number | undefi
 }
 function formatTurnDuration(ms?: number): string {
   if (!Number.isFinite(ms || 0) || !ms || ms <= 0) return 'time —';
-  if (ms < 1000) return `time ${Math.round(ms)}ms`;
+  if (ms < 1000) return 'time <1s';
   const seconds = ms / 1000;
   if (seconds < 60) return `time ${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
