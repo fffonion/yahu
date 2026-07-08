@@ -2791,6 +2791,7 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
   const navRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const popupTimerRef = useRef<number | null>(null);
+  const initialMobileScrollKeyRef = useRef('');
   const isMobileNavigator = useMediaQuery('(max-width: 760px)');
   const [popup, setPopup] = useState<{ item: UserMessageNavItem; top: number } | null>(null);
   const [scrollFade, setScrollFade] = useState({ before: false, after: false });
@@ -2831,6 +2832,21 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
       window.removeEventListener('resize', updateNavigatorMetrics);
     };
   }, [chatScrollRef, items.length, updateNavigatorMetrics]);
+  useEffect(() => {
+    initialMobileScrollKeyRef.current = '';
+  }, [sessionId, items.length]);
+  useLayoutEffect(() => {
+    if (!isMobileNavigator || !activeIds.size) return;
+    const track = trackRef.current;
+    if (!track || track.scrollHeight <= track.clientHeight + 1) return;
+    const key = `${sessionId}:${items.length}`;
+    if (initialMobileScrollKeyRef.current === key) return;
+    const target = track.querySelector('.user-minimap-hit.active') as HTMLElement | null;
+    if (!target) return;
+    track.scrollTop = Math.max(0, Math.min(track.scrollHeight - track.clientHeight, target.offsetTop - (track.clientHeight - target.clientHeight) / 2));
+    initialMobileScrollKeyRef.current = key;
+    updateNavigatorMetrics();
+  }, [activeIds, isMobileNavigator, items.length, sessionId, updateNavigatorMetrics]);
   useEffect(() => () => clearPopupTimer(), [clearPopupTimer]);
   useEffect(() => {
     if (!isMobileNavigator || !popup) return;
@@ -2842,6 +2858,10 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
     document.addEventListener('pointerdown', closeMobilePopupOnOutsidePointer);
     return () => document.removeEventListener('pointerdown', closeMobilePopupOnOutsidePointer);
   }, [hidePopup, isMobileNavigator, popup]);
+  const handlePopupClick = useCallback((item: UserMessageNavItem) => {
+    hidePopup();
+    onJumpToMessage(sessionId, item.id);
+  }, [hidePopup, onJumpToMessage, sessionId]);
   const handleNavigatorClick = useCallback((item: UserMessageNavItem, event: React.MouseEvent<HTMLButtonElement>) => {
     if (isMobileNavigator) {
       event.preventDefault();
@@ -2858,7 +2878,7 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
         <span className="user-minimap-bar" />
       </button>)}
     </div>
-    {popup && <span className="user-minimap-popup" style={{ top: `${popup.top}px` }}><strong>{popup.item.content || 'User message'}</strong>{popup.item.assistant_preview && <span className="user-minimap-assistant-preview">{popup.item.assistant_preview}</span>}{formatNavigatorTime(popup.item.timestamp) && <time>{formatNavigatorTime(popup.item.timestamp)}</time>}</span>}
+    {popup && <button type="button" className="user-minimap-popup" style={{ top: `${popup.top}px` }} onClick={() => handlePopupClick(popup.item)}><strong>{popup.item.content || 'User message'}</strong>{popup.item.assistant_preview && <span className="user-minimap-assistant-preview">{popup.item.assistant_preview}</span>}{formatNavigatorTime(popup.item.timestamp) && <time>{formatNavigatorTime(popup.item.timestamp)}</time>}</button>}
   </nav>;
 }
 

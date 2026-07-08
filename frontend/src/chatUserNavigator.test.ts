@@ -119,6 +119,25 @@ describe('chat user message navigator', () => {
     expect(styles).not.toContain('.user-minimap-popup{display:none}}');
   });
 
+  test('mobile minimap popup can be tapped again to jump to its user message', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('const handlePopupClick = useCallback((item: UserMessageNavItem) => {');
+    expect(source).toContain('hidePopup();\n    onJumpToMessage(sessionId, item.id);');
+    expect(source).toContain('onClick={() => handlePopupClick(popup.item)}');
+    expect(source).toContain('<button type="button" className="user-minimap-popup"');
+    expect(styles).toContain('@media (max-width:760px){.user-minimap-popup{left:28px;width:min(300px,calc(100vw - 48px));max-width:calc(100vw - 48px);padding:9px 10px;border-radius:12px;z-index:3;pointer-events:auto}');
+  });
+
+  test('mobile minimap initially scrolls overflowing track to the active viewport bar', () => {
+    const source = app();
+    expect(source).toContain("const initialMobileScrollKeyRef = useRef('');");
+    expect(source).toContain("initialMobileScrollKeyRef.current = '';");
+    expect(source).toContain('if (!isMobileNavigator || !activeIds.size) return;');
+    expect(source).toContain("const target = track.querySelector('.user-minimap-hit.active') as HTMLElement | null;");
+    expect(source).toContain('track.scrollTop = Math.max(0, Math.min(track.scrollHeight - track.clientHeight, target.offsetTop - (track.clientHeight - target.clientHeight) / 2));');
+  });
+
   test('sizes minimap from the chat history viewport and fades only scrollable edges', () => {
     const source = app();
     const styles = css();
