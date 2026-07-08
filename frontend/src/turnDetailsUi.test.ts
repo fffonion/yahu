@@ -55,6 +55,7 @@ describe('turn detail fold UI', () => {
     const styles = css();
     expect(styles).toContain('.turn-detail-group');
     expect(styles).toContain('.turn-detail-summary');
+    expect(styles).toContain('.turn-detail-group{display:grid;width:100%;max-width:920px;align-self:flex-start;');
     expect(styles).toContain('.turn-detail-group:not([open]) .turn-detail-body{display:none}');
     expect(styles).toContain('.turn-detail-body .tool-summary');
     expect(styles).toContain('.turn-detail-body .msg-reasoning');
