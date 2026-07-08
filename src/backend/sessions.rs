@@ -55,7 +55,7 @@ async fn rename_session_lineage(
     if base_title.is_empty() {
         return json_error(StatusCode::BAD_REQUEST, "title is required");
     }
-    let entries = session_history_entries(&state, &session_id).await;
+    let entries = session_rename_entries(&state, &session_id).await;
     let mut updated_ids = Vec::new();
     let mut titles = serde_json::Map::new();
     let mut requested_title = base_title.clone();
@@ -103,6 +103,18 @@ async fn rename_session_lineage(
         "titles": titles,
         "updated_ids": updated_ids,
     })).into_response()
+}
+
+async fn session_rename_entries(state: &AppState, session_id: &str) -> Vec<SessionLineageEntry> {
+    let mut entries = session_history_entries(state, session_id).await;
+    match fetch_local_rename_entries(state, session_id) {
+        Ok(Some(local_entries)) if local_entries.len() > entries.len() => {
+            entries = local_entries;
+        }
+        Ok(_) => {}
+        Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local rename session history metadata"),
+    }
+    entries
 }
 
 async fn patch_session_title(state: &AppState, session_id: &str, title: &str) -> anyhow::Result<()> {
@@ -927,6 +939,11 @@ fn local_session_reset_predecessor_id(
             )
             .optional();
     }
+    if chat_id.as_deref().unwrap_or("").trim().is_empty()
+        && thread_id.as_deref().unwrap_or("").trim().is_empty()
+    {
+        return Ok(None);
+    }
     conn.query_row(
         "SELECT id FROM sessions
          WHERE id != ?1
@@ -942,6 +959,122 @@ fn local_session_reset_predecessor_id(
         |row| row.get::<_, String>(0),
     )
     .optional()
+}
+
+fn local_session_reset_successor_id(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Option<String>> {
+    if !sqlite_table_has_columns(
+        conn,
+        "sessions",
+        &[
+            "started_at",
+            "ended_at",
+            "end_reason",
+            "source",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let row: Option<(Option<f64>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT ended_at, end_reason, session_key, source, chat_id, thread_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        )
+        .optional()?;
+    let Some((Some(ended_at), Some(end_reason), session_key, source, chat_id, thread_id)) = row else {
+        return Ok(None);
+    };
+    if end_reason != "session_reset" && end_reason != "agent_close" {
+        return Ok(None);
+    }
+    if let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) {
+        return conn
+            .query_row(
+                "SELECT id FROM sessions
+                 WHERE id != ?1
+                   AND started_at >= ?2 - 1.0
+                   AND session_key = ?3
+                   AND source IS ?4
+                   AND chat_id IS ?5
+                   AND thread_id IS ?6
+                 ORDER BY started_at ASC
+                 LIMIT 1",
+                rusqlite::params![
+                    session_id,
+                    ended_at,
+                    session_key,
+                    source,
+                    chat_id,
+                    thread_id
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional();
+    }
+    if chat_id.as_deref().unwrap_or("").trim().is_empty()
+        && thread_id.as_deref().unwrap_or("").trim().is_empty()
+    {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT id FROM sessions
+         WHERE id != ?1
+           AND started_at >= ?2 - 1.0
+           AND source IS ?3
+           AND chat_id IS ?4
+           AND thread_id IS ?5
+         ORDER BY started_at ASC
+         LIMIT 1",
+        rusqlite::params![session_id, ended_at, source, chat_id, thread_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+}
+
+fn local_session_rename_entries(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Vec<SessionLineageEntry>> {
+    const MAX_SESSION_RENAME_DEPTH: usize = 100;
+    let mut entries = local_session_history_entries(conn, session_id)?;
+    let mut known = entries
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<HashSet<_>>();
+    let mut cursor = entries.last().map(|entry| entry.id.clone());
+    while let Some(current_id) = cursor.clone() {
+        if entries.len() >= MAX_SESSION_RENAME_DEPTH {
+            break;
+        }
+        let Some(successor_id) = local_session_reset_successor_id(conn, &current_id)? else {
+            break;
+        };
+        if known.contains(&successor_id) {
+            break;
+        }
+        let successor_entries = local_session_lineage_entries(conn, &successor_id)?;
+        if successor_entries.is_empty() {
+            break;
+        }
+        let mut appended = false;
+        for entry in successor_entries {
+            if known.insert(entry.id.clone()) {
+                cursor = Some(entry.id.clone());
+                entries.push(entry);
+                appended = true;
+            }
+        }
+        if !appended {
+            break;
+        }
+    }
+    Ok(entries)
 }
 
 fn local_session_history_entries(
@@ -1132,6 +1265,25 @@ fn fetch_local_history_entries(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     let entries = local_session_history_entries(&conn, session_id)?;
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(entries))
+}
+
+fn fetch_local_rename_entries(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<Vec<SessionLineageEntry>>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let entries = local_session_rename_entries(&conn, session_id)?;
     if entries.is_empty() {
         return Ok(None);
     }

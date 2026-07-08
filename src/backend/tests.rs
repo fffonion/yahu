@@ -588,6 +588,89 @@ mod tests {
         ]);
     }
 
+    #[tokio::test]
+    async fn session_lineage_rename_from_reset_predecessor_includes_successor_session() {
+        use std::sync::Mutex;
+
+        #[derive(Clone)]
+        struct RenameApiState {
+            patched: Arc<Mutex<Vec<(String, String)>>>,
+        }
+
+        async fn api_session(
+            State(state): State<RenameApiState>,
+            AxumPath(session_id): AxumPath<String>,
+            method: Method,
+            body: Body,
+        ) -> Json<serde_json::Value> {
+            if method == Method::PATCH {
+                let bytes = to_bytes(body, usize::MAX).await.unwrap();
+                let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                state.patched.lock().unwrap().push((
+                    session_id.clone(),
+                    payload["title"].as_str().unwrap_or_default().to_string(),
+                ));
+            }
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": null, "title": "old"}
+            }))
+        }
+
+        let patched = Arc::new(Mutex::new(Vec::new()));
+        let api_state = RenameApiState { patched: patched.clone() };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let api_app = Router::new()
+            .route("/api/sessions/{session_id}", any(api_session))
+            .with_state(api_state);
+        tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                title TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('old_root',NULL,'Old #1',1,2,'compression','telegram','agent:telegram:group:chat:topic','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('old_tip','old_root','Old #2',2,10,'session_reset','telegram','agent:telegram:group:chat:topic','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('current',NULL,'Old',10.5,NULL,NULL,'telegram','agent:telegram:group:chat:topic','chat','topic')", []).unwrap();
+        let local_entries = local_session_rename_entries(&conn, "old_tip").unwrap();
+        assert_eq!(local_entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(), vec!["old_root", "old_tip", "current"]);
+        drop(conn);
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let resp = rename_session_lineage(
+            State(state),
+            AxumPath("old_tip".to_string()),
+            Json(SessionRenamePayload { title: "Unified title".to_string() }),
+        ).await;
+        let body = axum::body::to_bytes(resp.into_response().into_body(), usize::MAX).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["updated_ids"], serde_json::json!(["old_root", "old_tip", "current"]));
+        assert_eq!(payload["titles"], serde_json::json!({
+            "old_root": "Unified title #1",
+            "old_tip": "Unified title",
+            "current": "Unified title #3",
+        }));
+        assert_eq!(*patched.lock().unwrap(), vec![
+            ("old_root".to_string(), "Unified title #1".to_string()),
+            ("old_tip".to_string(), "Unified title".to_string()),
+            ("current".to_string(), "Unified title #3".to_string()),
+        ]);
+    }
     #[test]
     fn session_watch_reads_api_server_data_and_legacy_messages_shapes() {
         let data_body = serde_json::json!({
