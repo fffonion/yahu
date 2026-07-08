@@ -28,13 +28,19 @@ describe('chat reasoning display toggle', () => {
     expect(source).toContain("className=\"msg-reasoning msg-reasoning-collapsed\"");
   });
 
-  test('pre-tool assistant text stays visible but its thinking block is collapsed by default', () => {
+  test('pre-tool assistant text stays visible but its thinking block summary says completed thinking with elapsed time', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("<details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label={t('chat.details')}><summary><span className=\"reasoning-chevron\"><ChevronRight /></span> <span>{t('chat.details')}</span></summary><pre>{message.reasoning}</pre></details>");
+    const i18n = readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
+    expect(source).toContain('function reasoningSummaryLabel(message: ChatMessage): string');
+    expect(source).toContain("const reasoningSummary = reasoningSummaryLabel(message);");
+    expect(source).toContain("<details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label={reasoningSummary}><summary><span className=\"reasoning-chevron\"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>");
+    expect(source).not.toContain("<span>{t('chat.details')}</span></summary><pre>{message.reasoning}</pre>");
     expect(source).not.toContain(">Thinking<");
     expect(source).not.toContain("aria-label=\"Reasoning / thinking\"");
     expect(source).not.toContain("<section className=\"msg-reasoning\"");
+    expect(i18n).toContain("'chat.reasoned'");
+    expect(i18n).toContain("'zh-CN': '已思考'");
     expect(styles).toContain('.msg-reasoning>summary');
     expect(styles).toContain('.reasoning-chevron{display:inline-grid;place-items:center;width:15px;height:15px;color:var(--muted);transition:transform .15s ease;flex:0 0 auto}');
     expect(styles).toContain('.reasoning-chevron svg{width:15px;height:15px}');

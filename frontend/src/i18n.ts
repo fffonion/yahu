@@ -47,6 +47,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.queue': { en: 'Queue', 'zh-CN': '队列', 'zh-TW': '佇列', ja: 'キュー' },
   'chat.model': { en: 'Model', 'zh-CN': '模型', 'zh-TW': '模型', ja: 'モデル' },
   'chat.reasoning': { en: 'Reasoning', 'zh-CN': '推理', 'zh-TW': '推理', ja: '推論' },
+  'chat.reasoned': { en: 'Reasoned', 'zh-CN': '已思考', 'zh-TW': '已思考', ja: '思考済み' },
   'chat.queuedFollowUps': { en: 'Queued follow-ups', 'zh-CN': '追问队列', 'zh-TW': '追問佇列', ja: 'フォローアップキュー' },
   'chat.steerNow': { en: 'Steer now', 'zh-CN': '立即 steer', 'zh-TW': '立即 steer', ja: '今すぐ steer' },
   'chat.steer': { en: 'Steer', 'zh-CN': 'Steer', 'zh-TW': 'Steer', ja: 'Steer' },

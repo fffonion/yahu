@@ -404,6 +404,14 @@ function messageTurnMetadata(message: ChatMessage): string {
   if (metrics.costUsd !== undefined) metadataParts.push(formatTurnCost(metrics.costUsd));
   return metadataParts.join(' · ');
 }
+function formatReasoningDuration(ms?: number): string {
+  const formatted = formatTurnDuration(ms);
+  return formatted === 'time —' ? '' : formatted.replace(/^time\s+/, '');
+}
+function reasoningSummaryLabel(message: ChatMessage): string {
+  const elapsed = formatReasoningDuration(message.turnMetrics?.elapsedMs);
+  return elapsed ? `${t('chat.reasoned')} ${elapsed}` : t('chat.reasoned');
+}
 function normalizeMessage(raw: any): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);
   const platformSender = raw.role === 'user' ? parsePlatformSenderMessage(parts.content) : { content: parts.content };
@@ -2676,6 +2684,7 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
   const senderLabel = messageSenderLabel(message, assistantName);
   const html = markdownText(message.content || fallback);
   const turnMetadata = messageTurnMetadata(message);
+  const reasoningSummary = reasoningSummaryLabel(message);
   const showTurnMetadata = message.role === 'assistant' && !isPending && !isToolPrelude && !!turnMetadata;
   return (
     <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}${isToolPrelude ? ' tool-prelude' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
@@ -2689,7 +2698,7 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
           <div className="md-content" dangerouslySetInnerHTML={{ __html: html }} />
           {isPending && <span className="stream-caret" aria-hidden="true" />}
         </div>
-        {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={t('chat.details')}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{t('chat.details')}</span></summary><pre>{message.reasoning}</pre></details>}
+        {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>}
         {showTurnMetadata && <div className="msg-turn-metadata" aria-label={t('chat.details')}>{turnMetadata}</div>}
       </div>
     </article>
