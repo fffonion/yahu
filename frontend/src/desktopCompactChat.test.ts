@@ -30,11 +30,11 @@ describe('desktop compact chat toggle', () => {
   test('desktop compact mode uses flat left-aligned user turns with a divider', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}");
+    expect(source).toContain("chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}");
     expect(source).toContain('className="desktop-turn-block"');
     expect(source).toContain('buildDesktopTurnBlocks(turnDetailItems)');
     expect(styles).toContain('.desktop-compact-chat .msg-content{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0}');
-    expect(styles).toContain('.desktop-compact-chat .tool-card{background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}');
+    expect(styles).toContain('.desktop-compact-chat .tool-card,.mobile-compact-chat .tool-card{background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}');
     expect(styles).toContain('.desktop-compact-chat .desktop-turn-block{border:1px solid var(--border);border-radius:var(--radius-lg);');
     expect(styles).toContain('.desktop-compact-chat .msg-row.user{margin-left:0;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:2px}');
     expect(styles).toContain('.desktop-compact-chat .msg-row.user .msg-content{grid-column:1;justify-self:start;max-width:100%;background:transparent}');
