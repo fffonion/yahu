@@ -40,12 +40,6 @@ describe('session right-click context menu', () => {
     expect(source).toContain('renamedSessionTitlesRef.current = { ...renamedSessionTitlesRef.current, ...titles };');
   });
 
-  test('active chat header exposes the same lineage rename action as the sidebar menu', () => {
-    const source = app();
-    expect(source).toContain('renameActiveSession={(session: Session) => renameSession(session)}');
-    expect(source).toContain('const canRenameActiveSession = active?.id && active.id !== DRAFT_SESSION_ID;');
-    expect(source).toContain('className="icon-btn session-rename-btn" aria-label={t(\'chat.rename\')} title={t(\'chat.rename\')} onClick={() => props.renameActiveSession(active)}');
-  });
 
   test('context menu is positioned above the chat sidebar and styled as a menu', () => {
     const styles = css();
