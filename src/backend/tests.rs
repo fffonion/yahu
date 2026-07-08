@@ -1027,7 +1027,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("current".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("full".to_string()) }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -1090,7 +1090,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("child".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("full".to_string()) }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -1166,6 +1166,17 @@ mod tests {
         assert_eq!(skeleton_data[1]["turn_details"]["after_id"], "1");
         assert_eq!(skeleton_data[1]["turn_details"]["before_id"], "4");
 
+        let default_resp = chat_messages_page(
+            State(state.clone()),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
+        ).await;
+        let default_body = axum::body::to_bytes(default_resp.into_body(), usize::MAX).await.unwrap();
+        let default_page: serde_json::Value = serde_json::from_slice(&default_body).unwrap();
+        let default_roles: Vec<_> = default_page["data"].as_array().unwrap().iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
+        assert_eq!(default_roles, skeleton_roles);
+        assert_eq!(default_page["data"].as_array().unwrap()[1]["turn_details"]["count"], 2);
+
         let details = chat_messages_page(
             State(state),
             AxumPath("s1".to_string()),
@@ -1210,7 +1221,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("child".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(1), view: None }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(1), view: Some("full".to_string()) }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -1297,7 +1308,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("current".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("full".to_string()) }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -1385,7 +1396,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("current".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: None }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("full".to_string()) }),
         )
         .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -2023,7 +2034,7 @@ mod tests {
         let resp = chat_messages_page(
             State(state),
             AxumPath("s1".to_string()),
-            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(3), view: None }),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(3), view: Some("full".to_string()) }),
         ).await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         let page: serde_json::Value = serde_json::from_slice(&body).unwrap();

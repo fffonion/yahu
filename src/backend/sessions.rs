@@ -587,7 +587,7 @@ async fn chat_messages_page(
         }
     };
     inject_turn_durations(&mut all);
-    let view = query.view.as_deref().unwrap_or("full");
+    let view = query.view.as_deref().unwrap_or("skeleton");
     let (started_at, last_active) = stitched_message_boundary_times(&all);
     if view == "details" {
         let (page, has_older, has_newer, total) = detail_range_messages(&all, &query, limit);
