@@ -19,16 +19,15 @@ describe('final assistant message metadata', () => {
     expect(source).toContain('if (metrics) msg.turnMetrics = metrics;');
   });
 
-  test('renders final assistant metadata at the bottom in muted smaller text', () => {
+  test('renders final assistant metadata from backend-provided metrics only', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain('function messageTurnMetadata(message: ChatMessage, turnStartedAt?: string | number): string');
-    expect(source).toContain('const turnMetadata = messageTurnMetadata(message, turnStartedAt);');
+    expect(source).toContain('function messageTurnMetadata(message: ChatMessage): string');
+    expect(source).toContain('const turnMetadata = messageTurnMetadata(message);');
     expect(source).toContain("message.role === 'assistant' && !isPending && !isToolPrelude");
     expect(source).toContain('<div className="msg-turn-metadata" aria-label={t(\'chat.details\')}>{turnMetadata}</div>');
-    expect(source).toContain('let lastUserTimestamp: string | number | undefined;');
-    expect(source).toContain('const turnStartedAt = m.role === \'assistant\' ? lastUserTimestamp : undefined;');
-    expect(source).toContain('<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={turnStartedAt} />');
+    expect(source).not.toContain('numericTimestampMs(turnStartedAt)');
+    expect(source).not.toContain('endMs - startMs');
     expect(styles).toContain('.msg-turn-metadata{margin-top:10px;color:color-mix(in srgb,var(--muted) 82%,transparent);font-size:11px;line-height:1.35}');
   });
 
@@ -42,13 +41,13 @@ describe('final assistant message metadata', () => {
     expect(source).toContain("return metadataParts.join(' · ');");
   });
 
-  test('live streaming stores elapsed time and usage on the completed assistant row', () => {
+  test('live streaming uses backend elapsed time and usage on the completed assistant row', () => {
     const source = app();
-    expect(source).toContain('const turnStartedAtMs = Date.now();');
+    expect(source).not.toContain('const turnStartedAtMs = Date.now();');
     expect(source).toContain('let turnMetrics: ChatTurnMetrics | undefined;');
     expect(source).toContain('turnMetrics = mergeTurnMetrics(turnMetrics, readTurnMetrics(payload));');
     expect(source).toContain('turnMetrics = mergeTurnMetrics(turnMetrics, readTurnMetrics(payload.messages?.[0]));');
-    expect(source).toContain('const completedMetrics = mergeTurnMetrics(turnMetrics, { elapsedMs: Date.now() - turnStartedAtMs });');
-    expect(source).toContain('turnMetrics: completedMetrics');
+    expect(source).not.toContain('elapsedMs: Date.now() - turnStartedAtMs');
+    expect(source).toContain('turnMetrics: turnMetrics');
   });
 });

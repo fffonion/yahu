@@ -393,12 +393,10 @@ function formatTurnCost(value: number): string {
   if (value < 0.01) return `cost $${value.toFixed(4)}`;
   return `cost $${value.toFixed(3)}`;
 }
-function messageTurnMetadata(message: ChatMessage, turnStartedAt?: string | number): string {
+function messageTurnMetadata(message: ChatMessage): string {
   if (message.role !== 'assistant' || message.pending || isAssistantToolPreludeMessage(message) || !message.content.trim()) return '';
   const metrics = message.turnMetrics || {};
-  const endMs = numericTimestampMs(message.timestamp);
-  const startMs = numericTimestampMs(turnStartedAt);
-  const elapsedMs = metrics.elapsedMs ?? (endMs !== undefined && startMs !== undefined && endMs >= startMs ? endMs - startMs : undefined);
+  const elapsedMs = metrics.elapsedMs;
   const totalTokens = metrics.totalTokens ?? message.tokenCount ?? ((metrics.inputTokens || metrics.outputTokens) ? (metrics.inputTokens || 0) + (metrics.outputTokens || 0) : undefined);
   const detail = metrics.inputTokens || metrics.outputTokens ? ` (in ${Math.round(metrics.inputTokens || 0).toLocaleString()} / out ${Math.round(metrics.outputTokens || 0).toLocaleString()})` : '';
   const metadataParts = [formatTurnDuration(elapsedMs)];
@@ -1760,8 +1758,7 @@ export default function App() {
     const sessionProvider = resolveModelProvider(modelsRef.current, sessionModel, sessionOverride?.provider ?? (providerRef.current || createdSession?.provider || activeSession?.provider || activeSessionDetail?.provider || ''));
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: userText, timestamp: Date.now() / 1000 };
     const assistantId = uid('assistant');
-    const turnStartedAtMs = Date.now();
-    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, timestamp: turnStartedAtMs / 1000, model: sessionModel, provider: sessionProvider };
+    const assistantMsg: ChatMessage = { id: assistantId, role: 'assistant', content: '', pending: true, timestamp: Date.now() / 1000, model: sessionModel, provider: sessionProvider };
     const payloadInput = buildPayload(text, payloadAttachments);
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
@@ -1840,8 +1837,7 @@ export default function App() {
       // before flipping `pending: false`, so the caret / shimmer / glow run for the full duration.
       await animator.finish(finalText);
       sessionId = await reconcileEffectiveSession(sessionId, effectiveSessionId, createdSession);
-      const completedMetrics = mergeTurnMetrics(turnMetrics, { elapsedMs: Date.now() - turnStartedAtMs });
-      setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning, timestamp: Date.now() / 1000, turnMetrics: completedMetrics } : m));
+      setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning, timestamp: Date.now() / 1000, turnMetrics: turnMetrics } : m));
       setStatus(t('chat.connected'));
       await refreshSessionTitleOnce(sessionId);
       await loadWorkspace(workspacePath);
@@ -2602,7 +2598,7 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
     </div>
   </div>;
 }
-function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt, sessionId }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; turnStartedAt?: string | number; sessionId?: string }) {
+function TurnDetailGroup({ item, showReasoning, assistantName, sessionId }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; sessionId?: string }) {
   const [open, setOpen] = useState(false);
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -2633,7 +2629,7 @@ function TurnDetailGroup({ item, showReasoning, assistantName, turnStartedAt, se
     <div className="turn-detail-body">
       {loading ? t('status.loading') : null}
       {error && <p className="error-text">{error}</p>}
-      {detailMessages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={message.role === 'assistant' ? turnStartedAt : undefined} suppressMessageAnchor={!open} />)}
+      {detailMessages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} suppressMessageAnchor={!open} />)}
     </div>
   </details>;
 }
@@ -2643,24 +2639,23 @@ function DesktopTurnBlock({ block, showReasoning, assistantName, sessionId }: { 
   return <article className="desktop-turn-block" data-turn-block-id={block.id}>
     {block.items.map((item) => {
       if (item.kind === 'detailGroup') {
-        return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={lastUserTimestamp} sessionId={sessionId} />;
+        return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} sessionId={sessionId} />;
       }
       const message = item.message;
-      const turnStartedAt = message.role === 'assistant' ? lastUserTimestamp : undefined;
       if (message.role === 'user') lastUserTimestamp = message.timestamp;
-      return <MessageView key={message.id || item.sourceIndexes.join('-')} message={message} showReasoning={showReasoning} assistantName={assistantName} turnStartedAt={turnStartedAt} />;
+      return <MessageView key={message.id || item.sourceIndexes.join('-')} message={message} showReasoning={showReasoning} assistantName={assistantName} />;
     })}
   </article>;
 }
 
-function MessageView({ message, showReasoning = false, assistantName, turnStartedAt, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; turnStartedAt?: string | number; suppressMessageAnchor?: boolean }) {
+function MessageView({ message, showReasoning = false, assistantName, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; suppressMessageAnchor?: boolean }) {
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} suppressMessageAnchor={suppressMessageAnchor} />;
   const isPending = !!message.pending;
   const isToolPrelude = isAssistantToolPreludeMessage(message);
   const fallback = isPending ? '…' : '';
   const senderLabel = messageSenderLabel(message, assistantName);
   const html = markdownText(message.content || fallback);
-  const turnMetadata = messageTurnMetadata(message, turnStartedAt);
+  const turnMetadata = messageTurnMetadata(message);
   const showTurnMetadata = message.role === 'assistant' && !isPending && !isToolPrelude && !!turnMetadata;
   return (
     <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}${isToolPrelude ? ' tool-prelude' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
@@ -2978,18 +2973,17 @@ function ChatMain(props: any) {
           const sourceIndex = item.sourceIndexes[0] ?? -1;
           const showSplit = splitIdx >= 0 && item.sourceIndexes.includes(splitIdx);
           if (item.kind === 'detailGroup') {
-            const group = <TurnDetailGroup item={item} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={lastUserTimestamp} sessionId={props.activeSessionId} />;
+            const group = <TurnDetailGroup item={item} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} sessionId={props.activeSessionId} />;
             return <React.Fragment key={item.id}>
               {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
               {group}
             </React.Fragment>;
           }
           const m = item.message;
-          const turnStartedAt = m.role === 'assistant' ? lastUserTimestamp : undefined;
           if (m.role === 'user') lastUserTimestamp = m.timestamp;
           return <React.Fragment key={m.id || sourceIndex}>
             {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-            <MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} turnStartedAt={turnStartedAt} />
+            <MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />
           </React.Fragment>;
         });
       })()}

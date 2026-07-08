@@ -1575,6 +1575,7 @@ mod tests {
         tokio::spawn(async move { axum::serve(listener, api_app).await.unwrap() });
         let temp = tempfile::tempdir().unwrap();
         let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        let state_for_assert = state.clone();
 
         let body = serde_json::json!({
             "input": "hello",
@@ -1590,6 +1591,17 @@ mod tests {
         ).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let _ = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+
+        // The final assistant snapshot must carry duration_ms >= 1 (not missing, not 0)
+        let snapshot = state_for_assert.active_chat_streams.read().await.get("session-1").cloned().unwrap_or_default();
+        let final_assistant = snapshot.iter().find(|m| {
+            m.get("role").and_then(|r| r.as_str()) == Some("assistant")
+                && !m.get("pending").and_then(|p| p.as_bool()).unwrap_or(true)
+        });
+        assert!(final_assistant.is_some(), "no completed assistant in snapshot");
+        let duration_ms = final_assistant.unwrap().get("duration_ms").and_then(|v| v.as_f64());
+        assert!(duration_ms.is_some(), "final assistant must have duration_ms, snapshot: {snapshot:?}");
+        assert!(duration_ms.unwrap() > 0.0, "duration_ms must be > 0, got {:?}", duration_ms);
 
         let calls = calls.lock().unwrap().clone();
         assert_eq!(calls.len(), 2, "calls: {calls:?}");

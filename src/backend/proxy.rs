@@ -478,6 +478,7 @@ fn chat_streaming_body(
         let mut buffer = String::new();
         let mut final_text = String::new();
         let mut reasoning_text = String::new();
+        let stream_started = std::time::Instant::now();
         futures_util::pin_mut!(upstream);
         while let Some(item) = futures_util::StreamExt::next(&mut upstream).await {
             let chunk = match item {
@@ -594,6 +595,7 @@ fn chat_streaming_body(
                             "reasoning": reasoning_text,
                             "pending": false,
                             "timestamp": unix_now_seconds(),
+                            "duration_ms": stream_started.elapsed().as_secs_f64() * 1000.0,
                         }),
                     ).await;
                 } else if matches!(effective_event.as_str(), "run.completed" | "done" | "run.cancelled" | "run.failed") {
@@ -626,6 +628,7 @@ fn chat_streaming_body(
                                 "reasoning": reasoning_text,
                                 "pending": false,
                                 "timestamp": unix_now_seconds(),
+                                "duration_ms": stream_started.elapsed().as_secs_f64() * 1000.0,
                             }),
                         ).await;
                     }
