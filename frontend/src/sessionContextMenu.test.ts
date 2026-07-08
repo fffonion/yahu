@@ -28,11 +28,15 @@ describe('session right-click context menu', () => {
     expect(source).not.toContain('const patched = (body.data || body.session || body) as Session;');
   });
 
-  test('session list refresh preserves a renamed title when search rows are stale', () => {
+  test('session refreshes preserve a renamed title while a stream is still active', () => {
     const source = app();
     expect(source).toContain('const renamedSessionTitlesRef = useRef<Record<string, string>>({});');
+    expect(source).toContain('const applyRenamedSessionTitleOverride = useCallback((session: Session) => {');
     expect(source).toContain('const titleOverride = renamedSessionTitlesRef.current[session.id];');
-    expect(source).toContain('if (titleOverride && String(session.title || \'\').trim() !== titleOverride) session = { ...session, title: titleOverride };');
+    expect(source).toContain('if (titleOverride && String(session.title || \'\').trim() !== titleOverride) return { ...session, title: titleOverride };');
+    expect(source).toContain('const detail = applyRenamedSessionTitleOverride((body.data || body.session || body) as Session);');
+    expect(source).toContain('const session = applyRenamedSessionTitleOverride(rawSession);');
+    expect(source).toContain('return sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id));');
     expect(source).toContain('renamedSessionTitlesRef.current = { ...renamedSessionTitlesRef.current, ...titles };');
   });
 

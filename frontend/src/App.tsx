@@ -780,6 +780,12 @@ export default function App() {
   const showToolCallsRef = useRef(showToolCalls);
   const newMessageBoundaryIdRef = useRef(newMessageBoundaryId);
   const renamedSessionTitlesRef = useRef<Record<string, string>>({});
+  const applyRenamedSessionTitleOverride = useCallback((session: Session) => {
+    const titleOverride = renamedSessionTitlesRef.current[session.id];
+    if (titleOverride && String(session.title || '').trim() !== titleOverride) return { ...session, title: titleOverride };
+    if (titleOverride) delete renamedSessionTitlesRef.current[session.id];
+    return session;
+  }, []);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { modelsRef.current = models; }, [models]);
   useEffect(() => { modelRef.current = model; }, [model]);
@@ -1014,16 +1020,13 @@ export default function App() {
       if (version !== searchVersionRef.current) return;
       const list: Session[] = body.data || [];
       setSessions((old) => list.map((rawSession) => {
-        let session = rawSession;
-        const titleOverride = renamedSessionTitlesRef.current[session.id];
-        if (titleOverride && String(session.title || '').trim() !== titleOverride) session = { ...session, title: titleOverride };
-        else if (titleOverride) delete renamedSessionTitlesRef.current[session.id];
+        const session = applyRenamedSessionTitleOverride(rawSession);
         return sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id));
       }));
       if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
     } catch (err: any) { setStatus(tf('status.sessionsUnavailable', err.message)); }
-  }, [filter, headers, switchActiveSession]);
+  }, [filter, headers, switchActiveSession, applyRenamedSessionTitleOverride]);
 
   const loadSessionDetail = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
@@ -1032,11 +1035,11 @@ export default function App() {
       const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}`), { headers: headers(false) });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const body = await res.json();
-      const detail = (body.data || body.session || body) as Session;
+      const detail = applyRenamedSessionTitleOverride((body.data || body.session || body) as Session);
       setActiveSessionDetail((old) => sessionWithPreservedMessageCount(detail, old));
       setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(detail, s) } : s) : [detail, ...old]);
     } catch (err: any) { setStatus(tf('status.sessionDetailUnavailable', err.message)); }
-  }, [apiBase, headers]);
+  }, [apiBase, headers, applyRenamedSessionTitleOverride]);
 
   const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {
     const parsed = Number(total);
