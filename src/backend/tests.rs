@@ -1319,8 +1319,8 @@ mod tests {
         let skeleton_roles: Vec<_> = skeleton_data.iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
         let skeleton_texts: Vec<_> = skeleton_data.iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
 
-        assert_eq!(skeleton_roles, vec!["user", "assistant", "user"]);
-        assert_eq!(skeleton_texts, vec!["do it", "final answer", "next prompt"]);
+        assert_eq!(skeleton_roles, vec!["user", "assistant", "user", "tool"]);
+        assert_eq!(skeleton_texts, vec!["do it", "final answer", "next prompt", "unfinished detail"]);
         assert_eq!(skeleton_data[1]["turn_details"]["count"], 2);
         assert_eq!(skeleton_data[1]["turn_details"]["tool_count"], 1);
         assert_eq!(skeleton_data[1]["turn_details"]["thinking_count"], 1);
@@ -1347,6 +1347,38 @@ mod tests {
         let details_page: serde_json::Value = serde_json::from_slice(&details_body).unwrap();
         let details_texts: Vec<_> = details_page["data"].as_array().unwrap().iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
         assert_eq!(details_texts, vec!["I will inspect", "{\"ok\":true}"]);
+    }
+
+    #[test]
+    fn history_skeleton_preserves_long_trailing_detail_segment_for_pagination() {
+        let mut messages = vec![
+            serde_json::json!({"id": 1, "role": "user", "content": "start"}),
+            serde_json::json!({"id": 2, "role": "assistant", "content": "first answer"}),
+        ];
+        for id in 3..=32 {
+            messages.push(serde_json::json!({
+                "id": id,
+                "role": "tool",
+                "content": format!("tool result {id}"),
+            }));
+        }
+
+        let skeleton = history_skeleton_messages(&messages);
+        assert_eq!(skeleton.len(), 32);
+        let query = ChatMessagesQuery {
+            before: None,
+            after: None,
+            around: None,
+            limit: Some(5),
+            view: Some("skeleton".to_string()),
+        };
+        let (start, end) = page_bounds(&skeleton, &query, 5);
+        let ids: Vec<_> = skeleton[start..end]
+            .iter()
+            .filter_map(message_i64_id)
+            .collect();
+        assert_eq!(ids, vec![28, 29, 30, 31, 32]);
+        assert!(start > 0, "long trailing detail segment must expose older pagination");
     }
 
     #[tokio::test]

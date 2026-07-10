@@ -586,6 +586,7 @@ fn history_skeleton_messages(messages: &[serde_json::Value]) -> Vec<serde_json::
         skeleton.push(message.clone());
     }
 
+    skeleton.append(&mut detail_buffer);
     skeleton
 }
 
