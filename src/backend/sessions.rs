@@ -292,7 +292,26 @@ fn session_rows_with_local_previews(
     if let Err(err) = enrich_session_previews_from_local_db(state, &mut rows) {
         warn!(error = %err, "cannot enrich session list previews from local message history");
     }
+    sanitize_session_row_previews(&mut rows);
     rows
+}
+
+fn sanitize_session_row_previews(rows: &mut [serde_json::Value]) {
+    for row in rows {
+        let Some(preview) = row
+            .get("preview")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let cleaned = session_preview_from_raw_content(&preview);
+        if cleaned != preview
+            && let Some(obj) = row.as_object_mut()
+        {
+            obj.insert("preview".to_string(), serde_json::Value::String(cleaned));
+        }
+    }
 }
 
 fn filter_session_rows_shadowed_by_local_successors(
@@ -422,6 +441,24 @@ fn local_latest_session_preview(
     Ok(None)
 }
 
+fn strip_gateway_sender_prefix(text: &str) -> &str {
+    let Some(line_end) = text.find('\n') else {
+        return text;
+    };
+    let first_line = text[..line_end].trim_end_matches('\r');
+    if !first_line.starts_with('[') || !first_line.ends_with(']') {
+        return text;
+    }
+    let inner = &first_line[1..first_line.len() - 1];
+    let Some((name, marker)) = inner.split_once('|') else {
+        return text;
+    };
+    if name.trim().is_empty() || marker.trim().is_empty() {
+        return text;
+    }
+    &text[line_end + 1..]
+}
+
 fn session_preview_from_raw_content(raw: &str) -> String {
     fn value_text(value: &serde_json::Value) -> String {
         match value {
@@ -439,7 +476,8 @@ fn session_preview_from_raw_content(raw: &str) -> String {
         }
     }
     let value = json_or_string_field(Some(raw.to_string()));
-    nav_text_excerpt(&value_text(&value), 180)
+    let text = value_text(&value);
+    nav_text_excerpt(strip_gateway_sender_prefix(&text), 180)
 }
 
 const MIN_HISTORICAL_TURN_DURATION_MS: f64 = 1000.0;

@@ -58,12 +58,17 @@ describe('session search and composer session model UI', () => {
 
   test('active session sidebar preview is only changed by frontend during live streaming', () => {
     const app = source();
-    expect(app).toContain("import { latestSessionPreviewFromMessages } from './sessionPreview';");
+    expect(app).toContain("import { compactSessionPreview, latestSessionPreviewFromMessages } from './sessionPreview';");
     expect(app).toContain('if (streamingSessionId !== activeSessionId) return;');
     expect(app).toContain('const activePreview = latestSessionPreviewFromMessages(messages);');
     expect(app).toContain('setSessions((old) => old.map((session) => session.id === activeSessionId && session.preview !== activePreview ? { ...session, preview: activePreview } : session));');
     expect(app).toContain('setActiveSessionDetail((old) => old?.id === activeSessionId && old.preview !== activePreview ? { ...old, preview: activePreview } : old);');
     expect(app).toContain('setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, content: text, pending: true, timestamp: Date.now() / 1000 } : m));');
+  });
+
+  test('session row sanitizes API-provided preview text before rendering it', () => {
+    const app = source();
+    expect(app).toContain("compactSessionPreview(session.preview || `${session.message_count || 0} messages`)");
   });
 
   test('opened session header uses stitched history totals from message and minimap endpoints', () => {

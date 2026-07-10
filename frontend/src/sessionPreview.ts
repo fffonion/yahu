@@ -1,7 +1,9 @@
 export type SessionPreviewMessage = { role?: string; content?: string | null; pending?: boolean };
 
+const gatewaySenderPrefix = /^\[[^\]|\r\n]+\|[^\]\r\n]+\]\r?\n/;
+
 export function compactSessionPreview(text: string) {
-  return text.replace(/\s+/g, ' ').trim();
+  return text.replace(gatewaySenderPrefix, '').replace(/\s+/g, ' ').trim();
 }
 
 export function latestSessionPreviewFromMessages(messages: SessionPreviewMessage[]) {

@@ -22,4 +22,10 @@ describe('session sidebar live preview', () => {
       { role: 'assistant', content: 'partial\n\nanswer', pending: true },
     ])).toBe('partial answer');
   });
+
+  test('removes the gateway sender prefix from a user message preview', () => {
+    expect(latestSessionPreviewFromMessages([
+      { role: 'user', content: '[Alliumcepa Triplef|1698432746]\n消息本身' },
+    ])).toBe('消息本身');
+  });
 });

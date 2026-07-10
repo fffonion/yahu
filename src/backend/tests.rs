@@ -43,6 +43,16 @@ mod tests {
         assert_eq!(messages[2]["duration_ms"].as_f64().unwrap(), 12_000.0);
     }
 
+    #[test]
+    fn session_preview_removes_gateway_sender_prefix() {
+        assert_eq!(
+            session_preview_from_raw_content(
+                "[Alliumcepa Triplef|1698432746]\n会话列表只显示消息本身",
+            ),
+            "会话列表只显示消息本身",
+        );
+    }
+
     #[tokio::test]
     async fn static_app_shell_assets_are_not_http_cached() {
         let root = static_assets("/".parse::<Uri>().unwrap()).await;
@@ -515,7 +525,7 @@ mod tests {
             Json(serde_json::json!({
                 "object": "list",
                 "data": [
-                    {"id":"s1","source":"telegram","model":"minimax/m3","title":"MiniMax billing","preview":"token cache math","started_at":1.0,"message_count":1},
+                    {"id":"s1","source":"telegram","model":"minimax/m3","title":"MiniMax billing","preview":"[Alliumcepa Triplef|1698432746]\ntoken cache math","started_at":1.0,"message_count":1},
                     {"id":"tool1","source":"tool","model":"minimax/m3","title":"Tool internal","preview":"cache","started_at":2.0,"message_count":1}
                 ],
                 "has_more": false
