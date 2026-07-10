@@ -1202,6 +1202,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_history_prefers_more_complete_local_visible_history_over_active_only_api() {
+        async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({"session":{"id":session_id,"parent_session_id":null}}))
+        }
+        async fn api_messages(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({"data":[{
+                "id": 3,
+                "session_id": session_id,
+                "role": "user",
+                "content": "current active prompt",
+                "timestamp": 3
+            }]}))
+        }
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                compacted INTEGER NOT NULL DEFAULT 0
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source) VALUES ('s1',NULL,1,NULL,NULL,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active,compacted) VALUES (1,'s1','user','older compacted prompt',1,0,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active,compacted) VALUES (2,'s1','assistant','older compacted answer',2,0,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active,compacted) VALUES (3,'s1','user','current active prompt',3,1,0)", []).unwrap();
+        drop(conn);
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let messages = fetch_session_history_messages(&state, "s1").await.unwrap();
+        let texts: Vec<_> = messages.iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
+        assert_eq!(texts, vec!["older compacted prompt", "older compacted answer", "current active prompt"]);
+    }
+
+    #[tokio::test]
     async fn chat_history_trims_compression_child_carryover_prefix_without_content_dedupe() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");

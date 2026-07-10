@@ -1798,14 +1798,23 @@ async fn fetch_session_history_context_messages(
     session_id: &str,
 ) -> anyhow::Result<ContextWindowMessages> {
     let entries = session_history_entries(state, session_id).await;
+    let local_context = match fetch_local_history_context_messages(state, session_id) {
+        Ok(context) => context,
+        Err(err) => {
+            warn!(session_id = %session_id, error = %err, "cannot read local visible history");
+            None
+        }
+    };
     match fetch_api_context_window_messages(state, &entries, SessionMessageJoinMode::VisibleHistory).await {
-        Ok(context) => Ok(context),
+        Ok(api_context) => match local_context {
+            Some(local_context) if local_context.messages.len() > api_context.messages.len() => Ok(local_context),
+            _ => Ok(api_context),
+        },
         Err(err) => {
             warn!(session_id = %session_id, error = %err, "API Server history fetch failed; falling back to local state.db");
-            match fetch_local_history_context_messages(state, session_id) {
-                Ok(Some(local_context)) => Ok(local_context),
-                Ok(None) => anyhow::bail!("neither API Server nor local state.db has history messages for session lineage of {session_id}"),
-                Err(local_err) => anyhow::bail!("both API Server and local state.db history failed: API={err}, local={local_err}"),
+            match local_context {
+                Some(local_context) => Ok(local_context),
+                None => anyhow::bail!("neither API Server nor local state.db has history messages for session lineage of {session_id}: API={err}"),
             }
         }
     }
