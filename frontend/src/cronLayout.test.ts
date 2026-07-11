@@ -30,6 +30,7 @@ describe('cron manager split editor layout', () => {
 
   test('header exposes save run pause/resume and delete actions with standard header icon buttons', () => {
     const source = app();
+    const styles = css();
     expect(source).toContain('className="header-actions cron-header-actions"');
     expect(source).toContain('className="icon-btn cron-action-btn"');
     expect(source).toContain('className="icon-btn cron-action-btn cron-pause-toggle"');
@@ -39,6 +40,7 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain("aria-label={t(paused ? 'cron.resumeAria' : 'cron.pauseAria')}");
     expect(source).toContain("title={t(paused ? 'cron.resume' : 'cron.pause')}");
     expect(source).toContain('{paused ? <Play /> : <Pause />}');
+    expect(styles).toContain('.cron-pause-toggle svg{width:18px;height:18px}');
     expect(source).toContain("aria-label={t('cron.deleteAria')}");
     expect(source).not.toContain('className="cron-detail-actions"');
   });
