@@ -28,16 +28,31 @@ describe('cron manager split editor layout', () => {
     expect(styles).toContain('.cron-script textarea{min-height:96px;height:96px');
   });
 
-  test('header exposes save run and delete actions with standard header icon buttons', () => {
+  test('header exposes save run pause/resume and delete actions with standard header icon buttons', () => {
     const source = app();
     expect(source).toContain('className="header-actions cron-header-actions"');
     expect(source).toContain('className="icon-btn cron-action-btn"');
+    expect(source).toContain('className="icon-btn cron-action-btn cron-pause-toggle"');
     expect(source).toContain('className="icon-btn cron-action-btn danger"');
     expect(source).toContain("aria-label={t('cron.saveAria')}");
     expect(source).toContain("aria-label={t('cron.runAria')}");
+    expect(source).toContain("aria-label={t(paused ? 'cron.resumeAria' : 'cron.pauseAria')}");
+    expect(source).toContain("title={t(paused ? 'cron.resume' : 'cron.pause')}");
+    expect(source).toContain('{paused ? <Play /> : <Pause />}');
     expect(source).toContain("aria-label={t('cron.deleteAria')}");
     expect(source).not.toContain('className="cron-detail-actions"');
-    expect(source).not.toContain('aria-label={paused ? \'resume\' : \'pause\'}');
+  });
+
+  test('pause/resume action posts the selected lifecycle endpoint and refreshes jobs', () => {
+    const source = app();
+    const actionStart = source.indexOf('const toggleCronPaused = useCallback(async () => {');
+    const actionEnd = source.indexOf('const deleteCronJob = useCallback(async () => {', actionStart);
+    const actionBlock = source.slice(actionStart, actionEnd);
+    expect(actionBlock).toContain("const action = paused ? 'resume' : 'pause';");
+    expect(actionBlock).toContain("/api/jobs/${encodeURIComponent(cronEditingId)}/${action}");
+    expect(actionBlock).toContain("method: 'POST'");
+    expect(actionBlock).toContain('await loadCronJobs();');
+    expect(source).toContain('toggleCronPaused={toggleCronPaused}');
   });
 
   test('delete action requires a dangerous confirmation dialog before calling the delete API', () => {
