@@ -9,7 +9,8 @@ describe('cron manager split editor layout', () => {
     const source = app();
     expect(source).toContain("mode === 'cron' ? <CronSidebar");
     expect(source).toContain('className="cron-sidebar-list"');
-    expect(source).toContain('className={`cron-sidebar-row ${jobId(j) === editingId ? \'active\' : \'\'}`}');
+    expect(source).toContain("className={`cron-sidebar-row ${jobId(j) === editingId ? 'active' : ''} ${jobState(j) === 'paused' ? 'paused' : ''}`}");
+    expect(css()).toContain('.cron-sidebar-row.paused{opacity:.55}');
     expect(source).toContain('onClick={() => { beginCronEdit(j); closeMobileSidebar(); }}');
     expect(source).not.toContain('className="admin-content cron-layout"');
   });
