@@ -57,6 +57,11 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain('toggleCronPaused={toggleCronPaused}');
   });
 
+  test('loads disabled jobs so paused cron entries remain visible', () => {
+    const source = app();
+    expect(source).toContain("apiJoin(apiBase, '/api/jobs?include_disabled=true')");
+  });
+
   test('delete action requires a dangerous confirmation dialog before calling the delete API', () => {
     const source = app();
     const deleteStart = source.indexOf('const deleteCronJob = useCallback(async () => {');

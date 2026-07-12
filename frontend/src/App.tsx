@@ -1422,7 +1422,7 @@ export default function App() {
   const resetCronForm = useCallback(() => { setCronName(''); setCronSchedule('0 9 * * *'); setCronPrompt(''); setCronScript(''); setCronDeliver(''); setCronOutput(null); setCronEditingId(''); }, []);
   const loadCronJobs = useCallback(async () => {
     try {
-      const res = await fetch(apiJoin(apiBase, '/api/jobs'), { headers: headers(false) });
+      const res = await fetch(apiJoin(apiBase, '/api/jobs?include_disabled=true'), { headers: headers(false) });
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
       const body = await res.json();
       const nextJobs = body.data || body.jobs || [];
