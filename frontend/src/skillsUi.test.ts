@@ -94,16 +94,20 @@ describe('skills UI', () => {
     expect(styles).toContain('.workspace-markdown-preview{width:100%;max-width:100%;min-width:0;');
   });
 
-  test('long skill subtitles use a clipped marquee without exposing a horizontal scrollbar', () => {
+  test('long skill subtitles use a clipped one-way seamless marquee without exposing a horizontal scrollbar', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('function MarqueeText');
-    expect(source).toContain('scrollWidth > node.clientWidth');
+    expect(source).toContain('const itemRef = useRef<HTMLSpanElement>(null)');
+    expect(source).toContain('item.scrollWidth > node.clientWidth');
     expect(source).toContain('new ResizeObserver');
     expect(source).toContain('skill-subtitle-marquee ${scrolling');
+    expect(source).toContain('className="skill-subtitle-item" aria-hidden="true"');
     expect(styles).toContain('.skill-subtitle-marquee{');
     expect(styles).toContain('overflow:hidden');
-    expect(styles).toContain('@keyframes skill-subtitle-scroll');
+    expect(styles).toContain('animation:skill-subtitle-scroll 9s linear 1s infinite');
+    expect(styles).toContain('to{transform:translateX(calc(-1 * var(--skill-subtitle-cycle)))}');
+    expect(styles).not.toContain('animation:skill-subtitle-scroll 9s ease-in-out 1s infinite alternate');
     expect(styles).not.toContain('.skill-header-copy{min-width:0;overflow-x:auto');
   });
 

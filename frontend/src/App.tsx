@@ -3127,21 +3127,24 @@ function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, 
 }
 function MarqueeText({ children }: { children: React.ReactNode }) {
   const rootRef = useRef<HTMLSpanElement>(null);
+  const itemRef = useRef<HTMLSpanElement>(null);
   const [scrolling, setScrolling] = useState(false);
   useLayoutEffect(() => {
     const node = rootRef.current;
-    if (!node) return;
+    const item = itemRef.current;
+    if (!node || !item) return;
     const update = () => {
-      const distance = Math.max(0, node.scrollWidth - node.clientWidth);
-      node.style.setProperty('--skill-subtitle-distance', `${distance}px`);
-      setScrolling(node.scrollWidth > node.clientWidth + 1);
+      const gap = 32;
+      node.style.setProperty('--skill-subtitle-cycle', `${item.getBoundingClientRect().width + gap}px`);
+      setScrolling(item.scrollWidth > node.clientWidth + 1);
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(node);
+    observer.observe(item);
     return () => observer.disconnect();
   }, [children]);
-  return <span ref={rootRef} className={`skill-subtitle-marquee ${scrolling ? 'scrolling' : ''}`}><span className="skill-subtitle-track">{children}</span></span>;
+  return <span ref={rootRef} className={`skill-subtitle-marquee ${scrolling ? 'scrolling' : ''}`}><span className="skill-subtitle-track"><span ref={itemRef} className="skill-subtitle-item">{children}</span>{scrolling && <span className="skill-subtitle-item" aria-hidden="true">{children}</span>}</span></span>;
 }
 
 function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, openSkillMenu, filter, setFilter, expandedCats, setExpandedCats, closeMobileSidebar }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; openSkillMenu: (skill: Skill, event: React.MouseEvent) => void; filter: string; setFilter: (v: string) => void; expandedCats: Set<string>; setExpandedCats: (v: Set<string>) => void; closeMobileSidebar: () => void }) {
