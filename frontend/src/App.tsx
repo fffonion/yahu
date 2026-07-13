@@ -2718,7 +2718,7 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
   );
 }
 
-function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', options, onChange, wide = false, hideLabel = false, searchable = false, placement = 'up', iconOnly = false, className = '' }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; options: Array<{ id: string; label: string; provider?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean; placement?: 'up' | 'down'; iconOnly?: boolean; className?: string }) {
+function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', options, onChange, wide = false, hideLabel = false, searchable = false, placement = 'up', iconOnly = false, className = '' }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; options: Array<{ id: string; label: string; provider?: string; description?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string; description?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean; placement?: 'up' | 'down'; iconOnly?: boolean; className?: string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -2749,7 +2749,7 @@ function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '
     </button>
     {open && <div className="dropdown-menu" role="listbox">
       {searchable && <input className="dropdown-search" autoFocus placeholder={t('chat.searchModels')} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.stopPropagation()} />}
-      {filteredOptions.map((item) => <button type="button" role="option" aria-selected={modelOptionKey(item) === currentKey} className={modelOptionKey(item) === currentKey ? 'selected' : ''} key={modelOptionKey(item)} onClick={() => { onChange(item.id, item); setOpen(false); }}>{item.label}</button>)}
+      {filteredOptions.map((item) => <button type="button" role="option" aria-selected={modelOptionKey(item) === currentKey} className={modelOptionKey(item) === currentKey ? 'selected' : ''} key={modelOptionKey(item)} onClick={() => { onChange(item.id, item); setOpen(false); }}><span className="dropdown-option-copy"><span className="dropdown-option-label">{item.label}</span>{item.description && <span className="dropdown-option-description">{item.description}</span>}</span></button>)}
       {filteredOptions.length === 0 && <span className="dropdown-empty">{t('chat.noModels')}</span>}
     </div>}
   </div>;
@@ -3175,7 +3175,8 @@ function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarO
   };
   const historyOptions = backups.filter((backup) => backup.id).slice(0, 10).map((backup) => ({
     id: String(backup.id),
-    label: `${backup.id}${backup.reason ? ` · ${String(backup.reason).slice(0, 36)}` : ''}`,
+    label: String(backup.id),
+    description: String(backup.reason || t('skills.snapshot')),
   }));
   return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div className="skill-header-copy"><h1>{skill?.name || t('skills.title')}</h1><MarqueeText>{skill?.description || t('skills.select')}{skill?.version ? <span className="skill-version">{skill.version}</span> : null}</MarqueeText></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} toolbarExtra={skill ? <DropdownControl icon={<History />} ariaLabel={t('skills.backups')} value="" options={historyOptions} onChange={doRollback} placement="down" iconOnly className="skill-history-dropdown" /> : null} /></main>;
 }

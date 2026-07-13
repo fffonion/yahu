@@ -126,6 +126,19 @@ describe('skills UI', () => {
     expect(source).toContain('if (rootRef.current?.contains(event.target as Node)) return;');
   });
 
+  test('version history options show snapshot id and reason with distinct typography', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('description?: string');
+    expect(source).toContain('className="dropdown-option-copy"');
+    expect(source).toContain('className="dropdown-option-label"');
+    expect(source).toContain('className="dropdown-option-description"');
+    expect(source).toContain('label: String(backup.id)');
+    expect(source).toContain("description: String(backup.reason || t('skills.snapshot'))");
+    expect(styles).toContain('.skill-history-dropdown .dropdown-option-label{font-family:ui-monospace');
+    expect(styles).toContain('.skill-history-dropdown .dropdown-option-description{');
+  });
+
   test('skill file workspace rows expose right-click rename and delete actions', () => {
     const source = app();
     expect(source).toContain('type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y: number } | null;');

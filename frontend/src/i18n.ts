@@ -277,6 +277,7 @@ const translations: Record<string, Record<string, string>> = {
   'skills.deleteFileFailed': { en: 'Skill file delete failed: {0}', 'zh-CN': '技能文件删除失败：{0}', 'zh-TW': '技能檔案刪除失敗：{0}', ja: 'スキルファイル削除に失敗しました: {0}' },
   'skills.deletedFile': { en: 'Skill file deleted', 'zh-CN': '技能文件已删除', 'zh-TW': '技能檔案已刪除', ja: 'スキルファイルを削除しました' },
   'skills.backups': { en: 'Version History', 'zh-CN': '版本历史', 'zh-TW': '版本歷史', ja: 'バージョン履歴' },
+  'skills.snapshot': { en: 'Skill snapshot', 'zh-CN': '技能快照', 'zh-TW': '技能快照', ja: 'スキルスナップショット' },
   'skills.noBackups': { en: 'No snapshots yet', 'zh-CN': '暂无快照', 'zh-TW': '暫無快照', ja: 'スナップショットなし' },
   'skills.rollback': { en: 'Rollback', 'zh-CN': '回退', 'zh-TW': '回退', ja: 'ロールバック' },
   'skills.rollbackConfirm': { en: 'Restore skill from snapshot {0}?', 'zh-CN': '从快照 {0} 恢复技能？', 'zh-TW': '從快照 {0} 恢復技能？', ja: 'スナップショット {0} からスキルを復元しますか？' },
