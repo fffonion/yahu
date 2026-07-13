@@ -22,6 +22,15 @@ describe('skills API routing', () => {
     expect(source).toContain('Command::new(python)');
   });
 
+  test('skill backup history reads the selected skill version from archived SKILL.md files', () => {
+    const source = skillsBackend();
+    expect(source).toContain('async fn skill_backups(');
+    expect(source).toContain('Query(query): Query<SkillQuery>');
+    expect(source).toContain('.env("SKILL_NAME", &name)');
+    expect(source).toContain("with tarfile.open(archive, 'r:gz') as snapshot");
+    expect(source).toContain("row['version'] = version");
+  });
+
   test('skill file and mutation routes are backed by the restored skill workspace implementation', () => {
     const source = skillsBackend();
     expect(source).toContain('async fn skill_files(');

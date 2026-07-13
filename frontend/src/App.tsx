@@ -3159,7 +3159,7 @@ function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarO
   useEffect(() => {
     setBackups([]);
     if (!skill) return;
-    fetch('/skills/backups', { cache: 'no-store' }).then((r) => r.ok ? r.json() : []).then((data) => setBackups(Array.isArray(data) ? data : [])).catch(() => {});
+    fetch(`/skills/backups?name=${encodeURIComponent(skill.name)}`, { cache: 'no-store' }).then((r) => r.ok ? r.json() : []).then((data) => setBackups(Array.isArray(data) ? data : [])).catch(() => {});
   }, [skill]);
   const doRollback = async (id: string) => {
     if (rollbacking) return;
@@ -3173,9 +3173,9 @@ function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarO
     } catch (err: any) { st(tf('skills.rollbackFailed', err.message)); }
     setRollbacking(false);
   };
-  const historyOptions = backups.filter((backup) => backup.id).slice(0, 10).map((backup) => ({
+  const historyOptions = backups.filter((backup) => backup.id && backup.version).slice(0, 10).map((backup) => ({
     id: String(backup.id),
-    label: String(backup.id),
+    label: String(backup.version),
     description: String(backup.reason || t('skills.snapshot')),
   }));
   return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div className="skill-header-copy"><h1>{skill?.name || t('skills.title')}</h1><MarqueeText>{skill?.description || t('skills.select')}{skill?.version ? <span className="skill-version">{skill.version}</span> : null}</MarqueeText></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} toolbarExtra={skill ? <DropdownControl icon={<History />} ariaLabel={t('skills.backups')} value="" options={historyOptions} onChange={doRollback} placement="down" iconOnly className="skill-history-dropdown" /> : null} /></main>;

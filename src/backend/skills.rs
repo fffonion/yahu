@@ -538,10 +538,66 @@ async fn set_skill_enabled(state: &AppState, name: &str, enabled: bool) -> anyho
     Ok(())
 }
 
-async fn skill_backups(State(state): State<Arc<AppState>>) -> Response<Body> {
+async fn skill_backups(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SkillQuery>,
+) -> Response<Body> {
+    let name = query.name.unwrap_or_default();
+    if name.trim().is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "skill name is required");
+    }
     let agent_dir = hermes_agent_dir(&state);
     let python = hermes_python_command(&agent_dir);
-    let script = "import json, os, sys\nsys.path.insert(0, os.environ['HERMES_AGENT_DIR'])\nfrom agent.curator_backup import list_backups\nprint(json.dumps(list_backups()))";
+    let script = r#"
+import json, os, sys, tarfile
+from pathlib import PurePosixPath
+
+sys.path.insert(0, os.environ['HERMES_AGENT_DIR'])
+from agent.curator_backup import list_backups
+
+target = os.environ['SKILL_NAME']
+
+def frontmatter_value(text, key):
+    if not text.startswith('---'):
+        return ''
+    parts = text.split('---', 2)
+    if len(parts) < 3:
+        return ''
+    for line in parts[1].splitlines():
+        if ':' not in line:
+            continue
+        field, value = line.split(':', 1)
+        if field.strip() == key:
+            return value.strip().strip('"').strip("'")
+    return ''
+
+rows = []
+for row in list_backups():
+    archive = os.path.join(row.get('path', ''), row.get('archive', 'skills.tar.gz'))
+    try:
+        with tarfile.open(archive, 'r:gz') as snapshot:
+            members = [member for member in snapshot.getmembers()
+                       if member.isfile() and PurePosixPath(member.name).name == 'SKILL.md']
+            members.sort(key=lambda member: ('.archive' in PurePosixPath(member.name).parts, member.name))
+            for member in members:
+                if member.size > 262144:
+                    continue
+                source = snapshot.extractfile(member)
+                if source is None:
+                    continue
+                text = source.read(262145).decode('utf-8', errors='replace')
+                if frontmatter_value(text, 'name') != target:
+                    continue
+                version = frontmatter_value(text, 'version')
+                row['version'] = version
+                row['skill_path'] = member.name
+                rows.append(row)
+                break
+    except (OSError, tarfile.TarError):
+        continue
+
+print(json.dumps(rows))
+"#;
     let output = match timeout(
         Duration::from_secs(15),
         Command::new(python)
@@ -549,6 +605,7 @@ async fn skill_backups(State(state): State<Arc<AppState>>) -> Response<Body> {
             .arg(script)
             .env("HERMES_AGENT_DIR", &agent_dir)
             .env("HERMES_HOME", &state.hermes_home)
+            .env("SKILL_NAME", &name)
             .output(),
     )
     .await
