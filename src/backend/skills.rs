@@ -401,6 +401,7 @@ fn collect_skill_dirs(
                         SkillInfo {
                             name: name.clone(),
                             description,
+                            version: frontmatter_value(&text, "version").unwrap_or_default(),
                             category,
                             enabled: !disabled.contains(&name),
                         },
@@ -535,4 +536,78 @@ async fn set_skill_enabled(state: &AppState, name: &str, enabled: bool) -> anyho
         anyhow::bail!(String::from_utf8_lossy(&output.stderr).to_string());
     }
     Ok(())
+}
+
+async fn skill_backups(State(state): State<Arc<AppState>>) -> Response<Body> {
+    let agent_dir = hermes_agent_dir(&state);
+    let python = hermes_python_command(&agent_dir);
+    let script = "import json, os, sys\nsys.path.insert(0, os.environ['HERMES_AGENT_DIR'])\nfrom agent.curator_backup import list_backups\nprint(json.dumps(list_backups()))";
+    let output = match timeout(
+        Duration::from_secs(15),
+        Command::new(python)
+            .arg("-c")
+            .arg(script)
+            .env("HERMES_AGENT_DIR", &agent_dir)
+            .env("HERMES_HOME", &state.hermes_home)
+            .output(),
+    )
+    .await
+    {
+        Ok(Ok(out)) => out,
+        _ => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to list skill backups",
+            );
+        }
+    };
+    if !output.status.success() {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &String::from_utf8_lossy(&output.stderr),
+        );
+    }
+    match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+        Ok(value) => Json(value).into_response(),
+        Err(_) => Json(serde_json::json!([])).into_response(),
+    }
+}
+
+async fn skill_rollback(
+    State(state): State<Arc<AppState>>,
+    AxumPath(backup_id): AxumPath<String>,
+) -> Response<Body> {
+    let agent_dir = hermes_agent_dir(&state);
+    let python = hermes_python_command(&agent_dir);
+    let script = "import json, os, sys\nsys.path.insert(0, os.environ['HERMES_AGENT_DIR'])\nfrom agent.curator_backup import rollback\nok, msg, path = rollback(os.environ.get('BACKUP_ID'))\nprint(json.dumps({'ok': ok, 'message': msg, 'snapshot': str(path) if path else None}))";
+    let output = match timeout(
+        Duration::from_secs(60),
+        Command::new(python)
+            .arg("-c")
+            .arg(script)
+            .env("HERMES_AGENT_DIR", &agent_dir)
+            .env("HERMES_HOME", &state.hermes_home)
+            .env("BACKUP_ID", &backup_id)
+            .output(),
+    )
+    .await
+    {
+        Ok(Ok(out)) => out,
+        _ => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to rollback skill snapshot",
+            );
+        }
+    };
+    if !output.status.success() {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &String::from_utf8_lossy(&output.stderr),
+        );
+    }
+    match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+        Ok(value) => Json(value).into_response(),
+        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "invalid rollback response"),
+    }
 }

@@ -164,6 +164,7 @@ struct SkillQuery {
 struct SkillInfo {
     name: String,
     description: String,
+    version: String,
     category: String,
     enabled: bool,
 }
@@ -264,6 +265,8 @@ pub async fn run() -> anyhow::Result<()> {
             patch(skill_item_rename).delete(skill_item_delete),
         )
         .route("/skills/{name}", delete(skill_delete))
+        .route("/skills/backups", get(skill_backups))
+        .route("/skills/rollback/{id}", post(skill_rollback))
         .route("/memory", get(memory_get).put(memory_put))
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
