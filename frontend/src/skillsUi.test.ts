@@ -123,9 +123,11 @@ describe('skills UI', () => {
   test('shared dropdown closes on outside pointer interaction and supports toolbar placement', () => {
     const source = app();
     expect(source).toContain("placement = 'up'");
+    expect(source).toContain("emptyLabel = t('chat.noModels')");
     expect(source).toContain("placement === 'down' ? 'drop-down' : 'drop-up'");
     expect(source).toContain("window.addEventListener('pointerdown', closeOutside)");
     expect(source).toContain('if (rootRef.current?.contains(event.target as Node)) return;');
+    expect(source).toContain("emptyLabel={t('skills.noVersions')}");
   });
 
   test('version history options use the selected skill version from each snapshot', () => {

@@ -279,6 +279,7 @@ const translations: Record<string, Record<string, string>> = {
   'skills.backups': { en: 'Version History', 'zh-CN': '版本历史', 'zh-TW': '版本歷史', ja: 'バージョン履歴' },
   'skills.snapshot': { en: 'Skill snapshot', 'zh-CN': '技能快照', 'zh-TW': '技能快照', ja: 'スキルスナップショット' },
   'skills.noBackups': { en: 'No snapshots yet', 'zh-CN': '暂无快照', 'zh-TW': '暫無快照', ja: 'スナップショットなし' },
+  'skills.noVersions': { en: 'No versions', 'zh-CN': '无版本', 'zh-TW': '無版本', ja: 'バージョンなし' },
   'skills.rollback': { en: 'Rollback', 'zh-CN': '回退', 'zh-TW': '回退', ja: 'ロールバック' },
   'skills.rollbackConfirm': { en: 'Restore skill from snapshot {0}?', 'zh-CN': '从快照 {0} 恢复技能？', 'zh-TW': '從快照 {0} 恢復技能？', ja: 'スナップショット {0} からスキルを復元しますか？' },
   'skills.rollbackFailed': { en: 'Rollback failed: {0}', 'zh-CN': '回退失败：{0}', 'zh-TW': '回退失敗：{0}', ja: 'ロールバックに失敗しました: {0}' },
