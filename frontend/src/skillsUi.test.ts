@@ -109,6 +109,7 @@ describe('skills UI', () => {
 
   test('skill version history reuses the shared dropdown in the preview toolbar after edit and close', () => {
     const source = app();
+    const styles = css();
     const preview = source.slice(source.indexOf('function WorkspaceEditorPreview'), source.indexOf('function WorkspaceBrowser'));
     expect(source).not.toContain('className="skill-version-bar"');
     expect(source).toContain('toolbarExtra={skill ? <DropdownControl');
@@ -116,6 +117,7 @@ describe('skills UI', () => {
     expect(source).toContain('iconOnly');
     expect(preview).toContain('{toolbarExtra}</div></div>');
     expect(preview.indexOf("aria-label={t('workspace.closePreview')}")).toBeLessThan(preview.indexOf('{toolbarExtra}'));
+    expect(styles).toContain('.skill-history-dropdown{position:relative;min-width:34px;width:34px;flex:0 0 34px;');
   });
 
   test('shared dropdown closes on outside pointer interaction and supports toolbar placement', () => {
