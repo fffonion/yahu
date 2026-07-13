@@ -2718,7 +2718,7 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
   );
 }
 
-function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', options, onChange, wide = false, hideLabel = false, searchable = false }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; options: Array<{ id: string; label: string; provider?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean }) {
+function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', options, onChange, wide = false, hideLabel = false, searchable = false, placement = 'up', iconOnly = false, className = '' }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; options: Array<{ id: string; label: string; provider?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean; placement?: 'up' | 'down'; iconOnly?: boolean; className?: string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -2741,11 +2741,11 @@ function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [open]);
-  return <div ref={rootRef} className={`dropdown-control ${wide ? 'wide' : ''} ${searchable ? 'searchable' : ''} ${open ? 'open' : ''}`}>
-    <button type="button" className="dropdown-trigger" aria-label={ariaLabel} aria-expanded={open} onClick={() => { setOpen((v) => !v); setQuery(''); }}>
+  return <div ref={rootRef} className={`dropdown-control ${wide ? 'wide' : ''} ${searchable ? 'searchable' : ''} ${placement === 'down' ? 'drop-down' : 'drop-up'} ${iconOnly ? 'icon-only' : ''} ${open ? 'open' : ''} ${className}`.trim()}>
+    <button type="button" className="dropdown-trigger" aria-label={ariaLabel} title={ariaLabel} aria-expanded={open} onClick={() => { setOpen((v) => !v); setQuery(''); }}>
       <span className="dropdown-icon">{icon}</span>
-      <span className="dropdown-copy">{!hideLabel && <span className="dropdown-label">{label || ariaLabel}</span>}<span className="dropdown-value">{current.label}</span></span>
-      <ChevronRight className="dropdown-caret" />
+      {!iconOnly && <span className="dropdown-copy">{!hideLabel && <span className="dropdown-label">{label || ariaLabel}</span>}<span className="dropdown-value">{current.label}</span></span>}
+      {!iconOnly && <ChevronRight className="dropdown-caret" />}
     </button>
     {open && <div className="dropdown-menu" role="listbox">
       {searchable && <input className="dropdown-search" autoFocus placeholder={t('chat.searchModels')} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.stopPropagation()} />}
@@ -3125,6 +3125,25 @@ function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, 
   });
   return <><div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div></div><div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div></>;
 }
+function MarqueeText({ children }: { children: React.ReactNode }) {
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const [scrolling, setScrolling] = useState(false);
+  useLayoutEffect(() => {
+    const node = rootRef.current;
+    if (!node) return;
+    const update = () => {
+      const distance = Math.max(0, node.scrollWidth - node.clientWidth);
+      node.style.setProperty('--skill-subtitle-distance', `${distance}px`);
+      setScrolling(node.scrollWidth > node.clientWidth + 1);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [children]);
+  return <span ref={rootRef} className={`skill-subtitle-marquee ${scrolling ? 'scrolling' : ''}`}><span className="skill-subtitle-track">{children}</span></span>;
+}
+
 function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, openSkillMenu, filter, setFilter, expandedCats, setExpandedCats, closeMobileSidebar }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; openSkillMenu: (skill: Skill, event: React.MouseEvent) => void; filter: string; setFilter: (v: string) => void; expandedCats: Set<string>; setExpandedCats: (v: Set<string>) => void; closeMobileSidebar: () => void }) {
   const grouped = skills.reduce<Record<string, Skill[]>>((acc, skill) => { const cat = skill.category || 'uncategorized'; if (cat === '.archive') return acc; (acc[cat] ||= []).push(skill); return acc; }, {});
   const cats = Object.keys(grouped).sort();
@@ -3137,10 +3156,8 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
 function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings, showToast: st }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void; showToast: (msg: string) => void }) {
   const [backups, setBackups] = useState<any[]>([]);
   const [rollbacking, setRollbacking] = useState(false);
-  const [showBackups, setShowBackups] = useState(false);
   useEffect(() => {
     setBackups([]);
-    setShowBackups(false);
     if (!skill) return;
     fetch('/skills/backups', { cache: 'no-store' }).then((r) => r.ok ? r.json() : []).then((data) => setBackups(Array.isArray(data) ? data : [])).catch(() => {});
   }, [skill]);
@@ -3155,9 +3172,12 @@ function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarO
       else st(tf('skills.rollbackFailed', body.message || 'unknown'));
     } catch (err: any) { st(tf('skills.rollbackFailed', err.message)); }
     setRollbacking(false);
-    setShowBackups(false);
   };
-  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{skill?.name || t('skills.title')}</h1><span>{skill?.description || t('skills.select')}{skill?.version ? <span className="skill-version">{skill.version}</span> : null}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header>{skill && <div className="skill-version-bar"><button type="button" className="skill-backups-btn" onClick={() => setShowBackups((v) => !v)}><History /> {t('skills.backups')}<span className="caret">{showBackups ? <ChevronDown /> : <ChevronRight />}</span></button>{showBackups && <div className="skill-backups-dropdown">{backups.length === 0 ? <span className="skill-no-backups">{t('skills.noBackups')}</span> : backups.filter((b) => b.id).slice(0, 10).map((b) => <div className="skill-backup-row" key={b.id}><span className="backup-id">{b.id}</span><span className="backup-reason">{(b.reason || '').slice(0, 30)}</span><button type="button" className="backup-rollback-btn" disabled={rollbacking} onClick={() => doRollback(b.id)}>{t('skills.rollback')}</button></div>)}</div>}</div>}<WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} /></main>;
+  const historyOptions = backups.filter((backup) => backup.id).slice(0, 10).map((backup) => ({
+    id: String(backup.id),
+    label: `${backup.id}${backup.reason ? ` · ${String(backup.reason).slice(0, 36)}` : ''}`,
+  }));
+  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div className="skill-header-copy"><h1>{skill?.name || t('skills.title')}</h1><MarqueeText>{skill?.description || t('skills.select')}{skill?.version ? <span className="skill-version">{skill.version}</span> : null}</MarqueeText></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} toolbarExtra={skill ? <DropdownControl icon={<History />} ariaLabel={t('skills.backups')} value="" options={historyOptions} onChange={doRollback} placement="down" iconOnly className="skill-history-dropdown" /> : null} /></main>;
 }
 function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile, openSkillFileMenu }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void; openSkillFileMenu: (skill: Skill, entry: WorkspaceEntry, event: React.MouseEvent) => void }) {
   const triggerSkillDownload = (skill: Skill) => {
@@ -3178,7 +3198,7 @@ function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleS
   });
   return <aside className="skill-workspace workspace"><div className="workspace-sidebar-head"><div><h2>{t('skills.skillFiles')}</h2><p>{skill?.category || t('skills.select')}</p></div>{skill && <button className="icon-btn" aria-label={t('skills.download')} title={t('skills.download')} onClick={() => triggerSkillDownload(skill)}><Download /></button>}</div><div className="workspace-tree file-list">{renderRows(skillFileTree[''] || [])}</div></aside>;
 }
-function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl }: any) {
+function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl, toolbarExtra }: any) {
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
@@ -3201,7 +3221,7 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   const textPreview = isMarkdownPath(preview.path)
     ? <div className="workspace-markdown-preview md-content" dangerouslySetInnerHTML={{ __html: markdownText(preview.content || '') }} />
     : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />;
-  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview">{textPreview}</div>}</section>;
+  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview">{textPreview}</div>}</section>;
 }
 function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, preview, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {

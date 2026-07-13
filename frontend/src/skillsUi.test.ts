@@ -94,6 +94,38 @@ describe('skills UI', () => {
     expect(styles).toContain('.workspace-markdown-preview{width:100%;max-width:100%;min-width:0;');
   });
 
+  test('long skill subtitles use a clipped marquee without exposing a horizontal scrollbar', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('function MarqueeText');
+    expect(source).toContain('scrollWidth > node.clientWidth');
+    expect(source).toContain('new ResizeObserver');
+    expect(source).toContain('skill-subtitle-marquee ${scrolling');
+    expect(styles).toContain('.skill-subtitle-marquee{');
+    expect(styles).toContain('overflow:hidden');
+    expect(styles).toContain('@keyframes skill-subtitle-scroll');
+    expect(styles).not.toContain('.skill-header-copy{min-width:0;overflow-x:auto');
+  });
+
+  test('skill version history reuses the shared dropdown in the preview toolbar after edit and close', () => {
+    const source = app();
+    const preview = source.slice(source.indexOf('function WorkspaceEditorPreview'), source.indexOf('function WorkspaceBrowser'));
+    expect(source).not.toContain('className="skill-version-bar"');
+    expect(source).toContain('toolbarExtra={skill ? <DropdownControl');
+    expect(source).toContain('placement="down"');
+    expect(source).toContain('iconOnly');
+    expect(preview).toContain('{toolbarExtra}</div></div>');
+    expect(preview.indexOf("aria-label={t('workspace.closePreview')}")).toBeLessThan(preview.indexOf('{toolbarExtra}'));
+  });
+
+  test('shared dropdown closes on outside pointer interaction and supports toolbar placement', () => {
+    const source = app();
+    expect(source).toContain("placement = 'up'");
+    expect(source).toContain("placement === 'down' ? 'drop-down' : 'drop-up'");
+    expect(source).toContain("window.addEventListener('pointerdown', closeOutside)");
+    expect(source).toContain('if (rootRef.current?.contains(event.target as Node)) return;');
+  });
+
   test('skill file workspace rows expose right-click rename and delete actions', () => {
     const source = app();
     expect(source).toContain('type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y: number } | null;');
