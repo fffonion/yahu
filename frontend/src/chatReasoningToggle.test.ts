@@ -28,6 +28,14 @@ describe('chat reasoning display toggle', () => {
     expect(source).toContain("className=\"msg-reasoning msg-reasoning-collapsed\"");
   });
 
+  test('assistant reasoning is rendered before the response body', () => {
+    const source = app();
+    const reasoningIndex = source.indexOf('{message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed"');
+    const responseBodyIndex = source.indexOf('<div className="msg-body">', reasoningIndex);
+    expect(reasoningIndex).toBeGreaterThan(-1);
+    expect(responseBodyIndex).toBeGreaterThan(reasoningIndex);
+  });
+
   test('pre-tool assistant text stays visible but its thinking block summary says completed thinking with elapsed time', () => {
     const source = app();
     const styles = css();
