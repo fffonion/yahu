@@ -109,8 +109,11 @@ describe('turn detail fold UI', () => {
     expect(source).toContain('type="checkbox"');
     expect(source).toContain("node.indeterminate = status === 'in_progress'");
     expect(source).toContain('<SessionStateMessage item={item} />');
+    expect(source).toContain("sessionStateOnly ? ' session-state-turn-block' : ''");
     expect(styles).toContain('.session-state-message{');
     expect(styles).toContain('.session-task-checkbox{');
+    expect(styles).not.toContain('.desktop-turn-block:has(> .session-state-message)');
+    expect(styles).toContain('.desktop-turn-block.session-state-turn-block');
   });
 
   test('streaming path still appends full detail messages instead of skeleton-only rows', () => {

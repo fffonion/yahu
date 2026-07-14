@@ -142,6 +142,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
   messages.forEach((message, index) => {
     if (isSessionStateMessage(message)) {
       flushBufferAsMessages();
+      activeAnchorId = messageId(message, index);
       items.push({
         kind: 'sessionState',
         id: `session-state:${messageId(message, index)}`,

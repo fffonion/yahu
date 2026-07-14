@@ -31,7 +31,7 @@ describe('desktop compact chat toggle', () => {
     const source = app();
     const styles = css();
     expect(source).toContain("chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}");
-    expect(source).toContain('className="desktop-turn-block"');
+    expect(source).toContain('className={`desktop-turn-block${sessionStateOnly');
     expect(source).toContain('buildDesktopTurnBlocks(turnDetailItems)');
     expect(styles).toContain('.desktop-compact-chat .msg-content{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0}');
     expect(styles).toContain('.desktop-compact-chat .tool-card,.mobile-compact-chat .tool-card{background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}');

@@ -75,6 +75,34 @@ describe('turn detail grouping', () => {
     expect(blocks[1].items.map((item) => item.kind)).toEqual(['sessionState', 'message']);
   });
 
+  test('keeps streaming details expanded in the same framed turn after session state', () => {
+    const state: Msg = {
+      id: 'state2',
+      role: 'user',
+      content: '[Your active task list was preserved across context compression]\n- [>] verify. Build and deploy (in_progress)',
+    };
+    const blocks = buildDesktopTurnBlocks(buildTurnDetailItems([state, prelude, tool]));
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].items.map((item) => item.kind)).toEqual(['sessionState', 'detailGroup']);
+    const details = blocks[0].items[1];
+    expect(details).toMatchObject({ kind: 'detailGroup', defaultOpen: true });
+  });
+
+  test('places a standalone session state before the following user turn without affecting its frame', () => {
+    const state: Msg = {
+      id: 'state3',
+      role: 'user',
+      content: '[Your active task list was preserved across context compression]\n- [>] verify. Build and deploy (in_progress)',
+    };
+    const blocks = buildDesktopTurnBlocks(buildTurnDetailItems([state, user, prelude, tool]));
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].items.map((item) => item.kind)).toEqual(['sessionState']);
+    expect(blocks[1].items.map((item) => item.kind)).toEqual(['message', 'detailGroup']);
+    expect(blocks[1].items[1]).toMatchObject({ kind: 'detailGroup', defaultOpen: true });
+  });
+
   test('renders Hermes prior-context and compaction summaries as a special block, not as a final answer', () => {
     const priorContext: Msg = {
       id: 'ctx1',

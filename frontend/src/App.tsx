@@ -2699,7 +2699,8 @@ function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessa
 
 function DesktopTurnBlock({ block, showReasoning, assistantName, sessionId }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; sessionId?: string }) {
   let lastUserTimestamp: string | number | undefined;
-  return <article className="desktop-turn-block" data-turn-block-id={block.id}>
+  const sessionStateOnly = block.items.length === 1 && block.items[0]?.kind === 'sessionState';
+  return <article className={`desktop-turn-block${sessionStateOnly ? ' session-state-turn-block' : ''}`} data-turn-block-id={block.id}>
     {block.items.map((item) => {
       if (item.kind === 'detailGroup') {
         return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} sessionId={sessionId} />;
