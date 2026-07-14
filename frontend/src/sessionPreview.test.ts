@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { latestSessionPreviewFromMessages } from './sessionPreview';
+import { compactSessionPreview, latestSessionPreviewFromMessages } from './sessionPreview';
 
 describe('session sidebar live preview', () => {
   test('uses the latest final/assistant text when it is the newest conversational text', () => {
@@ -27,5 +27,14 @@ describe('session sidebar live preview', () => {
     expect(latestSessionPreviewFromMessages([
       { role: 'user', content: '[Alliumcepa Triplef|1698432746]\n消息本身' },
     ])).toBe('消息本身');
+  });
+
+  test('removes a leading bracketed sender prefix without a pipe', () => {
+    expect(compactSessionPreview('[Alliumcepa Triplef]\n消息本身')).toBe('消息本身');
+    expect(compactSessionPreview('[Alliumcepa Triplef] 消息本身')).toBe('消息本身');
+  });
+
+  test('keeps bracketed text that is not at the start', () => {
+    expect(compactSessionPreview('消息 [保留]')).toBe('消息 [保留]');
   });
 });
