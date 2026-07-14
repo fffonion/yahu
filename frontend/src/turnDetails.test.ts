@@ -61,6 +61,20 @@ describe('turn detail grouping', () => {
     expect(items[1].defaultOpen).toBeUndefined();
   });
 
+  test('keeps preserved task state as a standalone item outside turn details', () => {
+    const state: Msg = {
+      id: 'state1',
+      role: 'user',
+      content: '[Your active task list was preserved across context compression]\n- [>] verify. Build and deploy (in_progress)\n- [ ] ship. Commit and push (pending)',
+    };
+    const items = buildTurnDetailItems([user, prelude, tool, state, final]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message', 'sessionState', 'message']);
+    expect(items[3]).toMatchObject({ kind: 'sessionState', id: 'session-state:state1', message: state });
+    const blocks = buildDesktopTurnBlocks(items);
+    expect(blocks[1].items.map((item) => item.kind)).toEqual(['sessionState', 'message']);
+  });
+
   test('renders Hermes prior-context and compaction summaries as a special block, not as a final answer', () => {
     const priorContext: Msg = {
       id: 'ctx1',

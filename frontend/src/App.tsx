@@ -14,7 +14,8 @@ import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTo
 import { parsePlatformSenderMessage } from './chatSender';
 import { normalizeMessageParts } from './messageReasoning';
 import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
-import { buildDesktopTurnBlocks, buildTurnDetailItems, type SpecialContextGroupItem, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata } from './turnDetails';
+import { buildDesktopTurnBlocks, buildTurnDetailItems, type SessionStateMessageItem, type SpecialContextGroupItem, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata } from './turnDetails';
+import { parseSessionStateMessage, type SessionTaskStatus } from './sessionStateMessage';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
@@ -2672,6 +2673,30 @@ function SpecialContextGroup({ item }: { item: SpecialContextGroupItem<ChatMessa
   </details>;
 }
 
+function SessionTaskCheckbox({ status, label }: { status: SessionTaskStatus; label: string }) {
+  return <input
+    type="checkbox"
+    className="session-task-checkbox"
+    checked={status === 'completed'}
+    readOnly
+    tabIndex={-1}
+    aria-label={label}
+    ref={(node) => { if (node) node.indeterminate = status === 'in_progress'; }}
+  />;
+}
+
+function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessage> }) {
+  const state = parseSessionStateMessage(item.message.content);
+  if (!state) return null;
+  return <article className="session-state-message" data-message-id={item.message.id || item.id}>
+    <div className="session-state-notice"><Info aria-hidden="true" /><span>{state.notice}</span></div>
+    {state.tasks.length > 0 && <ul className="session-task-list">{state.tasks.map((task, index) => <li className={`session-task-item ${task.status}`} key={`${task.id}:${index}`}>
+      <SessionTaskCheckbox status={task.status} label={`${task.id ? `${task.id}: ` : ''}${task.description}`} />
+      <span className="session-task-copy">{task.id && <strong>{task.id}</strong>}<span>{task.description}</span></span>
+    </li>)}</ul>}
+  </article>;
+}
+
 function DesktopTurnBlock({ block, showReasoning, assistantName, sessionId }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; sessionId?: string }) {
   let lastUserTimestamp: string | number | undefined;
   return <article className="desktop-turn-block" data-turn-block-id={block.id}>
@@ -2681,6 +2706,9 @@ function DesktopTurnBlock({ block, showReasoning, assistantName, sessionId }: { 
       }
       if (item.kind === 'specialContextGroup') {
         return <SpecialContextGroup key={item.id} item={item} />;
+      }
+      if (item.kind === 'sessionState') {
+        return <SessionStateMessage key={item.id} item={item} />;
       }
       const message = item.message;
       if (message.role === 'user') lastUserTimestamp = message.timestamp;
@@ -3045,6 +3073,12 @@ function ChatMain(props: any) {
             return <React.Fragment key={item.id}>
               {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
               <SpecialContextGroup item={item} />
+            </React.Fragment>;
+          }
+          if (item.kind === 'sessionState') {
+            return <React.Fragment key={item.id}>
+              {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
+              <SessionStateMessage item={item} />
             </React.Fragment>;
           }
           const m = item.message;

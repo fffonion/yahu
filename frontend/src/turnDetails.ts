@@ -1,4 +1,5 @@
 import { isAssistantToolPreludeMessage, isToolLikeMessage, type MessageVisibilityInput } from './messageVisibility';
+import { isSessionStateMessage } from './sessionStateMessage';
 
 export type TurnDetailMessageItem<T> = {
   kind: 'message';
@@ -32,13 +33,20 @@ export type SpecialContextGroupItem<T> = {
   sourceIndexes: number[];
 };
 
+export type SessionStateMessageItem<T> = {
+  kind: 'sessionState';
+  id: string;
+  message: T;
+  sourceIndexes: number[];
+};
+
 export type TurnDetailBlock<T> = {
   id: string;
   items: Array<TurnDetailItem<T>>;
   sourceIndexes: number[];
 };
 
-export type TurnDetailItem<T> = TurnDetailMessageItem<T> | TurnDetailGroupItem<T> | SpecialContextGroupItem<T>;
+export type TurnDetailItem<T> = TurnDetailMessageItem<T> | TurnDetailGroupItem<T> | SpecialContextGroupItem<T> | SessionStateMessageItem<T>;
 
 type MessageWithTurnDetails = MessageVisibilityInput & { turnDetails?: TurnDetailMetadata };
 
@@ -132,6 +140,17 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
   };
 
   messages.forEach((message, index) => {
+    if (isSessionStateMessage(message)) {
+      flushBufferAsMessages();
+      items.push({
+        kind: 'sessionState',
+        id: `session-state:${messageId(message, index)}`,
+        message,
+        sourceIndexes: [index],
+      });
+      return;
+    }
+
     if (message.role === 'user') {
       flushBufferAsMessages();
       activeAnchorId = messageId(message, index);
@@ -174,7 +193,7 @@ export function buildDesktopTurnBlocks<T extends MessageVisibilityInput>(items: 
   let current: TurnDetailBlock<T> | null = null;
   const append = (item: TurnDetailItem<T>) => {
     const sourceIndexes = item.sourceIndexes || [];
-    if (!current || (item.kind === 'message' && item.message.role === 'user')) {
+    if (!current || item.kind === 'sessionState' || (item.kind === 'message' && item.message.role === 'user')) {
       const firstId = item.kind === 'message' ? messageId(item.message, sourceIndexes[0] ?? blocks.length) : item.id;
       current = { id: `desktop-turn:${firstId}:${blocks.length}`, items: [], sourceIndexes: [] };
       blocks.push(current);

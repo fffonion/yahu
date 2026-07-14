@@ -88,7 +88,7 @@ describe('turn detail fold UI', () => {
 
   test('special context block has collapsed details styling and i18n copy', () => {
     const source = app();
-    expect(source).toContain('import { buildDesktopTurnBlocks, buildTurnDetailItems, type SpecialContextGroupItem, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata }');
+    expect(source).toContain('type SpecialContextGroupItem, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata');
     expect(source).toContain('function SpecialContextGroup');
     expect(source).toContain('className="special-context-block"');
     expect(source).toContain('className="special-context-summary"');
@@ -97,6 +97,20 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("className=\"tool-chevron special-context-arrow\"");
     expect(source).toContain("const title = t('chat.specialContext');");
     expect(source).toContain('<SpecialContextGroup item={item} />');
+  });
+
+  test('preserved session state renders as an inline notice with real checkboxes', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('function SessionStateMessage');
+    expect(source).toContain('className="session-state-message"');
+    expect(source).toContain('className="session-state-notice"');
+    expect(source).toContain('<Info aria-hidden="true" />');
+    expect(source).toContain('type="checkbox"');
+    expect(source).toContain("node.indeterminate = status === 'in_progress'");
+    expect(source).toContain('<SessionStateMessage item={item} />');
+    expect(styles).toContain('.session-state-message{');
+    expect(styles).toContain('.session-task-checkbox{');
   });
 
   test('streaming path still appends full detail messages instead of skeleton-only rows', () => {
