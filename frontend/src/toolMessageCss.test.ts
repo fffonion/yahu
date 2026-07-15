@@ -26,6 +26,14 @@ describe('tool message structured layout css', () => {
     expect(styles).toContain('.tool-detail-section{display:grid;gap:7px}');
   });
 
+  test('assistant structured content reuses the exact recursive tool value formatter', () => {
+    const source = app();
+    expect(source).toContain('export function StructuredDataView({ value }: { value: unknown })');
+    expect(source).toContain('<StructuredDataView value={child} />');
+    expect(source).toContain('<StructuredDataView value={value} />');
+    expect(source).toContain('message.structuredContent ? <StructuredDataView value={message.structuredContent.value} />');
+  });
+
   test('tool summaries keep the icon inside the card with compact typography', () => {
     const source = app();
     const styles = css();

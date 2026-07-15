@@ -61,14 +61,13 @@ export function normalizeSubagentMessages(value: unknown): SubagentMessage[] {
   return data.map((item, index) => normalizeSubagentMessage(item, index)).filter((item): item is SubagentMessage => !!item);
 }
 
-export function prettyFormatSubagentFinalMessage(content: string): string {
+export function parseSubagentFinalStructuredContent(content: string): SubagentMessage['structuredContent'] | undefined {
   const trimmed = content.trim();
-  if (!trimmed) return content;
+  if (!trimmed) return undefined;
   try {
-    const value = JSON.parse(trimmed);
-    return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
+    return { value: JSON.parse(trimmed) };
   } catch {
-    return content;
+    return undefined;
   }
 }
 
@@ -83,9 +82,9 @@ export function formatSubagentFinalMessages(messages: SubagentMessage[]): Subage
   }
   if (finalAssistantIndex < 0) return messages;
   const message = messages[finalAssistantIndex];
-  const content = prettyFormatSubagentFinalMessage(message.content);
-  if (content === message.content) return messages;
-  return messages.map((item, index) => index === finalAssistantIndex ? { ...item, content } : item);
+  const structuredContent = parseSubagentFinalStructuredContent(message.content);
+  if (!structuredContent) return messages;
+  return messages.map((item, index) => index === finalAssistantIndex ? { ...item, structuredContent } : item);
 }
 
 export function normalizeSubagentSnapshot(value: unknown, expectedSessionId: string): SubagentProgressSnapshot | null {

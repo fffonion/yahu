@@ -10,7 +10,7 @@ import {
   latestSubagent,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
-  prettyFormatSubagentFinalMessage,
+  parseSubagentFinalStructuredContent,
   subagentElapsedSeconds,
   subagentMessagesUrl,
   subagentWebSocketUrl,
@@ -145,7 +145,8 @@ function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, dep
     return [...formatted, {
       id: `${node.sessionId}:summary`,
       role: 'assistant' as const,
-      content: prettyFormatSubagentFinalMessage(node.summary),
+      content: node.summary,
+      structuredContent: parseSubagentFinalStructuredContent(node.summary),
       timestamp: node.endedAt,
     }];
   }, [messages, node.endedAt, node.sessionId, node.status, node.summary]);

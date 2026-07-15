@@ -23,7 +23,8 @@ describe('subagent progress UI', () => {
     expect(source).toContain('className="subagent-progress-todos"');
     expect(source).toContain('className="subagent-progress-messages"');
     expect(source).toContain('formatSubagentFinalMessages(messages)');
-    expect(source).toContain('prettyFormatSubagentFinalMessage(node.summary)');
+    expect(source).toContain('structuredContent: parseSubagentFinalStructuredContent(node.summary)');
+    expect(source).not.toContain('prettyFormatSubagentFinalMessage');
     expect(source).toContain('<SubagentProgressNode key={child.sessionId}');
     expect(source).not.toContain('className="subagent-progress-stats"');
     expect(source).not.toContain('className="subagent-progress-activity"');

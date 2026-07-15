@@ -6,7 +6,7 @@ import {
   isSubagentDetailNearBottom,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
-  prettyFormatSubagentFinalMessage,
+  parseSubagentFinalStructuredContent,
   subagentMessagesUrl,
   subagentWebSocketUrl,
 } from './subagentProgress';
@@ -57,7 +57,7 @@ describe('subagent progress websocket projection', () => {
     ]);
   });
 
-  test('pretty-formats only a valid JSON final assistant message', () => {
+  test('marks only a valid JSON final assistant message for shared structured rendering', () => {
     const messages = normalizeSubagentMessages({ data: [
       { id: 1, role: 'user', content: '{"leave":"user json alone"}' },
       { id: 2, role: 'assistant', content: 'Working text' },
@@ -65,20 +65,17 @@ describe('subagent progress websocket projection', () => {
       { id: 4, role: 'assistant', content: '{"passed":true,"items":[1,2]}' },
     ] });
 
-    expect(formatSubagentFinalMessages(messages).map((message) => message.content)).toEqual([
-      '{"leave":"user json alone"}',
-      'Working text',
-      '{"leave":"tool json alone"}',
-      '```json\n{\n  "passed": true,\n  "items": [\n    1,\n    2\n  ]\n}\n```',
-    ]);
-    expect(messages[3].content).toBe('{"passed":true,"items":[1,2]}');
+    const formatted = formatSubagentFinalMessages(messages);
+    expect(formatted.map((message) => message.content)).toEqual(messages.map((message) => message.content));
+    expect(formatted.slice(0, 3).every((message) => message.structuredContent === undefined)).toBe(true);
+    expect(formatted[3].structuredContent).toEqual({ value: { passed: true, items: [1, 2] } });
+    expect(messages[3].structuredContent).toBeUndefined();
   });
 
-  test('keeps a non-JSON final message unchanged and formats JSON summary fallbacks', () => {
-    expect(prettyFormatSubagentFinalMessage('Normal final answer')).toBe('Normal final answer');
-    expect(prettyFormatSubagentFinalMessage('{"summary":"ok","errors":[]}')).toBe(
-      '```json\n{\n  "summary": "ok",\n  "errors": []\n}\n```',
-    );
+  test('keeps non-JSON final text unchanged and parses JSON summary fallbacks', () => {
+    expect(parseSubagentFinalStructuredContent('Normal final answer')).toBeUndefined();
+    expect(parseSubagentFinalStructuredContent('{"summary":"ok","errors":[]}')).toEqual({ value: { summary: 'ok', errors: [] } });
+    expect(parseSubagentFinalStructuredContent('null')).toEqual({ value: null });
   });
 
   test('builds a nested tree from parent session ids', () => {

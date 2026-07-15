@@ -7,7 +7,8 @@ const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 describe('chat context window meter', () => {
   test('chat header renders an API-token context window bar before the settings control', () => {
     const source = app();
-    expect(source).toContain('type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string }');
+    expect(source).toContain('structuredContent?: { value: unknown }');
+    expect(source).toContain('model?: string; provider?: string;');
     expect(source).toContain('function ContextWindowMeter({ used, total, approximate = false }: { used?: number; total?: number; approximate?: boolean })');
     expect(source).toContain('const contextModelOption = exactCurrentOption || (currentModel ? findModelOption(props.models, currentModel) : undefined);');
     expect(source).toContain('const contextWindowTotal = contextModelOption?.contextLength || fallbackContextWindowForModel(currentModel, sessionProvider);');

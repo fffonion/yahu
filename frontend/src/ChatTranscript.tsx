@@ -46,7 +46,7 @@ import {
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool';
 export type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number; costUsd?: number };
-export type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+export type ChatMessage = { id: string; role: Role; content: string; structuredContent?: { value: unknown }; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 
 type LoadTurnDetails = (detail: TurnDetailMetadata) => Promise<ChatMessage[]>;
 
@@ -111,17 +111,17 @@ function NewMessagesSeparator() {
   return <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>;
 }
 
-function StructuredValue({ value }: { value: unknown }) {
+export function StructuredDataView({ value }: { value: unknown }) {
   if (value === null || value === undefined) return <span className="tool-empty">null</span>;
-  if (Array.isArray(value)) return <div className="tool-children">{value.map((item, index) => <div className="tool-field" key={index}><span className="tool-key">{index}</span><StructuredValue value={item} /></div>)}</div>;
+  if (Array.isArray(value)) return <div className="tool-children">{value.map((item, index) => <div className="tool-field" key={index}><span className="tool-key">{index}</span><StructuredDataView value={item} /></div>)}</div>;
   if (typeof value === 'object') {
-    return <div className="tool-children">{Object.entries(value as Record<string, unknown>).map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span><StructuredValue value={child} /></div>)}</div>;
+    return <div className="tool-children">{Object.entries(value as Record<string, unknown>).map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span><StructuredDataView value={child} /></div>)}</div>;
   }
   return <span className={`tool-scalar ${typeof value}`}>{String(value)}</span>;
 }
 
 function ToolDetailSection({ title, value }: { title: string; value: unknown }) {
-  return <section className="tool-detail-section"><h4>{title}</h4><StructuredValue value={value} /></section>;
+  return <section className="tool-detail-section"><h4>{title}</h4><StructuredDataView value={value} /></section>;
 }
 
 function getToolIcon(toolName: string): React.ReactNode {
@@ -242,7 +242,7 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
       </div>
       {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>}
       <div className="msg-body">
-        <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(message.content || (isPending ? '…' : '')) }} />
+        {message.structuredContent ? <StructuredDataView value={message.structuredContent.value} /> : <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(message.content || (isPending ? '…' : '')) }} />}
         {isPending && <span className="stream-caret" aria-hidden="true" />}
       </div>
       {showTurnMetadata && <div className="msg-turn-metadata" aria-label={t('chat.details')}>{turnMetadata}</div>}
