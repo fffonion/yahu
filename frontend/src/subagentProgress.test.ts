@@ -95,7 +95,26 @@ describe('subagent progress websocket projection', () => {
 
     expect(tree).toHaveLength(1);
     expect(tree[0].sessionId).toBe('root');
-    expect(tree[0].children[0].sessionId).toBe('leaf');
+    expect(tree[0].children.map((item) => item.sessionId)).toEqual(['leaf']);
+  });
+
+  test('orders recent root and nested subagent lists newest first', () => {
+    const snapshot = normalizeSubagentSnapshot({
+      type: 'subagents.snapshot',
+      session_id: 'parent',
+      subagents: [
+        { session_id: 'old', parent_session_id: 'parent', goal: 'Old', status: 'completed', started_at: 10 },
+        { session_id: 'new', parent_session_id: 'parent', goal: 'New', status: 'completed', started_at: 30 },
+        { session_id: 'middle', parent_session_id: 'parent', goal: 'Middle', status: 'completed', started_at: 20 },
+        { session_id: 'child-old', parent_session_id: 'new', goal: 'Child old', status: 'completed', started_at: 31 },
+        { session_id: 'child-new', parent_session_id: 'new', goal: 'Child new', status: 'completed', started_at: 32 },
+      ],
+    }, 'parent')!;
+
+    const tree = buildSubagentTree(snapshot.subagents, 'parent');
+
+    expect(tree.map((item) => item.sessionId)).toEqual(['new', 'middle', 'old']);
+    expect(tree[0].children.map((item) => item.sessionId)).toEqual(['child-new', 'child-old']);
   });
 
   test('selects the latest subagent for the collapsed panel preview', () => {

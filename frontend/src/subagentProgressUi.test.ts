@@ -30,13 +30,19 @@ describe('subagent progress UI', () => {
     expect(source).not.toContain('assistantName={node.model');
   });
 
-  test('lazy-loads full conversation detail on expand and keeps every agent folded initially', () => {
+  test('lazy-loads full conversation detail and preserves expanded session ids across full snapshot replacements', () => {
     const source = card();
-    expect(source).toContain('useState(false)');
+    expect(source).toContain("const [openNodeIds, setOpenNodeIds] = useState<Set<string>>(() => new Set());");
+    expect(source).toContain('openNodeIds={openNodeIds}');
+    expect(source).toContain('const open = openNodeIds.has(node.sessionId);');
+    expect(source).toContain('onOpenChange={setNodeOpen}');
+    expect(source).toContain('setOpenNodeIds((current) => {');
+    expect(source).toContain('setOpenNodeIds(new Set());');
     expect(source).toContain('subagentMessagesUrl(node.sessionId)');
     expect(source).toContain('normalizeSubagentMessages(await response.json())');
     expect(source).toContain('className="subagent-progress-messages"');
     expect(source).toContain('<ChatTranscript');
+    expect(source).not.toContain('const [open, setOpen] = useState(false);');
     expect(source).not.toContain("useState(node.status === 'running')");
   });
 

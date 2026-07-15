@@ -6,6 +6,7 @@ const SUBAGENT_PAGE_SIZE: usize = 200;
 // historical pages on every poll when a Hermes installation has many old child sessions.
 const SUBAGENT_MAX_PAGES: usize = 1;
 const SUBAGENT_BATCH_WINDOW_SECONDS: f64 = 2.0;
+const SUBAGENT_RECENT_ROOT_LIMIT: usize = 5;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
 const SUBAGENT_SUMMARY_LIMIT: usize = 600;
 
@@ -410,7 +411,19 @@ fn select_visible_subagent_sessions(parent_session_id: &str, sessions: &[Value])
         }
     }
 
-    sessions
+    let mut recent_roots = direct_roots.clone();
+    recent_roots.sort_by(|left, right| {
+        number_field(right, "started_at")
+            .unwrap_or(f64::NEG_INFINITY)
+            .total_cmp(&number_field(left, "started_at").unwrap_or(f64::NEG_INFINITY))
+    });
+    for session in recent_roots.into_iter().take(SUBAGENT_RECENT_ROOT_LIMIT) {
+        if let Some(id) = string_field(session, "id") {
+            selected_roots.insert(id);
+        }
+    }
+
+    let mut visible = sessions
         .iter()
         .filter(|session| {
             let Some(mut current) = string_field(session, "id") else {
@@ -429,7 +442,13 @@ fn select_visible_subagent_sessions(parent_session_id: &str, sessions: &[Value])
             false
         })
         .cloned()
-        .collect()
+        .collect::<Vec<_>>();
+    visible.sort_by(|left, right| {
+        number_field(right, "started_at")
+            .unwrap_or(f64::NEG_INFINITY)
+            .total_cmp(&number_field(left, "started_at").unwrap_or(f64::NEG_INFINITY))
+    });
+    visible
 }
 
 fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<SubagentProjection> {

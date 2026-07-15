@@ -121,7 +121,7 @@ export function buildSubagentTree(subagents: SubagentProgress[], parentSessionId
     else if (node.parentSessionId === parentSessionId || !parent) roots.push(node);
   }
   const sortTree = (items: SubagentTreeNode[]) => {
-    items.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
+    items.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
     items.forEach((item) => sortTree(item.children));
   };
   sortTree(roots);

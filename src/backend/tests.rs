@@ -2448,34 +2448,61 @@ mod tests {
     }
 
     #[test]
-    fn visible_subagent_sessions_keep_active_batch_siblings_and_descendants() {
+    fn visible_subagent_sessions_keep_active_batch_and_five_recent_roots_with_descendants() {
         let sessions = vec![
-            serde_json::json!({"id": "old", "parent_session_id": "parent", "started_at": 10.0, "ended_at": 20.0}),
+            serde_json::json!({"id": "old-a", "parent_session_id": "parent", "started_at": 10.0, "ended_at": 20.0}),
             serde_json::json!({"id": "root-a", "parent_session_id": "parent", "started_at": 100.0, "ended_at": null}),
+            serde_json::json!({"id": "old-b", "parent_session_id": "parent", "started_at": 20.0, "ended_at": 25.0}),
             serde_json::json!({"id": "root-b", "parent_session_id": "parent", "started_at": 100.2, "ended_at": 110.0}),
+            serde_json::json!({"id": "old-c", "parent_session_id": "parent", "started_at": 30.0, "ended_at": 35.0}),
+            serde_json::json!({"id": "recent", "parent_session_id": "parent", "started_at": 90.0, "ended_at": 95.0}),
             serde_json::json!({"id": "nested", "parent_session_id": "root-a", "started_at": 105.0, "ended_at": null}),
             serde_json::json!({"id": "other", "parent_session_id": "another", "started_at": 120.0, "ended_at": null}),
         ];
 
         let visible = select_visible_subagent_sessions("parent", &sessions);
-        let ids = visible.iter().filter_map(|item| item.get("id").and_then(|value| value.as_str())).collect::<Vec<_>>();
+        let direct_ids = visible
+            .iter()
+            .filter(|item| item.get("parent_session_id").and_then(Value::as_str) == Some("parent"))
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        let all_ids = visible
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["root-a", "root-b", "nested"]);
+        assert_eq!(direct_ids, vec!["root-b", "root-a", "recent", "old-c", "old-b"]);
+        assert!(all_ids.contains(&"nested"));
+        assert!(!all_ids.contains(&"old-a"));
+        assert!(!all_ids.contains(&"other"));
     }
 
     #[test]
-    fn visible_subagent_sessions_keep_latest_completed_batch_when_idle() {
+    fn visible_subagent_sessions_keep_five_recent_roots_when_idle() {
         let sessions = vec![
-            serde_json::json!({"id": "old", "parent_session_id": "parent", "started_at": 10.0, "ended_at": 20.0}),
+            serde_json::json!({"id": "old-a", "parent_session_id": "parent", "started_at": 10.0, "ended_at": 15.0}),
+            serde_json::json!({"id": "old-b", "parent_session_id": "parent", "started_at": 20.0, "ended_at": 25.0}),
             serde_json::json!({"id": "latest-a", "parent_session_id": "parent", "started_at": 100.0, "ended_at": 120.0}),
+            serde_json::json!({"id": "old-c", "parent_session_id": "parent", "started_at": 30.0, "ended_at": 35.0}),
             serde_json::json!({"id": "latest-b", "parent_session_id": "parent", "started_at": 100.3, "ended_at": 122.0}),
+            serde_json::json!({"id": "old-d", "parent_session_id": "parent", "started_at": 40.0, "ended_at": 45.0}),
             serde_json::json!({"id": "nested", "parent_session_id": "latest-a", "started_at": 104.0, "ended_at": 119.0}),
         ];
 
         let visible = select_visible_subagent_sessions("parent", &sessions);
-        let ids = visible.iter().filter_map(|item| item.get("id").and_then(|value| value.as_str())).collect::<Vec<_>>();
+        let direct_ids = visible
+            .iter()
+            .filter(|item| item.get("parent_session_id").and_then(Value::as_str) == Some("parent"))
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        let all_ids = visible
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["latest-a", "latest-b", "nested"]);
+        assert_eq!(direct_ids, vec!["latest-b", "latest-a", "old-d", "old-c", "old-b"]);
+        assert!(all_ids.contains(&"nested"));
+        assert!(!all_ids.contains(&"old-a"));
     }
 
     #[test]
