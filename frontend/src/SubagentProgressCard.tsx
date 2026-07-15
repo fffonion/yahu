@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, XCircle } from 'lucide-react';
 import { ChatTranscript, type ChatMessage } from './ChatTranscript';
-import { t } from './i18n';
+import { t, tf } from './i18n';
 import {
   buildSubagentTree,
   formatSubagentElapsed,
@@ -86,7 +86,8 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
     };
   }, [sessionId]);
 
-  const running = snapshot?.subagents.some((item) => item.status === 'running') || false;
+  const runningCount = snapshot?.subagents.filter((item) => item.status === 'running').length || 0;
+  const running = runningCount > 0;
   useEffect(() => {
     if (!running) return;
     setNowSeconds(Date.now() / 1000);
@@ -98,13 +99,14 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   if (!snapshot || (!snapshot.subagents.length && !snapshot.error)) return null;
 
   const latest = latestSubagent(snapshot.subagents);
+  const preview = runningCount > 1 ? latestSubagent(snapshot.subagents.filter((item) => item.status === 'running')) || latest : latest;
   const finished = snapshot.subagents.filter((item) => item.status !== 'running').length;
   const total = snapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
-  return <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && latest?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
+  return <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
     <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-      {!expanded && latest && <SubagentProgressPreview node={latest} nowSeconds={nowSeconds} />}
-      {(expanded || !latest) && <>
+      {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
+      {(expanded || !preview) && <>
         <span className="subagent-progress-mark"><Bot aria-hidden="true" /></span>
         <span className="subagent-progress-heading"><strong>{t('subagents.title')}</strong><small>{running ? t('subagents.running') : t('subagents.finished')}</small></span>
         <span className="subagent-progress-count">{finished}/{total}</span>

@@ -63,6 +63,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.specialContext': { en: 'Context summary', 'zh-CN': '上下文摘要', 'zh-TW': '上下文摘要', ja: 'コンテキスト概要' },
   'subagents.title': { en: 'Subagent progress', 'zh-CN': '子代理进度', 'zh-TW': '子代理進度', ja: 'サブエージェント進捗' },
   'subagents.running': { en: 'Running', 'zh-CN': '运行中', 'zh-TW': '執行中', ja: '実行中' },
+  'subagents.runningCount': { en: '{0} running', 'zh-CN': '{0} 运行中', 'zh-TW': '{0} 執行中', ja: '{0} 実行中' },
   'subagents.finished': { en: 'Finished', 'zh-CN': '已结束', 'zh-TW': '已結束', ja: '完了' },
   'subagents.completed': { en: 'Completed', 'zh-CN': '已完成', 'zh-TW': '完了', ja: '完了' },
   'subagents.failed': { en: 'Failed', 'zh-CN': '失败', 'zh-TW': '失敗', ja: '失敗' },

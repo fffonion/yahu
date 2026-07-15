@@ -54,7 +54,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain("className={completed ? 'completed' : undefined}");
     expect(source).toContain("{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}");
     expect(source).toContain('{completed && <p className="subagent-progress-detail-meta">{statusLabel(node.status)} · {elapsed}</p>}');
-    expect(source).toContain("${!expanded && latest?.status === 'completed' ? ' completed-preview' : ''}");
+    expect(source).toContain("${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}");
     expect(styles).toContain('.subagent-progress-node>details>summary.completed{grid-template-columns:auto minmax(0,1fr);min-height:36px;');
     expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-panel-toggle{grid-template-columns:auto minmax(0,1fr);min-height:40px;');
     expect(styles).toContain('.subagent-progress-node>details[open]>summary.completed .subagent-progress-goal strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
@@ -141,8 +141,8 @@ describe('subagent progress UI', () => {
     expect(cardSource).toContain('const [expanded, setExpanded] = useState(false);');
     expect(cardSource).toContain('const latest = latestSubagent(snapshot.subagents);');
     expect(cardSource).toContain('aria-expanded={expanded}');
-    expect(cardSource).toContain("className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && latest?.status === 'completed' ? ' completed-preview' : ''}`}");
-    expect(cardSource).toContain('{!expanded && latest && <SubagentProgressPreview');
+    expect(cardSource).toContain("className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`}");
+    expect(cardSource).toContain('{!expanded && preview && <SubagentProgressPreview');
     expect(cardSource).toContain('{expanded && <div className="subagent-progress-panel-body">');
     expect(styles).toContain('.subagent-progress-overlay{grid-row:2;grid-column:1;min-width:0;min-height:0;z-index:140;');
     expect(styles).toContain('.chat-main-panel .chat-scroll{grid-row:2;grid-column:1;');
