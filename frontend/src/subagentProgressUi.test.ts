@@ -64,6 +64,19 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.desktop-compact-chat .subagent-progress-card');
   });
 
+  test('fills the chat panel edge to edge with square corners on desktop and mobile', () => {
+    const styles = css();
+    const cardRule = styles.match(/\.subagent-progress-card\{([^}]*)\}/)?.[1] || '';
+    const overlayRule = styles.match(/\.subagent-progress-overlay\{([^}]*)\}/)?.[1] || '';
+    expect(cardRule).toContain('width:100%');
+    expect(cardRule).toContain('max-width:none');
+    expect(cardRule).toContain('border-radius:0');
+    expect(overlayRule).toContain('padding:0');
+    expect(styles).toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0}');
+    expect(styles).not.toContain('.subagent-progress-card.expanded{height:90%;max-height:90%;border-radius:');
+    expect(styles).not.toContain('.subagent-progress-card.collapsed{border-radius:');
+  });
+
   test('keeps shared transcript reasoning folds out of subagent node chrome', () => {
     const styles = css();
     expect(styles).toContain('.subagent-progress-node>details{');
@@ -115,6 +128,6 @@ describe('subagent progress UI', () => {
     expect(styles).not.toContain('background:linear-gradient(145deg,color-mix(in srgb,var(--accent-soft) 46%,var(--surface))');
     expect(styles).toContain('.subagent-progress-card.expanded{height:90%;max-height:90%;');
     expect(styles).toContain('.subagent-progress-panel-body{min-height:0;');
-    expect(styles).toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0 10px 0 44px}');
+    expect(styles).toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0}');
   });
 });
