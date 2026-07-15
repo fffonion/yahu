@@ -198,6 +198,25 @@ mod tests {
     }
 
     #[test]
+    fn chat_run_content_type_normalization_replaces_all_values() {
+        let mut headers = HeaderMap::new();
+        headers.append(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.append(
+            header::CONTENT_TYPE,
+            "application/json; charset=utf-8".parse().unwrap(),
+        );
+
+        normalize_chat_run_content_type(&mut headers);
+
+        let values = headers
+            .get_all(header::CONTENT_TYPE)
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(values, vec!["application/json"]);
+    }
+
+    #[test]
     fn cron_run_proxy_waits_for_upstream_scheduler_tick() {
         let proxy_source = include_str!("proxy.rs");
 

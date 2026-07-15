@@ -118,7 +118,17 @@ async fn chat_stream(
     {
         run_builder = run_builder.bearer_auth(key);
     }
-    let run_resp = match run_builder.send().await {
+    let mut run_request = match run_builder.build() {
+        Ok(request) => request,
+        Err(err) => {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("Hermes API run request build failed: {err}"),
+            );
+        }
+    };
+    normalize_chat_run_content_type(run_request.headers_mut());
+    let run_resp = match state.client.execute(run_request).await {
         Ok(resp) => resp,
         Err(err) => {
             return json_error(
@@ -297,6 +307,13 @@ async fn send_model_switch_instruction(
         let text = resp.text().await.unwrap_or_default();
         Err(format!("{status}: {text}"))
     }
+}
+
+fn normalize_chat_run_content_type(headers: &mut HeaderMap) {
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
 }
 
 fn should_forward_chat_run_header(name: &str) -> bool {
