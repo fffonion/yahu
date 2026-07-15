@@ -1404,6 +1404,235 @@ fn row_to_session_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_jso
     Ok(serde_json::Value::Object(map))
 }
 
+fn request_dump_item_text(value: Option<&serde_json::Value>) -> String {
+    fn collect(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::String(text) if !text.is_empty() => out.push(text.clone()),
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    collect(item, out);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for key in ["text", "input_text", "output_text", "content", "output"] {
+                    if let Some(item) = map.get(key) {
+                        collect(item, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut parts = Vec::new();
+    if let Some(value) = value {
+        collect(value, &mut parts);
+    }
+    parts.join("\n")
+}
+
+fn request_dump_timestamp_seconds(value: &serde_json::Value) -> Option<f64> {
+    let timestamp = value.get("timestamp").and_then(|timestamp| timestamp.as_str())?;
+    chrono::DateTime::parse_from_rfc3339(timestamp)
+        .map(|timestamp| timestamp.timestamp_micros() as f64 / 1_000_000.0)
+        .ok()
+        .or_else(|| {
+            chrono::NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%S%.f")
+                .map(|timestamp| timestamp.and_utc().timestamp_micros() as f64 / 1_000_000.0)
+                .ok()
+        })
+}
+
+fn redact_request_dump_arguments(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                redact_request_dump_arguments(item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+                if matches!(
+                    normalized.as_str(),
+                    "authorization"
+                        | "proxyauthorization"
+                        | "cookie"
+                        | "setcookie"
+                        | "apikey"
+                        | "accesstoken"
+                        | "refreshtoken"
+                        | "password"
+                        | "passwd"
+                        | "secret"
+                        | "clientsecret"
+                        | "token"
+                ) {
+                    *value = serde_json::json!("[REDACTED]");
+                } else {
+                    redact_request_dump_arguments(value);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn sanitized_request_dump_arguments(value: Option<&serde_json::Value>) -> String {
+    let mut arguments = match value {
+        Some(serde_json::Value::String(arguments)) => {
+            serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}))
+        }
+        Some(arguments) => arguments.clone(),
+        None => serde_json::json!({}),
+    };
+    redact_request_dump_arguments(&mut arguments);
+    serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn request_dump_messages(
+    session_id: &str,
+    dump: &serde_json::Value,
+) -> Option<(f64, Vec<serde_json::Value>)> {
+    // Request dumps can contain authorization headers. Deliberately touch only
+    // the embedded session id, timestamp, and provider input transcript.
+    if dump.get("session_id").and_then(|value| value.as_str()) != Some(session_id) {
+        return None;
+    }
+    let dump_timestamp = request_dump_timestamp_seconds(dump)?;
+    let items = dump
+        .pointer("/request/body/input")
+        .and_then(|value| value.as_array())?;
+    let mut messages = Vec::new();
+    let mut tool_names = HashMap::new();
+    for item in items {
+        let item_type = item.get("type").and_then(|value| value.as_str());
+        let role = item.get("role").and_then(|value| value.as_str());
+        let mut message = serde_json::Map::new();
+        match (item_type, role) {
+            (Some("function_call"), _) => {
+                let call_id = item.get("call_id").and_then(|value| value.as_str()).unwrap_or("");
+                let name = item.get("name").and_then(|value| value.as_str()).unwrap_or("");
+                if call_id.is_empty() || name.is_empty() {
+                    continue;
+                }
+                tool_names.insert(call_id.to_string(), name.to_string());
+                let arguments = sanitized_request_dump_arguments(item.get("arguments"));
+                message.insert("role".to_string(), serde_json::json!("assistant"));
+                message.insert("content".to_string(), serde_json::json!(""));
+                message.insert(
+                    "tool_calls".to_string(),
+                    serde_json::json!([{
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": arguments}
+                    }]),
+                );
+            }
+            (Some("function_call_output"), _) => {
+                let call_id = item.get("call_id").and_then(|value| value.as_str()).unwrap_or("");
+                if call_id.is_empty() {
+                    continue;
+                }
+                let name = tool_names.get(call_id).cloned().unwrap_or_default();
+                message.insert("role".to_string(), serde_json::json!("tool"));
+                message.insert("content".to_string(), serde_json::json!(request_dump_item_text(item.get("output"))));
+                message.insert("tool_call_id".to_string(), serde_json::json!(call_id));
+                if !name.is_empty() {
+                    message.insert("tool_name".to_string(), serde_json::json!(name));
+                }
+            }
+            (Some("reasoning"), _) => {
+                let reasoning = request_dump_item_text(item.get("summary"));
+                if reasoning.is_empty() {
+                    continue;
+                }
+                message.insert("role".to_string(), serde_json::json!("assistant"));
+                message.insert("content".to_string(), serde_json::json!(""));
+                message.insert("reasoning".to_string(), serde_json::json!(reasoning));
+            }
+            (_, Some("user" | "assistant" | "system")) => {
+                message.insert("role".to_string(), serde_json::json!(role.unwrap_or("assistant")));
+                message.insert("content".to_string(), serde_json::json!(request_dump_item_text(item.get("content"))));
+            }
+            _ => continue,
+        }
+        let index = messages.len();
+        message.insert("id".to_string(), serde_json::json!(-9_000_000_000_000i64 + index as i64));
+        message.insert("session_id".to_string(), serde_json::json!(session_id));
+        message.insert(
+            "timestamp".to_string(),
+            serde_json::json!(dump_timestamp - ((items.len().saturating_sub(index)) as f64 / 1_000.0)),
+        );
+        messages.push(serde_json::Value::Object(message));
+    }
+    (!messages.is_empty()).then_some((dump_timestamp, messages))
+}
+
+fn recovered_request_dump_prefix(
+    state: &AppState,
+    session_id: &str,
+    first_history_timestamp: f64,
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    const MAX_REQUEST_DUMP_BYTES: u64 = 64 * 1024 * 1024;
+    let sessions_dir = state.hermes_home.join("sessions");
+    let prefix = format!("request_dump_{session_id}_");
+    let mut best: Option<(usize, f64, Vec<serde_json::Value>)> = None;
+    let entries = match std::fs::read_dir(sessions_dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(&prefix) || !name.ends_with(".json") {
+            continue;
+        }
+        let metadata = entry.metadata()?;
+        if !metadata.is_file() || metadata.len() > MAX_REQUEST_DUMP_BYTES {
+            continue;
+        }
+        let dump: serde_json::Value = match serde_json::from_slice(&std::fs::read(entry.path())?) {
+            Ok(dump) => dump,
+            Err(_) => continue,
+        };
+        let Some((dump_timestamp, messages)) = request_dump_messages(session_id, &dump) else {
+            continue;
+        };
+        if dump_timestamp >= first_history_timestamp {
+            continue;
+        }
+        // A later dump may already contain a compacted summary with fewer raw
+        // turns. Prefer the richest recoverable prefix; use time only to break ties.
+        let rank = (messages.len(), dump_timestamp, messages);
+        if best.as_ref().is_none_or(|current| (rank.0, rank.1) > (current.0, current.1)) {
+            best = Some(rank);
+        }
+    }
+    Ok(best.map(|(_, _, messages)| messages))
+}
+
+fn prepend_recovered_request_dump_prefix(
+    state: &AppState,
+    session_id: &str,
+    context: &mut ContextWindowMessages,
+) {
+    let Some(first_history_timestamp) = context.messages.iter().find_map(nav_message_timestamp_seconds) else {
+        return;
+    };
+    match recovered_request_dump_prefix(state, session_id, first_history_timestamp) {
+        Ok(Some(mut recovered)) => {
+            let recovered_len = recovered.len();
+            recovered.append(&mut context.messages);
+            context.messages = recovered;
+            context.boundary_start = context.boundary_start.saturating_add(recovered_len);
+        }
+        Ok(None) => {}
+        Err(err) => warn!(session_id = %session_id, error = %err, "cannot recover request-dump history prefix"),
+    }
+}
+
 fn nav_message_timestamp_seconds(message: &serde_json::Value) -> Option<f64> {
     ["timestamp", "created_at", "createdAt", "time"].iter().find_map(|key| {
         let value = message.get(*key)?;
@@ -1843,19 +2072,21 @@ async fn fetch_session_history_context_messages(
             None
         }
     };
-    match fetch_api_context_window_messages(state, &entries, SessionMessageJoinMode::VisibleHistory).await {
+    let mut context = match fetch_api_context_window_messages(state, &entries, SessionMessageJoinMode::VisibleHistory).await {
         Ok(api_context) => match local_context {
-            Some(local_context) if local_context.messages.len() > api_context.messages.len() => Ok(local_context),
-            _ => Ok(api_context),
+            Some(local_context) if local_context.messages.len() > api_context.messages.len() => local_context,
+            _ => api_context,
         },
         Err(err) => {
             warn!(session_id = %session_id, error = %err, "API Server history fetch failed; falling back to local state.db");
             match local_context {
-                Some(local_context) => Ok(local_context),
+                Some(local_context) => local_context,
                 None => anyhow::bail!("neither API Server nor local state.db has history messages for session lineage of {session_id}: API={err}"),
             }
         }
-    }
+    };
+    prepend_recovered_request_dump_prefix(state, session_id, &mut context);
+    Ok(context)
 }
 
 async fn fetch_session_history_messages(

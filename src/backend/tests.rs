@@ -1267,6 +1267,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_history_recovers_missing_pre_compaction_prefix_from_request_dump() {
+        async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({"session":{"id":session_id,"parent_session_id":null}}))
+        }
+        async fn api_messages(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({"data":[{
+                "id": 10,
+                "session_id": session_id,
+                "role": "user",
+                "content": "current prompt",
+                "timestamp": 10
+            }]}))
+        }
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                compacted INTEGER NOT NULL DEFAULT 0
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source) VALUES ('s1',NULL,1,NULL,NULL,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active,compacted) VALUES (10,'s1','user','current prompt',10,1,0)", []).unwrap();
+        drop(conn);
+
+        let sessions_dir = temp.path().join("sessions");
+        std::fs::create_dir(&sessions_dir).unwrap();
+        std::fs::write(
+            sessions_dir.join("request_dump_s1_19700101_000005_000000.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "timestamp": "1970-01-01T00:00:05.000000",
+                "session_id": "s1",
+                "request": {
+                    "headers": {"Authorization": "outer-secret-must-not-leak"},
+                    "body": {"input": [
+                    {"role": "user", "content": [{"type": "input_text", "text": "older prompt"}]},
+                    {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "older answer"}]},
+                    {"type": "function_call", "call_id": "call-1", "name": "terminal", "arguments": "{\"command\":\"pwd\",\"password\":\"argument-secret-must-not-leak\"}"},
+                    {"type": "function_call_output", "call_id": "call-1", "output": "older tool output"}
+                ]}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions_dir.join("request_dump_s1_19700101_000006_000000.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "timestamp": "1970-01-01T00:00:06.000000",
+                "session_id": "s1",
+                "request": {"body": {"input": [
+                    {"role": "user", "content": [{"type": "input_text", "text": "shorter newer snapshot"}]}
+                ]}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        let messages = fetch_session_history_messages(&state, "s1").await.unwrap();
+        let roles: Vec<_> = messages.iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
+        let texts: Vec<_> = messages.iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
+
+        assert_eq!(roles, vec!["user", "assistant", "assistant", "tool", "user"]);
+        assert_eq!(texts, vec!["older prompt", "older answer", "", "older tool output", "current prompt"]);
+        assert_eq!(messages[2]["tool_calls"][0]["function"]["name"], "terminal");
+        assert_eq!(messages[3]["tool_name"], "terminal");
+        let serialized = serde_json::to_string(&messages).unwrap();
+        assert!(!serialized.contains("outer-secret-must-not-leak"));
+        assert!(!serialized.contains("argument-secret-must-not-leak"));
+        assert!(serialized.contains("[REDACTED]"));
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active,compacted) VALUES (4,'s1','user','already preserved older prompt',4,0,1)", []).unwrap();
+        drop(conn);
+        let messages = fetch_session_history_messages(&state, "s1").await.unwrap();
+        let texts: Vec<_> = messages
+            .iter()
+            .map(|message| message["content"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(texts, vec!["already preserved older prompt", "current prompt"]);
+    }
+
+    #[tokio::test]
     async fn chat_history_trims_compression_child_carryover_prefix_without_content_dedupe() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");
