@@ -73,6 +73,15 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.msg-reasoning>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}');
   });
 
+  test('keeps the subagent conversation detail frame square like the shared chat detail frame', () => {
+    const styles = css();
+    const subagentDetailRule = styles.match(/\.subagent-progress-node>details\{([^}]*)\}/)?.[1] || '';
+    const sharedDetailRule = styles.match(/\.turn-detail-group\{([^}]*)\}/)?.[1] || '';
+    expect(sharedDetailRule).toContain('border-radius:0');
+    expect(subagentDetailRule).toContain('border-radius:0');
+    expect(subagentDetailRule).not.toContain('border-radius:12px');
+  });
+
   test('keeps a newly opened streaming detail at its latest content until the user scrolls upward', () => {
     const source = card();
     expect(source).toContain('const detailTreeRef = useRef<HTMLDivElement>(null);');
