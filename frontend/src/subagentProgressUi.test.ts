@@ -58,10 +58,19 @@ describe('subagent progress UI', () => {
   test('uses a responsive card that remains readable in compact desktop and mobile chat', () => {
     const styles = css();
     expect(styles).toContain('.subagent-progress-card{');
-    expect(styles).toContain('.subagent-progress-node summary{');
-    expect(styles).toContain('.subagent-progress-node details[open] .subagent-progress-goal strong{white-space:normal;overflow:visible;text-overflow:clip}');
+    expect(styles).toContain('.subagent-progress-node>details>summary{');
+    expect(styles).toContain('.subagent-progress-node>details[open]>summary .subagent-progress-goal strong{white-space:normal;overflow:visible;text-overflow:clip}');
     expect(styles).toContain('@media(max-width:760px){.subagent-progress-card');
     expect(styles).toContain('.desktop-compact-chat .subagent-progress-card');
+  });
+
+  test('keeps shared transcript reasoning folds out of subagent node chrome', () => {
+    const styles = css();
+    expect(styles).toContain('.subagent-progress-node>details{');
+    expect(styles).toContain('.subagent-progress-node>details>summary{');
+    expect(styles).not.toContain('.subagent-progress-node details{');
+    expect(styles).not.toContain('.subagent-progress-node summary{');
+    expect(styles).toContain('.msg-reasoning>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}');
   });
 
   test('keeps a newly opened streaming detail at its latest content until the user scrolls upward', () => {
