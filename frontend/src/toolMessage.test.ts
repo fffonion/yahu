@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { summarizeToolMessage } from './toolMessage';
 
 describe('summarizeToolMessage', () => {
-  test('builds a one-line tool summary from JSON without exposing raw JSON', () => {
+  test('builds a read-file summary with its filename before the field count', () => {
     const summary = summarizeToolMessage(JSON.stringify({ tool_name: 'read_file', status: 'ok', path: '/tmp/a.txt', result: 'read 10 lines' }));
     expect(summary.title).toBe('read file');
-    expect(summary.subtitle).toBe('read 10 lines');
+    expect(summary.subtitle).toBe('a.txt · 4 fields');
     expect(summary.fields).toContainEqual({ key: 'path', value: '/tmp/a.txt' });
     expect(summary.result).toBe('read 10 lines');
   });
@@ -104,5 +104,14 @@ describe('summarizeToolMessage', () => {
       { mode: 'replace', path: '/home/wow/project/src/App.tsx' },
     );
     expect(summary.subtitle).toBe('new_string is not unique');
+  });
+
+  test('read file summary uses the same smart path before the field count', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ content: '1|export const value = true;', total_lines: 240, file_size: 8192 }),
+      'functions.read_file',
+      { path: '/home/wow/project/src/features/chat/tools/ToolMessage.tsx', offset: 1, limit: 200 },
+    );
+    expect(summary.subtitle).toBe('src/…/tools/ToolMessage.tsx · 3 fields');
   });
 });

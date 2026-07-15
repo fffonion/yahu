@@ -84,7 +84,7 @@ function commandFromInput(toolName: string, input: unknown): string {
   return name === 'terminal' && typeof command === 'string' && command.trim() ? command.trim() : '';
 }
 
-function patchPathFromInput(root: Record<string, unknown> | null, input: unknown): string {
+function filePathFromInput(root: Record<string, unknown> | null, input: unknown): string {
   const invocation = asRecord(input);
   const files = Array.isArray(root?.files_modified) ? root.files_modified : [];
   const value = invocation?.path ?? root?.resolved_path ?? root?.path ?? root?.file ?? files[0];
@@ -146,16 +146,14 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
   const command = commandFromInput(toolName, input);
   const errorSubtitle = fields.find((f) => f.key === 'error')?.value;
   const resultSubtitle = fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value;
-  const patchPath = toolName === 'patch' || toolName === 'functions.patch' || contentToolName === 'patch' ? patchPathFromInput(root, input) : '';
+  const canonicalToolName = toolName.replace(/^functions\./, '');
+  const fileSummaryPath = ['patch', 'read_file'].includes(canonicalToolName) ? filePathFromInput(root, input) : '';
+  const fileSummary = fileSummaryPath ? `${fileSummaryPath}${root ? ` · ${Object.keys(root).length} fields` : ''}` : '';
   const subtitle = command
     || errorSubtitle
+    || fileSummary
     || resultSubtitle
     || (root ? `${Object.keys(root).length} fields` : content);
 
-  const decoratedSubtitle = patchPath && errorSubtitle ? subtitle
-    : patchPath && subtitle !== patchPath ? `${patchPath} · ${subtitle}`
-    : patchPath && root ? `${patchPath} · ${Object.keys(root).length} fields`
-    : subtitle;
-
-  return { title: fullTitle, toolName, subtitle: decoratedSubtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status };
+  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status };
 }
