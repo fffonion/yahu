@@ -89,6 +89,21 @@ describe('turn detail grouping', () => {
     expect(details).toMatchObject({ kind: 'detailGroup', defaultOpen: true });
   });
 
+  test('keeps bracketed tool output and assistant pre-tool context inside one detail group', () => {
+    const skippedTool: Msg = {
+      id: 't-skipped',
+      role: 'tool',
+      content: '[Tool execution skipped — terminal was not started. User sent a new message]',
+      toolName: 'terminal',
+    };
+    const items = buildTurnDetailItems([user, prelude, skippedTool, tool, final]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message']);
+    if (items[1].kind !== 'detailGroup') throw new Error('expected one detail group');
+    expect(items[1].messages.map((message) => message.id)).toEqual(['a1', 't-skipped', 't1']);
+    expect(items[1].messages[0].content).toBe('I will inspect');
+  });
+
   test('places a standalone session state before the following user turn without affecting its frame', () => {
     const state: Msg = {
       id: 'state3',

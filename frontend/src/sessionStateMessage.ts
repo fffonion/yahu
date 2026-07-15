@@ -42,6 +42,6 @@ export function parseSessionStateMessage(content: string): SessionStateContent |
   return { notice: noticeMatch[1].trim(), tasks };
 }
 
-export function isSessionStateMessage(message: { content?: string | null }): boolean {
-  return parseSessionStateMessage(String(message.content || '')) !== null;
+export function isSessionStateMessage(message: { role?: string | null; content?: string | null }): boolean {
+  return message.role === 'user' && parseSessionStateMessage(String(message.content || '')) !== null;
 }
