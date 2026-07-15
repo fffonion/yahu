@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildSubagentTree,
+  formatSubagentFinalMessages,
   latestSubagent,
   isSubagentDetailNearBottom,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
+  prettyFormatSubagentFinalMessage,
   subagentMessagesUrl,
   subagentWebSocketUrl,
 } from './subagentProgress';
@@ -53,6 +55,30 @@ describe('subagent progress websocket projection', () => {
       { id: '1', role: 'assistant', content: 'Final **answer**', reasoning: 'Long reasoning text', timestamp: 10, toolCalls: [{ id: 'call-1' }] },
       { id: '2', role: 'tool', toolName: 'read_file', toolCallId: 'call-1', content: 'full\noutput', timestamp: 11 },
     ]);
+  });
+
+  test('pretty-formats only a valid JSON final assistant message', () => {
+    const messages = normalizeSubagentMessages({ data: [
+      { id: 1, role: 'user', content: '{"leave":"user json alone"}' },
+      { id: 2, role: 'assistant', content: 'Working text' },
+      { id: 3, role: 'tool', content: '{"leave":"tool json alone"}', tool_name: 'read_file' },
+      { id: 4, role: 'assistant', content: '{"passed":true,"items":[1,2]}' },
+    ] });
+
+    expect(formatSubagentFinalMessages(messages).map((message) => message.content)).toEqual([
+      '{"leave":"user json alone"}',
+      'Working text',
+      '{"leave":"tool json alone"}',
+      '```json\n{\n  "passed": true,\n  "items": [\n    1,\n    2\n  ]\n}\n```',
+    ]);
+    expect(messages[3].content).toBe('{"passed":true,"items":[1,2]}');
+  });
+
+  test('keeps a non-JSON final message unchanged and formats JSON summary fallbacks', () => {
+    expect(prettyFormatSubagentFinalMessage('Normal final answer')).toBe('Normal final answer');
+    expect(prettyFormatSubagentFinalMessage('{"summary":"ok","errors":[]}')).toBe(
+      '```json\n{\n  "summary": "ok",\n  "errors": []\n}\n```',
+    );
   });
 
   test('builds a nested tree from parent session ids', () => {

@@ -61,6 +61,33 @@ export function normalizeSubagentMessages(value: unknown): SubagentMessage[] {
   return data.map((item, index) => normalizeSubagentMessage(item, index)).filter((item): item is SubagentMessage => !!item);
 }
 
+export function prettyFormatSubagentFinalMessage(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return content;
+  try {
+    const value = JSON.parse(trimmed);
+    return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
+  } catch {
+    return content;
+  }
+}
+
+export function formatSubagentFinalMessages(messages: SubagentMessage[]): SubagentMessage[] {
+  let finalAssistantIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === 'assistant' && message.content.trim()) {
+      finalAssistantIndex = index;
+      break;
+    }
+  }
+  if (finalAssistantIndex < 0) return messages;
+  const message = messages[finalAssistantIndex];
+  const content = prettyFormatSubagentFinalMessage(message.content);
+  if (content === message.content) return messages;
+  return messages.map((item, index) => index === finalAssistantIndex ? { ...item, content } : item);
+}
+
 export function normalizeSubagentSnapshot(value: unknown, expectedSessionId: string): SubagentProgressSnapshot | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;

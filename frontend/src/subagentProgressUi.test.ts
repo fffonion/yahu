@@ -17,14 +17,17 @@ describe('subagent progress UI', () => {
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');
   });
 
-  test('shows nested agents, counters, todo progress, activity, and completion summary', () => {
+  test('keeps todos and shared conversation detail while removing counters, model, and recent activity chrome', () => {
     const source = card();
     expect(source).toContain('className="subagent-progress-tree"');
-    expect(source).toContain('className="subagent-progress-stats"');
     expect(source).toContain('className="subagent-progress-todos"');
-    expect(source).toContain('className="subagent-progress-activity"');
     expect(source).toContain('className="subagent-progress-messages"');
+    expect(source).toContain('formatSubagentFinalMessages(messages)');
+    expect(source).toContain('prettyFormatSubagentFinalMessage(node.summary)');
     expect(source).toContain('<SubagentProgressNode key={child.sessionId}');
+    expect(source).not.toContain('className="subagent-progress-stats"');
+    expect(source).not.toContain('className="subagent-progress-activity"');
+    expect(source).not.toContain('assistantName={node.model');
   });
 
   test('lazy-loads full conversation detail on expand and keeps every agent folded initially', () => {
@@ -116,7 +119,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget);');
     expect(source).toContain('onDetailOpen={startFollowingLatestDetail}');
     expect(source).toContain('onDetailContentChange={followLatestDetail}');
-    expect(source).toContain('if (open && messages.length > 0) onDetailContentChange();');
+    expect(source).toContain('if (open && detailMessages.length > 0) onDetailContentChange();');
     expect(css()).toContain('overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;');
   });
 

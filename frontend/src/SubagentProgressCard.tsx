@@ -5,10 +5,12 @@ import { t } from './i18n';
 import {
   buildSubagentTree,
   formatSubagentElapsed,
+  formatSubagentFinalMessages,
   isSubagentDetailNearBottom,
   latestSubagent,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
+  prettyFormatSubagentFinalMessage,
   subagentElapsedSeconds,
   subagentMessagesUrl,
   subagentWebSocketUrl,
@@ -125,6 +127,18 @@ function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showTool
   const [loadedMessageCount, setLoadedMessageCount] = useState(-1);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState(false);
+  const detailMessages = useMemo(() => {
+    const formatted = formatSubagentFinalMessages(messages);
+    if (node.status === 'running' || !node.summary) return formatted;
+    const lastContentMessage = [...formatted].reverse().find((message) => message.content.trim());
+    if (lastContentMessage?.role === 'assistant') return formatted;
+    return [...formatted, {
+      id: `${node.sessionId}:summary`,
+      role: 'assistant' as const,
+      content: prettyFormatSubagentFinalMessage(node.summary),
+      timestamp: node.endedAt,
+    }];
+  }, [messages, node.endedAt, node.sessionId, node.status, node.summary]);
 
   useEffect(() => {
     if (!open || loadedMessageCount === node.messageCount) return;
@@ -150,8 +164,8 @@ function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showTool
   }, [loadedMessageCount, node.messageCount, node.sessionId, open]);
 
   useLayoutEffect(() => {
-    if (open && messages.length > 0) onDetailContentChange();
-  }, [messages, onDetailContentChange, open]);
+    if (open && detailMessages.length > 0) onDetailContentChange();
+  }, [detailMessages, onDetailContentChange, open]);
 
   return <div className={`subagent-progress-node depth-${Math.min(depth, 3)}`}>
     <details open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) onDetailOpen(); }}>
@@ -162,17 +176,10 @@ function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showTool
       </summary>
       <div className="subagent-progress-detail">
         {completed && <p className="subagent-progress-detail-meta">{statusLabel(node.status)} · {elapsed}</p>}
-        <div className="subagent-progress-stats">
-          {node.model && <span>{node.model}</span>}
-          <span>{node.messageCount} {t('subagents.messages')}</span>
-          <span>{node.toolCount} {t('subagents.tools')}</span>
-          <span>{node.apiCalls} API</span>
-        </div>
         {node.todos.length > 0 && <ul className="subagent-progress-todos">{node.todos.map((todo, index) => <li className={todo.status} key={`${todo.id}:${index}`}><span className="subagent-todo-box" aria-hidden="true">{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '–' : ''}</span><span>{todo.content}</span></li>)}</ul>}
-        {node.activity.length > 0 && <p className="subagent-progress-activity"><span>{t('subagents.recent')}</span>{node.activity.map((item) => item.tool).join(' → ')}</p>}
         {detailsLoading && <p className="subagent-progress-detail-state">{t('subagents.loadingDetails')}</p>}
         {detailsError && <p className="subagent-progress-detail-state error">{t('subagents.detailsUnavailable')}</p>}
-        {messages.length > 0 && <div className="subagent-progress-messages"><ChatTranscript messages={messages} showReasoning={showReasoning} showToolCalls={showToolCalls} assistantName={node.model || undefined} compact={compact} /></div>}
+        {detailMessages.length > 0 && <div className="subagent-progress-messages"><ChatTranscript messages={detailMessages} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} /></div>}
       </div>
     </details>
     {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} nowSeconds={nowSeconds} depth={depth + 1} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={onDetailOpen} onDetailContentChange={onDetailContentChange} />)}</div>}
