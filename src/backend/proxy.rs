@@ -108,7 +108,7 @@ async fn chat_stream(
     let mut run_builder = state.client.post(run_url).json(&run_body);
     for (key, value) in headers.iter() {
         let name = key.as_str().to_ascii_lowercase();
-        if !should_forward_proxy_header(&name) {
+        if !should_forward_chat_run_header(&name) {
             continue;
         }
         run_builder = run_builder.header(key.as_str(), value.as_bytes());
@@ -297,6 +297,10 @@ async fn send_model_switch_instruction(
         let text = resp.text().await.unwrap_or_default();
         Err(format!("{status}: {text}"))
     }
+}
+
+fn should_forward_chat_run_header(name: &str) -> bool {
+    name != "content-type" && should_forward_proxy_header(name)
 }
 
 fn should_forward_proxy_header(name: &str) -> bool {

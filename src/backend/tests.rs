@@ -192,6 +192,12 @@ mod tests {
     }
 
     #[test]
+    fn chat_run_header_filter_drops_source_content_type_before_reqwest_json() {
+        assert!(!should_forward_chat_run_header("content-type"));
+        assert!(should_forward_chat_run_header("accept"));
+    }
+
+    #[test]
     fn cron_run_proxy_waits_for_upstream_scheduler_tick() {
         let proxy_source = include_str!("proxy.rs");
 
@@ -1894,6 +1900,7 @@ mod tests {
 
         async fn api_run(
             State(state): State<OrderApiState>,
+            headers: HeaderMap,
             body: Body,
         ) -> Json<serde_json::Value> {
             let bytes = to_bytes(body, usize::MAX).await.unwrap();
@@ -1901,6 +1908,7 @@ mod tests {
             state.calls.lock().unwrap().push(serde_json::json!({
                 "kind": "stream",
                 "session_id": payload.get("session_id").cloned().unwrap_or_default(),
+                "content_type_count": headers.get_all(header::CONTENT_TYPE).iter().count(),
                 "body": payload,
             }));
             Json(serde_json::json!({"run_id":"run-test","status":"started"}))
@@ -1934,10 +1942,12 @@ mod tests {
             "provider": "openai-codex",
             "reasoning_effort": "medium"
         });
+        let mut request_headers = HeaderMap::new();
+        request_headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
         let resp = chat_stream(
             State(state),
             AxumPath("session-1".to_string()),
-            HeaderMap::new(),
+            request_headers,
             Body::from(body.to_string()),
         ).await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1965,6 +1975,7 @@ mod tests {
         assert_eq!(calls[0]["kind"], "model");
         assert_eq!(calls[0]["body"]["input"], "/model gpt-5.5 --provider openai-codex --session");
         assert_eq!(calls[1]["kind"], "stream");
+        assert_eq!(calls[1]["content_type_count"], 1);
         assert_eq!(calls[1]["body"]["input"], "hello");
         assert_eq!(calls[1]["body"]["reasoning_effort"], "medium");
         assert!(calls[1]["body"].get("model").is_none(), "stream body must not carry model: {calls:?}");
