@@ -66,6 +66,11 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.theme-card{display:none');
   });
 
+  test('mobile drawer hides the underlying composer and bottom toolbar', () => {
+    const styles = css();
+    expect(styles).toContain('@media (max-width:760px){.app-shell.mobile-sidebar-open .composer-wrap,.app-shell.mobile-sidebar-open .mobile-bottom-nav{visibility:hidden;pointer-events:none}}');
+  });
+
   test('mobile hides the chat workspace side panel and keeps touch scroll containers usable', () => {
     const styles = css();
     expect(styles).toContain('.app-shell{min-width:0');
