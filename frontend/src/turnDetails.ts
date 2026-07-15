@@ -114,9 +114,10 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
 
   const flushTrailingBuffer = () => {
     if (buffer.length && !buffer.some((entry) => entry.message.pending)) {
+      const first = buffer[0];
       const last = buffer[buffer.length - 1];
       const isUnfinishedUserTurn = !!activeAnchorId && activeAnchorId !== ROOTLESS_ANCHOR_ID;
-      const suffix = isUnfinishedUserTurn ? `unfinished-${messageId(last.message, last.index)}` : `trailing-${messageId(last.message, last.index)}`;
+      const suffix = isUnfinishedUserTurn ? `unfinished-${messageId(first.message, first.index)}` : `trailing-${messageId(first.message, first.index)}`;
       pushBufferedDetailGroup(`turn-details:${activeAnchorId || ROOTLESS_ANCHOR_ID}:${suffix}`, last.message, last.index, undefined, { defaultOpen: isUnfinishedUserTurn });
       return;
     }

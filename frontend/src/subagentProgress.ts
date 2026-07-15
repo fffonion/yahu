@@ -61,6 +61,47 @@ export function normalizeSubagentMessages(value: unknown): SubagentMessage[] {
   return data.map((item, index) => normalizeSubagentMessage(item, index)).filter((item): item is SubagentMessage => !!item);
 }
 
+export function mergeSubagentMessages(previous: SubagentMessage[], incoming: SubagentMessage[]): SubagentMessage[] {
+  if (!previous.length) return incoming;
+  const previousById = new Map(previous.map((message) => [message.id, message]));
+  let changed = previous.length !== incoming.length;
+  const merged = incoming.map((message, index) => {
+    const current = previousById.get(message.id);
+    if (!current || !sameSubagentMessage(current, message)) {
+      changed = true;
+      return message;
+    }
+    if (previous[index] !== current) changed = true;
+    return current;
+  });
+  return changed ? merged : previous;
+}
+
+function sameSubagentMessage(previous: SubagentMessage, incoming: SubagentMessage): boolean {
+  return previous.id === incoming.id
+    && previous.role === incoming.role
+    && previous.content === incoming.content
+    && previous.reasoning === incoming.reasoning
+    && previous.timestamp === incoming.timestamp
+    && previous.pending === incoming.pending
+    && previous.toolName === incoming.toolName
+    && previous.toolCallId === incoming.toolCallId
+    && previous.tokenCount === incoming.tokenCount
+    && previous.model === incoming.model
+    && previous.provider === incoming.provider
+    && previous.platformSenderName === incoming.platformSenderName
+    && previous.platformSenderId === incoming.platformSenderId
+    && sameSubagentMessageField(previous.structuredContent, incoming.structuredContent)
+    && sameSubagentMessageField(previous.toolInput, incoming.toolInput)
+    && sameSubagentMessageField(previous.toolCalls, incoming.toolCalls)
+    && sameSubagentMessageField(previous.turnMetrics, incoming.turnMetrics)
+    && sameSubagentMessageField(previous.turnDetails, incoming.turnDetails);
+}
+
+function sameSubagentMessageField(previous: unknown, incoming: unknown): boolean {
+  return previous === incoming || JSON.stringify(previous) === JSON.stringify(incoming);
+}
+
 export function parseSubagentFinalStructuredContent(content: string): SubagentMessage['structuredContent'] | undefined {
   const trimmed = content.trim();
   if (!trimmed) return undefined;

@@ -49,7 +49,7 @@ describe('turn detail grouping', () => {
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup']);
     if (items[1].kind !== 'detailGroup') throw new Error('expected unfinished detail group');
-    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1:unfinished-t1', defaultOpen: true });
+    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1:unfinished-a1', defaultOpen: true });
     expect(items[1].messages.map((message) => message.id)).toEqual(['a1', 't1']);
   });
 

@@ -8,6 +8,7 @@ import {
   formatSubagentFinalMessages,
   isSubagentDetailNearBottom,
   latestSubagent,
+  mergeSubagentMessages,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
@@ -164,7 +165,7 @@ function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, dep
         return normalizeSubagentMessages(await response.json());
       })
       .then((items) => {
-        setMessages(items);
+        setMessages((current) => mergeSubagentMessages(current, items));
         setLoadedMessageCount(node.messageCount);
       })
       .catch((error) => {
