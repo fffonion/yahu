@@ -37,6 +37,19 @@ describe('subagent progress UI', () => {
     expect(source).not.toContain("useState(node.status === 'running')");
   });
 
+  test('compresses completed agents to one check-and-description line while keeping status and time inside the expanded detail', () => {
+    const source = card();
+    const styles = css();
+    expect(source).toContain("const completed = node.status === 'completed';");
+    expect(source).toContain("className={completed ? 'completed' : undefined}");
+    expect(source).toContain("{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}");
+    expect(source).toContain('{completed && <p className="subagent-progress-detail-meta">{statusLabel(node.status)} · {elapsed}</p>}');
+    expect(source).toContain("${!expanded && latest?.status === 'completed' ? ' completed-preview' : ''}");
+    expect(styles).toContain('.subagent-progress-node>details>summary.completed{grid-template-columns:auto minmax(0,1fr);min-height:36px;');
+    expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-panel-toggle{grid-template-columns:auto minmax(0,1fr);min-height:40px;');
+    expect(styles).toContain('.subagent-progress-node>details[open]>summary.completed .subagent-progress-goal strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
+  });
+
   test('reuses the exact main-chat transcript renderer without a subagent-only message renderer', () => {
     expect(app()).toContain("import { ChatTranscript");
     expect(app()).toContain('<ChatTranscript');
@@ -64,13 +77,13 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.desktop-compact-chat .subagent-progress-card');
   });
 
-  test('fills the chat panel edge to edge with square corners on desktop and mobile', () => {
+  test('fills the chat panel edge to edge with rounded outer card corners on desktop and mobile', () => {
     const styles = css();
     const cardRule = styles.match(/\.subagent-progress-card\{([^}]*)\}/)?.[1] || '';
     const overlayRule = styles.match(/\.subagent-progress-overlay\{([^}]*)\}/)?.[1] || '';
     expect(cardRule).toContain('width:100%');
     expect(cardRule).toContain('max-width:none');
-    expect(cardRule).toContain('border-radius:0');
+    expect(cardRule).toContain('border-radius:14px');
     expect(overlayRule).toContain('padding:0');
     expect(styles).toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0}');
     expect(styles).not.toContain('.subagent-progress-card.expanded{height:90%;max-height:90%;border-radius:');
@@ -118,7 +131,7 @@ describe('subagent progress UI', () => {
     expect(cardSource).toContain('const [expanded, setExpanded] = useState(false);');
     expect(cardSource).toContain('const latest = latestSubagent(snapshot.subagents);');
     expect(cardSource).toContain('aria-expanded={expanded}');
-    expect(cardSource).toContain("className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}`}");
+    expect(cardSource).toContain("className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && latest?.status === 'completed' ? ' completed-preview' : ''}`}");
     expect(cardSource).toContain('{!expanded && latest && <SubagentProgressPreview');
     expect(cardSource).toContain('{expanded && <div className="subagent-progress-panel-body">');
     expect(styles).toContain('.subagent-progress-overlay{grid-row:2;grid-column:1;min-width:0;min-height:0;z-index:140;');
