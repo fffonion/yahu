@@ -36,6 +36,12 @@ describe('chat reasoning display toggle', () => {
     expect(responseBodyIndex).toBeGreaterThan(reasoningIndex);
   });
 
+  test('desktop reasoning disclosure leaves space before the following response body', () => {
+    const styles = css();
+    expect(styles).toContain('@media(min-width:761px){.msg-reasoning{margin-bottom:8px}}');
+    expect(styles).not.toContain('@media(max-width:760px){.msg-reasoning{margin-bottom:8px}}');
+  });
+
   test('pre-tool assistant text stays visible but its thinking block summary says completed thinking with elapsed time', () => {
     const source = app();
     const styles = css();
