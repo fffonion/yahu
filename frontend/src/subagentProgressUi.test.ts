@@ -31,13 +31,15 @@ describe('subagent progress UI', () => {
     expect(source).not.toContain('assistantName={node.model');
   });
 
-  test('lazy-loads full conversation detail and preserves expanded session ids across full snapshot replacements', () => {
+  test('lazy-loads full conversation detail while keeping only one child expanded across snapshot replacements', () => {
     const source = card();
     expect(source).toContain("const [openNodeIds, setOpenNodeIds] = useState<Set<string>>(() => new Set());");
     expect(source).toContain('openNodeIds={openNodeIds}');
     expect(source).toContain('const open = openNodeIds.has(node.sessionId);');
     expect(source).toContain('onOpenChange={setNodeOpen}');
     expect(source).toContain('setOpenNodeIds((current) => {');
+    expect(source).toContain('if (open) return new Set([nodeSessionId]);');
+    expect(source).not.toContain('if (open) next.add(nodeSessionId);');
     expect(source).toContain('setOpenNodeIds(new Set());');
     expect(source).toContain('subagentMessagesUrl(node.sessionId)');
     expect(source).toContain('normalizeSubagentMessages(await response.json())');
@@ -135,7 +137,7 @@ describe('subagent progress UI', () => {
     expect(styles).not.toContain('.subagent-progress-node>details[open]{display:grid;grid-template-rows:auto minmax(0,1fr);max-height:');
   });
 
-  test('floats above chat history, previews only the latest subagent while collapsed, and expands to ninety percent height', () => {
+  test('floats above chat history and grows naturally up to ninety percent height', () => {
     const appSource = app();
     const cardSource = card();
     const styles = css();
@@ -154,8 +156,11 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.chat-main-panel>.composer-wrap{grid-row:3;grid-column:1}');
     expect(styles).toContain('background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 9%,var(--surface))');
     expect(styles).not.toContain('background:linear-gradient(145deg,color-mix(in srgb,var(--accent-soft) 46%,var(--surface))');
-    expect(styles).toContain('.subagent-progress-card.expanded{height:90%;max-height:90%;');
+    expect(styles).toContain('.subagent-progress-card.expanded{max-height:90%;');
+    expect(styles).not.toContain('.subagent-progress-card.expanded{height:90%');
+    expect(styles).not.toContain('.subagent-progress-card.expanded{height:90%;max-height:90%');
     expect(styles).toContain('.subagent-progress-panel-body{min-height:0;');
     expect(styles).toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0}');
+    expect(styles).not.toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0}.subagent-progress-card.expanded{height:90%');
   });
 });

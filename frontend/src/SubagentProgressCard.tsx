@@ -42,9 +42,9 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   const followLatestDetail = useCallback(() => scrollToLatestDetail(false), [scrollToLatestDetail]);
   const setNodeOpen = useCallback((nodeSessionId: string, open: boolean) => {
     setOpenNodeIds((current) => {
+      if (open) return new Set([nodeSessionId]);
       const next = new Set(current);
-      if (open) next.add(nodeSessionId);
-      else next.delete(nodeSessionId);
+      next.delete(nodeSessionId);
       return next;
     });
   }, []);
