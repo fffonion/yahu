@@ -61,6 +61,17 @@ const translations: Record<string, Record<string, string>> = {
   'chat.deleteTitle': { en: 'Delete session', 'zh-CN': '删除会话', 'zh-TW': '刪除會話', ja: 'セッション削除' },
   'chat.actionFailed': { en: 'Action failed', 'zh-CN': '操作失败', 'zh-TW': '操作失敗', ja: 'アクション失敗' },
   'chat.specialContext': { en: 'Context summary', 'zh-CN': '上下文摘要', 'zh-TW': '上下文摘要', ja: 'コンテキスト概要' },
+  'subagents.title': { en: 'Subagent progress', 'zh-CN': '子代理进度', 'zh-TW': '子代理進度', ja: 'サブエージェント進捗' },
+  'subagents.running': { en: 'Running', 'zh-CN': '运行中', 'zh-TW': '執行中', ja: '実行中' },
+  'subagents.finished': { en: 'Finished', 'zh-CN': '已结束', 'zh-TW': '已結束', ja: '完了' },
+  'subagents.completed': { en: 'Completed', 'zh-CN': '已完成', 'zh-TW': '完了', ja: '完了' },
+  'subagents.failed': { en: 'Failed', 'zh-CN': '失败', 'zh-TW': '失敗', ja: '失敗' },
+  'subagents.interrupted': { en: 'Interrupted', 'zh-CN': '已中断', 'zh-TW': '已中斷', ja: '中断' },
+  'subagents.timeout': { en: 'Timed out', 'zh-CN': '已超时', 'zh-TW': '已逾時', ja: 'タイムアウト' },
+  'subagents.messages': { en: 'messages', 'zh-CN': '条消息', 'zh-TW': '則訊息', ja: 'メッセージ' },
+  'subagents.tools': { en: 'tools', 'zh-CN': '次工具', 'zh-TW': '次工具', ja: 'ツール' },
+  'subagents.recent': { en: 'Recent', 'zh-CN': '最近活动', 'zh-TW': '最近活動', ja: '最近' },
+  'subagents.unavailable': { en: 'Progress is temporarily unavailable.', 'zh-CN': '进度暂时不可用。', 'zh-TW': '進度暫時無法使用。', ja: '進捗を取得できません。' },
 
   // Cron
   'cron.title': { en: 'Cron', 'zh-CN': '定时任务', 'zh-TW': '定時任務', ja: 'Cron' },

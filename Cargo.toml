@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 async-stream = "0.3"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }

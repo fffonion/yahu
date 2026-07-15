@@ -14,7 +14,10 @@ use std::{
 use axum::{
     Json, Router,
     body::{Body, to_bytes},
-    extract::{Path as AxumPath, Query, State},
+    extract::{
+        Path as AxumPath, Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::{HeaderMap, HeaderValue, Method, Request, Response, StatusCode, Uri, header},
     middleware::{self, Next},
     response::{
@@ -29,6 +32,7 @@ use base64::{
 };
 use clap::Parser;
 use filetime::FileTime;
+use futures_util::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
 use include_dir::{Dir, include_dir};
 use notify::{
@@ -38,13 +42,14 @@ use notify::{
 use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::Sha256;
 use tokio::{
     fs,
     net::TcpListener,
     process::Command,
     sync::{RwLock, broadcast, mpsc},
-    time::{Instant, sleep, sleep_until, timeout},
+    time::{Instant, MissedTickBehavior, interval, sleep, sleep_until, timeout},
 };
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
@@ -289,6 +294,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/update/apply", post(apply_update))
         .route("/insights/usage", get(insights_usage))
         .route("/chat/watch/{session_id}", get(chat_watch))
+        .route("/chat/subagents/{session_id}/ws", get(subagent_websocket))
         .route("/image-api/images", get(list_images))
         .route("/image-api/images/refresh", get(refresh_images))
         .route("/image-api/stats", get(image_stats))
@@ -331,6 +337,7 @@ include!("skills.rs");
 include!("memory.rs");
 include!("chat_uploads.rs");
 include!("chat_media.rs");
+include!("subagents.rs");
 include!("update.rs");
 include!("images.rs");
 include!("tests.rs");

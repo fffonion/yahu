@@ -27,6 +27,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMar
 import { buildSessionArtifact, artifactCopyPrompt, copyTextToClipboard, readStoredArtifacts, ARTIFACTS_KEY, type SessionArtifact } from './artifacts';
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
+import { SubagentProgressCard } from './SubagentProgressCard';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'artifacts' | 'images' | 'workspace' | 'skills' | 'settings';
@@ -3075,6 +3076,7 @@ function ChatMain(props: any) {
           </React.Fragment>;
         });
       })()}
+      <SubagentProgressCard sessionId={props.activeSessionId} />
     </section>
     <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>

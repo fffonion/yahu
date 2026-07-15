@@ -2324,4 +2324,111 @@ mod tests {
         assert!(data[2].get("duration_ms").is_none(), "user must not have duration_ms");
     }
 
+    #[test]
+    fn subagent_projection_reports_goal_current_tool_todos_and_summary() {
+        let session = serde_json::json!({
+            "id": "child-1",
+            "parent_session_id": "parent-1",
+            "model": "gpt-5.6-sol",
+            "started_at": 100.0,
+            "ended_at": null,
+            "message_count": 6,
+            "tool_call_count": 2,
+            "api_call_count": 3
+        });
+        let messages = vec![
+            serde_json::json!({"id": 1, "role": "user", "content": "Review the backend", "timestamp": 100.0}),
+            serde_json::json!({"id": 2, "role": "assistant", "content": "", "timestamp": 101.0, "tool_calls": [{"id": "todo-1", "function": {"name": "todo", "arguments": "{}"}}]}),
+            serde_json::json!({"id": 3, "role": "tool", "tool_name": "todo", "tool_call_id": "todo-1", "timestamp": 101.1, "content": "{\"todos\":[{\"id\":\"inspect\",\"content\":\"Inspect files\",\"status\":\"completed\"},{\"id\":\"test\",\"content\":\"Run tests\",\"status\":\"in_progress\"}]}"}),
+            serde_json::json!({"id": 4, "role": "assistant", "content": "", "timestamp": 102.0, "tool_calls": [{"id": "term-1", "function": {"name": "terminal", "arguments": "{\"command\":\"cargo test\"}"}}]}),
+            serde_json::json!({"id": 5, "role": "assistant", "content": "Partial review note", "timestamp": 102.5}),
+        ];
+
+        let projected = project_subagent_session(&session, &messages).unwrap();
+
+        assert_eq!(projected.session_id, "child-1");
+        assert_eq!(projected.goal, "Review the backend");
+        assert_eq!(projected.status, "running");
+        assert_eq!(projected.current_tool.as_deref(), Some("terminal"));
+        assert_eq!(projected.todos.len(), 2);
+        assert_eq!(projected.todos[1].status, "in_progress");
+        assert_eq!(projected.summary.as_deref(), Some("Partial review note"));
+        assert_eq!(projected.activity.last().unwrap().tool, "todo");
+    }
+
+    #[test]
+    fn subagent_projection_does_not_expose_tool_arguments_or_results() {
+        let session = serde_json::json!({
+            "id": "child-secret",
+            "parent_session_id": "parent-1",
+            "started_at": 100.0,
+            "ended_at": null
+        });
+        let messages = vec![
+            serde_json::json!({"role": "user", "content": "Check auth"}),
+            serde_json::json!({"role": "assistant", "tool_calls": [{"id": "term-1", "function": {"name": "terminal", "arguments": "{\"command\":\"curl -H Authorization:secret\"}"}}]}),
+            serde_json::json!({"role": "tool", "tool_name": "terminal", "tool_call_id": "term-1", "content": "API_KEY=secret-value", "timestamp": 101.0}),
+        ];
+
+        let projected = project_subagent_session(&session, &messages).unwrap();
+        let encoded = serde_json::to_string(&projected).unwrap();
+
+        assert!(!encoded.contains("Authorization:secret"));
+        assert!(!encoded.contains("secret-value"));
+        assert_eq!(projected.activity[0].tool, "terminal");
+    }
+
+    #[test]
+    fn visible_subagent_sessions_keep_active_batch_siblings_and_descendants() {
+        let sessions = vec![
+            serde_json::json!({"id": "old", "parent_session_id": "parent", "started_at": 10.0, "ended_at": 20.0}),
+            serde_json::json!({"id": "root-a", "parent_session_id": "parent", "started_at": 100.0, "ended_at": null}),
+            serde_json::json!({"id": "root-b", "parent_session_id": "parent", "started_at": 100.2, "ended_at": 110.0}),
+            serde_json::json!({"id": "nested", "parent_session_id": "root-a", "started_at": 105.0, "ended_at": null}),
+            serde_json::json!({"id": "other", "parent_session_id": "another", "started_at": 120.0, "ended_at": null}),
+        ];
+
+        let visible = select_visible_subagent_sessions("parent", &sessions);
+        let ids = visible.iter().filter_map(|item| item.get("id").and_then(|value| value.as_str())).collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["root-a", "root-b", "nested"]);
+    }
+
+    #[test]
+    fn visible_subagent_sessions_keep_latest_completed_batch_when_idle() {
+        let sessions = vec![
+            serde_json::json!({"id": "old", "parent_session_id": "parent", "started_at": 10.0, "ended_at": 20.0}),
+            serde_json::json!({"id": "latest-a", "parent_session_id": "parent", "started_at": 100.0, "ended_at": 120.0}),
+            serde_json::json!({"id": "latest-b", "parent_session_id": "parent", "started_at": 100.3, "ended_at": 122.0}),
+            serde_json::json!({"id": "nested", "parent_session_id": "latest-a", "started_at": 104.0, "ended_at": 119.0}),
+        ];
+
+        let visible = select_visible_subagent_sessions("parent", &sessions);
+        let ids = visible.iter().filter_map(|item| item.get("id").and_then(|value| value.as_str())).collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["latest-a", "latest-b", "nested"]);
+    }
+
+    #[test]
+    fn subagent_websocket_rejects_cross_origin_browser_handshakes() {
+        let mut same_origin = HeaderMap::new();
+        same_origin.insert(header::HOST, HeaderValue::from_static("yahu.example:443"));
+        same_origin.insert(header::ORIGIN, HeaderValue::from_static("https://yahu.example:443"));
+        assert!(subagent_websocket_origin_allowed(&same_origin));
+
+        let mut cross_origin = same_origin.clone();
+        cross_origin.insert(header::ORIGIN, HeaderValue::from_static("https://attacker.example"));
+        assert!(!subagent_websocket_origin_allowed(&cross_origin));
+
+        let mut native_client = HeaderMap::new();
+        native_client.insert(header::HOST, HeaderValue::from_static("127.0.0.1:9642"));
+        assert!(subagent_websocket_origin_allowed(&native_client));
+    }
+
+    #[test]
+    fn subagent_websocket_uses_api_unauthorized_response_path() {
+        let auth_source = include_str!("auth.rs");
+        assert!(auth_source.contains("path.starts_with(\"/chat/subagents\")"));
+    }
+
 }
