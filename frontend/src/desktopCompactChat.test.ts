@@ -27,7 +27,7 @@ describe('desktop compact chat toggle', () => {
     expect(messages).toContain("'chat.compactMode': { en: 'Compact mode', 'zh-CN': '紧凑模式', 'zh-TW': '緊湊模式', ja: 'コンパクトモード' }");
   });
 
-  test('desktop compact mode uses flat left-aligned user turns with a divider', () => {
+  test('desktop compact mode uses flat left-aligned user turns separated without an outer card', () => {
     const source = app();
     const styles = css();
     expect(source).toContain("chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}");
@@ -35,9 +35,19 @@ describe('desktop compact chat toggle', () => {
     expect(source).toContain('buildDesktopTurnBlocks(turnDetailItems)');
     expect(styles).toContain('.desktop-compact-chat .msg-content{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0}');
     expect(styles).toContain('.desktop-compact-chat .tool-card,.mobile-compact-chat .tool-card{background:transparent;border:0;border-radius:0;box-shadow:none;overflow:visible}');
-    expect(styles).toContain('.desktop-compact-chat .desktop-turn-block{border:1px solid var(--border);border-radius:var(--radius-lg);');
+    expect(styles).toContain('.desktop-compact-chat .desktop-turn-block{border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none;padding:12px 0;');
+    expect(styles).toContain('.desktop-compact-chat .desktop-turn-block:last-child{border-bottom:0}');
+    expect(styles).toContain('.desktop-compact-chat .turn-detail-group,.mobile-compact-chat .turn-detail-group{max-width:100%;border:1px solid');
     expect(styles).toContain('.desktop-compact-chat .msg-row.user{margin-left:0;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:2px}');
     expect(styles).toContain('.desktop-compact-chat .msg-row.user .msg-content{grid-column:1;justify-self:start;max-width:100%;background:transparent}');
     expect(styles).toContain('@media(max-width:760px){.desktop-compact-view-toggle{display:none!important}');
+  });
+
+  test('desktop chat fills the history width with equal minimap and right gutters without changing mobile', () => {
+    const styles = css();
+    expect(styles).toContain('@media(min-width:761px){.chat-main-panel .chat-scroll{padding-left:78px;padding-right:78px}');
+    expect(styles).toContain('.chat-main-panel .msg-row,.chat-main-panel .turn-detail-group,.chat-main-panel .special-context-block,.chat-main-panel .session-state-message{max-width:none}');
+    expect(styles).toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:44px}');
+    expect(styles).not.toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:78px;padding-right:78px}');
   });
 });
