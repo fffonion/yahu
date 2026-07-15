@@ -2469,7 +2469,7 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
   const navRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const popupTimerRef = useRef<number | null>(null);
-  const initialMobileScrollKeyRef = useRef('');
+  const initialMinimapScrollSessionRef = useRef('');
   const isMobileNavigator = useMediaQuery('(max-width: 760px)');
   const [popup, setPopup] = useState<{ item: UserMessageNavItem; top: number } | null>(null);
   const [scrollFade, setScrollFade] = useState({ before: false, after: false });
@@ -2510,21 +2510,19 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
       window.removeEventListener('resize', updateNavigatorMetrics);
     };
   }, [chatScrollRef, items.length, updateNavigatorMetrics]);
-  useEffect(() => {
-    initialMobileScrollKeyRef.current = '';
-  }, [sessionId, items.length]);
   useLayoutEffect(() => {
-    if (!isMobileNavigator || !activeIds.size) return;
     const track = trackRef.current;
-    if (!track || track.scrollHeight <= track.clientHeight + 1) return;
-    const key = `${sessionId}:${items.length}`;
-    if (initialMobileScrollKeyRef.current === key) return;
-    const target = track.querySelector('.user-minimap-hit.active') as HTMLElement | null;
-    if (!target) return;
-    track.scrollTop = Math.max(0, Math.min(track.scrollHeight - track.clientHeight, target.offsetTop - (track.clientHeight - target.clientHeight) / 2));
-    initialMobileScrollKeyRef.current = key;
-    updateNavigatorMetrics();
-  }, [activeIds, isMobileNavigator, items.length, sessionId, updateNavigatorMetrics]);
+    if (!track || !items.length || initialMinimapScrollSessionRef.current === sessionId) return;
+    initialMinimapScrollSessionRef.current = sessionId;
+    const scrollBottom = () => {
+      if (initialMinimapScrollSessionRef.current !== sessionId) return;
+      track.scrollTop = track.scrollHeight;
+      updateNavigatorMetrics();
+    };
+    scrollBottom();
+    const frame = window.requestAnimationFrame(scrollBottom);
+    return () => window.cancelAnimationFrame(frame);
+  }, [items.length, sessionId, updateNavigatorMetrics]);
   useEffect(() => () => clearPopupTimer(), [clearPopupTimer]);
   useEffect(() => {
     if (!isMobileNavigator || !popup) return;

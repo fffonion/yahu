@@ -130,13 +130,16 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('@media (max-width:760px){.user-minimap-popup{left:28px;width:min(300px,calc(100vw - 48px));max-width:calc(100vw - 48px);padding:9px 10px;border-radius:12px;z-index:3;pointer-events:auto}');
   });
 
-  test('mobile minimap initially scrolls overflowing track to the active viewport bar', () => {
+  test('minimap initially scrolls its track to the latest turn on desktop and mobile', () => {
     const source = app();
-    expect(source).toContain("const initialMobileScrollKeyRef = useRef('');");
-    expect(source).toContain("initialMobileScrollKeyRef.current = '';");
-    expect(source).toContain('if (!isMobileNavigator || !activeIds.size) return;');
-    expect(source).toContain("const target = track.querySelector('.user-minimap-hit.active') as HTMLElement | null;");
-    expect(source).toContain('track.scrollTop = Math.max(0, Math.min(track.scrollHeight - track.clientHeight, target.offsetTop - (track.clientHeight - target.clientHeight) / 2));');
+    expect(source).toContain("const initialMinimapScrollSessionRef = useRef('');");
+    expect(source).toContain('if (!track || !items.length || initialMinimapScrollSessionRef.current === sessionId) return;');
+    expect(source).toContain('const scrollBottom = () => {');
+    expect(source).toContain('track.scrollTop = track.scrollHeight;');
+    expect(source).toContain('window.requestAnimationFrame(scrollBottom);');
+    expect(source).toContain('initialMinimapScrollSessionRef.current = sessionId;');
+    expect(source).not.toContain('if (!isMobileNavigator || !activeIds.size) return;');
+    expect(source).not.toContain("const target = track.querySelector('.user-minimap-hit.active') as HTMLElement | null;");
   });
 
   test('sizes minimap from the chat history viewport and fades only scrollable edges', () => {
