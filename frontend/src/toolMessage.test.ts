@@ -69,4 +69,40 @@ describe('summarizeToolMessage', () => {
     expect(summary.result).toBe('validation=ok');
     expect(summary.input).toEqual({ command: 'python3 validate.py --strict', timeout: 15 });
   });
+
+  test('patch summary shows the source-relative path before the field count', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ success: true, resolved_path: '/home/wow/project/src/components/ToolCard.tsx', diff: 'changed', files_modified: ['/home/wow/project/src/components/ToolCard.tsx'] }),
+      'functions.patch',
+      { mode: 'replace', path: '/home/wow/project/src/components/ToolCard.tsx' },
+    );
+    expect(summary.subtitle).toBe('src/components/ToolCard.tsx · 4 fields');
+  });
+
+  test('patch summary falls back to just the filename when no src segment is in the path', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ success: true, resolved_path: '/home/wow/workspace/hermes-headless-webui/frontend/styles.css', diff: 'changed' }),
+      'functions.patch',
+      { mode: 'replace', path: '/home/wow/workspace/hermes-headless-webui/frontend/styles.css' },
+    );
+    expect(summary.subtitle).toBe('styles.css · 3 fields');
+  });
+
+  test('patch summary truncates long paths while keeping the filename intact', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ success: true, resolved_path: '/home/wow/project/src/a/b/c/d/e/f/g/ToolCard.tsx', diff: 'changed' }),
+      'functions.patch',
+      { mode: 'replace', path: '/home/wow/project/src/a/b/c/d/e/f/g/ToolCard.tsx' },
+    );
+    expect(summary.subtitle).toBe('src/…/g/ToolCard.tsx · 3 fields');
+  });
+
+  test('patch summary shows the error message instead of path and field count', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ success: false, error: 'new_string is not unique', resolved_path: '/home/wow/project/src/App.tsx' }),
+      'functions.patch',
+      { mode: 'replace', path: '/home/wow/project/src/App.tsx' },
+    );
+    expect(summary.subtitle).toBe('new_string is not unique');
+  });
 });

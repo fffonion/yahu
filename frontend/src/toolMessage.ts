@@ -84,6 +84,23 @@ function commandFromInput(toolName: string, input: unknown): string {
   return name === 'terminal' && typeof command === 'string' && command.trim() ? command.trim() : '';
 }
 
+function patchPathFromInput(root: Record<string, unknown> | null, input: unknown): string {
+  const invocation = asRecord(input);
+  const files = Array.isArray(root?.files_modified) ? root.files_modified : [];
+  const value = invocation?.path ?? root?.resolved_path ?? root?.path ?? root?.file ?? files[0];
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const normalized = value.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length < 2) return normalized;
+  const filename = parts[parts.length - 1];
+  const srcIndex = parts.indexOf('src');
+  if (srcIndex < 0) return filename;
+  const relevant = parts.slice(srcIndex);
+  const dirs = relevant.slice(0, -1);
+  if (dirs.length <= 2) return relevant.join('/');
+  return `${dirs[0]}/…/${dirs[dirs.length - 1]}/${filename}`;
+}
+
 export function summarizeToolMessage(content: string, fallbackToolName = '', fallbackInput?: unknown): ToolSummary {
   const parsed = parseUntrustedToolResult(content) ?? tryParseJson(content);
   const root = asRecord(parsed);
@@ -127,10 +144,18 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
 
   const input = invocationFromRecord(root) ?? parseMaybeJson(fallbackInput);
   const command = commandFromInput(toolName, input);
+  const errorSubtitle = fields.find((f) => f.key === 'error')?.value;
+  const resultSubtitle = fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value;
+  const patchPath = toolName === 'patch' || toolName === 'functions.patch' || contentToolName === 'patch' ? patchPathFromInput(root, input) : '';
   const subtitle = command
-    || fields.find((f) => f.key === 'error')?.value
-    || fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value
+    || errorSubtitle
+    || resultSubtitle
     || (root ? `${Object.keys(root).length} fields` : content);
 
-  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status };
+  const decoratedSubtitle = patchPath && errorSubtitle ? subtitle
+    : patchPath && subtitle !== patchPath ? `${patchPath} · ${subtitle}`
+    : patchPath && root ? `${patchPath} · ${Object.keys(root).length} fields`
+    : subtitle;
+
+  return { title: fullTitle, toolName, subtitle: decoratedSubtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status };
 }
