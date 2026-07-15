@@ -212,7 +212,7 @@ describe('page i18n coverage', () => {
       'nav.closeList',
       'tool.invocation',
       'tool.result',
-      'artifacts.noHighlights',
+
       'status.modelsUnavailable',
       'status.sessionsUnavailable',
       'status.sessionDetailUnavailable',
