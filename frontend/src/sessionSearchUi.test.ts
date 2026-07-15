@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const source = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const source = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
 const styles = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 describe('session search and composer session model UI', () => {
@@ -96,7 +96,8 @@ describe('session search and composer session model UI', () => {
   test('opened session header shows start and latest message times on the right', () => {
     const app = source();
     const css = styles();
-    expect(app).toContain("import { formatChatMessageTime, sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';");
+    expect(app).toContain("import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';");
+    expect(app).toContain("import { formatChatMessageTime } from './sessionTime';");
     expect(app).toContain('const headerTimes = sessionHeaderTimes(active, props.messages);');
     expect(app).toContain('className="session-header-times"');
     expect(css).toContain('.session-header-times{');

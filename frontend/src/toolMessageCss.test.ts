@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const app = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 describe('tool message structured layout css', () => {

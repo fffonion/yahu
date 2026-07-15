@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const source = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const source = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
 
 describe('cross-platform session streaming watcher', () => {
   test('watch events merge into chat messages, replace streaming updates, and show a pending assistant card for remote user turns', () => {
@@ -24,7 +24,7 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain('messagesRef.current = next;');
     expect(app).toContain('computeNewMessageMarker(previousVisible, nextVisible, newMessageBoundaryIdRef.current)');
     expect(app).toContain('newMessageBoundaryId={newMessageBoundaryId}');
-    expect(app).toContain('findNewMessageSplitIndex(visibleMessages, props.newMessageBoundaryId)');
+    expect(app).toContain('findNewMessageSplitIndex(visibleMessages, newMessageBoundaryId || undefined)');
   });
 
   test('persisted tool events replace local streaming tool cards in place', () => {

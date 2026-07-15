@@ -45,11 +45,11 @@ describe('subagent progress websocket projection', () => {
   test('normalizes complete lazy-loaded conversation details without truncating text', () => {
     expect(subagentMessagesUrl('session/with space')).toBe('/chat/subagents/session%2Fwith%20space/messages');
     expect(normalizeSubagentMessages({ data: [
-      { id: 1, role: 'assistant', content: 'Final **answer**', reasoning: 'Long reasoning text', timestamp: 10 },
-      { id: 2, role: 'tool', tool_name: 'read_file', content: 'full\noutput', timestamp: 11 },
-    ] })).toEqual([
-      { id: '1', role: 'assistant', content: 'Final **answer**', reasoning: 'Long reasoning text', timestamp: 10 },
-      { id: '2', role: 'tool', toolName: 'read_file', content: 'full\noutput', timestamp: 11 },
+      { id: 1, role: 'assistant', content: 'Final **answer**', reasoning: 'Long reasoning text', timestamp: 10, tool_calls: [{ id: 'call-1', function: { name: 'read_file', arguments: '{"path":"src/App.tsx"}' } }] },
+      { id: 2, role: 'tool', tool_name: 'read_file', tool_call_id: 'call-1', content: 'full\noutput', timestamp: 11 },
+    ] })).toMatchObject([
+      { id: '1', role: 'assistant', content: 'Final **answer**', reasoning: 'Long reasoning text', timestamp: 10, toolCalls: [{ id: 'call-1' }] },
+      { id: '2', role: 'tool', toolName: 'read_file', toolCallId: 'call-1', content: 'full\noutput', timestamp: 11 },
     ]);
   });
 

@@ -7,21 +7,20 @@ import { waitForCronRunOutput } from './cronRunOutput';
 import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { fallbackContextWindowForModel, latestMessageProviderForModel, resolvePreferredModelProvider as resolveModelProvider, selectModelOption } from './modelContext';
-import { summarizeToolMessage } from './toolMessage';
-import { formatChatMessageTime, sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
+import { ChatTranscript, type ChatMessage, type ChatTurnMetrics } from './ChatTranscript';
+import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { compactSessionPreview, latestSessionPreviewFromMessages } from './sessionPreview';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
-import { parsePlatformSenderMessage } from './chatSender';
+import { mergeTurnMetrics, normalizeChatMessage, readTurnMetrics } from './chatMessage';
 import { normalizeMessageParts } from './messageReasoning';
-import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
-import { buildDesktopTurnBlocks, buildTurnDetailItems, type SessionStateMessageItem, type SpecialContextGroupItem, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata } from './turnDetails';
-import { parseSessionStateMessage, type SessionTaskStatus } from './sessionStateMessage';
+import { visibleChatMessages } from './messageVisibility';
+import { type TurnDetailMetadata } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
 import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, type ChatHistoryPageRaw } from './chatHistoryPage';
-import { computeNewMessageMarker, findNewMessageSplitIndex } from './chatNewMessages';
+import { computeNewMessageMarker } from './chatNewMessages';
 import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMarkdownImage } from './markdown';
 import { buildSessionArtifact, artifactCopyPrompt, copyTextToClipboard, readStoredArtifacts, ARTIFACTS_KEY, type SessionArtifact } from './artifacts';
@@ -31,7 +30,7 @@ import { SubagentProgressCard } from './SubagentProgressCard';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'artifacts' | 'images' | 'workspace' | 'skills' | 'settings';
-type Role = 'user' | 'assistant' | 'system' | 'tool';
+
 type FollowUpBehaviour = 'queue' | 'steer';
 type ComposerEnterMode = 'enter-send' | 'enter-newline';
 type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
@@ -47,8 +46,7 @@ function sessionWithPreservedMessageCount(next: Session, current?: Session | nul
   if (!String(next.provider || '').trim() && String(current.provider || '').trim()) merged.provider = current.provider;
   return merged;
 }
-type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number; costUsd?: number };
-type ChatMessage = { id: string; role: Role; content: string; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+
 type FollowUpQueueItem = { id: string; text: string; createdAt: number };
 type ModelOption = { id: string; label: string; provider?: string; contextLength?: number };
 type SessionModelOverride = { model: string; provider: string };
@@ -200,12 +198,6 @@ function parseSseBlock(block: string) {
   }
   return { event, data: data.join('\n') };
 }
-function roleName(role: Role) { return role === 'assistant' ? 'Hermes Agent' : role === 'tool' ? 'Tool' : role === 'system' ? 'System' : 'You'; }
-function messageRoleName(message: ChatMessage, assistantName?: string) { return message.role === 'assistant' ? (message.model || assistantName || 'Hermes Agent') : roleName(message.role); }
-function messageSenderLabel(message: ChatMessage, assistantName?: string) {
-  if (message.role === 'user' && message.platformSenderName) return { name: message.platformSenderName, id: message.platformSenderId };
-  return { name: messageRoleName(message, assistantName) };
-}
 function escapeHtml(text: string) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -296,151 +288,8 @@ function highlightWorkspaceText(text: string, filePath?: string) {
 function normalizeContent(value: unknown) {
   return normalizeMessageParts(value).content;
 }
-function rawToolName(raw: any) {
-  const candidates = [raw.toolName, raw.tool_name, raw.name, raw.tool, raw.recipient_name, raw.function, raw.source];
-  for (const value of candidates) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  const content = asRecordish(raw.content);
-  for (const key of ['source', 'tool_name', 'name', 'tool', 'recipient_name', 'function']) {
-    const value = content?.[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return undefined;
-}
-function rawToolInput(raw: any) {
-  if (raw?.role !== 'tool') return undefined;
-  const candidates = [raw.arguments, raw.args, raw.params, raw.parameters, raw.input, raw.tool_input, raw.tool_args, raw.request, raw.tool_call?.arguments, raw.tool_call?.args, raw.tool_call?.params, raw.tool_call?.parameters];
-  const fn = asRecordish(raw.function);
-  if (fn) candidates.push(fn.arguments, fn.args, fn.params, fn.parameters);
-  for (const value of candidates) {
-    if (value !== undefined && value !== null && value !== '') return value;
-  }
-  return undefined;
-}
-function asRecordish(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-function readTokenCount(raw: any): number | undefined {
-  const value = Number(raw?.token_count ?? raw?.tokenCount ?? 0);
-  return Number.isFinite(value) && value > 0 ? value : undefined;
-}
-function numericMetric(source: any, keys: string[]): number | undefined {
-  const record = asRecordish(source);
-  if (!record) return undefined;
-  for (const key of keys) {
-    const value = Number(record[key]);
-    if (Number.isFinite(value) && value > 0) return value;
-  }
-  return undefined;
-}
-function usageRecord(raw: any): any {
-  return asRecordish(raw?.usage) || asRecordish(raw?.response?.usage) || asRecordish(raw?.result?.usage) || asRecordish(raw?.message?.usage) || null;
-}
-function readTurnMetrics(raw: any): ChatTurnMetrics | undefined {
-  if (!raw) return undefined;
-  const usage = usageRecord(raw) || raw;
-  const elapsedMs = numericMetric(raw, ['duration_ms', 'elapsed_ms', 'latency_ms', 'time_ms']) ?? numericMetric(raw?.timing, ['duration_ms', 'elapsed_ms', 'latency_ms', 'time_ms']);
-  const inputTokens = numericMetric(usage, ['input_tokens', 'prompt_tokens']);
-  const outputTokens = numericMetric(usage, ['output_tokens', 'completion_tokens']);
-  const totalTokens = numericMetric(usage, ['total_tokens', 'tokens', 'token_count']) ?? numericMetric(raw, ['token_count', 'tokenCount']);
-  const costUsd = numericMetric(usage, ['cost_usd', 'estimated_cost_usd', 'actual_cost_usd', 'cost']) ?? numericMetric(raw, ['cost_usd', 'estimated_cost_usd', 'actual_cost_usd']);
-  const metrics: ChatTurnMetrics = {};
-  if (elapsedMs !== undefined) metrics.elapsedMs = elapsedMs;
-  if (inputTokens !== undefined) metrics.inputTokens = inputTokens;
-  if (outputTokens !== undefined) metrics.outputTokens = outputTokens;
-  if (totalTokens !== undefined) metrics.totalTokens = totalTokens;
-  if (costUsd !== undefined) metrics.costUsd = costUsd;
-  return Object.keys(metrics).length ? metrics : undefined;
-}
-function mergeTurnMetrics(base?: ChatTurnMetrics, next?: ChatTurnMetrics): ChatTurnMetrics | undefined {
-  const merged = { ...(base || {}), ...(next || {}) };
-  return Object.keys(merged).length ? merged : undefined;
-}
-function readTurnDetails(raw: any): TurnDetailMetadata | undefined {
-  const detail = asRecordish(raw?.turnDetails) || asRecordish(raw?.turn_details);
-  if (!detail) return undefined;
-  const count = Number(detail.count || 0);
-  if (!Number.isFinite(count) || count <= 0) return undefined;
-  const out: TurnDetailMetadata = { count };
-  const toolCount = Number(detail.toolCount ?? detail.tool_count ?? 0);
-  const thinkingCount = Number(detail.thinkingCount ?? detail.thinking_count ?? 0);
-  if (Number.isFinite(toolCount) && toolCount > 0) out.toolCount = toolCount;
-  if (Number.isFinite(thinkingCount) && thinkingCount > 0) out.thinkingCount = thinkingCount;
-  const afterId = String(detail.afterId ?? detail.after_id ?? '').trim();
-  const beforeId = String(detail.beforeId ?? detail.before_id ?? '').trim();
-  if (afterId) out.afterId = afterId;
-  if (beforeId) out.beforeId = beforeId;
-  return out;
-}
-function numericTimestampMs(value: string | number | undefined): number | undefined {
-  if (value === undefined || value === null || value === '') return undefined;
-  const numeric = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
-  return numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
-}
-function formatTurnDuration(ms?: number): string {
-  if (!Number.isFinite(ms || 0) || !ms || ms <= 0) return 'time —';
-  if (ms < 1000) return 'time <1s';
-  const seconds = ms / 1000;
-  if (seconds < 60) return `time ${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = Math.round(seconds % 60);
-  return `time ${minutes}m ${rest}s`;
-}
-function formatTurnTokenCount(value: number): string {
-  return `tokens ${Math.round(value).toLocaleString()}`;
-}
-function formatTurnCost(value: number): string {
-  if (value < 0.0001) return `cost $${value.toFixed(6)}`;
-  if (value < 0.01) return `cost $${value.toFixed(4)}`;
-  return `cost $${value.toFixed(3)}`;
-}
-function messageTurnMetadata(message: ChatMessage): string {
-  if (message.role !== 'assistant' || message.pending || isAssistantToolPreludeMessage(message) || !message.content.trim()) return '';
-  const metrics = message.turnMetrics || {};
-  const elapsedMs = metrics.elapsedMs;
-  const totalTokens = metrics.totalTokens ?? message.tokenCount ?? ((metrics.inputTokens || metrics.outputTokens) ? (metrics.inputTokens || 0) + (metrics.outputTokens || 0) : undefined);
-  const detail = metrics.inputTokens || metrics.outputTokens ? ` (in ${Math.round(metrics.inputTokens || 0).toLocaleString()} / out ${Math.round(metrics.outputTokens || 0).toLocaleString()})` : '';
-  const metadataParts = [formatTurnDuration(elapsedMs)];
-  if (totalTokens !== undefined) metadataParts.push(`${formatTurnTokenCount(totalTokens)}${detail}`);
-  if (metrics.costUsd !== undefined) metadataParts.push(formatTurnCost(metrics.costUsd));
-  return metadataParts.join(' · ');
-}
-function formatReasoningDuration(ms?: number): string {
-  const formatted = formatTurnDuration(ms);
-  return formatted === 'time —' ? '' : formatted.replace(/^time\s+/, '');
-}
-function reasoningSummaryLabel(message: ChatMessage): string {
-  const elapsed = formatReasoningDuration(message.turnMetrics?.elapsedMs);
-  return elapsed ? `${t('chat.reasoned')} ${elapsed}` : t('chat.reasoned');
-}
 function normalizeMessage(raw: any): ChatMessage {
-  const parts = normalizeMessageParts(raw.content, raw);
-  const platformSender = raw.role === 'user' ? parsePlatformSenderMessage(parts.content) : { content: parts.content };
-  const tokenCount = readTokenCount(raw);
-  const metrics = readTurnMetrics(raw);
-  const msg: ChatMessage = {
-    id: String(raw.id || uid('m')),
-    role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',
-    content: platformSender.content,
-    reasoning: parts.reasoning,
-    timestamp: raw.timestamp,
-    toolName: rawToolName(raw),
-    toolInput: rawToolInput(raw),
-    toolCalls: raw.toolCalls ?? raw.tool_calls,
-    toolCallId: String(raw.toolCallId || raw.tool_call_id || raw.call_id || '').trim() || undefined,
-  };
-  if (tokenCount !== undefined) msg.tokenCount = tokenCount;
-  if (metrics) msg.turnMetrics = metrics;
-  const turnDetails = readTurnDetails(raw);
-  if (turnDetails) msg.turnDetails = turnDetails;
-  if (platformSender.senderName) msg.platformSenderName = platformSender.senderName;
-  if (platformSender.senderId) msg.platformSenderId = platformSender.senderId;
-  if (typeof raw.model === 'string' && raw.model.trim()) msg.model = raw.model.trim();
-  if (typeof raw.provider === 'string' && raw.provider.trim()) msg.provider = raw.provider.trim();
-  return msg;
+  return normalizeChatMessage(raw, uid('m'));
 }
 function isLocalStreamAssistant(message: ChatMessage) {
   return message.role === 'assistant' && message.id.startsWith('assistant_');
@@ -2369,74 +2218,6 @@ function SessionRow({ session, active, pinned, onClick, onTogglePin, onContextMe
   const leadingIcon = session.source === 'cron' ? <CalendarClock /> : pinned ? <Star /> : null;
   return <div className={`session-item ${active ? 'active' : ''} ${pinned ? 'pinned' : ''} ${leadingIcon ? 'has-leading-icon' : ''}`} role="button" tabIndex={0} onClick={onClick} onContextMenu={onContextMenu} onPointerDown={longPress.onPointerDown} onPointerMove={longPress.onPointerMove} onPointerUp={longPress.onPointerUp} onPointerCancel={longPress.onPointerCancel} onKeyDown={(e) => { if (e.key === 'Enter') onClick(); }}>{leadingIcon && <span className="session-icon">{leadingIcon}</span>}<span className="session-text"><span className="session-title">{sessionDisplayTitle(session)}</span><span className="session-preview">{compactSessionPreview(session.preview || `${session.message_count || 0} messages`)}</span></span><button type="button" className="pin-hit" onClick={(e) => { e.stopPropagation(); onTogglePin(); }} title={pinned ? t('chat.unpin') : t('chat.pin')}>{pinned ? <PinOff /> : <Pin />}</button></div>;
 }
-function StructuredValue({ value }: { value: unknown }) {
-  if (value === null || value === undefined) return <span className="tool-empty">null</span>;
-  if (Array.isArray(value)) return <div className="tool-children">{value.map((item, index) => <div className="tool-field" key={index}><span className="tool-key">{index}</span><StructuredValue value={item} /></div>)}</div>;
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>);
-    return <div className="tool-children">{entries.map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span><StructuredValue value={child} /></div>)}</div>;
-  }
-  return <span className={`tool-scalar ${typeof value}`}>{String(value)}</span>;
-}
-
-function ToolDetailSection({ title, value }: { title: string; value: unknown }) {
-  return <section className="tool-detail-section"><h4>{title}</h4><StructuredValue value={value} /></section>;
-}
-
-function getToolIcon(toolName: string): React.ReactNode {
-  const name = (toolName || '').toLowerCase().replace(/^functions\./, '');
-  if (name.startsWith('browser_')) return <Globe />;
-  if (name === 'terminal' || name === 'process') return <Terminal />;
-  if (name === 'read_file' || name === 'write_file' || name === 'patch') return <FileText />;
-  if (name === 'search_files') return <Search />;
-  if (name === 'execute_code') return <Code />;
-  if (name === 'web_search' || name === 'x_search') return <Search />;
-  if (name === 'web_extract') return <Globe />;
-  if (name === 'vision_analyze') return <Eye />;
-  if (name === 'image_generate') return <ImageIcon />;
-  if (name === 'video_generate' || name === 'video_analyze') return <Video />;
-  if (name === 'text_to_speech') return <Volume2 />;
-  if (name.startsWith('skill')) return <Puzzle />;
-  if (name === 'memory') return <Brain />;
-  if (name === 'session_search') return <History />;
-  if (name === 'delegate_task') return <Users />;
-  if (name === 'cronjob') return <CalendarClock />;
-  if (name === 'clarify') return <CircleHelp />;
-  if (name === 'send_message') return <Send />;
-  if (name === 'todo') return <CheckSquare />;
-  if (name.startsWith('kanban_')) return <Layout />;
-  if (name.startsWith('ha_')) return <Home />;
-  if (name === 'discord' || name === 'discord_admin') return <MessageSquare />;
-  if (name.startsWith('feishu_')) return <FileText />;
-  if (name.startsWith('yb_')) return <MessageSquare />;
-  if (name.startsWith('mcp_')) return <Server />;
-  if (name === 'workflow_run') return <Repeat />;
-  if (name === 'mixture_of_agents') return <Network />;
-  if (name === 'computer_use') return <Globe />;
-  return <Settings />;
-}
-
-function ToolMessageView({ message, suppressMessageAnchor = false }: { message: ChatMessage; suppressMessageAnchor?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const summary = useMemo(() => summarizeToolMessage(message.content, message.toolName, message.toolInput), [message.content, message.toolName, message.toolInput]);
-  const toolName = summary.toolName;
-  const isError = summary.status !== 'ok';
-  return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
-    <div className="msg-content tool-card">
-      <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-        <span className="tool-inline-icon">{getToolIcon(toolName)}</span>
-        <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>
-        <span className="tool-subtitle">{summary.subtitle}</span>
-        <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
-      </button>
-      {expanded && <div className="tool-detail">
-        {summary.input !== undefined && <ToolDetailSection title={t('tool.invocation')} value={summary.input} />}
-        <ToolDetailSection title={t('tool.result')} value={summary.result} />
-      </div>}
-    </div>
-  </article>;
-}
-
 function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatLightboxImage[]; current: ChatLightboxImage | null; onSelect: (item: ChatLightboxImage) => void; onClose: () => void }) {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const zoom = useRef({ scale: 1, x: 0, y: 0 });
@@ -2602,134 +2383,6 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
     </div>
   </div>;
 }
-function TurnDetailGroup({ item, showReasoning, assistantName, sessionId }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; sessionId?: string }) {
-  const detailsRef = useRef<HTMLDetailsElement | null>(null);
-  const [open, setOpen] = useState(() => !!item.defaultOpen);
-  const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const detailMessages = useMemo(() => loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages, [loadedMessages, item.messages, showReasoning]);
-  const detailCount = item.detail?.count ?? detailMessages.length;
-  const detailSummary = tf('chat.detailEntries', detailCount);
-  const detailAnchorId = String(item.messages[0]?.id || item.id);
-  const loadDetails = () => {
-    if (!sessionId || !item.detail?.beforeId || loading || loadedMessages.length) return;
-    const detailParams = new URLSearchParams({ limit: String(MESSAGE_PAGE * 4) });
-    detailParams.set('view', 'details');
-    if (item.detail.afterId) detailParams.set('after', item.detail.afterId);
-    detailParams.set('before', item.detail.beforeId);
-    setLoading(true);
-    setError('');
-    fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${detailParams}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(await response.text());
-        return response.json();
-      })
-      .then((page: MessagePage) => setLoadedMessages(normalizeChatHistoryChunk<ChatMessage>(page.data || [], normalizeMessage)))
-      .catch((err: any) => setError(err?.message || String(err)))
-      .finally(() => setLoading(false));
-  };
-  useLayoutEffect(() => {
-    const node = detailsRef.current;
-    if (!node || !item.defaultOpen) return;
-    node.open = true;
-    setOpen(true);
-  }, [item.defaultOpen]);
-  return <details ref={detailsRef} className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
-    <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><ChevronRight className="tool-chevron turn-detail-arrow" aria-hidden="true" /></summary>
-    <div className="turn-detail-body">
-      {loading ? t('status.loading') : null}
-      {error && <p className="error-text">{error}</p>}
-      {detailMessages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} suppressMessageAnchor={!open} />)}
-    </div>
-  </details>;
-}
-
-function SpecialContextGroup({ item }: { item: SpecialContextGroupItem<ChatMessage> }) {
-  const title = t('chat.specialContext');
-  const anchorId = String(item.messages[0]?.id || item.id);
-  const content = item.messages.map((message) => String(message.content || '').trim()).filter(Boolean).join('\n\n');
-  return <details className="special-context-block" data-message-id={anchorId} aria-label={title}>
-    <summary className="special-context-summary"><span className="special-context-copy">{title}</span><ChevronRight className="tool-chevron special-context-arrow" aria-hidden="true" /></summary>
-    <pre className="special-context-body">{content}</pre>
-  </details>;
-}
-
-function SessionTaskCheckbox({ status, label }: { status: SessionTaskStatus; label: string }) {
-  return <input
-    type="checkbox"
-    className="session-task-checkbox"
-    checked={status === 'completed'}
-    readOnly
-    tabIndex={-1}
-    aria-label={label}
-    ref={(node) => { if (node) node.indeterminate = status === 'in_progress'; }}
-  />;
-}
-
-function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessage> }) {
-  const state = parseSessionStateMessage(item.message.content);
-  if (!state) return null;
-  return <article className="session-state-message" data-message-id={item.message.id || item.id}>
-    <div className="session-state-notice"><Info aria-hidden="true" /><span>{state.notice}</span></div>
-    {state.details && <div className="session-state-details msg-body"><div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(state.details) }} /></div>}
-    {state.tasks.length > 0 && <ul className="session-task-list">{state.tasks.map((task, index) => <li className={`session-task-item ${task.status}`} key={`${task.id}:${index}`}>
-      <SessionTaskCheckbox status={task.status} label={`${task.id ? `${task.id}: ` : ''}${task.description}`} />
-      <span className="session-task-copy">{task.id && <strong>{task.id}</strong>}<span>{task.description}</span></span>
-    </li>)}</ul>}
-  </article>;
-}
-
-function DesktopTurnBlock({ block, showReasoning, assistantName, sessionId }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; sessionId?: string }) {
-  let lastUserTimestamp: string | number | undefined;
-  const sessionStateOnly = block.items.length === 1 && block.items[0]?.kind === 'sessionState';
-  return <article className={`desktop-turn-block${sessionStateOnly ? ' session-state-turn-block' : ''}`} data-turn-block-id={block.id}>
-    {block.items.map((item) => {
-      if (item.kind === 'detailGroup') {
-        return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} sessionId={sessionId} />;
-      }
-      if (item.kind === 'specialContextGroup') {
-        return <SpecialContextGroup key={item.id} item={item} />;
-      }
-      if (item.kind === 'sessionState') {
-        return <SessionStateMessage key={item.id} item={item} />;
-      }
-      const message = item.message;
-      if (message.role === 'user') lastUserTimestamp = message.timestamp;
-      return <MessageView key={message.id || item.sourceIndexes.join('-')} message={message} showReasoning={showReasoning} assistantName={assistantName} />;
-    })}
-  </article>;
-}
-
-function MessageView({ message, showReasoning = false, assistantName, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; suppressMessageAnchor?: boolean }) {
-  if (isToolLikeMessage(message)) return <ToolMessageView message={message} suppressMessageAnchor={suppressMessageAnchor} />;
-  const isPending = !!message.pending;
-  const isToolPrelude = isAssistantToolPreludeMessage(message);
-  const fallback = isPending ? '…' : '';
-  const senderLabel = messageSenderLabel(message, assistantName);
-  const html = markdownText(message.content || fallback);
-  const turnMetadata = messageTurnMetadata(message);
-  const reasoningSummary = reasoningSummaryLabel(message);
-  const showTurnMetadata = message.role === 'assistant' && !isPending && !isToolPrelude && !!turnMetadata;
-  return (
-    <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}${isToolPrelude ? ' tool-prelude' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
-      <div className="msg-content">
-        <div className="msg-meta">
-          <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>
-          <time>{formatChatMessageTime(message.timestamp)}</time>
-          {isPending && <span className="stream-state" aria-label={t('chat.streaming')}><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">{t('chat.streaming')}</span></span>}
-        </div>
-        {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>}
-        <div className="msg-body">
-          <div className="md-content" dangerouslySetInnerHTML={{ __html: html }} />
-          {isPending && <span className="stream-caret" aria-hidden="true" />}
-        </div>
-        {showTurnMetadata && <div className="msg-turn-metadata" aria-label={t('chat.details')}>{turnMetadata}</div>}
-      </div>
-    </article>
-  );
-}
-
 function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', options, onChange, wide = false, hideLabel = false, searchable = false, placement = 'up', iconOnly = false, className = '', emptyLabel = t('chat.noModels') }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; options: Array<{ id: string; label: string; provider?: string; description?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string; description?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean; placement?: 'up' | 'down'; iconOnly?: boolean; className?: string; emptyLabel?: string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -2982,8 +2635,17 @@ function ChatMain(props: any) {
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = useMemo(() => visibleChatMessages<ChatMessage>(props.messages, props.showReasoning, props.showToolCalls), [props.messages, props.showReasoning, props.showToolCalls]);
-  const turnDetailItems = useMemo(() => buildTurnDetailItems(visibleMessages), [visibleMessages]);
-  const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
+  const loadTranscriptTurnDetails = useCallback(async (detail: TurnDetailMetadata): Promise<ChatMessage[]> => {
+    if (!props.activeSessionId || !detail.beforeId) return [];
+    const detailParams = new URLSearchParams({ limit: String(MESSAGE_PAGE * 4) });
+    detailParams.set('view', 'details');
+    if (detail.afterId) detailParams.set('after', detail.afterId);
+    detailParams.set('before', detail.beforeId);
+    const response = await fetch(`/chat/messages/${encodeURIComponent(props.activeSessionId)}?${detailParams}`);
+    if (!response.ok) throw new Error(await response.text());
+    const page: MessagePage = await response.json();
+    return normalizeChatHistoryChunk<ChatMessage>(page.data || [], normalizeMessage);
+  }, [props.activeSessionId]);
   const [chatImageModal, setChatImageModal] = useState<ChatLightboxImage | null>(null);
   const chatLightboxImages = useMemo(() => visibleMessages.flatMap((message: ChatMessage) => chatMediaImagesFromMarkdown(message.content || '').map((image, index) => ({ ...image, key: `${message.id}:${index}:${image.path}`, messageId: message.id }))), [visibleMessages]);
   const onChatMediaClick = (event: React.MouseEvent<HTMLElement>) => {
@@ -3034,49 +2696,15 @@ function ChatMain(props: any) {
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatMediaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">{t('chat.loadingHistory')}</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>{t('chat.emptyDesc')}</p></div>}
-      {(() => {
-        const splitIdx = findNewMessageSplitIndex(visibleMessages, props.newMessageBoundaryId);
-        if (props.desktopCompactMessages) {
-          return desktopTurnBlocks.map((block) => {
-            const showSplit = splitIdx >= 0 && block.sourceIndexes.includes(splitIdx);
-            return <React.Fragment key={block.id}>
-              {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-              <DesktopTurnBlock block={block} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} sessionId={props.activeSessionId} />
-            </React.Fragment>;
-          });
-        }
-        let lastUserTimestamp: string | number | undefined;
-        return turnDetailItems.map((item) => {
-          const sourceIndex = item.sourceIndexes[0] ?? -1;
-          const showSplit = splitIdx >= 0 && item.sourceIndexes.includes(splitIdx);
-          if (item.kind === 'detailGroup') {
-            const group = <TurnDetailGroup item={item} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} sessionId={props.activeSessionId} />;
-            return <React.Fragment key={item.id}>
-              {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-              {group}
-            </React.Fragment>;
-          }
-          if (item.kind === 'specialContextGroup') {
-            return <React.Fragment key={item.id}>
-              {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-              <SpecialContextGroup item={item} />
-            </React.Fragment>;
-          }
-          if (item.kind === 'sessionState') {
-            return <React.Fragment key={item.id}>
-              {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-              <SessionStateMessage item={item} />
-            </React.Fragment>;
-          }
-          const m = item.message;
-          if (m.role === 'user') lastUserTimestamp = m.timestamp;
-          return <React.Fragment key={m.id || sourceIndex}>
-            {showSplit && <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>}
-            <MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />
-          </React.Fragment>;
-        });
-      })()}
-      <SubagentProgressCard sessionId={props.activeSessionId} />
+      <ChatTranscript
+        messages={props.messages}
+        showReasoning={props.showReasoning} showToolCalls={props.showToolCalls}
+        assistantName={sessionModel || undefined}
+        compact={props.desktopCompactMessages}
+        newMessageBoundaryId={props.newMessageBoundaryId}
+        loadTurnDetails={loadTranscriptTurnDetails}
+      />
+      <SubagentProgressCard sessionId={props.activeSessionId} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} />
     </section>
     <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>

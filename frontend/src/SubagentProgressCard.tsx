@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, XCircle } from 'lucide-react';
+import { ChatTranscript, type ChatMessage } from './ChatTranscript';
 import { t } from './i18n';
-import { markdownText } from './markdown';
 import {
   buildSubagentTree,
   formatSubagentElapsed,
@@ -10,13 +10,12 @@ import {
   subagentElapsedSeconds,
   subagentMessagesUrl,
   subagentWebSocketUrl,
-  type SubagentMessage,
   type SubagentProgressSnapshot,
   type SubagentStatus,
   type SubagentTreeNode,
 } from './subagentProgress';
 
-export function SubagentProgressCard({ sessionId }: { sessionId: string }) {
+export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, compact }: { sessionId: string; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
 
@@ -77,14 +76,14 @@ export function SubagentProgressCard({ sessionId }: { sessionId: string }) {
     </header>
     <div className="subagent-progress-track" aria-hidden="true"><span style={{ width: `${completion}%` }} /></div>
     {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
-    <div className="subagent-progress-tree">{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} nowSeconds={nowSeconds} depth={0} />)}</div>
+    <div className="subagent-progress-tree">{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} />)}</div>
   </section>;
 }
 
-function SubagentProgressNode({ node, nowSeconds, depth }: { node: SubagentTreeNode; nowSeconds: number; depth: number }) {
+function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showToolCalls, compact }: { node: SubagentTreeNode; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
   const elapsed = formatSubagentElapsed(subagentElapsedSeconds(node, nowSeconds));
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<SubagentMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadedMessageCount, setLoadedMessageCount] = useState(-1);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState(false);
@@ -130,20 +129,11 @@ function SubagentProgressNode({ node, nowSeconds, depth }: { node: SubagentTreeN
         {node.activity.length > 0 && <p className="subagent-progress-activity"><span>{t('subagents.recent')}</span>{node.activity.map((item) => item.tool).join(' → ')}</p>}
         {detailsLoading && <p className="subagent-progress-detail-state">{t('subagents.loadingDetails')}</p>}
         {detailsError && <p className="subagent-progress-detail-state error">{t('subagents.detailsUnavailable')}</p>}
-        {messages.length > 0 && <div className="subagent-progress-messages">{messages.map((message) => <SubagentConversationMessage key={message.id} message={message} />)}</div>}
+        {messages.length > 0 && <div className="subagent-progress-messages"><ChatTranscript messages={messages} showReasoning={showReasoning} showToolCalls={showToolCalls} assistantName={node.model || undefined} compact={compact} /></div>}
       </div>
     </details>
-    {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} nowSeconds={nowSeconds} depth={depth + 1} />)}</div>}
+    {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} nowSeconds={nowSeconds} depth={depth + 1} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} />)}</div>}
   </div>;
-}
-
-function SubagentConversationMessage({ message }: { message: SubagentMessage }) {
-  return <article className={`subagent-progress-message ${message.role}`}>
-    <header><strong>{message.toolName || message.role}</strong>{message.timestamp && <time>{new Date(message.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>}</header>
-    {message.reasoning && <section className="subagent-progress-reasoning"><small>{t('subagents.reasoning')}</small><div className="chat-markdown" dangerouslySetInnerHTML={{ __html: markdownText(message.reasoning) }} /></section>}
-    {message.toolCalls && <pre className="subagent-progress-tool-calls">{message.toolCalls}</pre>}
-    {message.content && <div className="chat-markdown" dangerouslySetInnerHTML={{ __html: markdownText(message.content) }} />}
-  </article>;
 }
 
 function statusIcon(status: SubagentStatus) {

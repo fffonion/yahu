@@ -1,3 +1,6 @@
+import type { ChatMessage } from './ChatTranscript';
+import { normalizeChatMessage } from './chatMessage';
+
 export type SubagentStatus = 'running' | 'completed' | 'failed' | 'interrupted' | 'timeout';
 export type SubagentTodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
 
@@ -12,15 +15,7 @@ export type SubagentActivity = {
   timestamp?: number;
 };
 
-export type SubagentMessage = {
-  id: string;
-  role: 'user' | 'assistant' | 'tool' | 'system';
-  content: string;
-  reasoning?: string;
-  toolName?: string;
-  toolCalls?: string;
-  timestamp?: number;
-};
+export type SubagentMessage = ChatMessage;
 
 export type SubagentProgress = {
   sessionId: string;
@@ -159,25 +154,7 @@ function normalizeActivity(value: unknown): SubagentActivity | null {
 
 function normalizeSubagentMessage(value: unknown, index: number): SubagentMessage | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const raw = value as Record<string, unknown>;
-  const rawRole = stringValue(raw.role);
-  const role = rawRole === 'user' || rawRole === 'tool' || rawRole === 'system' ? rawRole : 'assistant';
-  const content = textValue(raw.content);
-  const reasoning = textValue(raw.reasoning) || textValue(raw.reasoning_content);
-  const toolName = stringValue(raw.tool_name) || undefined;
-  const toolCalls = Array.isArray(raw.tool_calls) && raw.tool_calls.length
-    ? JSON.stringify(raw.tool_calls, null, 2)
-    : undefined;
-  if (!content && !reasoning && !toolName && !toolCalls) return null;
-  return {
-    id: raw.id == null ? String(index) : String(raw.id),
-    role,
-    content,
-    reasoning: reasoning || undefined,
-    toolName,
-    toolCalls,
-    timestamp: numberValue(raw.timestamp),
-  };
+  return normalizeChatMessage(value, String(index));
 }
 
 function normalizeStatus(value: unknown): SubagentStatus {
@@ -187,10 +164,6 @@ function normalizeStatus(value: unknown): SubagentStatus {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function textValue(value: unknown): string {
-  return typeof value === 'string' ? value : '';
 }
 
 function numberValue(value: unknown): number | undefined {

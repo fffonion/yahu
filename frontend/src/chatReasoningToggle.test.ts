@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const app = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 function cssRule(styles: string, selector: string) {
   const start = styles.indexOf(`${selector}{`);
@@ -23,7 +23,7 @@ describe('chat reasoning display toggle', () => {
 
   test('assistant messages render reasoning only when the toggle is enabled', () => {
     const source = app();
-    expect(source).toContain("<MessageView message={m} showReasoning={props.showReasoning} assistantName={sessionModel || undefined} />");
+    expect(source).toContain("<MessageView message={item.message} showReasoning={showReasoning} assistantName={assistantName} />");
     expect(source).toContain("message.reasoning && showReasoning");
     expect(source).toContain("className=\"msg-reasoning msg-reasoning-collapsed\"");
   });

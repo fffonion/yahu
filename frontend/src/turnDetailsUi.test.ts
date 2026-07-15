@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 
-const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const app = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 describe('turn detail fold UI', () => {
@@ -42,9 +42,9 @@ describe('turn detail fold UI', () => {
 
   test('normal and compact chat paths both render the same turn detail group component', () => {
     const source = app();
-    const compactIndex = source.indexOf('if (props.desktopCompactMessages)');
+    const compactIndex = source.indexOf('if (compact)');
     const compactGroupIndex = source.indexOf('<DesktopTurnBlock block={block}', compactIndex);
-    const normalMapIndex = source.indexOf('return turnDetailItems.map((item) => {', compactIndex);
+    const normalMapIndex = source.indexOf('return <>{turnDetailItems.map((item) => {', compactIndex);
     const normalGroupIndex = source.indexOf('<TurnDetailGroup item={item}', normalMapIndex);
     expect(compactIndex).toBeGreaterThan(-1);
     expect(compactGroupIndex).toBeGreaterThan(compactIndex);
@@ -81,14 +81,18 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("const params = new URLSearchParams({ limit: String(MESSAGE_PAGE), view: 'skeleton' });");
     expect(source).toContain("const params = new URLSearchParams({ limit: String(MESSAGE_PAGE * 2), view: 'skeleton' });");
     expect(source).toContain("detailParams.set('view', 'details');");
-    expect(source).toContain("fetch(`/chat/messages/${encodeURIComponent(sessionId)}?${detailParams}`)");
+    expect(source).toContain("fetch(`/chat/messages/${encodeURIComponent(props.activeSessionId)}?${detailParams}`)");
+    expect(source).toContain('loadTurnDetails(item.detail)');
     expect(source).toContain("const detailMessages = useMemo(() => loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages");
     expect(source).toContain("loading ? t('status.loading')");
   });
 
   test('special context block has collapsed details styling and i18n copy', () => {
     const source = app();
-    expect(source).toContain('type SpecialContextGroupItem, type TurnDetailBlock, type TurnDetailGroupItem, type TurnDetailMetadata');
+    expect(source).toContain('type SpecialContextGroupItem');
+    expect(source).toContain('type TurnDetailBlock');
+    expect(source).toContain('type TurnDetailGroupItem');
+    expect(source).toContain('type TurnDetailMetadata');
     expect(source).toContain('function SpecialContextGroup');
     expect(source).toContain('className="special-context-block"');
     expect(source).toContain('className="special-context-summary"');
