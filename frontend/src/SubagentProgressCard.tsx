@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, XCircle } from 'lucide-react';
 import { ChatTranscript, type ChatMessage } from './ChatTranscript';
 import { t } from './i18n';
 import {
   buildSubagentTree,
   formatSubagentElapsed,
+  isSubagentDetailNearBottom,
   latestSubagent,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
@@ -21,10 +22,25 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
+  const detailTreeRef = useRef<HTMLDivElement>(null);
+  const followLatestDetailRef = useRef(true);
+
+  const scrollToLatestDetail = useCallback((force: boolean) => {
+    if (force) followLatestDetailRef.current = true;
+    if (!followLatestDetailRef.current) return;
+    window.requestAnimationFrame(() => {
+      const tree = detailTreeRef.current;
+      if (!tree || (!force && !followLatestDetailRef.current)) return;
+      tree.scrollTop = tree.scrollHeight;
+    });
+  }, []);
+  const startFollowingLatestDetail = useCallback(() => scrollToLatestDetail(true), [scrollToLatestDetail]);
+  const followLatestDetail = useCallback(() => scrollToLatestDetail(false), [scrollToLatestDetail]);
 
   useEffect(() => {
     setSnapshot(null);
     setExpanded(false);
+    followLatestDetailRef.current = true;
     if (!sessionId || sessionId === '__webui_draft_session__') return;
     let socket: WebSocket | null = null;
     let reconnectTimer = 0;
@@ -86,7 +102,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
     {expanded && <div className="subagent-progress-panel-body">
       <div className="subagent-progress-track" aria-hidden="true"><span style={{ width: `${completion}%` }} /></div>
       {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
-      <div className="subagent-progress-tree">{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} />)}</div>
+      <div className="subagent-progress-tree" ref={detailTreeRef} onScroll={(event) => { followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget); }}>{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={startFollowingLatestDetail} onDetailContentChange={followLatestDetail} />)}</div>
     </div>}
   </section>;
 }
@@ -100,7 +116,7 @@ function SubagentProgressPreview({ node, nowSeconds }: { node: SubagentProgress;
   </>;
 }
 
-function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showToolCalls, compact }: { node: SubagentTreeNode; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
+function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showToolCalls, compact, onDetailOpen, onDetailContentChange }: { node: SubagentTreeNode; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean; onDetailOpen: () => void; onDetailContentChange: () => void }) {
   const elapsed = formatSubagentElapsed(subagentElapsedSeconds(node, nowSeconds));
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -131,8 +147,12 @@ function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showTool
     return () => controller.abort();
   }, [loadedMessageCount, node.messageCount, node.sessionId, open]);
 
+  useLayoutEffect(() => {
+    if (open && messages.length > 0) onDetailContentChange();
+  }, [messages, onDetailContentChange, open]);
+
   return <div className={`subagent-progress-node depth-${Math.min(depth, 3)}`}>
-    <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <details open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) onDetailOpen(); }}>
       <summary>
         <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
         <span className="subagent-progress-goal"><strong>{node.goal}</strong><small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small></span>
@@ -152,7 +172,7 @@ function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showTool
         {messages.length > 0 && <div className="subagent-progress-messages"><ChatTranscript messages={messages} showReasoning={showReasoning} showToolCalls={showToolCalls} assistantName={node.model || undefined} compact={compact} /></div>}
       </div>
     </details>
-    {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} nowSeconds={nowSeconds} depth={depth + 1} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} />)}</div>}
+    {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} nowSeconds={nowSeconds} depth={depth + 1} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={onDetailOpen} onDetailContentChange={onDetailContentChange} />)}</div>}
   </div>;
 }
 

@@ -79,6 +79,10 @@ export function latestSubagent(subagents: SubagentProgress[]): SubagentProgress 
   return subagents.reduce<SubagentProgress | undefined>((latest, item) => !latest || (item.startedAt || 0) >= (latest.startedAt || 0) ? item : latest, undefined);
 }
 
+export function isSubagentDetailNearBottom(metrics: Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>, thresholdPx = 96): boolean {
+  return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= thresholdPx;
+}
+
 export function buildSubagentTree(subagents: SubagentProgress[], parentSessionId: string): SubagentTreeNode[] {
   const nodes = new Map<string, SubagentTreeNode>();
   for (const subagent of subagents) nodes.set(subagent.sessionId, { ...subagent, children: [] });

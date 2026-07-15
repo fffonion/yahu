@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildSubagentTree,
   latestSubagent,
+  isSubagentDetailNearBottom,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
   subagentMessagesUrl,
@@ -84,5 +85,11 @@ describe('subagent progress websocket projection', () => {
 
     expect(latestSubagent(snapshot.subagents)?.sessionId).toBe('newest');
     expect(latestSubagent([])).toBeUndefined();
+  });
+
+  test('detects when a long subagent detail remains close enough to its latest content', () => {
+    expect(isSubagentDetailNearBottom({ scrollTop: 900, scrollHeight: 1500, clientHeight: 520 })).toBe(true);
+    expect(isSubagentDetailNearBottom({ scrollTop: 500, scrollHeight: 1500, clientHeight: 520 })).toBe(false);
+    expect(isSubagentDetailNearBottom({ scrollTop: 0, scrollHeight: 400, clientHeight: 520 })).toBe(true);
   });
 });

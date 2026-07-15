@@ -64,6 +64,18 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.desktop-compact-chat .subagent-progress-card');
   });
 
+  test('keeps a newly opened streaming detail at its latest content until the user scrolls upward', () => {
+    const source = card();
+    expect(source).toContain('const detailTreeRef = useRef<HTMLDivElement>(null);');
+    expect(source).toContain('const followLatestDetailRef = useRef(true);');
+    expect(source).toContain('tree.scrollTop = tree.scrollHeight;');
+    expect(source).toContain('followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget);');
+    expect(source).toContain('onDetailOpen={startFollowingLatestDetail}');
+    expect(source).toContain('onDetailContentChange={followLatestDetail}');
+    expect(source).toContain('if (open && messages.length > 0) onDetailContentChange();');
+    expect(css()).toContain('overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;');
+  });
+
   test('floats above chat history, previews only the latest subagent while collapsed, and expands to ninety percent height', () => {
     const appSource = app();
     const cardSource = card();
