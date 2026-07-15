@@ -71,6 +71,9 @@ const translations: Record<string, Record<string, string>> = {
   'subagents.messages': { en: 'messages', 'zh-CN': '条消息', 'zh-TW': '則訊息', ja: 'メッセージ' },
   'subagents.tools': { en: 'tools', 'zh-CN': '次工具', 'zh-TW': '次工具', ja: 'ツール' },
   'subagents.recent': { en: 'Recent', 'zh-CN': '最近活动', 'zh-TW': '最近活動', ja: '最近' },
+  'subagents.loadingDetails': { en: 'Loading conversation…', 'zh-CN': '正在加载会话详情…', 'zh-TW': '正在載入會話詳情…', ja: '会話の詳細を読み込み中…' },
+  'subagents.detailsUnavailable': { en: 'Conversation details unavailable.', 'zh-CN': '会话详情不可用。', 'zh-TW': '會話詳情無法使用。', ja: '会話の詳細を取得できません。' },
+  'subagents.reasoning': { en: 'Reasoning', 'zh-CN': '思考', 'zh-TW': '思考', ja: '思考' },
   'subagents.unavailable': { en: 'Progress is temporarily unavailable.', 'zh-CN': '进度暂时不可用。', 'zh-TW': '進度暫時無法使用。', ja: '進捗を取得できません。' },
 
   // Cron

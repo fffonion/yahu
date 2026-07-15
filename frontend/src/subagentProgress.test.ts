@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { buildSubagentTree, normalizeSubagentSnapshot, subagentWebSocketUrl } from './subagentProgress';
+import {
+  buildSubagentTree,
+  normalizeSubagentMessages,
+  normalizeSubagentSnapshot,
+  subagentMessagesUrl,
+  subagentWebSocketUrl,
+} from './subagentProgress';
 
 describe('subagent progress websocket projection', () => {
   test('builds a same-origin websocket URL and percent-encodes the session id', () => {
@@ -34,6 +40,17 @@ describe('subagent progress websocket projection', () => {
       sessionId: 's1',
       subagents: [{ sessionId: 'child', goal: 'Review code', status: 'running', currentTool: 'terminal' }],
     });
+  });
+
+  test('normalizes complete lazy-loaded conversation details without truncating text', () => {
+    expect(subagentMessagesUrl('session/with space')).toBe('/chat/subagents/session%2Fwith%20space/messages');
+    expect(normalizeSubagentMessages({ data: [
+      { id: 1, role: 'assistant', content: 'Final **answer**', reasoning: 'Long reasoning text', timestamp: 10 },
+      { id: 2, role: 'tool', tool_name: 'read_file', content: 'full\noutput', timestamp: 11 },
+    ] })).toEqual([
+      { id: '1', role: 'assistant', content: 'Final **answer**', reasoning: 'Long reasoning text', timestamp: 10 },
+      { id: '2', role: 'tool', toolName: 'read_file', content: 'full\noutput', timestamp: 11 },
+    ]);
   });
 
   test('builds a nested tree from parent session ids', () => {

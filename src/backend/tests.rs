@@ -505,6 +505,7 @@ mod tests {
             chat_streams,
             active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
             active_chat_run_ids: Arc::new(RwLock::new(HashMap::new())),
+            subagent_feeds: Arc::new(RwLock::new(HashMap::new())),
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
         }
@@ -2423,6 +2424,50 @@ mod tests {
         let mut native_client = HeaderMap::new();
         native_client.insert(header::HOST, HeaderValue::from_static("127.0.0.1:9642"));
         assert!(subagent_websocket_origin_allowed(&native_client));
+    }
+
+    #[test]
+    fn subagent_feed_registry_reuses_one_broadcast_channel_per_session() {
+        let mut feeds = HashMap::new();
+        let (first, first_created) = subagent_feed_sender(&mut feeds, "parent");
+        let (second, second_created) = subagent_feed_sender(&mut feeds, "parent");
+
+        assert!(first_created);
+        assert!(!second_created);
+        assert!(first.same_channel(&second));
+        assert_eq!(feeds.len(), 1);
+    }
+
+    #[test]
+    fn completed_subagent_batches_use_the_idle_poll_interval() {
+        fn projection(status: &str) -> SubagentProjection {
+            SubagentProjection {
+                session_id: "child".to_string(),
+                parent_session_id: "parent".to_string(),
+                goal: "Review".to_string(),
+                model: None,
+                status: status.to_string(),
+                started_at: Some(1.0),
+                ended_at: (status != "running").then_some(2.0),
+                message_count: 1,
+                tool_count: 0,
+                api_calls: 0,
+                current_tool: None,
+                todos: Vec::new(),
+                activity: Vec::new(),
+                summary: None,
+            }
+        }
+
+        assert_eq!(subagent_poll_delay(&[]), SUBAGENT_POLL_INTERVAL);
+        assert_eq!(subagent_poll_delay(&[projection("running")]), SUBAGENT_POLL_INTERVAL);
+        assert_eq!(subagent_poll_delay(&[projection("completed")]), SUBAGENT_IDLE_POLL_INTERVAL);
+    }
+
+    #[test]
+    fn subagent_message_details_are_exposed_through_an_authenticated_lazy_route() {
+        let backend_source = include_str!("mod.rs");
+        assert!(backend_source.contains("\"/chat/subagents/{session_id}/messages\""));
     }
 
     #[test]

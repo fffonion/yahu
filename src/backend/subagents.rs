@@ -1,4 +1,5 @@
 const SUBAGENT_POLL_INTERVAL: Duration = Duration::from_millis(1_000);
+const SUBAGENT_IDLE_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const SUBAGENT_POLL_TIMEOUT: Duration = Duration::from_secs(10);
 const SUBAGENT_PAGE_SIZE: usize = 200;
 // Progress is always represented by the most recently active subagents. Avoid walking
@@ -70,6 +71,19 @@ async fn subagent_websocket(
         .into_response()
 }
 
+async fn subagent_messages(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response<Body> {
+    match fetch_session_messages(&state, &session_id).await {
+        Ok(messages) => Json(serde_json::json!({ "data": messages })).into_response(),
+        Err(err) => json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("failed to load subagent messages: {err}"),
+        ),
+    }
+}
+
 fn subagent_websocket_origin_allowed(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN).and_then(|value| value.to_str().ok()) else {
         return true;
@@ -96,41 +110,59 @@ fn subagent_websocket_origin_allowed(headers: &HeaderMap) -> bool {
             == host_authority.port_u16().unwrap_or(default_port)
 }
 
+fn subagent_feed_sender(
+    feeds: &mut HashMap<String, watch::Sender<String>>,
+    session_id: &str,
+) -> (watch::Sender<String>, bool) {
+    if let Some(sender) = feeds.get(session_id) {
+        return (sender.clone(), false);
+    }
+    let (sender, _) = watch::channel(String::new());
+    feeds.insert(session_id.to_string(), sender.clone());
+    (sender, true)
+}
+
+fn subagent_poll_delay(subagents: &[SubagentProjection]) -> Duration {
+    if subagents.is_empty() || subagents.iter().any(|item| item.status == "running") {
+        SUBAGENT_POLL_INTERVAL
+    } else {
+        SUBAGENT_IDLE_POLL_INTERVAL
+    }
+}
+
+async fn subscribe_subagent_snapshots(
+    state: Arc<AppState>,
+    session_id: &str,
+) -> watch::Receiver<String> {
+    let (sender, receiver, created) = {
+        let mut feeds = state.subagent_feeds.write().await;
+        let (sender, created) = subagent_feed_sender(&mut feeds, session_id);
+        let receiver = sender.subscribe();
+        (sender, receiver, created)
+    };
+    if created {
+        let state = state.clone();
+        let session_id = session_id.to_string();
+        tokio::spawn(async move { run_subagent_feed(state, session_id, sender).await });
+    }
+    receiver
+}
+
 async fn stream_subagent_snapshots(socket: WebSocket, state: Arc<AppState>, session_id: String) {
     let (mut sender, mut receiver) = socket.split();
-    let mut ticker = interval(SUBAGENT_POLL_INTERVAL);
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let mut cache = HashMap::<String, CachedSubagentProjection>::new();
-    let mut current_subagents = Vec::<SubagentProjection>::new();
-    let mut last_fingerprint = String::new();
+    let mut snapshots = subscribe_subagent_snapshots(state, &session_id).await;
+    let initial = snapshots.borrow_and_update().clone();
+    if !initial.is_empty() && sender.send(Message::Text(initial.into())).await.is_err() {
+        return;
+    }
 
     loop {
         tokio::select! {
-            _ = ticker.tick() => {
-                let error = match timeout(
-                    SUBAGENT_POLL_TIMEOUT,
-                    fetch_subagent_projection_snapshot(&state, &session_id, &mut cache),
-                ).await {
-                    Ok(Ok(items)) => {
-                        current_subagents = items;
-                        None
-                    }
-                    Ok(Err(err)) => Some(err.to_string()),
-                    Err(_) => Some("subagent progress poll timed out".to_string()),
-                };
-                let fingerprint = serde_json::to_string(&(current_subagents.as_slice(), error.as_deref())).unwrap_or_default();
-                if fingerprint == last_fingerprint {
-                    continue;
+            changed = snapshots.changed() => {
+                if changed.is_err() {
+                    break;
                 }
-                last_fingerprint = fingerprint;
-                let payload = SubagentSnapshot {
-                    kind: "subagents.snapshot",
-                    session_id: &session_id,
-                    generated_at: unix_now_seconds(),
-                    subagents: &current_subagents,
-                    error: error.as_deref(),
-                };
-                let Ok(text) = serde_json::to_string(&payload) else { continue; };
+                let text = snapshots.borrow_and_update().clone();
                 if sender.send(Message::Text(text.into())).await.is_err() {
                     break;
                 }
@@ -142,6 +174,72 @@ async fn stream_subagent_snapshots(socket: WebSocket, state: Arc<AppState>, sess
                 }
             }
         }
+    }
+}
+
+async fn run_subagent_feed(
+    state: Arc<AppState>,
+    session_id: String,
+    sender: watch::Sender<String>,
+) {
+    let mut ticker = interval(SUBAGENT_POLL_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut cache = HashMap::<String, CachedSubagentProjection>::new();
+    let mut current_subagents = Vec::<SubagentProjection>::new();
+    let mut last_fingerprint = String::new();
+    let mut next_poll = Instant::now();
+
+    loop {
+        ticker.tick().await;
+        if sender.receiver_count() == 0 {
+            let mut feeds = state.subagent_feeds.write().await;
+            let current_is_same = feeds
+                .get(&session_id)
+                .is_some_and(|current| current.same_channel(&sender));
+            if !current_is_same {
+                return;
+            }
+            if sender.receiver_count() == 0 {
+                feeds.remove(&session_id);
+                return;
+            }
+        }
+        if Instant::now() < next_poll {
+            continue;
+        }
+
+        let error = match timeout(
+            SUBAGENT_POLL_TIMEOUT,
+            fetch_subagent_projection_snapshot(&state, &session_id, &mut cache),
+        )
+        .await
+        {
+            Ok(Ok(items)) => {
+                current_subagents = items;
+                None
+            }
+            Ok(Err(err)) => Some(err.to_string()),
+            Err(_) => Some("subagent progress poll timed out".to_string()),
+        };
+        let fingerprint = serde_json::to_string(&(
+            current_subagents.as_slice(),
+            error.as_deref(),
+        ))
+        .unwrap_or_default();
+        if fingerprint != last_fingerprint {
+            last_fingerprint = fingerprint;
+            let payload = SubagentSnapshot {
+                kind: "subagents.snapshot",
+                session_id: &session_id,
+                generated_at: unix_now_seconds(),
+                subagents: &current_subagents,
+                error: error.as_deref(),
+            };
+            if let Ok(text) = serde_json::to_string(&payload) {
+                sender.send_replace(text);
+            }
+        }
+        next_poll = Instant::now() + subagent_poll_delay(&current_subagents);
     }
 }
 

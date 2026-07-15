@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, XCircle } from 'lucide-react';
 import { t } from './i18n';
+import { markdownText } from './markdown';
 import {
   buildSubagentTree,
   formatSubagentElapsed,
+  normalizeSubagentMessages,
   normalizeSubagentSnapshot,
   subagentElapsedSeconds,
+  subagentMessagesUrl,
   subagentWebSocketUrl,
+  type SubagentMessage,
   type SubagentProgressSnapshot,
   type SubagentStatus,
   type SubagentTreeNode,
@@ -79,8 +83,35 @@ export function SubagentProgressCard({ sessionId }: { sessionId: string }) {
 
 function SubagentProgressNode({ node, nowSeconds, depth }: { node: SubagentTreeNode; nowSeconds: number; depth: number }) {
   const elapsed = formatSubagentElapsed(subagentElapsedSeconds(node, nowSeconds));
-  const [open, setOpen] = useState(node.status === 'running');
-  useEffect(() => { if (node.status === 'running') setOpen(true); }, [node.status]);
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<SubagentMessage[]>([]);
+  const [loadedMessageCount, setLoadedMessageCount] = useState(-1);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState(false);
+
+  useEffect(() => {
+    if (!open || loadedMessageCount === node.messageCount) return;
+    const controller = new AbortController();
+    setDetailsLoading(true);
+    setDetailsError(false);
+    fetch(subagentMessagesUrl(node.sessionId), { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return normalizeSubagentMessages(await response.json());
+      })
+      .then((items) => {
+        setMessages(items);
+        setLoadedMessageCount(node.messageCount);
+      })
+      .catch((error) => {
+        if (error?.name !== 'AbortError') setDetailsError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDetailsLoading(false);
+      });
+    return () => controller.abort();
+  }, [loadedMessageCount, node.messageCount, node.sessionId, open]);
+
   return <div className={`subagent-progress-node depth-${Math.min(depth, 3)}`}>
     <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>
@@ -97,11 +128,22 @@ function SubagentProgressNode({ node, nowSeconds, depth }: { node: SubagentTreeN
         </div>
         {node.todos.length > 0 && <ul className="subagent-progress-todos">{node.todos.map((todo, index) => <li className={todo.status} key={`${todo.id}:${index}`}><span className="subagent-todo-box" aria-hidden="true">{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '–' : ''}</span><span>{todo.content}</span></li>)}</ul>}
         {node.activity.length > 0 && <p className="subagent-progress-activity"><span>{t('subagents.recent')}</span>{node.activity.map((item) => item.tool).join(' → ')}</p>}
-        {node.summary && node.status !== 'running' && <p className="subagent-progress-summary">{node.summary}</p>}
+        {detailsLoading && <p className="subagent-progress-detail-state">{t('subagents.loadingDetails')}</p>}
+        {detailsError && <p className="subagent-progress-detail-state error">{t('subagents.detailsUnavailable')}</p>}
+        {messages.length > 0 && <div className="subagent-progress-messages">{messages.map((message) => <SubagentConversationMessage key={message.id} message={message} />)}</div>}
       </div>
     </details>
     {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} nowSeconds={nowSeconds} depth={depth + 1} />)}</div>}
   </div>;
+}
+
+function SubagentConversationMessage({ message }: { message: SubagentMessage }) {
+  return <article className={`subagent-progress-message ${message.role}`}>
+    <header><strong>{message.toolName || message.role}</strong>{message.timestamp && <time>{new Date(message.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>}</header>
+    {message.reasoning && <section className="subagent-progress-reasoning"><small>{t('subagents.reasoning')}</small><div className="chat-markdown" dangerouslySetInnerHTML={{ __html: markdownText(message.reasoning) }} /></section>}
+    {message.toolCalls && <pre className="subagent-progress-tool-calls">{message.toolCalls}</pre>}
+    {message.content && <div className="chat-markdown" dangerouslySetInnerHTML={{ __html: markdownText(message.content) }} />}
+  </article>;
 }
 
 function statusIcon(status: SubagentStatus) {

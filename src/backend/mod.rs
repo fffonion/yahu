@@ -48,7 +48,7 @@ use tokio::{
     fs,
     net::TcpListener,
     process::Command,
-    sync::{RwLock, broadcast, mpsc},
+    sync::{RwLock, broadcast, mpsc, watch},
     time::{Instant, MissedTickBehavior, interval, sleep, sleep_until, timeout},
 };
 use tower_http::trace::TraceLayer;
@@ -123,6 +123,7 @@ struct AppState {
     chat_streams: broadcast::Sender<String>,
     active_chat_streams: Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>,
     active_chat_run_ids: Arc<RwLock<HashMap<String, String>>>,
+    subagent_feeds: Arc<RwLock<HashMap<String, watch::Sender<String>>>>,
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
 }
@@ -244,6 +245,7 @@ pub async fn run() -> anyhow::Result<()> {
         chat_streams,
         active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
         active_chat_run_ids: Arc::new(RwLock::new(HashMap::new())),
+        subagent_feeds: Arc::new(RwLock::new(HashMap::new())),
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
     });
@@ -280,6 +282,10 @@ pub async fn run() -> anyhow::Result<()> {
             patch(rename_session_lineage),
         )
         .route("/chat/messages/{session_id}", get(chat_messages_page))
+        .route(
+            "/chat/subagents/{session_id}/messages",
+            get(subagent_messages),
+        )
         .route("/chat/user-nav/{session_id}", get(chat_user_nav))
         .route(
             "/chat/context-window/{session_id}",

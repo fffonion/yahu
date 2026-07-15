@@ -12,6 +12,16 @@ export type SubagentActivity = {
   timestamp?: number;
 };
 
+export type SubagentMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content: string;
+  reasoning?: string;
+  toolName?: string;
+  toolCalls?: string;
+  timestamp?: number;
+};
+
 export type SubagentProgress = {
   sessionId: string;
   parentSessionId: string;
@@ -43,6 +53,17 @@ type WebSocketLocation = Pick<Location, 'protocol' | 'host'>;
 export function subagentWebSocketUrl(location: WebSocketLocation, sessionId: string): string {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${scheme}//${location.host}/chat/subagents/${encodeURIComponent(sessionId)}/ws`;
+}
+
+export function subagentMessagesUrl(sessionId: string): string {
+  return `/chat/subagents/${encodeURIComponent(sessionId)}/messages`;
+}
+
+export function normalizeSubagentMessages(value: unknown): SubagentMessage[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const data = (value as Record<string, unknown>).data;
+  if (!Array.isArray(data)) return [];
+  return data.map((item, index) => normalizeSubagentMessage(item, index)).filter((item): item is SubagentMessage => !!item);
 }
 
 export function normalizeSubagentSnapshot(value: unknown, expectedSessionId: string): SubagentProgressSnapshot | null {
@@ -136,6 +157,29 @@ function normalizeActivity(value: unknown): SubagentActivity | null {
   return { tool, timestamp: numberValue(raw.timestamp) };
 }
 
+function normalizeSubagentMessage(value: unknown, index: number): SubagentMessage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const rawRole = stringValue(raw.role);
+  const role = rawRole === 'user' || rawRole === 'tool' || rawRole === 'system' ? rawRole : 'assistant';
+  const content = textValue(raw.content);
+  const reasoning = textValue(raw.reasoning) || textValue(raw.reasoning_content);
+  const toolName = stringValue(raw.tool_name) || undefined;
+  const toolCalls = Array.isArray(raw.tool_calls) && raw.tool_calls.length
+    ? JSON.stringify(raw.tool_calls, null, 2)
+    : undefined;
+  if (!content && !reasoning && !toolName && !toolCalls) return null;
+  return {
+    id: raw.id == null ? String(index) : String(raw.id),
+    role,
+    content,
+    reasoning: reasoning || undefined,
+    toolName,
+    toolCalls,
+    timestamp: numberValue(raw.timestamp),
+  };
+}
+
 function normalizeStatus(value: unknown): SubagentStatus {
   const status = stringValue(value);
   return status === 'completed' || status === 'failed' || status === 'interrupted' || status === 'timeout' ? status : 'running';
@@ -143,6 +187,10 @@ function normalizeStatus(value: unknown): SubagentStatus {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function textValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
 }
 
 function numberValue(value: unknown): number | undefined {
