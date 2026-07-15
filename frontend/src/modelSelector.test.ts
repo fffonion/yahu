@@ -58,8 +58,8 @@ describe('composer model selector', () => {
     expect(source).toContain('seen.has(key)');
     expect(source).toContain('function modelOptionKey');
     expect(source).toContain('function findModelOption');
-    expect(source).toContain('function resolveModelProvider');
-    expect(source).toContain('const matches = options.filter((item) => item.id === id);');
+    expect(source).toContain('resolvePreferredModelProvider as resolveModelProvider');
+    expect(source).toContain('return selectModelOption(options, realModelOrEmpty(modelId), provider);');
     expect(source).toContain('valueProvider={sessionProvider}');
     expect(source).toContain('key={modelOptionKey(item)}');
     expect(source).not.toContain('props.models.filter((m: ModelOption) => m.id !== currentModel)');

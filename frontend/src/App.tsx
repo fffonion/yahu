@@ -6,6 +6,7 @@ import { buildCronPatch, cronEditableValues } from './cronEditor';
 import { waitForCronRunOutput } from './cronRunOutput';
 import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
+import { fallbackContextWindowForModel, latestMessageProviderForModel, resolvePreferredModelProvider as resolveModelProvider, selectModelOption } from './modelContext';
 import { summarizeToolMessage } from './toolMessage';
 import { formatChatMessageTime, sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { compactSessionPreview, latestSessionPreviewFromMessages } from './sessionPreview';
@@ -42,6 +43,7 @@ function sessionWithPreservedMessageCount(next: Session, current?: Session | nul
   const currentTitle = String(current?.title || '').trim();
   const nextTitle = String(next.title || '').trim();
   if (!nextTitle && currentTitle) merged.title = current?.title;
+  if (!String(next.provider || '').trim() && String(current.provider || '').trim()) merged.provider = current.provider;
   return merged;
 }
 type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number; costUsd?: number };
@@ -578,18 +580,7 @@ function modelOptionKey(item: { id: string; provider?: string }) {
   return `${String(item.provider || '').trim()}\u0000${item.id}`;
 }
 function findModelOption(options: ModelOption[], modelId: string, provider = '') {
-  const id = realModelOrEmpty(modelId);
-  const providerId = String(provider || '').trim();
-  const matches = options.filter((item) => item.id === id);
-  return matches.find((item) => String(item.provider || '').trim() === providerId)
-    || (providerId ? undefined : matches[0])
-    || undefined;
-}
-function resolveModelProvider(options: ModelOption[], modelId: string, preferredProvider = '') {
-  const exact = findModelOption(options, modelId, preferredProvider);
-  if (exact) return String(exact.provider || '').trim();
-  const id = realModelOrEmpty(modelId);
-  return String(options.find((item) => item.id === id)?.provider || preferredProvider || '').trim();
+  return selectModelOption(options, realModelOrEmpty(modelId), provider);
 }
 function readContextLength(row: any): number | undefined {
   const raw = row?.context_length ?? row?.contextWindow ?? row?.context_window ?? row?.limit?.context;
@@ -656,16 +647,6 @@ function contextWindowTokens(messages: ChatMessage[], input: string, attachments
     return { used: exactContextWindowTokens(messages), approximate: false };
   }
   return { used: estimateContextWindowTokens(messages, input, attachments), approximate: true };
-}
-function fallbackContextWindowForModel(modelId: string): number {
-  const id = modelId.toLowerCase();
-  if (!id) return 128000;
-  if (id.includes('gpt-5.5') || id.includes('gpt-5.4')) return 1047576;
-  if (id.includes('claude')) return 200000;
-  if (id.includes('grok-4')) return 256000;
-  if (id.includes('minimax-m3') || id.includes('minimax-m2')) return 1000000;
-  if (id.includes('gemini')) return 1000000;
-  return 128000;
 }
 function formatContextTokens(value: number): string {
   if (value >= 1000000) return `${(value / 1000000).toFixed(value % 1000000 === 0 ? 0 : 1)}M`;
@@ -2982,7 +2963,9 @@ function ChatMain(props: any) {
   };
   const sessionModelOverride = props.activeSessionModelOverride as SessionModelOverride | undefined;
   const sessionModel = sessionModelOverride?.model || realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id || '';
-  const sessionProvider = String(sessionModelOverride?.provider ?? (props.selectedModelProvider || active?.provider || props.activeSessionDetail?.provider || '')).trim();
+  const messageProvider = latestMessageProviderForModel(props.messages, sessionModel);
+  const apiSessionProvider = String(active?.provider || props.activeSessionDetail?.provider || messageProvider).trim();
+  const sessionProvider = String(sessionModelOverride?.provider ?? (props.activeSessionId === DRAFT_SESSION_ID ? props.selectedModelProvider : apiSessionProvider)).trim();
   const currentModel = sessionModel;
   const activeTitle = active?.id === DRAFT_SESSION_ID ? 'New conversation' : active ? sessionDisplayTitle(active) : 'Hermes Agent';
   const headerTimes = sessionHeaderTimes(active, props.messages);
@@ -2994,6 +2977,7 @@ function ChatMain(props: any) {
   const exactCurrentOption = currentModel ? findModelOption(props.models, currentModel, sessionProvider) : undefined;
   const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;
   const currentModelOption = exactCurrentOption || currentOption;
+  const contextModelOption = exactCurrentOption || (currentModel ? findModelOption(props.models, currentModel) : undefined);
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = useMemo(() => visibleChatMessages<ChatMessage>(props.messages, props.showReasoning, props.showToolCalls), [props.messages, props.showReasoning, props.showToolCalls]);
@@ -3011,7 +2995,7 @@ function ChatMain(props: any) {
     const found = chatLightboxImages.find((item) => item.path === path || item.src === src);
     setChatImageModal(found || { key: `adhoc:${path || src}`, messageId: '', path, name: link.dataset.chatImageName || basename(path || src), src, downloadUrl: `${src}${src.includes('?') ? '&' : '?'}download=1` });
   };
-  const contextWindowTotal = currentModelOption?.contextLength || fallbackContextWindowForModel(currentModel);
+  const contextWindowTotal = contextModelOption?.contextLength || fallbackContextWindowForModel(currentModel, sessionProvider);
   const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
     const scroller = props.chatScrollRef.current;

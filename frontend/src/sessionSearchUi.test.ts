@@ -71,6 +71,18 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain("compactSessionPreview(session.preview || `${session.message_count || 0} messages`)");
   });
 
+  test('session metadata refreshes preserve a known provider when a partial API row omits it', () => {
+    const app = source();
+    expect(app).toContain("if (!String(next.provider || '').trim() && String(current.provider || '').trim()) merged.provider = current.provider;");
+  });
+
+  test('chat provider identity uses only session metadata unless the session is a draft', () => {
+    const app = source();
+    expect(app).toContain("const messageProvider = latestMessageProviderForModel(props.messages, sessionModel);");
+    expect(app).toContain("const apiSessionProvider = String(active?.provider || props.activeSessionDetail?.provider || messageProvider).trim();");
+    expect(app).toContain("const sessionProvider = String(sessionModelOverride?.provider ?? (props.activeSessionId === DRAFT_SESSION_ID ? props.selectedModelProvider : apiSessionProvider)).trim();");
+  });
+
   test('opened session header uses stitched history totals from message and minimap endpoints', () => {
     const app = source();
     expect(app).toContain('const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {');
