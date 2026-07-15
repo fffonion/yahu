@@ -118,8 +118,9 @@ describe('subagent progress UI', () => {
     expect(subagentDetailRule).not.toContain('border-radius:12px');
   });
 
-  test('keeps a newly opened streaming detail at its latest content until the user scrolls upward', () => {
+  test('keeps a newly opened streaming detail at its latest content through the outer tree container', () => {
     const source = card();
+    const styles = css();
     expect(source).toContain('const detailTreeRef = useRef<HTMLDivElement>(null);');
     expect(source).toContain('const followLatestDetailRef = useRef(true);');
     expect(source).toContain('tree.scrollTop = tree.scrollHeight;');
@@ -127,7 +128,11 @@ describe('subagent progress UI', () => {
     expect(source).toContain('onDetailOpen={startFollowingLatestDetail}');
     expect(source).toContain('onDetailContentChange={followLatestDetail}');
     expect(source).toContain('if (open && detailMessages.length > 0) onDetailContentChange();');
-    expect(css()).toContain('overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;');
+    expect(source).not.toContain('const detailRef = useRef<HTMLDivElement>(null);');
+    expect(source).not.toContain('className="subagent-progress-detail" ref={detailRef}');
+    expect(styles).toContain('.subagent-progress-panel-body .subagent-progress-tree{min-height:0;flex:1 1 auto;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;');
+    expect(styles).not.toContain('.subagent-progress-detail{min-height:0;overflow-y:auto');
+    expect(styles).not.toContain('.subagent-progress-node>details[open]{display:grid;grid-template-rows:auto minmax(0,1fr);max-height:');
   });
 
   test('floats above chat history, previews only the latest subagent while collapsed, and expands to ninety percent height', () => {
