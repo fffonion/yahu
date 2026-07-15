@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildSubagentTree,
+  latestSubagent,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
   subagentMessagesUrl,
@@ -68,5 +69,20 @@ describe('subagent progress websocket projection', () => {
     expect(tree).toHaveLength(1);
     expect(tree[0].sessionId).toBe('root');
     expect(tree[0].children[0].sessionId).toBe('leaf');
+  });
+
+  test('selects the latest subagent for the collapsed panel preview', () => {
+    const snapshot = normalizeSubagentSnapshot({
+      type: 'subagents.snapshot',
+      session_id: 'parent',
+      subagents: [
+        { session_id: 'older', parent_session_id: 'parent', goal: 'Older', status: 'completed', started_at: 100 },
+        { session_id: 'newest', parent_session_id: 'parent', goal: 'Newest', status: 'running', started_at: 300 },
+        { session_id: 'middle', parent_session_id: 'parent', goal: 'Middle', status: 'completed', started_at: 200 },
+      ],
+    }, 'parent')!;
+
+    expect(latestSubagent(snapshot.subagents)?.sessionId).toBe('newest');
+    expect(latestSubagent([])).toBeUndefined();
   });
 });

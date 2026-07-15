@@ -2693,6 +2693,7 @@ function ChatMain(props: any) {
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <button type="button" className="icon-btn artifact-create-btn" aria-label={t('artifacts.createFromSession')} title={t('artifacts.createFromSession')} onClick={props.createSessionArtifact}><Layout /></button><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
+    <div className="subagent-progress-overlay"><SubagentProgressCard sessionId={props.activeSessionId} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} /></div>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatMediaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">{t('chat.loadingHistory')}</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>{t('chat.emptyDesc')}</p></div>}
@@ -2704,7 +2705,6 @@ function ChatMain(props: any) {
         newMessageBoundaryId={props.newMessageBoundaryId}
         loadTurnDetails={loadTranscriptTurnDetails}
       />
-      <SubagentProgressCard sessionId={props.activeSessionId} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} />
     </section>
     <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>

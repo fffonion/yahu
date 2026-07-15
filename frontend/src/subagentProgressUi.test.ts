@@ -63,4 +63,28 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('@media(max-width:760px){.subagent-progress-card');
     expect(styles).toContain('.desktop-compact-chat .subagent-progress-card');
   });
+
+  test('floats above chat history, previews only the latest subagent while collapsed, and expands to ninety percent height', () => {
+    const appSource = app();
+    const cardSource = card();
+    const styles = css();
+    const overlayIndex = appSource.indexOf('className="subagent-progress-overlay"');
+    const chatScrollIndex = appSource.indexOf('className="chat-scroll"');
+    expect(overlayIndex).toBeGreaterThan(-1);
+    expect(chatScrollIndex).toBeGreaterThan(overlayIndex);
+    expect(cardSource).toContain('const [expanded, setExpanded] = useState(false);');
+    expect(cardSource).toContain('const latest = latestSubagent(snapshot.subagents);');
+    expect(cardSource).toContain('aria-expanded={expanded}');
+    expect(cardSource).toContain("className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}`}");
+    expect(cardSource).toContain('{!expanded && latest && <SubagentProgressPreview');
+    expect(cardSource).toContain('{expanded && <div className="subagent-progress-panel-body">');
+    expect(styles).toContain('.subagent-progress-overlay{grid-row:2;grid-column:1;min-width:0;min-height:0;z-index:140;');
+    expect(styles).toContain('.chat-main-panel .chat-scroll{grid-row:2;grid-column:1;');
+    expect(styles).toContain('.chat-main-panel>.composer-wrap{grid-row:3;grid-column:1}');
+    expect(styles).toContain('background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 9%,var(--surface))');
+    expect(styles).not.toContain('background:linear-gradient(145deg,color-mix(in srgb,var(--accent-soft) 46%,var(--surface))');
+    expect(styles).toContain('.subagent-progress-card.expanded{height:90%;max-height:90%;');
+    expect(styles).toContain('.subagent-progress-panel-body{min-height:0;');
+    expect(styles).toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0 10px 0 44px}');
+  });
 });

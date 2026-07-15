@@ -75,6 +75,10 @@ export function normalizeSubagentSnapshot(value: unknown, expectedSessionId: str
   };
 }
 
+export function latestSubagent(subagents: SubagentProgress[]): SubagentProgress | undefined {
+  return subagents.reduce<SubagentProgress | undefined>((latest, item) => !latest || (item.startedAt || 0) >= (latest.startedAt || 0) ? item : latest, undefined);
+}
+
 export function buildSubagentTree(subagents: SubagentProgress[], parentSessionId: string): SubagentTreeNode[] {
   const nodes = new Map<string, SubagentTreeNode>();
   for (const subagent of subagents) nodes.set(subagent.sessionId, { ...subagent, children: [] });

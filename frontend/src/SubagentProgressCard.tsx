@@ -5,11 +5,13 @@ import { t } from './i18n';
 import {
   buildSubagentTree,
   formatSubagentElapsed,
+  latestSubagent,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
   subagentElapsedSeconds,
   subagentMessagesUrl,
   subagentWebSocketUrl,
+  type SubagentProgress,
   type SubagentProgressSnapshot,
   type SubagentStatus,
   type SubagentTreeNode,
@@ -17,10 +19,12 @@ import {
 
 export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, compact }: { sessionId: string; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
 
   useEffect(() => {
     setSnapshot(null);
+    setExpanded(false);
     if (!sessionId || sessionId === '__webui_draft_session__') return;
     let socket: WebSocket | null = null;
     let reconnectTimer = 0;
@@ -65,19 +69,35 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
   if (!snapshot || (!snapshot.subagents.length && !snapshot.error)) return null;
 
+  const latest = latestSubagent(snapshot.subagents);
   const finished = snapshot.subagents.filter((item) => item.status !== 'running').length;
   const total = snapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
-  return <section className="subagent-progress-card" aria-label={t('subagents.title')}>
-    <header className="subagent-progress-header">
-      <span className="subagent-progress-mark"><Bot aria-hidden="true" /></span>
-      <span className="subagent-progress-heading"><strong>{t('subagents.title')}</strong><small>{running ? t('subagents.running') : t('subagents.finished')}</small></span>
-      <span className="subagent-progress-count">{finished}/{total}</span>
-    </header>
-    <div className="subagent-progress-track" aria-hidden="true"><span style={{ width: `${completion}%` }} /></div>
-    {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
-    <div className="subagent-progress-tree">{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} />)}</div>
+  return <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}`} aria-label={t('subagents.title')}>
+    <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+      {!expanded && latest && <SubagentProgressPreview node={latest} nowSeconds={nowSeconds} />}
+      {(expanded || !latest) && <>
+        <span className="subagent-progress-mark"><Bot aria-hidden="true" /></span>
+        <span className="subagent-progress-heading"><strong>{t('subagents.title')}</strong><small>{running ? t('subagents.running') : t('subagents.finished')}</small></span>
+        <span className="subagent-progress-count">{finished}/{total}</span>
+        <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />
+      </>}
+    </button>
+    {expanded && <div className="subagent-progress-panel-body">
+      <div className="subagent-progress-track" aria-hidden="true"><span style={{ width: `${completion}%` }} /></div>
+      {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
+      <div className="subagent-progress-tree">{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} />)}</div>
+    </div>}
   </section>;
+}
+
+function SubagentProgressPreview({ node, nowSeconds }: { node: SubagentProgress; nowSeconds: number }) {
+  const elapsed = formatSubagentElapsed(subagentElapsedSeconds(node, nowSeconds));
+  return <>
+    <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
+    <span className="subagent-progress-goal"><strong>{node.goal}</strong><small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small></span>
+    <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />
+  </>;
 }
 
 function SubagentProgressNode({ node, nowSeconds, depth, showReasoning, showToolCalls, compact }: { node: SubagentTreeNode; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
