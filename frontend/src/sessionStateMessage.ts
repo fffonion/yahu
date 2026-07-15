@@ -9,9 +9,11 @@ export type SessionTaskItem = {
 export type SessionStateContent = {
   notice: string;
   tasks: SessionTaskItem[];
+  details?: string;
 };
 
 const taskLine = /^-\s+\[([ xX>~-])\]\s+(.+?)(?:\s+\((pending|in_progress|completed|cancelled)\))?\s*$/;
+const asyncDelegationCompleteNotice = /^ASYNC DELEGATION BATCH COMPLETE\s*(?:--|—)\s*deleg_[A-Za-z0-9]+$/i;
 
 function statusFromMarker(marker: string): SessionTaskStatus {
   if (marker === '>') return 'in_progress';
@@ -21,9 +23,14 @@ function statusFromMarker(marker: string): SessionTaskStatus {
 }
 
 export function parseSessionStateMessage(content: string): SessionStateContent | null {
-  const lines = String(content || '').trim().split(/\r?\n/);
+  const lines = String(content || '').replace(/\r\n?/g, '\n').split('\n');
   const noticeMatch = lines[0]?.match(/^\[([^\]\r\n]+)\]$/);
   if (!noticeMatch || noticeMatch[1].includes('|')) return null;
+  const notice = noticeMatch[1].trim();
+  if (asyncDelegationCompleteNotice.test(notice)) {
+    const details = lines.slice(1).join('\n').trim();
+    return { notice, tasks: [], ...(details ? { details } : {}) };
+  }
 
   const tasks: SessionTaskItem[] = [];
   for (const line of lines.slice(1)) {

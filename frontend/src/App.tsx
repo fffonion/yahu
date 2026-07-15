@@ -2690,6 +2690,7 @@ function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessa
   if (!state) return null;
   return <article className="session-state-message" data-message-id={item.message.id || item.id}>
     <div className="session-state-notice"><Info aria-hidden="true" /><span>{state.notice}</span></div>
+    {state.details && <div className="session-state-details msg-body"><div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(state.details) }} /></div>}
     {state.tasks.length > 0 && <ul className="session-task-list">{state.tasks.map((task, index) => <li className={`session-task-item ${task.status}`} key={`${task.id}:${index}`}>
       <SessionTaskCheckbox status={task.status} label={`${task.id ? `${task.id}: ` : ''}${task.description}`} />
       <span className="session-task-copy">{task.id && <strong>{task.id}</strong>}<span>{task.description}</span></span>

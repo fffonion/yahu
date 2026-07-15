@@ -116,6 +116,14 @@ describe('turn detail fold UI', () => {
     expect(styles).toContain('.desktop-turn-block.session-state-turn-block');
   });
 
+  test('async delegation completion keeps its details beneath the information icon', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('state.details && <div className="session-state-details msg-body"><div className="md-content"');
+    expect(source).toContain('markdownText(state.details)');
+    expect(styles).toContain('.session-state-details{');
+  });
+
   test('streaming path still appends full detail messages instead of skeleton-only rows', () => {
     const source = app();
     expect(source).toContain("if (createdSession) setMessages(() => [userMsg, assistantMsg]);");

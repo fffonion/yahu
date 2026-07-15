@@ -25,9 +25,23 @@ describe('session state message formatting', () => {
     });
   });
 
+  test('parses async delegation completion as an information notice without dropping its details', () => {
+    expect(parseSessionStateMessage(`[ASYNC DELEGATION BATCH COMPLETE — deleg_41e1ea8f]
+A background fan-out has finished.
+
+--- ✗ TASK 1/1: review timed out ---`)).toEqual({
+      notice: 'ASYNC DELEGATION BATCH COMPLETE — deleg_41e1ea8f',
+      tasks: [],
+      details: 'A background fan-out has finished.\n\n--- ✗ TASK 1/1: review timed out ---',
+    });
+  });
+
   test('leaves sender prefixes and bracketed prose to their existing renderers', () => {
     expect(parseSessionStateMessage('[Sender|123]\nhello')).toBeNull();
     expect(parseSessionStateMessage('[Note]\nordinary prose')).toBeNull();
     expect(parseSessionStateMessage('ordinary [Note] prose')).toBeNull();
+    expect(parseSessionStateMessage('[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0] human follow-up')).toBeNull();
+    expect(parseSessionStateMessage(' [ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toBeNull();
+    expect(parseSessionStateMessage('\n[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toBeNull();
   });
 });
