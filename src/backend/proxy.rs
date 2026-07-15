@@ -418,12 +418,59 @@ fn parse_sse_block(block: &str) -> (String, String) {
     (event, data.join("\n"))
 }
 
+fn evict_idle_chat_stream_snapshots(
+    snapshots: &mut HashMap<String, ActiveChatStreamSnapshot>,
+    now: Instant,
+    idle_ttl: Duration,
+) -> usize {
+    let before = snapshots.len();
+    snapshots.retain(|_, snapshot| now.saturating_duration_since(snapshot.updated_at) < idle_ttl);
+    let removed = before - snapshots.len();
+    if removed > 0 {
+        snapshots.shrink_to_fit();
+    }
+    removed
+}
+
+async fn run_idle_cache_cleanup(state: Arc<AppState>) {
+    let mut ticker = interval(IDLE_CACHE_SWEEP_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        let (removed, cache_empty) = {
+            let mut snapshots = state.active_chat_streams.write().await;
+            let removed = evict_idle_chat_stream_snapshots(
+                &mut snapshots,
+                Instant::now(),
+                CHAT_STREAM_SNAPSHOT_IDLE_TTL,
+            );
+            (removed, snapshots.is_empty())
+        };
+        if removed > 0 {
+            info!("released {} idle chat stream snapshot cache entries", removed);
+        }
+        if removed > 0 || cache_empty {
+            #[cfg(all(target_os = "linux", target_env = "gnu"))]
+            // SAFETY: glibc documents malloc_trim as process-wide and thread-safe.
+            unsafe {
+                libc::malloc_trim(0);
+            }
+        }
+    }
+}
+
 async fn begin_chat_stream_snapshot(state: &Arc<AppState>, session_id: &str) {
     state
         .active_chat_streams
         .write()
         .await
-        .insert(session_id.to_string(), Vec::new());
+        .insert(
+            session_id.to_string(),
+            ActiveChatStreamSnapshot {
+                updated_at: Instant::now(),
+                messages: Vec::new(),
+            },
+        );
 }
 
 async fn publish_chat_stream_message(
@@ -433,7 +480,14 @@ async fn publish_chat_stream_message(
 ) {
     {
         let mut active = state.active_chat_streams.write().await;
-        let messages = active.entry(session_id.to_string()).or_default();
+        let snapshot = active
+            .entry(session_id.to_string())
+            .or_insert_with(|| ActiveChatStreamSnapshot {
+                updated_at: Instant::now(),
+                messages: Vec::new(),
+            });
+        snapshot.updated_at = Instant::now();
+        let messages = &mut snapshot.messages;
         if let Some(id) = message.get("id").and_then(|value| value.as_str()) {
             if let Some(existing) = messages
                 .iter_mut()

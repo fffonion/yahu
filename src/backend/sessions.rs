@@ -2252,7 +2252,12 @@ async fn chat_watch(
             Ok(items) => session_message_watch_state(&items),
             Err(_) => SessionMessageWatchState::default(),
         };
-        if let Some(messages) = active_chat_streams.read().await.get(&session_id).cloned() {
+        if let Some(messages) = active_chat_streams
+            .read()
+            .await
+            .get(&session_id)
+            .map(|snapshot| snapshot.messages.clone())
+        {
             for msg in messages {
                 yield Ok(SseEvent::default().data(msg.to_string()));
             }

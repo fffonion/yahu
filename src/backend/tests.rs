@@ -1944,7 +1944,13 @@ mod tests {
         let _ = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
 
         // The final assistant snapshot must carry duration_ms >= 1 (not missing, not 0)
-        let snapshot = state_for_assert.active_chat_streams.read().await.get("session-1").cloned().unwrap_or_default();
+        let snapshot = state_for_assert
+            .active_chat_streams
+            .read()
+            .await
+            .get("session-1")
+            .map(|snapshot| snapshot.messages.clone())
+            .unwrap_or_default();
         let final_assistant = snapshot.iter().find(|m| {
             m.get("role").and_then(|r| r.as_str()) == Some("assistant")
                 && !m.get("pending").and_then(|p| p.as_bool()).unwrap_or(true)
@@ -1998,6 +2004,38 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn idle_chat_stream_snapshots_are_evicted_and_capacity_is_released() {
+        let now = Instant::now();
+        let mut snapshots = HashMap::with_capacity(64);
+        snapshots.insert(
+            "stale".to_string(),
+            ActiveChatStreamSnapshot {
+                updated_at: now - CHAT_STREAM_SNAPSHOT_IDLE_TTL - Duration::from_secs(1),
+                messages: vec![serde_json::json!({"content": "x".repeat(1024)})],
+            },
+        );
+        snapshots.insert(
+            "recent".to_string(),
+            ActiveChatStreamSnapshot {
+                updated_at: now - CHAT_STREAM_SNAPSHOT_IDLE_TTL + Duration::from_secs(1),
+                messages: vec![serde_json::json!({"content": "current"})],
+            },
+        );
+        let capacity_before = snapshots.capacity();
+
+        let removed = evict_idle_chat_stream_snapshots(
+            &mut snapshots,
+            now,
+            CHAT_STREAM_SNAPSHOT_IDLE_TTL,
+        );
+
+        assert_eq!(removed, 1);
+        assert!(!snapshots.contains_key("stale"));
+        assert!(snapshots.contains_key("recent"));
+        assert!(snapshots.capacity() < capacity_before);
     }
 
     #[test]

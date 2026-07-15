@@ -64,6 +64,14 @@ const SESSION_TTL: u64 = 7 * 24 * 60 * 60;
 const SESSION_REFRESH_AFTER: u64 = SESSION_TTL / 2;
 const API_MESSAGE_WATCH_WINDOW: usize = 80;
 const CHAT_STREAM_BROADCAST_CAPACITY: usize = 32;
+const CHAT_STREAM_SNAPSHOT_IDLE_TTL: Duration = Duration::from_secs(10 * 60);
+const IDLE_CACHE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+
+#[derive(Clone)]
+struct ActiveChatStreamSnapshot {
+    updated_at: Instant,
+    messages: Vec<serde_json::Value>,
+}
 
 fn path_segment(value: &str) -> String {
     utf8_percent_encode(value, NON_ALPHANUMERIC)
@@ -121,7 +129,7 @@ struct AppState {
     updates: broadcast::Sender<String>,
     deletes: broadcast::Sender<String>,
     chat_streams: broadcast::Sender<String>,
-    active_chat_streams: Arc<RwLock<HashMap<String, Vec<serde_json::Value>>>>,
+    active_chat_streams: Arc<RwLock<HashMap<String, ActiveChatStreamSnapshot>>>,
     active_chat_run_ids: Arc<RwLock<HashMap<String, String>>>,
     subagent_feeds: Arc<RwLock<HashMap<String, watch::Sender<String>>>>,
     model_cache: Arc<RwLock<ModelCache>>,
@@ -249,6 +257,7 @@ pub async fn run() -> anyhow::Result<()> {
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
     });
+    tokio::spawn(run_idle_cache_cleanup(state.clone()));
 
     let app = Router::new()
         .route("/health", get(health))
