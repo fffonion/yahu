@@ -108,7 +108,11 @@ describe('subagent progress UI', () => {
     expect(source).not.toContain("<strong>{t('subagents.goal')}</strong>");
     expect(source).toContain('const goal = snapshot.goal;');
     expect(source).toContain('className="subagent-goal-text">{goal.text}</div>');
-    expect(source).toContain('<GoalReason goal={goal} />');
+    expect(source).toContain('<GoalMilestones goal={goal} />');
+    expect(source).toContain("const milestones = [...goal.milestones].sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0) || right.turn - left.turn);");
+    expect(styles).toContain('.subagent-goal-milestones li p{margin:0;color:color-mix(in srgb,var(--text) 92%,var(--subagent-goal-accent));');
+    expect(styles).toContain('.subagent-goal-body{max-height:min(62vh,720px);');
+    expect(styles).not.toContain('.subagent-goal-reason');
     expect(source).toContain('<SubagentTodoList todos={goal.todos} className="subagent-goal-todos" />');
     expect(source).toContain('<SubagentTodoList todos={node.todos} />');
     expect(source).toContain("function SubagentTodoList({ todos, className = '' }");

@@ -166,7 +166,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
         <div className="subagent-goal-text">{goal.text}</div>
         <SubagentTodoList todos={goal.todos} className="subagent-goal-todos" />
         {goal.subgoals.length > 0 && <ul className="subagent-goal-subgoals">{goal.subgoals.map((item, index) => <li key={index}>{item}</li>)}</ul>}
-        <GoalReason goal={goal} />
+        <GoalMilestones goal={goal} />
       </div>
     </details>}
     {(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
@@ -188,9 +188,28 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   </div>;
 }
 
-export function GoalReason({ goal }: { goal: PersistentGoal }) {
-  const reason = goal.status === 'paused' ? goal.pausedReason || goal.lastReason : goal.lastReason;
-  return reason ? <p className="subagent-goal-reason">{reason}</p> : null;
+export function GoalMilestones({ goal }: { goal: PersistentGoal }) {
+  const milestones = [...goal.milestones].sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0) || right.turn - left.turn);
+  if (goal.pausedReason && !milestones.some((item) => item.reason === goal.pausedReason)) {
+    milestones.unshift({ turn: goal.turnsUsed, verdict: 'paused', reason: goal.pausedReason });
+  }
+  if (milestones.length === 0 && goal.lastReason) {
+    milestones.push({ turn: goal.turnsUsed, verdict: goal.status, reason: goal.lastReason });
+  }
+  if (milestones.length === 0) return null;
+  return <section className="subagent-goal-milestones">
+    <header><span>{t('goals.milestones')}</span><small>{milestones.length}</small></header>
+    <ol>{milestones.map((item, index) => {
+      const date = item.timestamp ? new Date(item.timestamp * 1000) : null;
+      return <li key={`${item.turn}:${item.timestamp || 0}:${index}`} data-verdict={item.verdict}>
+        <div className="subagent-goal-milestone-meta">
+          <span>{tf('goals.round', item.turn)}</span>
+          {date && <time dateTime={date.toISOString()}>{date.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time>}
+        </div>
+        <p>{item.reason}</p>
+      </li>;
+    })}</ol>
+  </section>;
 }
 
 function SubagentProgressPreview({ node, runningCount, nowSeconds }: { node: SubagentProgress; runningCount: number; nowSeconds: number }) {

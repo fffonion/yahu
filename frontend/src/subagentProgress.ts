@@ -5,6 +5,13 @@ export type SubagentStatus = 'running' | 'completed' | 'failed' | 'interrupted' 
 export type SubagentTodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
 export type PersistentGoalStatus = 'active' | 'paused' | 'done';
 
+export type GoalMilestone = {
+  turn: number;
+  timestamp?: number;
+  verdict: string;
+  reason: string;
+};
+
 export type PersistentGoal = {
   text: string;
   status: PersistentGoalStatus;
@@ -12,6 +19,7 @@ export type PersistentGoal = {
   maxTurns: number;
   subgoals: string[];
   todos: SubagentTodo[];
+  milestones: GoalMilestone[];
   lastReason?: string;
   pausedReason?: string;
 };
@@ -257,6 +265,19 @@ export function formatSubagentElapsed(seconds: number): string {
   return `${rest}s`;
 }
 
+function normalizeGoalMilestone(value: unknown): GoalMilestone | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const reason = stringValue(raw.reason);
+  if (!reason) return null;
+  return {
+    turn: integerValue(raw.turn),
+    timestamp: numberValue(raw.timestamp),
+    verdict: stringValue(raw.verdict) || 'continue',
+    reason,
+  };
+}
+
 function normalizePersistentGoal(value: unknown): PersistentGoal | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
@@ -271,6 +292,12 @@ function normalizePersistentGoal(value: unknown): PersistentGoal | undefined {
     maxTurns: integerValue(raw.max_turns),
     subgoals: Array.isArray(raw.subgoals) ? raw.subgoals.map(stringValue).filter(Boolean) : [],
     todos: Array.isArray(raw.todos) ? raw.todos.map(normalizeTodo).filter((item): item is SubagentTodo => !!item) : [],
+    milestones: Array.isArray(raw.milestones)
+      ? raw.milestones
+        .map(normalizeGoalMilestone)
+        .filter((item): item is GoalMilestone => !!item)
+        .sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0) || right.turn - left.turn)
+      : [],
     lastReason: stringValue(raw.last_reason) || undefined,
     pausedReason: stringValue(raw.paused_reason) || undefined,
   };

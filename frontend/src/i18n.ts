@@ -82,6 +82,8 @@ const translations: Record<string, Record<string, string>> = {
   'subagents.reasoning': { en: 'Reasoning', 'zh-CN': '思考', 'zh-TW': '思考', ja: '思考' },
   'subagents.unavailable': { en: 'Progress is temporarily unavailable.', 'zh-CN': '进度暂时不可用。', 'zh-TW': '進度暫時無法使用。', ja: '進捗を取得できません。' },
   'goals.title': { en: 'Goal', 'zh-CN': '目标', 'zh-TW': '目標', ja: '目標' },
+  'goals.milestones': { en: 'Milestones', 'zh-CN': '阶段进展', 'zh-TW': '階段進展', ja: 'マイルストーン' },
+  'goals.round': { en: 'Round {0}', 'zh-CN': '第 {0} 轮', 'zh-TW': '第 {0} 輪', ja: '第 {0} ラウンド' },
   'goals.active': { en: 'Active', 'zh-CN': '进行中', 'zh-TW': '進行中', ja: '進行中' },
   'goals.paused': { en: 'Paused', 'zh-CN': '已暂停', 'zh-TW': '已暫停', ja: '一時停止' },
   'goals.done': { en: 'Done', 'zh-CN': '已完成', 'zh-TW': '完了', ja: '完了' },

@@ -215,6 +215,10 @@ describe('subagent progress websocket projection', () => {
         max_turns: 20,
         subgoals: [],
         todos: [{ id: 'main-test', content: 'Run the main-session tests', status: 'in_progress' }],
+        milestones: [
+          { turn: 2, timestamp: 200, verdict: 'continue', reason: 'Older result' },
+          { turn: 4, timestamp: 400, verdict: 'continue', reason: 'Latest result' },
+        ],
       },
       subagents: [
         { session_id: 'child', parent_session_id: 'parent', task: 'Profile the hot path', status: 'running' },
@@ -228,6 +232,10 @@ describe('subagent progress websocket projection', () => {
       maxTurns: 20,
       subgoals: [],
       todos: [{ id: 'main-test', content: 'Run the main-session tests', status: 'in_progress' }],
+      milestones: [
+        { turn: 4, timestamp: 400, verdict: 'continue', reason: 'Latest result' },
+        { turn: 2, timestamp: 200, verdict: 'continue', reason: 'Older result' },
+      ],
     });
     expect(snapshot.subagents[0].task).toBe('Profile the hot path');
   });

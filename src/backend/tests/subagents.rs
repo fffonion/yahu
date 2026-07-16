@@ -48,6 +48,11 @@
                     "turns_used": 4,
                     "max_turns": 20,
                     "last_reason": "More profiling is required",
+                    "milestones": [
+                        { "turn": 2, "timestamp": 200.0, "verdict": "continue", "reason": "Second result" },
+                        { "turn": 4, "timestamp": 400.0, "verdict": "continue", "reason": "Latest result" },
+                        { "turn": 1, "timestamp": 100.0, "verdict": "continue", "reason": "First result" }
+                    ],
                     "subgoals": ["Keep the script implementation"]
                 })
                 .to_string()
@@ -67,6 +72,7 @@
         assert_eq!(goal.last_reason.as_deref(), Some("More profiling is required"));
         assert_eq!(goal.subgoals, vec!["Keep the script implementation"]);
         assert!(goal.todos.is_empty());
+        assert_eq!(goal.milestones.iter().map(|item| item.turn).collect::<Vec<_>>(), vec![4, 2, 1]);
         assert!(load_persistent_goal(temp.path(), "child-1").unwrap().is_none());
     }
 
@@ -517,6 +523,7 @@
             max_turns: 20,
             subgoals: Vec::new(),
             todos: Vec::new(),
+            milestones: Vec::new(),
             last_reason: None,
             paused_reason: None,
         };

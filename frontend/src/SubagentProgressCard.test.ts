@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GoalReason, SubagentProgressNode } from './SubagentProgressCard';
+import { GoalMilestones, SubagentProgressNode } from './SubagentProgressCard';
 import type { PersistentGoal, SubagentTreeNode } from './subagentProgress';
 
 function goal(overrides: Partial<PersistentGoal>): PersistentGoal {
@@ -12,31 +12,37 @@ function goal(overrides: Partial<PersistentGoal>): PersistentGoal {
     maxTurns: 20,
     subgoals: [],
     todos: [],
+    milestones: [],
     ...overrides,
   };
 }
 
-describe('GoalReason', () => {
-  test('renders pausedReason ahead of lastReason for a paused goal', () => {
+describe('GoalMilestones', () => {
+  test('renders every round newest first', () => {
+    const activeGoal = goal({
+      milestones: [
+        { turn: 1, timestamp: 100, verdict: 'continue', reason: 'First checkpoint' },
+        { turn: 3, timestamp: 300, verdict: 'continue', reason: 'Latest checkpoint' },
+        { turn: 2, timestamp: 200, verdict: 'continue', reason: 'Middle checkpoint' },
+      ],
+    });
+    const html = renderToStaticMarkup(React.createElement(GoalMilestones, { goal: activeGoal }));
+
+    expect(html).toContain('Milestones');
+    expect(html.indexOf('Latest checkpoint')).toBeLessThan(html.indexOf('Middle checkpoint'));
+    expect(html.indexOf('Middle checkpoint')).toBeLessThan(html.indexOf('First checkpoint'));
+  });
+
+  test('adds a distinct pause milestone without hiding earlier rounds', () => {
     const pausedGoal = goal({
       status: 'paused',
       pausedReason: 'Waiting for approval',
-      lastReason: 'Older checkpoint note',
+      milestones: [{ turn: 1, timestamp: 100, verdict: 'continue', reason: 'Older checkpoint' }],
     });
-    const html = renderToStaticMarkup(React.createElement(GoalReason, { goal: pausedGoal }));
+    const html = renderToStaticMarkup(React.createElement(GoalMilestones, { goal: pausedGoal }));
 
     expect(html).toContain('Waiting for approval');
-    expect(html).not.toContain('Older checkpoint note');
-  });
-
-  test('falls back to lastReason when a paused goal has no pausedReason', () => {
-    const pausedGoal = goal({
-      status: 'paused',
-      lastReason: 'Paused after validation',
-    });
-    const html = renderToStaticMarkup(React.createElement(GoalReason, { goal: pausedGoal }));
-
-    expect(html).toContain('Paused after validation');
+    expect(html).toContain('Older checkpoint');
   });
 });
 

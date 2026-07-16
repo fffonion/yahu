@@ -48,6 +48,14 @@ struct SubagentProjection {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+struct GoalMilestoneProjection {
+    turn: u64,
+    timestamp: f64,
+    verdict: String,
+    reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
 struct PersistentGoalProjection {
     text: String,
     status: String,
@@ -55,6 +63,7 @@ struct PersistentGoalProjection {
     max_turns: u64,
     subgoals: Vec<String>,
     todos: Vec<SubagentTodo>,
+    milestones: Vec<GoalMilestoneProjection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -451,6 +460,43 @@ fn load_persistent_goal(
         .take(20)
         .map(|item| truncate_chars(item, 500))
         .collect();
+    let mut milestones = value
+        .get("milestones")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let reason = string_field(item, "reason")?;
+            let reason = reason.trim();
+            if reason.is_empty() {
+                return None;
+            }
+            Some(GoalMilestoneProjection {
+                turn: u64_field(item, "turn"),
+                timestamp: number_field(item, "timestamp").unwrap_or_default(),
+                verdict: string_field(item, "verdict")
+                    .unwrap_or_else(|| "continue".to_string()),
+                reason: truncate_chars(reason, 1_000),
+            })
+        })
+        .collect::<Vec<_>>();
+    if milestones.is_empty()
+        && let Some(reason) = string_field(&value, "last_reason")
+    {
+        milestones.push(GoalMilestoneProjection {
+            turn: u64_field(&value, "turns_used"),
+            timestamp: number_field(&value, "last_turn_at").unwrap_or_default(),
+            verdict: string_field(&value, "last_verdict")
+                .unwrap_or_else(|| "continue".to_string()),
+            reason: truncate_chars(reason.trim(), 1_000),
+        });
+    }
+    milestones.sort_by(|left, right| {
+        right
+            .timestamp
+            .total_cmp(&left.timestamp)
+            .then_with(|| right.turn.cmp(&left.turn))
+    });
     Ok(Some(PersistentGoalProjection {
         text: truncate_chars(text.trim(), 2_000),
         status,
@@ -458,6 +504,7 @@ fn load_persistent_goal(
         max_turns: u64_field(&value, "max_turns"),
         subgoals,
         todos: Vec::new(),
+        milestones,
         last_reason: string_field(&value, "last_reason")
             .map(|item| truncate_chars(item.trim(), 1_000)),
         paused_reason: string_field(&value, "paused_reason")
