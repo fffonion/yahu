@@ -67,6 +67,8 @@ describe('SubagentProgressNode', () => {
       node,
       openNodeIds: new Set<string>(),
       onOpenChange: () => {},
+      detailCache: {},
+      onMessagesLoaded: () => {},
       nowSeconds: 30,
       depth: 0,
       showReasoning: true,

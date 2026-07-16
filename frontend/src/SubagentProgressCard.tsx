@@ -26,12 +26,16 @@ import {
   type SubagentTreeNode,
 } from './subagentProgress';
 
+type SubagentDetailCache = Record<string, { messages: ChatMessage[]; loadedMessageCount: number }>;
+const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
+
 export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, showToolCalls, compact }: { sessionId: string; beforeTime: number | null | undefined; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [projectionPending, setProjectionPending] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [goalExpanded, setGoalExpanded] = useState(false);
   const [openNodeIds, setOpenNodeIds] = useState<Set<string>>(() => new Set());
+  const [detailCache, setDetailCache] = useState<SubagentDetailCache>({});
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
   const detailTreeRef = useRef<HTMLDivElement>(null);
   const followLatestDetailRef = useRef(true);
@@ -55,6 +59,14 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       return next;
     });
   }, []);
+  const cacheNodeMessages = useCallback((nodeSessionId: string, messageCount: number, items: ChatMessage[]) => {
+    setDetailCache((current) => {
+      const existing = current[nodeSessionId];
+      const messages = mergeSubagentMessages(existing?.messages || [], items);
+      if (existing && messages === existing.messages && existing.loadedMessageCount === messageCount) return current;
+      return { ...current, [nodeSessionId]: { messages, loadedMessageCount: messageCount } };
+    });
+  }, []);
 
   useEffect(() => {
     setSnapshot(null);
@@ -62,6 +74,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     setExpanded(false);
     setGoalExpanded(false);
     setOpenNodeIds(new Set());
+    setDetailCache({});
     followLatestDetailRef.current = true;
   }, [sessionId]);
 
@@ -96,7 +109,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
         .catch((error) => {
           if (!requestGuard.isActive(controller.signal)) return;
           setProjectionPending(false);
-          setSnapshot((current) => current ? { ...current, subagents: [], error: String(error) } : {
+          setSnapshot((current) => current ? { ...current, error: String(error) } : {
             type: 'subagents.snapshot',
             sessionId,
             generatedAt: Date.now() / 1000,
@@ -110,7 +123,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     let reconnectTimer = 0;
     let reconnectDelay = 750;
     setProjectionPending(true);
-    setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : {
+    setSnapshot((current) => current ? { ...current, error: undefined } : {
       type: 'subagents.snapshot',
       sessionId,
       generatedAt: Date.now() / 1000,
@@ -172,8 +185,8 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   const total = snapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
   return <div className="subagent-progress-stack">
-    {goal && <details className="subagent-goal-panel" open={goalExpanded} onToggle={(event) => { const open = event.currentTarget.open; if (open !== goalExpanded) setGoalExpanded(open); }}>
-      <summary className="subagent-goal-summary" aria-label={t('goals.title')}>
+    {goal && <details className="subagent-goal-panel" open={goalExpanded}>
+      <summary className="subagent-goal-summary" aria-label={t('goals.title')} onClick={(event) => { event.preventDefault(); setGoalExpanded((open) => !open); }}>
         <span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>
         <span className="subagent-goal-copy">
           <span className="subagent-goal-preview">{goal.text}</span>
@@ -201,7 +214,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     {expanded && <div className="subagent-progress-panel-body">
       <div className="subagent-progress-track" aria-hidden="true"><span style={{ width: `${completion}%` }} /></div>
       {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
-      <div className="subagent-progress-tree" ref={detailTreeRef} onScroll={(event) => { followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget); }}>{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} openNodeIds={openNodeIds} onOpenChange={setNodeOpen} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={startFollowingLatestDetail} onDetailContentChange={followLatestDetail} />)}</div>
+      <div className="subagent-progress-tree" ref={detailTreeRef} onScroll={(event) => { followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget); }}>{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} openNodeIds={openNodeIds} onOpenChange={setNodeOpen} detailCache={detailCache} onMessagesLoaded={cacheNodeMessages} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={startFollowingLatestDetail} onDetailContentChange={followLatestDetail} />)}</div>
     </div>}
     </section>}
   </div>;
@@ -242,12 +255,13 @@ function SubagentProgressPreview({ node, runningCount, nowSeconds }: { node: Sub
   </>;
 }
 
-export function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, depth, showReasoning, showToolCalls, compact, onDetailOpen, onDetailContentChange }: { node: SubagentTreeNode; openNodeIds: ReadonlySet<string>; onOpenChange: (sessionId: string, open: boolean) => void; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean; onDetailOpen: () => void; onDetailContentChange: () => void }) {
+export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCache, onMessagesLoaded, nowSeconds, depth, showReasoning, showToolCalls, compact, onDetailOpen, onDetailContentChange }: { node: SubagentTreeNode; openNodeIds: ReadonlySet<string>; onOpenChange: (sessionId: string, open: boolean) => void; detailCache: Readonly<SubagentDetailCache>; onMessagesLoaded: (sessionId: string, messageCount: number, messages: ChatMessage[]) => void; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean; onDetailOpen: () => void; onDetailContentChange: () => void }) {
   const elapsed = formatSubagentElapsed(subagentElapsedSeconds(node, nowSeconds));
   const completed = node.status === 'completed';
   const open = openNodeIds.has(node.sessionId);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [loadedMessageCount, setLoadedMessageCount] = useState(-1);
+  const cachedDetail = detailCache[node.sessionId];
+  const messages = cachedDetail?.messages || EMPTY_CHAT_MESSAGES;
+  const loadedMessageCount = cachedDetail?.loadedMessageCount ?? -1;
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState(false);
   const detailMessages = useMemo(() => {
@@ -275,8 +289,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSecon
         return normalizeSubagentMessages(await response.json());
       })
       .then((items) => {
-        setMessages((current) => mergeSubagentMessages(current, items));
-        setLoadedMessageCount(node.messageCount);
+        if (!controller.signal.aborted) onMessagesLoaded(node.sessionId, node.messageCount, items);
       })
       .catch((error) => {
         if (error?.name !== 'AbortError') setDetailsError(true);
@@ -285,15 +298,15 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSecon
         if (!controller.signal.aborted) setDetailsLoading(false);
       });
     return () => controller.abort();
-  }, [loadedMessageCount, node.messageCount, node.sessionId, open]);
+  }, [loadedMessageCount, node.messageCount, node.sessionId, onMessagesLoaded, open]);
 
   useLayoutEffect(() => {
     if (open && detailMessages.length > 0) onDetailContentChange();
   }, [detailMessages, onDetailContentChange, open]);
 
   return <div className={`subagent-progress-node depth-${Math.min(depth, 3)}`}>
-    <details open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; if (nextOpen !== open) onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(); }}>
-      <summary className={completed ? 'completed' : undefined}>
+    <details open={open}>
+      <summary className={completed ? 'completed' : undefined} onClick={(event) => { event.preventDefault(); const nextOpen = !open; onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(); }}>
         <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
         <span className="subagent-progress-goal"><strong>{node.task}{node.ancestryOmitted && <span className="subagent-progress-omitted-ancestry" title={t('subagents.parentOmitted')}> · {t('subagents.parentOmitted')}</span>}</strong>{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
         {!completed && <ChevronRight className="subagent-progress-chevron" aria-hidden="true" />}
@@ -306,7 +319,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSecon
         {detailMessages.length > 0 && <div className="subagent-progress-messages"><ChatTranscript messages={detailMessages} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} /></div>}
       </div>
     </details>
-    {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} openNodeIds={openNodeIds} onOpenChange={onOpenChange} nowSeconds={nowSeconds} depth={depth + 1} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={onDetailOpen} onDetailContentChange={onDetailContentChange} />)}</div>}
+    {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} openNodeIds={openNodeIds} onOpenChange={onOpenChange} detailCache={detailCache} onMessagesLoaded={onMessagesLoaded} nowSeconds={nowSeconds} depth={depth + 1} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={onDetailOpen} onDetailContentChange={onDetailContentChange} />)}</div>}
   </div>;
 }
 

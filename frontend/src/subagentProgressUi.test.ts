@@ -26,6 +26,9 @@ describe('subagent progress UI', () => {
     );
     expect(historicalRefresh).not.toContain('subagents: [], error: undefined');
     expect(historicalRefresh).toContain('setProjectionPending(true);');
+    expect(cardSource).not.toContain('current ? { ...current, subagents: []');
+    expect(cardSource).toContain('current ? { ...current, error: undefined }');
+    expect(cardSource).toContain('current ? { ...current, error: String(error) }');
     expect(cardSource).toContain('snapshot.error || projectionPending');
     expect(cardSource).toContain("projectionPending ? t('subagents.refreshing')");
     expect(card()).toContain('}, [sessionId]);');
@@ -63,6 +66,13 @@ describe('subagent progress UI', () => {
     expect(source).toContain('if (open) return new Set([nodeSessionId]);');
     expect(source).not.toContain('if (open) next.add(nodeSessionId);');
     expect(source).toContain('setOpenNodeIds(new Set());');
+    expect(source).toContain('const [detailCache, setDetailCache]');
+    expect(source).toContain('detailCache={detailCache}');
+    expect(source).toContain('onMessagesLoaded={cacheNodeMessages}');
+    expect(source).toContain('const cachedDetail = detailCache[node.sessionId];');
+    expect(source).toContain('onMessagesLoaded(node.sessionId, node.messageCount, items);');
+    expect(source).toContain("event.preventDefault(); const nextOpen = !open; onOpenChange(node.sessionId, nextOpen);");
+    expect(source).not.toContain('<details open={open} onToggle=');
     expect(source).toContain('subagentMessagesUrl(node.sessionId)');
     expect(source).toContain('normalizeSubagentMessages(await response.json())');
     expect(source).toContain('className="subagent-progress-messages"');

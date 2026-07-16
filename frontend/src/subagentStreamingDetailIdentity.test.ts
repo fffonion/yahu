@@ -13,9 +13,10 @@ const snapshot = (tail: unknown[] = []) => ({
 });
 
 describe('streaming subagent detail identity', () => {
-  test('wires detail refreshes through the incremental merge', () => {
+  test('wires detail refreshes through the persistent incremental cache', () => {
     const card = readFileSync(new URL('./SubagentProgressCard.tsx', import.meta.url), 'utf8');
-    expect(card).toContain('setMessages((current) => mergeSubagentMessages(current, items));');
+    expect(card).toContain('const messages = mergeSubagentMessages(existing?.messages || [], items);');
+    expect(card).toContain('onMessagesLoaded(node.sessionId, node.messageCount, items);');
     expect(card).not.toContain('setMessages(items);');
   });
 
