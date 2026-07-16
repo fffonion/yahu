@@ -13,7 +13,7 @@ describe('turn detail grouping', () => {
     const items = buildTurnDetailItems([user, prelude, tool, final]);
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message']);
-    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1:a2' });
+    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1' });
     if (items[1].kind !== 'detailGroup') throw new Error('expected detail group');
     expect(items[1].messages.map((message) => message.id)).toEqual(['a1', 't1']);
     expect(items[1].sourceIndexes).toEqual([1, 2]);
@@ -27,21 +27,25 @@ describe('turn detail grouping', () => {
     if (items[1].kind !== 'detailGroup') throw new Error('expected lazy detail group');
     expect(items[1].messages).toEqual([]);
     expect(items[1].detail).toEqual({ count: 2, toolCount: 1, thinkingCount: 1, afterId: 'u1', beforeId: 'a2' });
-    expect(items[1].id).toBe('turn-details:u1:a2');
+    expect(items[1].id).toBe('turn-details:u1');
   });
 
-  test('does not replace active streaming detail rows with a lazy skeleton group', () => {
+  test('keeps active streaming detail rows inside the expanded turn frame', () => {
     const streamingFinal: Msg = { id: 'a2', role: 'assistant', content: 'partial answer', pending: true, turnDetails: { count: 2, afterId: 'u1', beforeId: 'a2' } };
     const items = buildTurnDetailItems([user, prelude, tool, streamingFinal]);
 
-    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message', 'message']);
+    expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup']);
+    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
+    if (items[1].kind !== 'detailGroup') throw new Error('expected streaming detail group');
+    expect(items[1].messages.map((message) => message.id)).toEqual(['a1', 't1', 'a2']);
   });
 
-  test('keeps streaming intermediate messages visible until the final assistant answer arrives', () => {
+  test('keeps streaming intermediate messages visible in an open frame until the final assistant answer arrives', () => {
     const streamingFinal: Msg = { id: 'a2', role: 'assistant', content: 'partial answer', pending: true };
     const items = buildTurnDetailItems([user, prelude, tool, streamingFinal]);
 
-    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message', 'message']);
+    expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup']);
+    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
   });
 
   test('defaults unfinished user-turn details open when no final assistant answer exists', () => {
@@ -49,16 +53,25 @@ describe('turn detail grouping', () => {
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup']);
     if (items[1].kind !== 'detailGroup') throw new Error('expected unfinished detail group');
-    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1:unfinished-a1', defaultOpen: true });
+    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
     expect(items[1].messages.map((message) => message.id)).toEqual(['a1', 't1']);
   });
 
   test('completed final-answer detail groups stay closed by default', () => {
     const items = buildTurnDetailItems([user, prelude, tool, final]);
 
-    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1:a2' });
+    expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1' });
     if (items[1].kind !== 'detailGroup') throw new Error('expected completed detail group');
     expect(items[1].defaultOpen).toBeUndefined();
+  });
+
+  test('keeps the same detail-group identity when a streaming turn completes', () => {
+    const streamingFinal: Msg = { id: 'a2', role: 'assistant', content: 'partial answer', pending: true };
+    const streamingItems = buildTurnDetailItems([user, prelude, tool, streamingFinal]);
+    const completedItems = buildTurnDetailItems([user, prelude, tool, final]);
+
+    expect(streamingItems[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
+    expect(completedItems[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1' });
   });
 
   test('uses a history coverage gap as a hard turn boundary', () => {
@@ -172,7 +185,7 @@ describe('turn detail grouping', () => {
     const items = buildTurnDetailItems([user, prelude, tool, final, nextPrelude, nextTool, nextFinal]);
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message', 'detailGroup', 'message']);
-    expect(items[3]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:a4' });
+    expect(items[3]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:a3' });
     if (items[3].kind !== 'detailGroup') throw new Error('expected second detail group');
     expect(items[3].messages.map((message) => message.id)).toEqual(['a3', 't2']);
   });
@@ -182,7 +195,7 @@ describe('turn detail grouping', () => {
     const items = buildTurnDetailItems([user, prelude, tool, final, trailingTool]);
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message', 'detailGroup']);
-    expect(items[3]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:trailing-t2' });
+    expect(items[3]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:t2' });
     if (items[3].kind !== 'detailGroup') throw new Error('expected trailing detail group');
     expect(items[3].messages.map((message) => message.id)).toEqual(['t2']);
   });
@@ -198,7 +211,8 @@ describe('turn detail grouping', () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0].items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message']);
     expect(blocks[0].sourceIndexes).toEqual([0, 1, 2, 3]);
-    expect(blocks[1].items.map((item) => item.kind)).toEqual(['message', 'message']);
+    expect(blocks[1].items.map((item) => item.kind)).toEqual(['message', 'detailGroup']);
+    expect(blocks[1].items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u2', defaultOpen: true });
     expect(blocks[1].sourceIndexes).toEqual([0, 1]);
   });
 });

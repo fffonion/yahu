@@ -93,6 +93,13 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
     activeAnchorId = '';
   };
 
+  const bufferedDetailGroupId = (finalMessage: T, finalIndex: number, detail?: TurnDetailMetadata) => {
+    const anchor = activeAnchorId || detail?.afterId || ROOTLESS_ANCHOR_ID;
+    if (anchor !== ROOTLESS_ANCHOR_ID) return `turn-details:${anchor}`;
+    const first = buffer[0];
+    return `turn-details:${ROOTLESS_ANCHOR_ID}:${messageId(first?.message || finalMessage, first?.index ?? finalIndex)}`;
+  };
+
   const pushBufferedDetailGroup = (id: string, finalMessage: T, finalIndex: number, detail?: TurnDetailMetadata, options?: { defaultOpen?: boolean }) => {
     items.push({
       kind: 'detailGroup',
@@ -113,12 +120,10 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
   };
 
   const flushTrailingBuffer = () => {
-    if (buffer.length && !buffer.some((entry) => entry.message.pending)) {
-      const first = buffer[0];
+    if (buffer.length) {
       const last = buffer[buffer.length - 1];
       const isUnfinishedUserTurn = !!activeAnchorId && activeAnchorId !== ROOTLESS_ANCHOR_ID;
-      const suffix = isUnfinishedUserTurn ? `unfinished-${messageId(first.message, first.index)}` : `trailing-${messageId(first.message, first.index)}`;
-      pushBufferedDetailGroup(`turn-details:${activeAnchorId || ROOTLESS_ANCHOR_ID}:${suffix}`, last.message, last.index, undefined, { defaultOpen: isUnfinishedUserTurn });
+      pushBufferedDetailGroup(bufferedDetailGroupId(last.message, last.index), last.message, last.index, undefined, { defaultOpen: isUnfinishedUserTurn });
       return;
     }
     flushBufferAsMessages();
@@ -126,7 +131,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
 
   const pushDetailGroup = (finalMessage: T, finalIndex: number) => {
     const detail = turnDetailMetadata(finalMessage);
-    if (buffer.length || detail) pushBufferedDetailGroup(`turn-details:${activeAnchorId || detail?.afterId || ROOTLESS_ANCHOR_ID}:${messageId(finalMessage, finalIndex)}`, finalMessage, finalIndex, detail);
+    if (buffer.length || detail) pushBufferedDetailGroup(bufferedDetailGroupId(finalMessage, finalIndex, detail), finalMessage, finalIndex, detail);
     items.push({ kind: 'message', message: finalMessage, sourceIndexes: [finalIndex] });
     activeAnchorId = '';
   };

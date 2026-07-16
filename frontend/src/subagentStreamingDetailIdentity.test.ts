@@ -49,7 +49,7 @@ describe('streaming subagent detail identity', () => {
     ])));
     const firstGroup = first.find((item) => item.kind === 'detailGroup');
     const nextGroup = next.find((item) => item.kind === 'detailGroup');
-    expect(firstGroup?.id).toBe('turn-details:user-1:unfinished-assistant-1');
+    expect(firstGroup?.id).toBe('turn-details:user-1');
     expect(nextGroup?.id).toBe(firstGroup?.id);
   });
 });
