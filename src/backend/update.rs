@@ -303,7 +303,7 @@ fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     parse(a).cmp(&parse(b))
 }
 
-async fn extract_yahu_binary(archive: &PathBuf) -> Result<PathBuf, String> {
+async fn extract_yahu_binary(archive: &Path) -> Result<PathBuf, String> {
     let tmp = std::env::temp_dir();
     let out_dir = archive.parent().unwrap_or(&tmp);
     let extracted_dir = out_dir.join(format!(
@@ -340,7 +340,7 @@ async fn extract_yahu_binary(archive: &PathBuf) -> Result<PathBuf, String> {
         .ok_or_else(|| "yahu binary not found in archive".into())
 }
 
-fn find_yahu_binary_sync(dir: &PathBuf) -> Option<PathBuf> {
+fn find_yahu_binary_sync(dir: &Path) -> Option<PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -358,9 +358,9 @@ fn find_yahu_binary_sync(dir: &PathBuf) -> Option<PathBuf> {
     None
 }
 
-async fn find_yahu_binary(dir: &PathBuf) -> Option<PathBuf> {
+async fn find_yahu_binary(dir: &Path) -> Option<PathBuf> {
     tokio::task::spawn_blocking({
-        let dir = dir.clone();
+        let dir = dir.to_path_buf();
         move || find_yahu_binary_sync(&dir)
     })
     .await

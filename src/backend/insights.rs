@@ -151,8 +151,7 @@ fn normalize_model_price_key(model: &str) -> String {
     model
         .trim()
         .to_ascii_lowercase()
-        .replace('_', "-")
-        .replace('/', "-")
+        .replace(['_', '/'], "-")
 }
 
 fn insert_model_price(catalog: &mut ModelPriceCatalog, key: &str, price: ModelPrice) {
@@ -566,7 +565,7 @@ fn insight_days(now: f64, window_days: usize) -> Vec<DailyUsage> {
     let today = chrono::DateTime::<chrono::Utc>::from_timestamp(now as i64, 0)
         .unwrap_or_else(chrono::Utc::now)
         .date_naive();
-    (0..window_days.min(INSIGHTS_MAX_DAYS).max(1))
+    (0..window_days.clamp(1, INSIGHTS_MAX_DAYS))
         .rev()
         .map(|offset| {
             let date = today - chrono::Duration::days(offset as i64);

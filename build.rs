@@ -6,17 +6,17 @@ fn main() {
         println!("cargo:rustc-env=YAHU_VERSION={ver}");
         return;
     }
-    if let Ok(output) = Command::new("git")
+    if let Some(output) = Command::new("git")
         .args(["describe", "--tags", "--always"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
+        .ok()
+        .filter(|output| output.status.success())
     {
-        if output.status.success() {
-            let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !ver.is_empty() {
-                println!("cargo:rustc-env=YAHU_VERSION={ver}");
-                return;
-            }
+        let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !ver.is_empty() {
+            println!("cargo:rustc-env=YAHU_VERSION={ver}");
+            return;
         }
     }
     // Fallback to Cargo.toml version

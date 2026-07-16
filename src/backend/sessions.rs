@@ -38,10 +38,11 @@ fn session_title_for_lineage_index(base: &str, index: usize, is_target: bool) ->
 
 fn session_title_base(title: &str) -> String {
     let trimmed = title.trim();
-    if let Some((base, suffix)) = trimmed.rsplit_once(" #") {
-        if suffix.parse::<usize>().is_ok_and(|value| value > 1) {
-            return base.trim().to_string();
-        }
+    if let Some((base, _)) = trimmed
+        .rsplit_once(" #")
+        .filter(|(_, suffix)| suffix.parse::<usize>().is_ok_and(|value| value > 1))
+    {
+        return base.trim().to_string();
     }
     trimmed.to_string()
 }
@@ -482,7 +483,7 @@ fn session_preview_from_raw_content(raw: &str) -> String {
 
 const MIN_HISTORICAL_TURN_DURATION_MS: f64 = 1000.0;
 
-fn inject_turn_durations(messages: &mut Vec<serde_json::Value>) {
+fn inject_turn_durations(messages: &mut [serde_json::Value]) {
     let mut last_user_ts: Option<f64> = None;
     for message in messages.iter_mut() {
         let role = message
@@ -493,29 +494,23 @@ fn inject_turn_durations(messages: &mut Vec<serde_json::Value>) {
         let ts = message.get("timestamp").and_then(|v| v.as_f64());
         if role == "user" {
             last_user_ts = ts;
-        } else if role == "assistant" {
-            let content = message
-                .get("content")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if content.is_empty() {
-                continue;
-            }
-            if let Some(msg_ts) = ts {
-                if let Some(prev_user_ts) = last_user_ts {
-                    if msg_ts >= prev_user_ts {
-                        let duration_ms = (msg_ts - prev_user_ts) * 1000.0;
-                        if duration_ms < MIN_HISTORICAL_TURN_DURATION_MS {
-                            continue;
-                        }
-                        if let Some(obj) = message.as_object_mut() {
-                            if let Some(n) = serde_json::Number::from_f64(duration_ms) {
-                                obj.insert("duration_ms".to_string(), serde_json::Value::Number(n));
-                            }
-                        }
-                    }
-                }
-            }
+            continue;
+        }
+        if role != "assistant" || message.get("content").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+            continue;
+        }
+        let (Some(msg_ts), Some(prev_user_ts)) = (ts, last_user_ts) else {
+            continue;
+        };
+        let duration_ms = (msg_ts - prev_user_ts) * 1000.0;
+        if msg_ts < prev_user_ts || duration_ms < MIN_HISTORICAL_TURN_DURATION_MS {
+            continue;
+        }
+        if let (Some(obj), Some(number)) = (
+            message.as_object_mut(),
+            serde_json::Number::from_f64(duration_ms),
+        ) {
+            obj.insert("duration_ms".to_string(), serde_json::Value::Number(number));
         }
     }
 }
@@ -1230,6 +1225,15 @@ fn local_session_reset_predecessor_id(
     .optional()
 }
 
+type SessionResetRow = (
+    Option<f64>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 fn local_session_reset_successor_id(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -1249,7 +1253,7 @@ fn local_session_reset_successor_id(
     )? {
         return Ok(None);
     }
-    let row: Option<(Option<f64>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = conn
+    let row: Option<SessionResetRow> = conn
         .query_row(
             "SELECT ended_at, end_reason, session_key, source, chat_id, thread_id FROM sessions WHERE id = ?1",
             [session_id],

@@ -386,30 +386,32 @@ fn collect_skill_dirs(
     }
     let skill_md = dir.join("SKILL.md");
     if skill_md.is_file() {
-        if let Ok(text) = std::fs::read_to_string(&skill_md) {
-            if let Some(name) = frontmatter_value(&text, "name") {
-                let description = frontmatter_value(&text, "description").unwrap_or_default();
-                let category = dir
-                    .parent()
-                    .and_then(|p| p.strip_prefix(root).ok())
-                    .and_then(|p| p.to_str())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("uncategorized")
-                    .to_string();
-                found.entry(name.clone()).or_insert_with(|| {
-                    (
-                        SkillInfo {
-                            name: name.clone(),
-                            description,
-                            version: frontmatter_value(&text, "version").unwrap_or_default(),
-                            category,
-                            enabled: !disabled.contains(&name),
-                        },
-                        dir.to_path_buf(),
-                    )
-                });
-            }
-        }
+        let Ok(text) = std::fs::read_to_string(&skill_md) else {
+            return;
+        };
+        let Some(name) = frontmatter_value(&text, "name") else {
+            return;
+        };
+        let description = frontmatter_value(&text, "description").unwrap_or_default();
+        let category = dir
+            .parent()
+            .and_then(|p| p.strip_prefix(root).ok())
+            .and_then(|p| p.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("uncategorized")
+            .to_string();
+        found.entry(name.clone()).or_insert_with(|| {
+            (
+                SkillInfo {
+                    name: name.clone(),
+                    description,
+                    version: frontmatter_value(&text, "version").unwrap_or_default(),
+                    category,
+                    enabled: !disabled.contains(&name),
+                },
+                dir.to_path_buf(),
+            )
+        });
         return;
     }
     let Ok(read_dir) = std::fs::read_dir(dir) else {
@@ -431,7 +433,7 @@ fn skill_path_is_archived(root: &Path, dir: &Path) -> bool {
 }
 
 fn frontmatter_value(text: &str, key: &str) -> Option<String> {
-    let body = text.strip_prefix("---")?.splitn(2, "---").next()?;
+    let body = text.strip_prefix("---")?.split("---").next()?;
     for line in body.lines() {
         let Some((k, v)) = line.split_once(':') else {
             continue;

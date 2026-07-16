@@ -100,7 +100,7 @@ async fn image_entry_for_png(dir: &Path, png_path: &Path) -> Option<ImageEntry> 
             (filename.clone(), png_url.clone(), "Generate HEIC".to_string())
         };
     Some(ImageEntry {
-        image_url: format!("/image-files/{}?v={}", path_segment(&display_filename), display_version),
+        image_url: format!("/image-files/{}?v={}", path_segment(display_filename), display_version),
         png_url,
         heic_url,
         heic_status,

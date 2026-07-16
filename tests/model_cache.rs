@@ -101,9 +101,10 @@ fn model_cache_non_placeholder_payload_is_usable() {
 
 #[test]
 fn model_cache_returns_fresh_cached_body() {
-    let mut cache = yet_another_hermes_ui::ModelCache::default();
-    cache.fetched_at = Some(Instant::now());
-    cache.body = Some(json!({"object": "list", "data": [{"id": "MiniMax-M3"}]}));
+    let cache = yet_another_hermes_ui::ModelCache {
+        fetched_at: Some(Instant::now()),
+        body: Some(json!({"object": "list", "data": [{"id": "MiniMax-M3"}]})),
+    };
 
     let cached = yet_another_hermes_ui::fresh_model_cache_body(&cache, Duration::from_secs(300));
 

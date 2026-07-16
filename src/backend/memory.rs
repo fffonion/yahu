@@ -102,6 +102,7 @@ impl MemoryFileLock {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(lock_path)?;
         lock_exclusive(&file)?;
         Ok(Self { file })

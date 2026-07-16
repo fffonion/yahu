@@ -470,7 +470,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("skills");
         let skill_dir = root.join("productivity/test-skill");
-        std::fs::create_dir_all(&skill_dir.join("references")).unwrap();
+        std::fs::create_dir_all(skill_dir.join("references")).unwrap();
         std::fs::write(
             skill_dir.join("SKILL.md"),
             "---\nname: test-skill\ndescription: Test\n---\n\n# Test\n",
@@ -2070,7 +2070,7 @@ mod tests {
 
     #[test]
     fn chat_stream_broadcast_ring_is_small_because_payloads_are_full_snapshots() {
-        assert!(CHAT_STREAM_BROADCAST_CAPACITY <= 32);
+        const { assert!(CHAT_STREAM_BROADCAST_CAPACITY <= 32) };
     }
 
     #[tokio::test]
