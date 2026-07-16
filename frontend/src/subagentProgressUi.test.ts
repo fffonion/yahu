@@ -88,7 +88,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('setGoalExpanded(false);');
     expect(source).toContain('className="subagent-progress-stack"');
     expect(source).toContain('className="subagent-goal-panel" open={goalExpanded}');
-    expect(source).toContain('<span className="subagent-status-icon subagent-goal-icon"><CheckCircle2 aria-hidden="true" /></span>');
+    expect(source).toContain('<span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>');
     expect(source).not.toContain("<strong>{t('subagents.goal')}</strong>");
     expect(source).toContain('className="subagent-goal-body">{preview.goal}</div>');
     expect(styles).toContain('.subagent-goal-icon{color:var(--subagent-goal-accent);background:color-mix(in srgb,var(--subagent-goal-accent) 12%,transparent)}');

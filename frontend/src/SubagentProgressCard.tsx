@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, XCircle } from 'lucide-react';
+import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, Target, XCircle } from 'lucide-react';
 import { ChatTranscript, type ChatMessage } from './ChatTranscript';
 import { t, tf } from './i18n';
 import {
@@ -117,7 +117,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   return <div className="subagent-progress-stack">
     {preview && <details className="subagent-goal-panel" open={goalExpanded} onToggle={(event) => { const open = event.currentTarget.open; if (open !== goalExpanded) setGoalExpanded(open); }}>
       <summary className="subagent-goal-summary" aria-label={t('subagents.goal')}>
-        <span className="subagent-status-icon subagent-goal-icon"><CheckCircle2 aria-hidden="true" /></span>
+        <span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>
         <span className="subagent-goal-copy">
           <span className="subagent-goal-preview">{preview.goal}</span>
           <small className="subagent-goal-meta">{goalMetadata}</small>
