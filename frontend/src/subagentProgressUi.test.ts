@@ -107,7 +107,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('<span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>');
     expect(source).not.toContain("<strong>{t('subagents.goal')}</strong>");
     expect(source).toContain('const goal = snapshot.goal;');
-    expect(source).toContain('className="subagent-goal-text">{goal.text}</div>');
+    expect(source).not.toContain('className="subagent-goal-text">{goal.text}</div>');
     expect(source).toContain('<GoalMilestones goal={goal} />');
     expect(source).toContain("const milestones = [...goal.milestones].sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0) || right.turn - left.turn);");
     expect(styles).toContain('.subagent-goal-milestones li p{margin:0;color:color-mix(in srgb,var(--text) 92%,var(--subagent-goal-accent));');
@@ -122,8 +122,11 @@ describe('subagent progress UI', () => {
     expect(source).toContain('const goalMetadata = goal ? [');
     expect(source).toContain("tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns)");
     expect(source).toContain('className="subagent-goal-meta">{goalMetadata}</small>');
+    expect(source).toContain('</div>\n      <footer className="subagent-goal-footer">{goalMetadata}</footer>');
     expect(styles).toContain('.subagent-goal-copy{min-width:0;display:grid;gap:3px}');
     expect(styles).toContain('.subagent-goal-meta{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');
+    expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-preview{white-space:normal;overflow:visible;text-overflow:clip}');
+    expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-meta{display:none}');
     expect(i18n()).toContain("'goals.active': { en: 'Active', 'zh-CN': '进行中'");
     expect(i18n()).toContain("'goals.turnProgress': { en: '{0}/{1} turns', 'zh-CN': '{0}/{1} 轮'");
     expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;");

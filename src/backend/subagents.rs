@@ -7,7 +7,7 @@ const SUBAGENT_API_PAGE_BYTE_LIMIT: usize = 2 * 1024 * 1024;
 const SUBAGENT_API_DETAIL_BYTE_LIMIT: usize = 4 * 1024 * 1024;
 const SUBAGENT_ANCESTOR_RESOLUTION_LIMIT: usize = 200;
 const SUBAGENT_VISIBLE_LIMIT: usize = 10;
-const SUBAGENT_LOOKBACK_SECONDS: f64 = 86_400.0;
+const SUBAGENT_LOOKBACK_SECONDS: f64 = 43_200.0;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
 const SUBAGENT_SUMMARY_LIMIT: usize = 600;
 const SUBAGENT_SNAPSHOT_CONCURRENCY: usize = 4;
@@ -480,16 +480,40 @@ fn load_persistent_goal(
             })
         })
         .collect::<Vec<_>>();
-    if milestones.is_empty()
-        && let Some(reason) = string_field(&value, "last_reason")
+    let milestone_cache_key = format!("yahu:goal_milestones:{session_id}");
+    if let Ok(cached) = conn.query_row(
+        "SELECT value FROM state_meta WHERE key = ?1",
+        [&milestone_cache_key],
+        |row| row.get::<_, String>(0),
+    )
+        && let Ok(items) = serde_json::from_str::<Value>(&cached)
+        && let Some(items) = items.as_array()
     {
-        milestones.push(GoalMilestoneProjection {
+        milestones.extend(items.iter().filter_map(|item| {
+            let reason = string_field(item, "reason")?;
+            Some(GoalMilestoneProjection {
+                turn: u64_field(item, "turn"),
+                timestamp: number_field(item, "timestamp").unwrap_or_default(),
+                verdict: string_field(item, "verdict")
+                    .unwrap_or_else(|| "continue".to_string()),
+                reason: truncate_chars(reason.trim(), 1_000),
+            })
+        }));
+    }
+    if let Some(reason) = string_field(&value, "last_reason") {
+        let latest = GoalMilestoneProjection {
             turn: u64_field(&value, "turns_used"),
             timestamp: number_field(&value, "last_turn_at").unwrap_or_default(),
             verdict: string_field(&value, "last_verdict")
                 .unwrap_or_else(|| "continue".to_string()),
             reason: truncate_chars(reason.trim(), 1_000),
-        });
+        };
+        if !milestones
+            .iter()
+            .any(|item| item.turn == latest.turn)
+        {
+            milestones.push(latest);
+        }
     }
     milestones.sort_by(|left, right| {
         right
@@ -497,6 +521,15 @@ fn load_persistent_goal(
             .total_cmp(&left.timestamp)
             .then_with(|| right.turn.cmp(&left.turn))
     });
+    milestones.dedup_by(|left, right| left.turn == right.turn);
+    if !milestones.is_empty() {
+        let write_conn = rusqlite::Connection::open(hermes_home.join("state.db"))?;
+        write_conn.execute(
+            "INSERT INTO state_meta (key, value) VALUES (?1, ?2) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![milestone_cache_key, serde_json::to_string(&milestones)?],
+        )?;
+    }
     Ok(Some(PersistentGoalProjection {
         text: truncate_chars(text.trim(), 2_000),
         status,

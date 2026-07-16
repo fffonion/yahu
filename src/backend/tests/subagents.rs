@@ -73,6 +73,36 @@
         assert_eq!(goal.subgoals, vec!["Keep the script implementation"]);
         assert!(goal.todos.is_empty());
         assert_eq!(goal.milestones.iter().map(|item| item.turn).collect::<Vec<_>>(), vec![4, 2, 1]);
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute(
+            "UPDATE state_meta SET value = ?2 WHERE key = ?1",
+            rusqlite::params![
+                "goal:parent-1",
+                serde_json::json!({
+                    "goal": "Optimize the interpreter",
+                    "status": "active",
+                    "turns_used": 5,
+                    "max_turns": 20,
+                    "last_turn_at": 500.0,
+                    "last_reason": "Fifth result",
+                    "subgoals": []
+                })
+                .to_string()
+            ],
+        )
+        .unwrap();
+        drop(conn);
+        let updated = load_persistent_goal(temp.path(), "parent-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            updated
+                .milestones
+                .iter()
+                .map(|item| item.turn)
+                .collect::<Vec<_>>(),
+            vec![5, 4, 2, 1]
+        );
         assert!(load_persistent_goal(temp.path(), "child-1").unwrap().is_none());
     }
 
@@ -232,7 +262,8 @@
     }
 
     #[test]
-    fn visible_subagent_sessions_follow_the_backward_one_day_window_and_limit_ten() {
+    fn visible_subagent_sessions_follow_the_backward_twelve_hour_window_and_limit_ten() {
+        assert_eq!(SUBAGENT_LOOKBACK_SECONDS, 43_200.0);
         let window_end = 200_000.0;
         let mut sessions = (0..12)
             .map(|index| serde_json::json!({

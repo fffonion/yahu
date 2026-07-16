@@ -163,11 +163,11 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
         <ChevronRight className="subagent-goal-chevron" aria-hidden="true" />
       </summary>
       <div className="subagent-goal-body">
-        <div className="subagent-goal-text">{goal.text}</div>
         <SubagentTodoList todos={goal.todos} className="subagent-goal-todos" />
         {goal.subgoals.length > 0 && <ul className="subagent-goal-subgoals">{goal.subgoals.map((item, index) => <li key={index}>{item}</li>)}</ul>}
         <GoalMilestones goal={goal} />
       </div>
+      <footer className="subagent-goal-footer">{goalMetadata}</footer>
     </details>}
     {(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
     <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
