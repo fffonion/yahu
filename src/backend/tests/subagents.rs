@@ -111,6 +111,38 @@
     }
 
     #[test]
+    fn preserved_todo_state_seeds_replay_after_compression() {
+        let messages = vec![
+            serde_json::json!({
+                "role": "user",
+                "content": "[Your active task list was preserved across context compression]\n- [>] keep. Keep this task (in_progress)\n- [ ] current. Current main task (pending)"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "tool_calls": [{
+                    "function": {
+                        "name": "todo",
+                        "arguments": "{\"merge\":true,\"todos\":[{\"id\":\"current\",\"status\":\"completed\"}]}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_name": "todo",
+                "content": "[todo] updated task list"
+            }),
+        ];
+
+        let todos = latest_todos(&messages);
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0].id, "keep");
+        assert_eq!(todos[0].status, "in_progress");
+        assert_eq!(todos[1].id, "current");
+        assert_eq!(todos[1].content, "Current main task");
+        assert_eq!(todos[1].status, "completed");
+    }
+
+    #[test]
     fn subagent_projection_does_not_expose_tool_arguments_or_results() {
         let session = serde_json::json!({
             "id": "child-secret",

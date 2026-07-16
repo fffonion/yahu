@@ -693,6 +693,12 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
 fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
     let mut current = Vec::<SubagentTodo>::new();
     for message in messages {
+        if message.get("role").and_then(Value::as_str) == Some("user")
+            && let Some(content) = message.get("content").map(content_text)
+            && let Some(preserved) = parse_preserved_todos(&content)
+        {
+            current = preserved;
+        }
         if message.get("role").and_then(Value::as_str) == Some("assistant") {
             for call in tool_calls(message.get("tool_calls")) {
                 let function = call.get("function").and_then(Value::as_object);
@@ -736,6 +742,43 @@ fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
         }
     }
     current
+}
+
+fn parse_preserved_todos(content: &str) -> Option<Vec<SubagentTodo>> {
+    const HEADER: &str = "[Your active task list was preserved across context compression]";
+    if !content.trim_start().starts_with(HEADER) {
+        return None;
+    }
+    let mut todos = Vec::<SubagentTodo>::new();
+    for line in content.lines().skip(1) {
+        let Some((_, rest)) = line.trim().strip_prefix("- [").and_then(|line| line.split_once("] ")) else {
+            continue;
+        };
+        let Some((id, remainder)) = rest.split_once(". ") else {
+            continue;
+        };
+        let Some((todo_content, status)) = remainder.rsplit_once(" (") else {
+            continue;
+        };
+        let Some(status) = status.strip_suffix(')') else {
+            continue;
+        };
+        let Some(status) = valid_todo_status(Some(status)) else {
+            continue;
+        };
+        if id.trim().is_empty() || todo_content.trim().is_empty() {
+            continue;
+        }
+        todos.push(SubagentTodo {
+            id: id.trim().to_string(),
+            content: truncate_chars(todo_content.trim(), 240),
+            status,
+        });
+        if todos.len() == 100 {
+            break;
+        }
+    }
+    Some(todos)
 }
 
 fn normalize_todos(items: &[Value]) -> Vec<SubagentTodo> {
