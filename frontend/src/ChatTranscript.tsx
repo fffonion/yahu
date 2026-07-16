@@ -46,7 +46,7 @@ import {
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool';
 export type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number; costUsd?: number };
-export type ChatMessage = { id: string; role: Role; content: string; structuredContent?: { value: unknown }; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+export type ChatMessage = { id: string; role: Role; content: string; structuredContent?: { value: unknown }; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; historyGap?: { after: number; before: number }; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 
 type LoadTurnDetails = (detail: TurnDetailMetadata) => Promise<ChatMessage[]>;
 
@@ -225,7 +225,16 @@ function reasoningSummaryLabel(message: ChatMessage): string {
   return elapsed ? `${t('chat.reasoned')} ${elapsed}` : t('chat.reasoned');
 }
 
+function HistoryCoverageGap({ message }: { message: ChatMessage }) {
+  return <article className="history-coverage-gap" role="separator" data-message-id={message.id || undefined}>
+    <span className="history-coverage-gap-line" aria-hidden="true" />
+    <span className="history-coverage-gap-label"><Info aria-hidden="true" />{t('chat.historyCoverageGap')}</span>
+    <span className="history-coverage-gap-line" aria-hidden="true" />
+  </article>;
+}
+
 function MessageView({ message, showReasoning = false, assistantName, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; suppressMessageAnchor?: boolean }) {
+  if (message.historyGap) return <HistoryCoverageGap message={message} />;
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} suppressMessageAnchor={suppressMessageAnchor} />;
   const isPending = !!message.pending;
   const isToolPrelude = isAssistantToolPreludeMessage(message);
@@ -314,7 +323,8 @@ function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessa
 
 function DesktopTurnBlock({ block, showReasoning, assistantName, loadTurnDetails }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails }) {
   const sessionStateOnly = block.items.length === 1 && block.items[0]?.kind === 'sessionState';
-  return <article className={`desktop-turn-block${sessionStateOnly ? ' session-state-turn-block' : ''}`} data-turn-block-id={block.id}>
+  const historyGapOnly = block.items.length === 1 && block.items[0]?.kind === 'message' && !!block.items[0].message.historyGap;
+  return <article className={`desktop-turn-block${sessionStateOnly ? ' session-state-turn-block' : ''}${historyGapOnly ? ' history-gap-turn-block' : ''}`} data-turn-block-id={block.id}>
     {block.items.map((item) => {
       if (item.kind === 'detailGroup') return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} />;
       if (item.kind === 'specialContextGroup') return <SpecialContextGroup key={item.id} item={item} />;

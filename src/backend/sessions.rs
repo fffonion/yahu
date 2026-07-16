@@ -805,7 +805,9 @@ fn nav_assistant_preview(messages: &[serde_json::Value], user_index: usize) -> O
         .enumerate()
         .skip(user_index + 1)
         .find_map(|(index, message)| {
-            (message.get("role").and_then(|role| role.as_str()) == Some("user")).then_some(index)
+            let role = message.get("role").and_then(|role| role.as_str());
+            (role == Some("user") || message.get("history_gap").is_some_and(serde_json::Value::is_object))
+                .then_some(index)
         })
         .unwrap_or(messages.len());
     messages[user_index + 1..end]
@@ -1572,14 +1574,25 @@ fn request_dump_messages(
     (!messages.is_empty()).then_some((dump_timestamp, messages))
 }
 
-fn trim_stale_request_dump_tail(messages: &mut Vec<serde_json::Value>, dump_timestamp: f64, first_history_timestamp: f64) {
+fn history_coverage_gap_message(
+    session_id: &str,
+    dump_timestamp: f64,
+    first_history_timestamp: f64,
+) -> Option<serde_json::Value> {
     const MAX_CONTIGUOUS_REQUEST_GAP_SECONDS: f64 = 24.0 * 60.0 * 60.0;
     if first_history_timestamp - dump_timestamp <= MAX_CONTIGUOUS_REQUEST_GAP_SECONDS {
-        return;
+        return None;
     }
-    if messages.last().and_then(|message| message.get("role")).and_then(|role| role.as_str()) == Some("user") {
-        messages.pop();
-    }
+    Some(serde_json::json!({
+        "id": -8_000_000_000_000i64,
+        "session_id": session_id,
+        "role": "system",
+        "content": "History coverage gap",
+        "history_gap": {
+            "after": dump_timestamp,
+            "before": first_history_timestamp,
+        },
+    }))
 }
 
 fn recovered_request_dump_prefix(
@@ -1611,17 +1624,10 @@ fn recovered_request_dump_prefix(
             Ok(dump) => dump,
             Err(_) => continue,
         };
-        let Some((dump_timestamp, mut messages)) = request_dump_messages(session_id, &dump) else {
+        let Some((dump_timestamp, messages)) = request_dump_messages(session_id, &dump) else {
             continue;
         };
         if dump_timestamp >= first_history_timestamp {
-            continue;
-        }
-        // A request dump ends at the input being sent. If all locally retained
-        // history starts much later, its first assistant row cannot be treated
-        // as the response to that dangling input.
-        trim_stale_request_dump_tail(&mut messages, dump_timestamp, first_history_timestamp);
-        if messages.is_empty() {
             continue;
         }
         // A later dump may already contain a compacted summary with fewer raw
@@ -1631,7 +1637,12 @@ fn recovered_request_dump_prefix(
             best = Some(rank);
         }
     }
-    Ok(best.map(|(_, _, messages)| messages))
+    Ok(best.map(|(_, dump_timestamp, mut messages)| {
+        if let Some(gap) = history_coverage_gap_message(session_id, dump_timestamp, first_history_timestamp) {
+            messages.push(gap);
+        }
+        messages
+    }))
 }
 
 fn prepend_recovered_request_dump_prefix(

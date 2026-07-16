@@ -141,6 +141,12 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
   };
 
   messages.forEach((message, index) => {
+    if (message.historyGap) {
+      flushBufferAsMessages();
+      items.push({ kind: 'message', message, sourceIndexes: [index] });
+      return;
+    }
+
     if (isSessionStateMessage(message)) {
       flushBufferAsMessages();
       activeAnchorId = messageId(message, index);
@@ -193,15 +199,17 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
 export function buildDesktopTurnBlocks<T extends MessageVisibilityInput>(items: Array<TurnDetailItem<T>>): Array<TurnDetailBlock<T>> {
   const blocks: Array<TurnDetailBlock<T>> = [];
   let current: TurnDetailBlock<T> | null = null;
+  let splitAfterHistoryGap = false;
   const append = (item: TurnDetailItem<T>) => {
     const sourceIndexes = item.sourceIndexes || [];
-    if (!current || item.kind === 'sessionState' || (item.kind === 'message' && item.message.role === 'user')) {
+    if (!current || splitAfterHistoryGap || item.kind === 'sessionState' || (item.kind === 'message' && (item.message.role === 'user' || !!item.message.historyGap))) {
       const firstId = item.kind === 'message' ? messageId(item.message, sourceIndexes[0] ?? blocks.length) : item.id;
       current = { id: `desktop-turn:${firstId}:${blocks.length}`, items: [], sourceIndexes: [] };
       blocks.push(current);
     }
     current.items.push(item);
     current.sourceIndexes.push(...sourceIndexes);
+    splitAfterHistoryGap = item.kind === 'message' && !!item.message.historyGap;
   };
   items.forEach(append);
   return blocks;

@@ -379,7 +379,7 @@
                 "session_id": session_id,
                 "role": "user",
                 "content": "current prompt",
-                "timestamp": 10
+                "timestamp": 90000
             }]}))
         }
         let app = Router::new()
@@ -412,7 +412,7 @@
              );",
         ).unwrap();
         conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source) VALUES ('s1',NULL,1,NULL,NULL,'telegram')", []).unwrap();
-        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active,compacted) VALUES (10,'s1','user','current prompt',10,1,0)", []).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active,compacted) VALUES (10,'s1','user','current prompt',90000,1,0)", []).unwrap();
         drop(conn);
 
         let sessions_dir = temp.path().join("sessions");
@@ -428,7 +428,8 @@
                     {"role": "user", "content": [{"type": "input_text", "text": "older prompt"}]},
                     {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "older answer"}]},
                     {"type": "function_call", "call_id": "call-1", "name": "terminal", "arguments": "{\"command\":\"pwd\",\"password\":\"argument-secret-must-not-leak\"}"},
-                    {"type": "function_call_output", "call_id": "call-1", "output": "older tool output"}
+                    {"type": "function_call_output", "call_id": "call-1", "output": "older tool output"},
+                    {"role": "user", "content": [{"type": "input_text", "text": "last recoverable prompt"}]}
                 ]}}
             }))
             .unwrap(),
@@ -452,8 +453,10 @@
         let roles: Vec<_> = messages.iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
         let texts: Vec<_> = messages.iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
 
-        assert_eq!(roles, vec!["user", "assistant", "assistant", "tool", "user"]);
-        assert_eq!(texts, vec!["older prompt", "older answer", "", "older tool output", "current prompt"]);
+        assert_eq!(roles, vec!["user", "assistant", "assistant", "tool", "user", "system", "user"]);
+        assert_eq!(texts, vec!["older prompt", "older answer", "", "older tool output", "last recoverable prompt", "History coverage gap", "current prompt"]);
+        assert_eq!(messages[5]["history_gap"]["after"], 5.0);
+        assert_eq!(messages[5]["history_gap"]["before"], 90000.0);
         assert_eq!(messages[2]["tool_calls"][0]["function"]["name"], "terminal");
         assert_eq!(messages[3]["tool_name"], "terminal");
         let serialized = serde_json::to_string(&messages).unwrap();
@@ -473,28 +476,15 @@
     }
 
     #[test]
-    fn stale_request_dump_tail_drops_a_dangling_user_turn_before_a_large_gap() {
-        let mut recovered = vec![
-            serde_json::json!({"role":"assistant","content":"completed answer"}),
-            serde_json::json!({"role":"user","content":"unanswered request"}),
-        ];
+    fn request_dump_gap_marker_preserves_the_missing_interval_boundary() {
+        let marker = history_coverage_gap_message("s1", 5.0, 5.0 + 86_400.0 + 1.0)
+            .expect("a gap over one day should be explicit");
 
-        trim_stale_request_dump_tail(&mut recovered, 5.0, 5.0 + 86_400.0 + 1.0);
-
-        assert_eq!(recovered, vec![serde_json::json!({"role":"assistant","content":"completed answer"})]);
-    }
-
-    #[test]
-    fn recent_request_dump_tail_keeps_a_user_turn_for_its_local_response() {
-        let mut recovered = vec![
-            serde_json::json!({"role":"assistant","content":"completed answer"}),
-            serde_json::json!({"role":"user","content":"current request"}),
-        ];
-
-        trim_stale_request_dump_tail(&mut recovered, 5.0, 6.0);
-
-        assert_eq!(recovered.len(), 2);
-        assert_eq!(recovered[1]["content"], "current request");
+        assert_eq!(marker["role"], "system");
+        assert_eq!(marker["session_id"], "s1");
+        assert_eq!(marker["history_gap"]["after"], 5.0);
+        assert_eq!(marker["history_gap"]["before"], 5.0 + 86_400.0 + 1.0);
+        assert!(history_coverage_gap_message("s1", 5.0, 6.0).is_none());
     }
 
     #[tokio::test]

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildDesktopTurnBlocks, buildTurnDetailItems } from './turnDetails';
 
-type Msg = { id: string; role: string; content?: string; pending?: boolean; reasoning?: string; toolName?: string; toolCalls?: unknown; turnDetails?: { count: number; toolCount?: number; thinkingCount?: number; afterId?: string; beforeId?: string } };
+type Msg = { id: string; role: string; content?: string; pending?: boolean; reasoning?: string; toolName?: string; toolCalls?: unknown; historyGap?: { after: number; before: number }; turnDetails?: { count: number; toolCount?: number; thinkingCount?: number; afterId?: string; beforeId?: string } };
 
 const user: Msg = { id: 'u1', role: 'user', content: 'do it' };
 const prelude: Msg = { id: 'a1', role: 'assistant', content: 'I will inspect', reasoning: 'plan', toolCalls: [{ id: 'call_1' }] };
@@ -59,6 +59,17 @@ describe('turn detail grouping', () => {
     expect(items[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1:a2' });
     if (items[1].kind !== 'detailGroup') throw new Error('expected completed detail group');
     expect(items[1].defaultOpen).toBeUndefined();
+  });
+
+  test('uses a history coverage gap as a hard turn boundary', () => {
+    const gap: Msg = { id: 'gap1', role: 'system', content: 'History coverage gap', historyGap: { after: 5, before: 90_000 } };
+    const laterAssistant: Msg = { id: 'a-later', role: 'assistant', content: 'retained later response' };
+    const items = buildTurnDetailItems([user, gap, laterAssistant]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message']);
+    expect(items[1]).toMatchObject({ kind: 'message', message: gap });
+    const blocks = buildDesktopTurnBlocks(items);
+    expect(blocks).toHaveLength(3);
   });
 
   test('keeps preserved task state as a standalone item outside turn details', () => {

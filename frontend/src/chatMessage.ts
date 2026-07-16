@@ -90,6 +90,14 @@ function readTurnDetails(raw: any): TurnDetailMetadata | undefined {
   return out;
 }
 
+function readHistoryGap(raw: any): { after: number; before: number } | undefined {
+  const gap = asRecordish(raw?.historyGap) || asRecordish(raw?.history_gap);
+  if (!gap) return undefined;
+  const after = Number(gap.after);
+  const before = Number(gap.before);
+  return Number.isFinite(after) && Number.isFinite(before) && before > after ? { after, before } : undefined;
+}
+
 export function normalizeChatMessage(raw: any, fallbackId: string): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);
   const platformSender = raw.role === 'user' ? parsePlatformSenderMessage(parts.content) : { content: parts.content };
@@ -110,6 +118,8 @@ export function normalizeChatMessage(raw: any, fallbackId: string): ChatMessage 
   if (metrics) msg.turnMetrics = metrics;
   const turnDetails = readTurnDetails(raw);
   if (turnDetails) msg.turnDetails = turnDetails;
+  const historyGap = readHistoryGap(raw);
+  if (historyGap) msg.historyGap = historyGap;
   if (platformSender.senderName) msg.platformSenderName = platformSender.senderName;
   if (platformSender.senderId) msg.platformSenderId = platformSender.senderId;
   if (typeof raw.model === 'string' && raw.model.trim()) msg.model = raw.model.trim();

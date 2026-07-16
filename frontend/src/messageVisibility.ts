@@ -8,6 +8,7 @@ export type MessageVisibilityInput = {
   toolInput?: unknown;
   toolCalls?: unknown;
   toolCallId?: string | null;
+  historyGap?: { after: number; before: number };
 };
 
 function recordLooksToolLike(value: unknown): boolean {

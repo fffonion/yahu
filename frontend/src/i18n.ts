@@ -61,6 +61,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.deleteTitle': { en: 'Delete session', 'zh-CN': '删除会话', 'zh-TW': '刪除會話', ja: 'セッション削除' },
   'chat.actionFailed': { en: 'Action failed', 'zh-CN': '操作失败', 'zh-TW': '操作失敗', ja: 'アクション失敗' },
   'chat.specialContext': { en: 'Context summary', 'zh-CN': '上下文摘要', 'zh-TW': '上下文摘要', ja: 'コンテキスト概要' },
+  'chat.historyCoverageGap': { en: 'Some messages are unavailable between these retained history segments', 'zh-CN': '这两段已保留历史之间有部分消息缺失', 'zh-TW': '這兩段已保留歷史之間有部分訊息缺失', ja: '保持された履歴区間の間に取得できないメッセージがあります' },
   'subagents.title': { en: 'Subagent progress', 'zh-CN': '子代理进度', 'zh-TW': '子代理進度', ja: 'サブエージェント進捗' },
   'subagents.goal': { en: 'Goal', 'zh-CN': '目标', 'zh-TW': '目標', ja: '目標' },
   'subagents.running': { en: 'Running', 'zh-CN': '运行中', 'zh-TW': '執行中', ja: '実行中' },

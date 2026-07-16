@@ -46,7 +46,7 @@ describe('desktop compact chat toggle', () => {
   test('desktop chat fills the history width with equal minimap and right gutters without changing mobile', () => {
     const styles = css();
     expect(styles).toContain('@media(min-width:761px){.chat-main-panel .chat-scroll{padding-left:78px;padding-right:78px}');
-    expect(styles).toContain('.chat-main-panel .msg-row,.chat-main-panel .turn-detail-group,.chat-main-panel .special-context-block,.chat-main-panel .session-state-message{max-width:none}');
+    expect(styles).toContain('.chat-main-panel .msg-row,.chat-main-panel .turn-detail-group,.chat-main-panel .special-context-block,.chat-main-panel .session-state-message,.chat-main-panel .history-coverage-gap{max-width:none}');
     expect(styles).toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:44px}');
     expect(styles).not.toContain('@media (max-width:760px){.chat-main-panel .chat-scroll{padding-left:78px;padding-right:78px}');
   });

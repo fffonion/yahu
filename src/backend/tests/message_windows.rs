@@ -350,6 +350,20 @@
     }
 
     #[test]
+    fn user_message_nav_does_not_pair_across_a_history_gap() {
+        let messages = vec![
+            serde_json::json!({"id": 1, "role": "user", "content": "last recoverable prompt"}),
+            serde_json::json!({"id": -8_000_000_000_000i64, "role": "system", "content": "History coverage gap", "history_gap": {"after": 5, "before": 90_000}}),
+            serde_json::json!({"id": 2, "role": "assistant", "content": "unrelated retained answer"}),
+        ];
+
+        let nav = build_user_message_nav(&messages);
+
+        assert_eq!(nav.len(), 1);
+        assert!(nav[0].assistant_preview.is_none());
+    }
+
+    #[test]
     fn session_watch_emits_all_new_messages_in_id_order() {
         let items = vec![
             serde_json::json!({"id": 12, "role": "assistant", "content": "second"}),
