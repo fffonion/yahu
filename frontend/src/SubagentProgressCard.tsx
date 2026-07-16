@@ -28,6 +28,7 @@ import {
 
 export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, showToolCalls, compact }: { sessionId: string; beforeTime: number | null | undefined; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
+  const [projectionPending, setProjectionPending] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [goalExpanded, setGoalExpanded] = useState(false);
   const [openNodeIds, setOpenNodeIds] = useState<Set<string>>(() => new Set());
@@ -57,6 +58,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
 
   useEffect(() => {
     setSnapshot(null);
+    setProjectionPending(false);
     setExpanded(false);
     setGoalExpanded(false);
     setOpenNodeIds(new Set());
@@ -67,13 +69,19 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     if (!sessionId || sessionId === '__webui_draft_session__') return;
     let stopped = false;
     if (beforeTime === null) {
-      setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);
+      setProjectionPending(false);
       return;
     }
     if (typeof beforeTime === 'number') {
       const controller = new AbortController();
       const requestGuard = createSubagentSnapshotGuard();
-      setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);
+      setProjectionPending(true);
+      setSnapshot((current) => current || {
+        type: 'subagents.snapshot',
+        sessionId,
+        generatedAt: Date.now() / 1000,
+        subagents: [],
+      });
       fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })
         .then((response) => {
           if (!response.ok) throw new Error(`subagent snapshot failed (${response.status})`);
@@ -83,9 +91,11 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
           if (!requestGuard.isActive(controller.signal)) return;
           const next = normalizeSubagentSnapshot(payload, sessionId);
           if (next) setSnapshot(next);
+          setProjectionPending(false);
         })
         .catch((error) => {
           if (!requestGuard.isActive(controller.signal)) return;
+          setProjectionPending(false);
           setSnapshot((current) => current ? { ...current, subagents: [], error: String(error) } : {
             type: 'subagents.snapshot',
             sessionId,
@@ -99,7 +109,13 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     let socket: WebSocket | null = null;
     let reconnectTimer = 0;
     let reconnectDelay = 750;
-    setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);
+    setProjectionPending(true);
+    setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : {
+      type: 'subagents.snapshot',
+      sessionId,
+      generatedAt: Date.now() / 1000,
+      subagents: [],
+    });
 
     const connect = () => {
       if (stopped) return;
@@ -109,7 +125,10 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
         if (stopped) return;
         try {
           const next = normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId);
-          if (next) setSnapshot(next);
+          if (next) {
+            setSnapshot(next);
+            setProjectionPending(false);
+          }
         } catch {
           // Ignore malformed frames and keep the last valid projection.
         }
@@ -139,7 +158,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   }, [running]);
 
   const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
-  if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;
+  if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error && !projectionPending)) return null;
 
   const goal = snapshot.goal;
   const preview = previewSubagent(snapshot.subagents);
@@ -169,13 +188,13 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       </div>
       <footer className="subagent-goal-footer">{goalMetadata}</footer>
     </details>}
-    {(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
+    {(snapshot.subagents.length > 0 || snapshot.error || projectionPending) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
     <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
       {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
       {(expanded || !preview) && <>
         <span className="subagent-progress-mark"><Bot aria-hidden="true" /></span>
-        <span className="subagent-progress-heading"><strong>{t('subagents.title')}</strong><small>{running ? t('subagents.running') : t('subagents.finished')}</small></span>
-        <span className="subagent-progress-count">{finished}/{total}</span>
+        <span className="subagent-progress-heading"><strong>{t('subagents.title')}</strong><small>{projectionPending ? t('subagents.refreshing') : running ? t('subagents.running') : t('subagents.finished')}</small></span>
+        {!projectionPending && <span className="subagent-progress-count">{finished}/{total}</span>}
         <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />
       </>}
     </button>

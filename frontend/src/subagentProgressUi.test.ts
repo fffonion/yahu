@@ -19,7 +19,15 @@ describe('subagent progress UI', () => {
     expect(card()).toContain('return () => { requestGuard.stop(); controller.abort(); };');
     expect(card()).toContain('if (!requestGuard.isActive(controller.signal)) return;');
     expect(card()).toContain("type: 'subagents.snapshot',");
-    expect(card()).toContain('setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);');
+    const cardSource = card();
+    const historicalRefresh = cardSource.slice(
+      cardSource.indexOf("if (typeof beforeTime === 'number')"),
+      cardSource.indexOf('let socket: WebSocket | null = null'),
+    );
+    expect(historicalRefresh).not.toContain('subagents: [], error: undefined');
+    expect(historicalRefresh).toContain('setProjectionPending(true);');
+    expect(cardSource).toContain('snapshot.error || projectionPending');
+    expect(cardSource).toContain("projectionPending ? t('subagents.refreshing')");
     expect(card()).toContain('}, [sessionId]);');
     expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer)');
     expect(app()).toContain('subagentPrecedingFallbackIds(rows.map((row) => {');
@@ -117,7 +125,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('<SubagentTodoList todos={node.todos} />');
     expect(source).toContain("function SubagentTodoList({ todos, className = '' }");
     expect(source).not.toContain('shouldShowSubagentPanel');
-    expect(source).toContain('{(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card');
+    expect(source).toContain('{(snapshot.subagents.length > 0 || snapshot.error || projectionPending) && <section className={`subagent-progress-card');
     expect(styles).toContain('.subagent-goal-icon{color:var(--subagent-goal-accent);background:color-mix(in srgb,var(--subagent-goal-accent) 12%,transparent)}');
     expect(source).toContain('const goalMetadata = goal ? [');
     expect(source).toContain("tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns)");
@@ -129,7 +137,7 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-meta{display:none}');
     expect(i18n()).toContain("'goals.active': { en: 'Active', 'zh-CN': '进行中'");
     expect(i18n()).toContain("'goals.turnProgress': { en: '{0}/{1} turns', 'zh-CN': '{0}/{1} 轮'");
-    expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;");
+    expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error && !projectionPending)) return null;");
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
     expect(source).toContain("aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}");
     expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));

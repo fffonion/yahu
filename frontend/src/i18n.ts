@@ -64,6 +64,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.historyCoverageGap': { en: 'Some messages are unavailable between these retained history segments', 'zh-CN': '这两段已保留历史之间有部分消息缺失', 'zh-TW': '這兩段已保留歷史之間有部分訊息缺失', ja: '保持された履歴区間の間に取得できないメッセージがあります' },
   'subagents.title': { en: 'Subagent progress', 'zh-CN': '子代理进度', 'zh-TW': '子代理進度', ja: 'サブエージェント進捗' },
   'subagents.running': { en: 'Running', 'zh-CN': '运行中', 'zh-TW': '執行中', ja: '実行中' },
+  'subagents.refreshing': { en: 'Updating…', 'zh-CN': '更新中…', 'zh-TW': '更新中…', ja: '更新中…' },
   'subagents.runningCount': { en: '{0} running', 'zh-CN': '{0} 运行中', 'zh-TW': '{0} 執行中', ja: '{0} 実行中' },
   'subagents.iteration': { en: 'Iteration {0}', 'zh-CN': '第 {0} 轮', 'zh-TW': '第 {0} 輪', ja: '反復 {0}' },
   'subagents.currentTool': { en: 'Tool: {0}', 'zh-CN': '工具：{0}', 'zh-TW': '工具：{0}', ja: 'ツール：{0}' },
