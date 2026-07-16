@@ -4,6 +4,7 @@ import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
 import { waitForCronRunOutput } from './cronRunOutput';
+import { errorMessage, isAbortError } from './errorMessage';
 import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { fallbackContextWindowForModel, latestMessageProviderForModel, resolvePreferredModelProvider as resolveModelProvider, selectModelOption } from './modelContext';
@@ -778,7 +779,7 @@ export default function App() {
         }
       }
       setStatus(t('status.modelsLoaded'));
-    } catch (err: any) { setStatus(tf('status.modelsUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('status.modelsUnavailable', errorMessage(err))); }
   }, [activeSession?.model, activeSession?.provider, model, selectedModelProvider, setStatus]);
 
   const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod, force = false) => {
@@ -792,8 +793,8 @@ export default function App() {
       const nextInsights = await usageRes.json();
       usageInsightsCacheRef.current[period] = nextInsights;
       setUsageInsights(nextInsights);
-    } catch (err: any) {
-      setUsageError(err?.message || t('insights.unavailable'));
+    } catch (err) {
+      setUsageError(errorMessage(err, t('insights.unavailable')));
     } finally {
       setUsageLoading(false);
     }
@@ -815,7 +816,7 @@ export default function App() {
       }));
       if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
-    } catch (err: any) { setStatus(tf('status.sessionsUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('status.sessionsUnavailable', errorMessage(err))); }
   }, [filter, headers, switchActiveSession, applyRenamedSessionTitleOverride]);
 
   const loadSessionDetail = useCallback(async (sessionId: string) => {
@@ -828,7 +829,7 @@ export default function App() {
       const detail = applyRenamedSessionTitleOverride((body.data || body.session || body) as Session);
       setActiveSessionDetail((old) => sessionWithPreservedMessageCount(detail, old));
       setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(detail, s) } : s) : [detail, ...old]);
-    } catch (err: any) { setStatus(tf('status.sessionDetailUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('status.sessionDetailUnavailable', errorMessage(err))); }
   }, [apiBase, headers, applyRenamedSessionTitleOverride]);
 
   const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {
@@ -1005,7 +1006,7 @@ export default function App() {
       setHasOlder(merged.hasOlder);
       setHasNewer(merged.hasNewer);
       if (direction === 'latest') scrollLatestAfterRenderRef.current = true;
-    } catch (err: any) { setStatus(tf('status.messagesUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('status.messagesUnavailable', errorMessage(err))); }
     finally {
       if (req === messageRequestRef.current) {
         loadingMessagesRef.current = false;
@@ -1058,7 +1059,7 @@ export default function App() {
       hasNewerRef.current = Boolean(page.has_newer);
       setHasOlder(Boolean(page.has_older));
       setHasNewer(Boolean(page.has_newer));
-    } catch (err: any) { setStatus(tf('status.messagesUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('status.messagesUnavailable', errorMessage(err))); }
     finally {
       if (req === messageRequestRef.current) {
         loadingMessagesRef.current = false;
@@ -1080,7 +1081,7 @@ export default function App() {
       setWorkspacePath(body.path);
       setWorkspaceEntries(body.entries);
       setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
-    } catch (err: any) { setWorkspaceEntries([]); setStatus(tf('workspace.unavailable', err.message)); }
+    } catch (err) { setWorkspaceEntries([]); setStatus(tf('workspace.unavailable', errorMessage(err))); }
   }, [fetchWorkspaceEntries, workspacePath]);
 
   const toggleWorkspaceFolder = useCallback(async (entry: WorkspaceEntry) => {
@@ -1096,7 +1097,7 @@ export default function App() {
         setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
       }
       setExpandedWorkspacePaths((old) => new Set(old).add(path));
-    } catch (err: any) { setStatus(tf('workspace.folderUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('workspace.folderUnavailable', errorMessage(err))); }
   }, [expandedWorkspacePaths, fetchWorkspaceEntries, workspaceTree]);
 
   const selectedSkill = skillList.find((skill) => skill.name === selectedSkillName) || null;
@@ -1123,7 +1124,7 @@ export default function App() {
     try {
       await loadSkillFiles(skill, '');
       await openSkillFile(skill.name, 'SKILL.md');
-    } catch (err: any) { setStatus(tf('status.skillUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('status.skillUnavailable', errorMessage(err))); }
   }, [loadSkillFiles, openSkillFile, writeHashRoute]);
   const loadSkills = useCallback(async () => {
     try {
@@ -1132,7 +1133,7 @@ export default function App() {
       const body = await res.json();
       const list: Skill[] = body.data || body.skills || [];
       setSkillList(list);
-    } catch (err: any) { setStatus(tf('status.skillsUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('status.skillsUnavailable', errorMessage(err))); }
   }, []);
   const toggleSkillEnabled = useCallback(async (skill: Skill, enabled: boolean) => {
     const res = await fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
@@ -1200,7 +1201,7 @@ export default function App() {
     try {
       await loadSkillFiles(selectedSkill, path);
       setExpandedSkillPaths((old) => new Set(old).add(path));
-    } catch (err: any) { setStatus(tf('status.skillFolderUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('status.skillFolderUnavailable', errorMessage(err))); }
   }, [expandedSkillPaths, loadSkillFiles, selectedSkill]);
 
   const resetCronForm = useCallback(() => { setCronName(''); setCronSchedule('0 9 * * *'); setCronPrompt(''); setCronScript(''); setCronDeliver(''); setCronOutput(null); setCronEditingId(''); }, []);
@@ -1212,7 +1213,7 @@ export default function App() {
       const nextJobs = body.data || body.jobs || [];
       setCronJobs(nextJobs);
       if (cronEditingId && !nextJobs.some((job: Job) => jobId(job) === cronEditingId)) resetCronForm();
-    } catch (err: any) { setStatus(tf('cron.jobsUnavailable', err.message)); }
+    } catch (err) { setStatus(tf('cron.jobsUnavailable', errorMessage(err))); }
   }, [apiBase, cronEditingId, headers, resetCronForm]);
   const fetchCronOutput = useCallback(async (id: string) => {
     const res = await fetch(apiJoin(apiBase, `/api/jobs/${encodeURIComponent(id)}/output/latest`), { headers: headers(false) });
@@ -1225,8 +1226,8 @@ export default function App() {
     setCronOutputLoading(true);
     try {
       setCronOutput(await fetchCronOutput(id));
-    } catch (err: any) {
-      setCronOutput({ content: tf('cron.outputUnavailable', err.message || String(err)) });
+    } catch (err) {
+      setCronOutput({ content: tf('cron.outputUnavailable', errorMessage(err, String(err))) });
     } finally {
       setCronOutputLoading(false);
     }
@@ -1278,8 +1279,8 @@ export default function App() {
       await loadCronJobs();
       const output = await waitForCronRunOutput(() => fetchCronOutput(id), previousOutputTimestamp);
       setCronOutput(output);
-    } catch (err: any) {
-      setCronOutput({ content: tf('cron.outputUnavailable', err.message || String(err)) });
+    } catch (err) {
+      setCronOutput({ content: tf('cron.outputUnavailable', errorMessage(err, String(err))) });
     } finally {
       setCronOutputLoading(false);
     }
@@ -1518,8 +1519,8 @@ export default function App() {
       const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}/chat`), { method: 'POST', headers: headers(), body: JSON.stringify(buildChatRequestBody(`/steer ${text}`, sessionModel, effort, sessionProvider)) });
       if (!res.ok) throw new Error(await res.text());
       setStatus(tf('chat.steeredStatus', `${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`));
-    } catch (err: any) {
-      setStatus(tf('chat.steerFailed', err.message || err));
+    } catch (err) {
+      setStatus(tf('chat.steerFailed', errorMessage(err, String(err))));
       enqueueFollowUp(trimmed, sessionId);
     }
   };
@@ -1546,13 +1547,13 @@ export default function App() {
         setHasOlder(false);
         setHasNewer(false);
       }
-    } catch (err: any) { setStatus(tf('status.cannotCreateSession', err.message)); setBusy(false); return; }
+    } catch (err) { setStatus(tf('status.cannotCreateSession', errorMessage(err))); setBusy(false); return; }
     const stick = isNearBottom(chatScrollRef.current, 180);
     let payloadAttachments: Attachment[] = turnAttachments;
     try {
       payloadAttachments = await uploadAttachments(turnAttachments);
-    } catch (err: any) {
-      setStatus(tf('status.cannotUploadAttachments', err.message || err));
+    } catch (err) {
+      setStatus(tf('status.cannotUploadAttachments', errorMessage(err, String(err))));
       setBusy(false);
       return;
     }
@@ -1645,13 +1646,13 @@ export default function App() {
       setStatus(t('chat.connected'));
       await refreshSessionTitleOnce(sessionId);
       await loadWorkspace(workspacePath);
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
+    } catch (err) {
+      if (isAbortError(err)) {
         setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: m.content } : m));
         setStatus(t('status.stopped'));
       } else {
-        setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: `Request failed: ${err.message}` } : m));
-        setStatus(tf('status.error', err.message));
+        setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: `Request failed: ${errorMessage(err)}` } : m));
+        setStatus(tf('status.error', errorMessage(err)));
       }
     } finally {
       setBusy(false);
@@ -1727,7 +1728,7 @@ export default function App() {
   }, [fetchWorkspaceEntries, openWorkspacePathFile]);
   useEffect(() => {
     if (!workspaceRouteTarget) return;
-    openWorkspaceRouteTarget(workspaceRouteTarget.workspacePath, workspaceRouteTarget.workspaceKind, { edit: workspaceRouteTarget.workspaceEdit }).catch((err: any) => setStatus(tf('workspace.routeUnavailable', err.message)));
+    openWorkspaceRouteTarget(workspaceRouteTarget.workspacePath, workspaceRouteTarget.workspaceKind, { edit: workspaceRouteTarget.workspaceEdit }).catch((err) => setStatus(tf('workspace.routeUnavailable', errorMessage(err))));
     setWorkspaceRouteTarget(null);
   }, [openWorkspaceRouteTarget, workspaceRouteTarget]);
   const parentPath = workspacePath.split('/').filter(Boolean).slice(0, -1).join('/');
@@ -2712,7 +2713,7 @@ function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarO
       const body = await res.json();
       if (body.ok) st(t('skills.rollbacked'));
       else st(tf('skills.rollbackFailed', body.message || 'unknown'));
-    } catch (err: any) { st(tf('skills.rollbackFailed', err.message)); }
+    } catch (err) { st(tf('skills.rollbackFailed', errorMessage(err))); }
     setRollbacking(false);
   };
   const historyOptions = backups.filter((backup) => backup.id && backup.version).slice(0, 10).map((backup) => ({
@@ -2829,7 +2830,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
 }
 function MemoryPanel({ setStatus, showToast }: { setStatus: (v: string) => void; showToast: (v: string) => void }) {
   const [doc, setDoc] = useState<MemoryDoc>({ memory: '', user: '' });
-  const load = useCallback(async () => { try { const res = await fetch('/memory'); if (!res.ok) throw new Error(await res.text()); setDoc(await res.json()); } catch (err: any) { setStatus(tf('status.memoryUnavailable', err.message)); } }, [setStatus]);
+  const load = useCallback(async () => { try { const res = await fetch('/memory'); if (!res.ok) throw new Error(await res.text()); setDoc(await res.json()); } catch (err) { setStatus(tf('status.memoryUnavailable', errorMessage(err))); } }, [setStatus]);
   useEffect(() => { load(); }, [load]);
   const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); if (res.ok) { setStatus(t('memory.saved')); showToast(t('memory.saved')); } else setStatus(await res.text()); };
   return <section className="admin-content memory-grid"><label><span>MEMORY.md</span><textarea value={doc.memory} onChange={(e) => setDoc({ ...doc, memory: e.target.value })}/></label><label><span>USER.md</span><textarea value={doc.user} onChange={(e) => setDoc({ ...doc, user: e.target.value })}/></label><button className="save-memory" onClick={save}>{t('memory.save')}</button></section>;
@@ -2858,7 +2859,7 @@ function SettingsMain(props: { apiServerUrl: string; apiBase: string; setApiBase
       const data = await r.json();
       setUpdateInfo(data);
       setUpdateStatus('idle');
-    } catch (e: any) { setUpdateStatus('error'); setUpdateError(e?.message || 'Check failed'); }
+    } catch (error) { setUpdateStatus('error'); setUpdateError(errorMessage(error, 'Check failed')); }
   };
   const saveSettings = () => { localStorage.setItem('apiBase', props.apiBase); localStorage.setItem('apiKey', props.apiKey); localStorage.setItem('theme', props.theme); localStorage.setItem(FOLLOW_UP_BEHAVIOUR_KEY, props.followUpBehaviour); localStorage.setItem(COMPOSER_ENTER_MODE_KEY, props.composerEnterMode); setI18nLang(props.lang); props.showToast(t('settings.saved')); };
   const applyUpdate = async () => {
@@ -2876,7 +2877,7 @@ function SettingsMain(props: { apiServerUrl: string; apiBase: string; setApiBase
       }
       setUpdateStatus('restarting'); setUpdateInfo(null);
       setTimeout(() => { window.location.reload(); }, 3000);
-    } catch (e: any) { setUpdateStatus('error'); setUpdateError(e?.message || 'Update failed'); }
+    } catch (error) { setUpdateStatus('error'); setUpdateError(errorMessage(error, 'Update failed')); }
   };
   return <main className="main-panel settings-main"><header className="chat-header header-no-drawer"><div><h1>{t('settings.title')}</h1><span>{t('settings.summary')}</span></div><HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={'settings' as Mode} /></header><section className="settings-content"><label><span>{t('settings.apiUrl')}</span><input value={props.apiServerUrl || '—'} readOnly /></label><label><span>{t('settings.apiProxyBase')}</span><input value={props.apiBase} onChange={(e) => props.setApiBase(e.target.value)} /></label><label><span>{t('settings.apiKey')}</span><input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" /></label><label><span>{t('settings.language')}</span><select value={props.lang} onChange={(e) => { const next = e.target.value as Lang; props.setLang(next); setI18nLang(next); }}>{LANG_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.theme')}</span><select value={props.theme} onChange={(e) => props.setTheme(e.target.value as Theme)}>{THEME_OPTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('settings.followUpBehaviour')}</span><select value={props.followUpBehaviour} onChange={(e) => props.setFollowUpBehaviour(e.target.value as FollowUpBehaviour)}><option value="queue">{t('chat.queue')}</option><option value="steer">{t('chat.steer')}</option></select></label><label><span>{t('settings.composerEnterMode')}</span><select value={props.composerEnterMode} onChange={(e) => props.setComposerEnterMode(e.target.value as ComposerEnterMode)}><option value="enter-send">{t('settings.enterSend')}</option><option value="enter-newline">{t('settings.enterNewline')}</option></select></label><button className="mobile-icon-only settings-save-btn" aria-label={t('settings.save')} onClick={saveSettings}><Save /> <span className="btn-label">{t('settings.save')}</span></button><button className="mobile-icon-only" aria-label={t('settings.refreshConn')} onClick={() => { props.loadModels(); props.loadSessions(); }}><RefreshCw /> <span className="btn-label">{t('settings.refreshConn')}</span></button><div style={{ marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}><h3 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('settings.update')}</h3><p style={{ margin: '0 0 10px', color: 'var(--muted)', fontSize: 13 }}>{t('settings.version')}: <code>{currentVer || '...'}</code></p><div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}><button className="btn-wide" onClick={checkForUpdates} disabled={updateStatus === 'checking' || updateStatus === 'applying' || updateStatus === 'restarting'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-2)', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'checking' ? t('settings.checkingUpdate') : <><RefreshCw size={15} /> {t('settings.checkUpdate')}</>}</button>{updateInfo && <span style={{ fontSize: 13 }}>{updateInfo.available ? <span style={{ color: 'var(--green)' }}>{t('settings.updateAvailable')}: {updateInfo.latest}</span> : <span style={{ color: 'var(--muted)' }}>{t('settings.upToDate')}</span>}</span>}{updateInfo?.available && updateInfo.release_url && <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: 'var(--accent)' }}>{t('settings.viewRelease')}</a>}</div><div className="update-project-link-row"><a className="project-link" href="https://github.com/fffonion/yahu" target="_blank" rel="noopener noreferrer" aria-label="GitHub · fffonion/yahu"><GitHubIcon /> <span>GitHub · fffonion/yahu</span></a></div>{updateInfo?.available && <button className="btn-wide" onClick={applyUpdate} disabled={updateStatus === 'applying' || updateStatus === 'restarting'} style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid var(--accent)', borderRadius: 12, background: 'var(--accent)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>{updateStatus === 'applying' ? t('settings.installingUpdate') : updateStatus === 'restarting' ? t('settings.restartingUpdate') : <><Download size={15} /> {t('settings.installUpdate')}</>}</button>}{updateStatus === 'error' && <p style={{ margin: '8px 0 0', color: 'var(--danger)', fontSize: 13 }}>{updateError}</p>}</div></section></main>;
 }
@@ -3118,7 +3119,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       setHasMore(more);
       setNotice('');
       await loadStats();
-    } catch (err: any) { setNotice(`${t('gallery.imagesUnavailable')}: ${err.message}`); }
+    } catch (err) { setNotice(`${t('gallery.imagesUnavailable')}: ${errorMessage(err)}`); }
     finally {
       loadingRef.current = false;
       setLoading(false);
@@ -3161,7 +3162,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       if (added || updated) setNotice(tf('gallery.refreshComplete', added, updated));
       else if (window.innerWidth > 760) setNotice(t('gallery.refreshedNone'));
       await loadStats();
-    } catch (err: any) { setNotice(`${t('gallery.refreshFailed')}: ${err.message || err}`); }
+    } catch (err) { setNotice(`${t('gallery.refreshFailed')}: ${errorMessage(err, String(err))}`); }
     finally { refreshBusyRef.current = false; }
   }, [loadStats]);
   const refresh = refreshIncremental;
