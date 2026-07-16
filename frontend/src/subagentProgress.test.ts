@@ -56,6 +56,7 @@ describe('subagent progress websocket projection', () => {
       subagents: [{
         session_id: 'child',
         parent_session_id: 's1',
+        ancestry_omitted: true,
         task: 'Review code',
         status: 'running',
         started_at: 90,
@@ -68,7 +69,7 @@ describe('subagent progress websocket projection', () => {
       }],
     }, 's1')).toMatchObject({
       sessionId: 's1',
-      subagents: [{ sessionId: 'child', task: 'Review code', status: 'running', currentTool: 'terminal' }],
+      subagents: [{ sessionId: 'child', ancestryOmitted: true, task: 'Review code', status: 'running', currentTool: 'terminal' }],
     });
   });
 

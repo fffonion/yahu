@@ -301,7 +301,7 @@
         async fn api_sessions(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
             let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
             if offset == 0 {
-                let data = (0..SUBAGENT_PAGE_SIZE).map(|index| serde_json::json!({
+                let data = (0..2).map(|index| serde_json::json!({
                     "id": format!("other-{index}"),
                     "parent_session_id": "another",
                     "started_at": 499_000.0 - index as f64,
@@ -328,13 +328,31 @@
         let sessions = fetch_subagent_sessions(&state, 500_000.0).await.unwrap();
         let ids = sessions.iter().filter_map(|session| string_field(session, "id")).collect::<HashSet<_>>();
 
-        assert_eq!(sessions.len(), SUBAGENT_PAGE_SIZE + 1);
+        assert_eq!(sessions.len(), 3);
         assert!(ids.contains("target"));
         assert_eq!(ids.len(), sessions.len());
     }
 
+    #[tokio::test]
+    async fn subagent_api_pagination_rejects_an_empty_nonfinal_page() {
+        async fn api_sessions() -> Json<Value> {
+            Json(serde_json::json!({"data": [], "has_more": true}))
+        }
+
+        let app = Router::new().route("/api/sessions", get(api_sessions));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let error = fetch_subagent_sessions(&state, 500_000.0).await.unwrap_err();
+
+        assert!(error.to_string().contains("pagination made no progress"));
+    }
+
     #[test]
-    fn omitted_parent_is_rewritten_as_an_explicit_root() {
+    fn omitted_parent_is_preserved_and_marked_explicitly() {
         let session = serde_json::json!({
             "id": "nested",
             "parent_session_id": "omitted-parent",
@@ -344,9 +362,10 @@
         let messages = vec![serde_json::json!({"role": "user", "content": "Review"})];
         let projection = project_subagent_session(&session, &messages).unwrap();
 
-        let rooted = root_subagent_if_parent_omitted(projection, &HashSet::new(), "parent");
+        let marked = mark_subagent_omitted_ancestry(projection, &HashSet::new(), "parent");
 
-        assert_eq!(rooted.parent_session_id, "parent");
+        assert_eq!(marked.parent_session_id, "omitted-parent");
+        assert!(marked.ancestry_omitted);
     }
 
     #[test]
@@ -383,6 +402,7 @@
             SubagentProjection {
                 session_id: "child".to_string(),
                 parent_session_id: "parent".to_string(),
+                ancestry_omitted: false,
                 task: "Review".to_string(),
                 model: None,
                 status: status.to_string(),

@@ -32,6 +32,7 @@ export type SubagentMessage = ChatMessage;
 export type SubagentProgress = {
   sessionId: string;
   parentSessionId: string;
+  ancestryOmitted: boolean;
   task: string;
   model?: string;
   status: SubagentStatus;
@@ -265,6 +266,7 @@ function normalizeSubagent(value: unknown): SubagentProgress | null {
   return {
     sessionId,
     parentSessionId: stringValue(raw.parent_session_id),
+    ancestryOmitted: raw.ancestry_omitted === true,
     task: stringValue(raw.task) || stringValue(raw.goal) || 'Subagent',
     model: stringValue(raw.model) || undefined,
     status: normalizeStatus(raw.status),

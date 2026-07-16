@@ -28,6 +28,7 @@ struct SubagentActivity {
 struct SubagentProjection {
     session_id: String,
     parent_session_id: String,
+    ancestry_omitted: bool,
     task: String,
     model: Option<String>,
     status: String,
@@ -509,7 +510,7 @@ async fn fetch_subagent_projection_snapshot(
             && cached.message_count == message_count
             && cached.ended_at == ended_at
         {
-            out.push(root_subagent_if_parent_omitted(
+            out.push(mark_subagent_omitted_ancestry(
                 cached.projection.clone(),
                 &visible_ids,
                 parent_session_id,
@@ -529,7 +530,7 @@ async fn fetch_subagent_projection_snapshot(
                 projection: projection.clone(),
             },
         );
-        out.push(root_subagent_if_parent_omitted(
+        out.push(mark_subagent_omitted_ancestry(
             projection,
             &visible_ids,
             parent_session_id,
@@ -538,14 +539,13 @@ async fn fetch_subagent_projection_snapshot(
     Ok(out)
 }
 
-fn root_subagent_if_parent_omitted(
+fn mark_subagent_omitted_ancestry(
     mut projection: SubagentProjection,
     visible_ids: &HashSet<String>,
     parent_session_id: &str,
 ) -> SubagentProjection {
-    if !visible_ids.contains(&projection.parent_session_id) {
-        projection.parent_session_id = parent_session_id.to_string();
-    }
+    projection.ancestry_omitted = projection.parent_session_id != parent_session_id
+        && !visible_ids.contains(&projection.parent_session_id);
     projection
 }
 
@@ -582,10 +582,10 @@ async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::R
                 new_ids += 1;
             }
         }
-        if !has_more || count < SUBAGENT_PAGE_SIZE || reached_window_start {
+        if !has_more || reached_window_start {
             break;
         }
-        if new_ids == 0 {
+        if count == 0 || new_ids == 0 {
             anyhow::bail!("subagent session pagination made no progress");
         }
         offset = offset.saturating_add(count);
@@ -747,6 +747,7 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
     Some(SubagentProjection {
         session_id,
         parent_session_id,
+        ancestry_omitted: false,
         task: truncate_chars(task.trim(), 500),
         model: string_field(session, "model"),
         status,

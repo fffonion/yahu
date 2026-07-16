@@ -64,6 +64,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
 
   useEffect(() => {
     if (!sessionId || sessionId === '__webui_draft_session__') return;
+    let stopped = false;
     if (beforeTime === null) {
       setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);
       return;
@@ -77,19 +78,18 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
           return response.json();
         })
         .then((payload) => {
-          if (controller.signal.aborted) return;
+          if (stopped || controller.signal.aborted) return;
           const next = normalizeSubagentSnapshot(payload, sessionId);
           if (next) setSnapshot(next);
         })
         .catch((error) => {
-          if (controller.signal.aborted) return;
+          if (stopped || controller.signal.aborted) return;
           setSnapshot((current) => current ? { ...current, subagents: [], error: String(error) } : null);
         });
-      return () => controller.abort();
+      return () => { stopped = true; controller.abort(); };
     }
     let socket: WebSocket | null = null;
     let reconnectTimer = 0;
-    let stopped = false;
     let reconnectDelay = 750;
 
     const connect = () => {
@@ -248,7 +248,7 @@ function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, dep
     <details open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; if (nextOpen !== open) onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(); }}>
       <summary className={completed ? 'completed' : undefined}>
         <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
-        <span className="subagent-progress-goal"><strong>{node.task}</strong>{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
+        <span className="subagent-progress-goal"><strong>{node.task}</strong>{node.ancestryOmitted && <small className="subagent-progress-omitted-ancestry" title="Parent outside the current 24-hour window">↳ Parent outside window</small>}{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
         {!completed && <ChevronRight className="subagent-progress-chevron" aria-hidden="true" />}
       </summary>
       <div className="subagent-progress-detail">
