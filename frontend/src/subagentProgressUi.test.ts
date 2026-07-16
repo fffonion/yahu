@@ -58,6 +58,9 @@ describe('subagent progress UI', () => {
     expect(source).toContain("{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}");
     expect(source).toContain('{completed && <p className="subagent-progress-detail-meta">{statusLabel(node.status)} · {elapsed}</p>}');
     expect(source).toContain("${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}");
+    expect(source).toContain("<strong>{completed ? node.goal : t('subagents.title')}</strong>");
+    expect(source).toContain("aria-label={`${completed ? node.goal : t('subagents.title')}: ${statusLabel(node.status)}`}");
+    expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-heading strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
     expect(styles).toContain('.subagent-progress-node>details>summary.completed{grid-template-columns:auto minmax(0,1fr);min-height:36px;');
     expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-panel-toggle{grid-template-columns:auto minmax(0,1fr);min-height:40px;');
     expect(styles).toContain('.subagent-progress-node>details[open]>summary.completed .subagent-progress-goal strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
@@ -104,7 +107,7 @@ describe('subagent progress UI', () => {
     expect(i18n()).toContain("'subagents.todoProgress': { en: '{0}/{1} tasks', 'zh-CN': '{0}/{1} 任务'");
     expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.subagents.length && !snapshot.error)) return null;");
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
-    expect(source).toContain("aria-label={`${t('subagents.title')}: ${statusLabel(node.status)}`}");
+    expect(source).toContain("aria-label={`${completed ? node.goal : t('subagents.title')}: ${statusLabel(node.status)}`}");
     expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));
     expect(source).toContain('<span className="subagent-progress-heading"><strong>{t(\'subagents.title\')}</strong>');
     expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:6px;pointer-events:none;');

@@ -151,7 +151,7 @@ function SubagentProgressPreview({ node, runningCount, nowSeconds }: { node: Sub
   const previewStatus = runningCount > 1 ? tf('subagents.runningCount', runningCount) : statusLabel(node.status);
   return <>
     <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
-    <span className="subagent-progress-heading" aria-label={`${t('subagents.title')}: ${statusLabel(node.status)}`}><strong>{t('subagents.title')}</strong>{!completed && <small>{previewStatus} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
+    <span className="subagent-progress-heading" aria-label={`${completed ? node.goal : t('subagents.title')}: ${statusLabel(node.status)}`}><strong>{completed ? node.goal : t('subagents.title')}</strong>{!completed && <small>{previewStatus} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
     {!completed && <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />}
   </>;
 }
