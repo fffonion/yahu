@@ -19,6 +19,7 @@ describe('history coverage gap', () => {
     const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     expect(transcript).toContain('function HistoryCoverageGap');
     expect(transcript).toContain("t('chat.historyCoverageGap')");
-    expect(styles).toContain('.history-coverage-gap{');
+    expect(styles).toContain('.history-coverage-gap{width:100%;max-width:920px;align-self:flex-start;display:flex;');
+    expect(styles).toContain('max-width:min(70%,560px)');
   });
 });
