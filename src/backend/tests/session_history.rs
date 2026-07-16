@@ -267,6 +267,98 @@
     }
 
     #[tokio::test]
+    async fn chat_history_merges_detached_same_thread_session_switch_by_timestamp() {
+        async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": null}
+            }))
+        }
+
+        async fn api_messages(AxumPath(_session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({"object":"list","data":[{
+                "id": 40,
+                "session_id": "current",
+                "role":"assistant",
+                "content": "current suffix",
+                "timestamp": 100.0
+            }]}))
+        }
+
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("sessions")).unwrap();
+        std::fs::write(
+            temp.path().join("sessions/request_dump_current_recovered.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "timestamp": "1970-01-01T00:00:50Z",
+                "session_id": "current",
+                "request": {"body": {"input": [
+                    {"role": "user", "content": "dump prefix", "timestamp": 5.0},
+                    {"role": "assistant", "content": "dump later", "timestamp": 50.0}
+                ]}}
+            })).unwrap(),
+        ).unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('current',NULL,1,NULL,NULL,'telegram','same-key','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('switch',NULL,10,20,'session_switch','telegram','same-key','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('other-topic',NULL,11,21,'session_switch','telegram','same-key','chat','other')", []).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES (20,'switch','user','detached middle',10,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES (21,'other-topic','user','must stay isolated',11,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES (40,'current','assistant','current suffix',100,1)", []).unwrap();
+        drop(conn);
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let messages = fetch_all_session_messages_for_context(&state, "current").await.unwrap();
+        let content = messages
+            .iter()
+            .map(|message| message["content"].as_str().unwrap_or(""))
+            .collect::<Vec<_>>();
+
+        assert_eq!(content, vec!["dump prefix", "detached middle", "dump later", "current suffix"]);
+        assert_eq!(messages[1]["session_id"], "switch");
+        assert!(!content.contains(&"must stay isolated"));
+
+        let active_context = fetch_context_window_messages(&state, "current").await.unwrap();
+        assert_eq!(active_context.messages.len(), 1);
+        assert_eq!(active_context.messages[0]["content"], "current suffix");
+    }
+
+    #[tokio::test]
     async fn chat_history_includes_compacted_messages_without_context_window_counting_them() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");

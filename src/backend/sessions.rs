@@ -1825,6 +1825,131 @@ fn fetch_local_history_context_messages(
     )
 }
 
+fn fetch_local_detached_session_switch_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(
+        &conn,
+        "sessions",
+        &[
+            "started_at",
+            "end_reason",
+            "source",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(Vec::new());
+    }
+    let entries = local_session_history_entries(&conn, session_id)?;
+    let Some(root_id) = entries.first().map(|entry| entry.id.as_str()) else {
+        return Ok(Vec::new());
+    };
+    let root: Option<SessionResetLookupRow> = conn
+        .query_row(
+            "SELECT started_at, session_key, source, chat_id, thread_id FROM sessions WHERE id = ?1",
+            [root_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .optional()?;
+    let Some((started_at, Some(session_key), source, chat_id, thread_id)) = root else {
+        return Ok(Vec::new());
+    };
+    if session_key.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut session_stmt = conn.prepare(
+        "SELECT id FROM sessions
+         WHERE id != ?1
+           AND end_reason = 'session_switch'
+           AND started_at >= ?2
+           AND session_key = ?3
+           AND source IS ?4
+           AND chat_id IS ?5
+           AND thread_id IS ?6
+         ORDER BY started_at, id",
+    )?;
+    let peer_ids = session_stmt
+        .query_map(
+            rusqlite::params![root_id, started_at, session_key, source, chat_id, thread_id],
+            |row| row.get::<_, String>(0),
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if peer_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
+    let mut messages = Vec::new();
+    for peer_id in peer_ids {
+        let sql = format!(
+            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_content \
+             FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY timestamp, id"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([peer_id], row_to_session_message)?;
+        messages.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+    }
+    messages.sort_by(|left, right| {
+        nav_message_timestamp_seconds(left)
+            .partial_cmp(&nav_message_timestamp_seconds(right))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| session_message_id(left).cmp(&session_message_id(right)))
+    });
+    Ok(messages)
+}
+
+fn merge_detached_session_switch_history(
+    state: &AppState,
+    session_id: &str,
+    context: &mut ContextWindowMessages,
+) {
+    let mut detached = match fetch_local_detached_session_switch_messages(state, session_id) {
+        Ok(messages) => messages,
+        Err(err) => {
+            warn!(session_id = %session_id, error = %err, "cannot read detached session-switch history");
+            return;
+        }
+    };
+    if detached.is_empty() {
+        return;
+    }
+    let known_ids = context
+        .messages
+        .iter()
+        .filter_map(session_message_id)
+        .collect::<HashSet<_>>();
+    detached.retain(|message| session_message_id(message).is_none_or(|id| !known_ids.contains(&id)));
+    if detached.is_empty() {
+        return;
+    }
+    let boundary = context.boundary_start.min(context.messages.len());
+    let mut suffix = context.messages.split_off(boundary);
+    context.messages.extend(detached);
+    context.messages.sort_by(|left, right| {
+        match (nav_message_timestamp_seconds(left), nav_message_timestamp_seconds(right)) {
+            (Some(left_timestamp), Some(right_timestamp)) => left_timestamp
+                .partial_cmp(&right_timestamp)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| session_message_id(left).cmp(&session_message_id(right))),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
+    context.boundary_start = context.messages.len();
+    context.messages.append(&mut suffix);
+}
+
 fn fetch_local_history_entries(
     state: &AppState,
     session_id: &str,
@@ -2140,6 +2265,7 @@ async fn fetch_session_history_context_messages(
         }
     };
     prepend_recovered_request_dump_prefix(state, session_id, &mut context);
+    merge_detached_session_switch_history(state, session_id, &mut context);
     Ok(context)
 }
 
