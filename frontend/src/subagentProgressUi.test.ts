@@ -133,7 +133,14 @@ describe('subagent progress UI', () => {
     expect(source).toContain('</div>\n      <footer className="subagent-goal-footer">{goalMetadata}</footer>');
     expect(styles).toContain('.subagent-goal-copy{min-width:0;display:grid;gap:3px}');
     expect(styles).toContain('.subagent-goal-meta{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');
-    expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-preview{white-space:normal;overflow:visible;text-overflow:clip}');
+    expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-preview{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px}');
+    expect(styles).toContain('.subagent-goal-body{max-height:min(62vh,720px);overflow-y:auto;overscroll-behavior:contain;padding:10px 12px;border-top:1px solid color-mix(in srgb,var(--border) 82%,transparent);font-size:14px;');
+    expect(styles).toContain('.subagent-goal-todos li{font-size:12px}');
+    expect(styles).toContain('.subagent-goal-milestones>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;color:color-mix(in srgb,var(--text) 88%,var(--subagent-goal-accent));font-size:13px;');
+    expect(styles).toContain('.subagent-goal-milestone-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;color:color-mix(in srgb,var(--subagent-goal-accent) 82%,var(--text));font-size:11px;');
+    expect(styles).toContain('.subagent-goal-milestone-meta time{font:500 11px/1.2 var(--mono)}');
+    expect(styles).toContain('.subagent-goal-milestones li p{margin:0;color:color-mix(in srgb,var(--text) 92%,var(--subagent-goal-accent));font-size:13px;');
+    expect(styles).toContain('.subagent-goal-footer{margin:0;padding:9px 12px;border-top:1px solid color-mix(in srgb,var(--subagent-goal-accent) 28%,var(--border));background:color-mix(in srgb,var(--subagent-goal-accent) 5%,transparent);color:color-mix(in srgb,var(--subagent-goal-accent) 78%,var(--text));font-size:11px;');
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-meta{display:none}');
     expect(i18n()).toContain("'goals.active': { en: 'Active', 'zh-CN': '进行中'");
     expect(i18n()).toContain("'goals.turnProgress': { en: '{0}/{1} turns', 'zh-CN': '{0}/{1} 轮'");
