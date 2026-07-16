@@ -21,7 +21,7 @@ describe('subagent progress UI', () => {
   test('keeps todos and shared conversation detail while removing counters, model, and recent activity chrome', () => {
     const source = card();
     expect(source).toContain('className="subagent-progress-tree"');
-    expect(source).toContain('className="subagent-progress-todos"');
+    expect(source).toContain('subagent-progress-todos${className');
     expect(source).toContain('className="subagent-progress-messages"');
     expect(source).toContain('formatSubagentFinalMessages(messages)');
     expect(source).toContain('structuredContent: parseSubagentFinalStructuredContent(node.summary)');
@@ -93,7 +93,13 @@ describe('subagent progress UI', () => {
     expect(source).toContain('className="subagent-goal-panel" open={goalExpanded}');
     expect(source).toContain('<span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>');
     expect(source).not.toContain("<strong>{t('subagents.goal')}</strong>");
-    expect(source).toContain('className="subagent-goal-body">{preview.goal}</div>');
+    expect(source).toContain('className="subagent-goal-text">{preview.goal}</div>');
+    expect(source).toContain('<SubagentTodoList todos={preview.todos} className="subagent-goal-todos" />');
+    expect(source).toContain('<SubagentTodoList todos={node.todos} />');
+    expect(source).toContain("function SubagentTodoList({ todos, className = '' }");
+    expect(source).toContain('const showSubagentPanel = shouldShowSubagentPanel(preview);');
+    expect(source).toContain('{showSubagentPanel && <section className={`subagent-progress-card');
+    expect(source).toContain("runningCount > 1 ? tf('subagents.runningCount', runningCount) : ''");
     expect(styles).toContain('.subagent-goal-icon{color:var(--subagent-goal-accent);background:color-mix(in srgb,var(--subagent-goal-accent) 12%,transparent)}');
     expect(source).toContain('const goalMetadata = preview ? [');
     expect(source).toContain("tf('subagents.iteration', subagentIteration(preview))");
@@ -115,6 +121,7 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('color:var(--subagent-goal-accent)');
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-chevron{transform:rotate(90deg)}');
     expect(styles).toContain('.subagent-goal-body{');
+    expect(styles).toContain('.subagent-goal-todos{padding-top:10px;border-top:1px solid');
     expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}');
   });
 

@@ -155,6 +155,10 @@ export function subagentIteration(subagent: Pick<SubagentProgress, 'status' | 'a
   return Math.max(subagent.status === 'running' ? 1 : 0, subagent.apiCalls);
 }
 
+export function shouldShowSubagentPanel(subagent: Pick<SubagentProgress, 'status'> | undefined): boolean {
+  return subagent?.status !== 'running';
+}
+
 export function isSubagentDetailNearBottom(metrics: Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>, thresholdPx = 96): boolean {
   return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= thresholdPx;
 }

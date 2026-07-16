@@ -12,6 +12,7 @@ import {
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
   previewSubagent,
+  shouldShowSubagentPanel,
   subagentElapsedSeconds,
   subagentIteration,
   subagentMessagesUrl,
@@ -19,6 +20,7 @@ import {
   type SubagentProgress,
   type SubagentProgressSnapshot,
   type SubagentStatus,
+  type SubagentTodo,
   type SubagentTreeNode,
 } from './subagentProgress';
 
@@ -106,11 +108,13 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   const preview = previewSubagent(snapshot.subagents);
   const completedTodos = preview?.todos.filter((todo) => todo.status === 'completed').length || 0;
   const goalMetadata = preview ? [
+    runningCount > 1 ? tf('subagents.runningCount', runningCount) : '',
     tf('subagents.iteration', subagentIteration(preview)),
     formatSubagentElapsed(subagentElapsedSeconds(preview, nowSeconds)),
     preview.currentTool ? tf('subagents.currentTool', preview.currentTool) : '',
     preview.todos.length ? tf('subagents.todoProgress', completedTodos, preview.todos.length) : '',
   ].filter(Boolean).join(' · ') : '';
+  const showSubagentPanel = shouldShowSubagentPanel(preview);
   const finished = snapshot.subagents.filter((item) => item.status !== 'running').length;
   const total = snapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
@@ -124,9 +128,12 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
         </span>
         <ChevronRight className="subagent-goal-chevron" aria-hidden="true" />
       </summary>
-      <div className="subagent-goal-body">{preview.goal}</div>
+      <div className="subagent-goal-body">
+        <div className="subagent-goal-text">{preview.goal}</div>
+        <SubagentTodoList todos={preview.todos} className="subagent-goal-todos" />
+      </div>
     </details>}
-    <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
+    {showSubagentPanel && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
     <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
       {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
       {(expanded || !preview) && <>
@@ -141,7 +148,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
       {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
       <div className="subagent-progress-tree" ref={detailTreeRef} onScroll={(event) => { followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget); }}>{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} openNodeIds={openNodeIds} onOpenChange={setNodeOpen} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={startFollowingLatestDetail} onDetailContentChange={followLatestDetail} />)}</div>
     </div>}
-    </section>
+    </section>}
   </div>;
 }
 
@@ -214,7 +221,7 @@ function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, dep
       </summary>
       <div className="subagent-progress-detail">
         {completed && <p className="subagent-progress-detail-meta">{statusLabel(node.status)} · {elapsed}</p>}
-        {node.todos.length > 0 && <ul className="subagent-progress-todos">{node.todos.map((todo, index) => <li className={todo.status} key={`${todo.id}:${index}`}><span className="subagent-todo-box" aria-hidden="true">{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '–' : ''}</span><span>{todo.content}</span></li>)}</ul>}
+        <SubagentTodoList todos={node.todos} />
         {detailsLoading && <p className="subagent-progress-detail-state">{t('subagents.loadingDetails')}</p>}
         {detailsError && <p className="subagent-progress-detail-state error">{t('subagents.detailsUnavailable')}</p>}
         {detailMessages.length > 0 && <div className="subagent-progress-messages"><ChatTranscript messages={detailMessages} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} /></div>}
@@ -222,6 +229,11 @@ function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, dep
     </details>
     {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} openNodeIds={openNodeIds} onOpenChange={onOpenChange} nowSeconds={nowSeconds} depth={depth + 1} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={onDetailOpen} onDetailContentChange={onDetailContentChange} />)}</div>}
   </div>;
+}
+
+function SubagentTodoList({ todos, className = '' }: { todos: SubagentTodo[]; className?: string }) {
+  if (!todos.length) return null;
+  return <ul className={`subagent-progress-todos${className ? ` ${className}` : ''}`}>{todos.map((todo, index) => <li className={todo.status} key={`${todo.id}:${index}`}><span className="subagent-todo-box" aria-hidden="true">{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '–' : ''}</span><span>{todo.content}</span></li>)}</ul>;
 }
 
 function statusIcon(status: SubagentStatus) {

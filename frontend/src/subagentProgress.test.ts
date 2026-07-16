@@ -8,6 +8,7 @@ import {
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
   previewSubagent,
+  shouldShowSubagentPanel,
   subagentIteration,
   subagentMessagesUrl,
   subagentWebSocketUrl,
@@ -136,6 +137,13 @@ describe('subagent progress websocket projection', () => {
     expect(subagentIteration({ status: 'running', apiCalls: 4 })).toBe(4);
     expect(subagentIteration({ status: 'completed', apiCalls: 4 })).toBe(4);
     expect(subagentIteration({ status: 'completed', apiCalls: 0 })).toBe(0);
+  });
+
+  test('merges a running associated agent into Goal and restores its panel after exit', () => {
+    expect(shouldShowSubagentPanel({ status: 'running' })).toBe(false);
+    expect(shouldShowSubagentPanel({ status: 'completed' })).toBe(true);
+    expect(shouldShowSubagentPanel({ status: 'failed' })).toBe(true);
+    expect(shouldShowSubagentPanel(undefined)).toBe(true);
   });
 
   test('prefers the latest running subagent even when a newer subagent already completed', () => {
