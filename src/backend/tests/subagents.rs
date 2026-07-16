@@ -80,9 +80,10 @@
         async fn api_messages() -> Json<Value> {
             Json(serde_json::json!({
                 "data": [
-                    { "role": "tool", "tool_name": "todo", "content": "{\"todos\":[{\"id\":\"old\",\"content\":\"Old task\",\"status\":\"completed\"}]}" },
-                    { "role": "assistant", "content": "", "tool_calls": [{ "id": "todo-current", "function": { "name": "todo", "arguments": "{\"todos\":[{\"id\":\"current\",\"content\":\"Current main task\",\"status\":\"in_progress\"}]}" } }] },
-                    { "role": "tool", "tool_name": "todo", "tool_call_id": "todo-current", "content": "[todo] updated task list" }
+                    { "role": "assistant", "content": "", "tool_calls": [{ "id": "todo-full", "function": { "name": "todo", "arguments": "{\"todos\":[{\"id\":\"keep\",\"content\":\"Keep this task\",\"status\":\"pending\"},{\"id\":\"current\",\"content\":\"Current main task\",\"status\":\"in_progress\"}]}" } }] },
+                    { "role": "tool", "tool_name": "todo", "tool_call_id": "todo-full", "content": "[todo] updated task list" },
+                    { "role": "assistant", "content": "", "tool_calls": [{ "id": "todo-merge", "function": { "name": "todo", "arguments": "{\"merge\":true,\"todos\":[{\"id\":\"current\",\"status\":\"completed\"}]}" } }] },
+                    { "role": "tool", "tool_name": "todo", "tool_call_id": "todo-merge", "content": "[todo] updated task list" }
                 ]
             }))
         }
@@ -101,10 +102,12 @@
             .await
             .unwrap();
 
-        assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0].id, "current");
-        assert_eq!(todos[0].content, "Current main task");
-        assert_eq!(todos[0].status, "in_progress");
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0].id, "keep");
+        assert_eq!(todos[0].status, "pending");
+        assert_eq!(todos[1].id, "current");
+        assert_eq!(todos[1].content, "Current main task");
+        assert_eq!(todos[1].status, "completed");
     }
 
     #[test]

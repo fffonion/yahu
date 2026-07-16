@@ -105,6 +105,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;
 
   const goal = snapshot.goal;
+  const goalReason = goal?.status === 'paused' ? goal.pausedReason || goal.lastReason : goal?.lastReason;
   const preview = previewSubagent(snapshot.subagents);
   const completedGoalTodos = goal?.todos.filter((item) => item.status === 'completed').length || 0;
   const goalMetadata = goal ? [
@@ -129,7 +130,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
         <div className="subagent-goal-text">{goal.text}</div>
         <SubagentTodoList todos={goal.todos} className="subagent-goal-todos" />
         {goal.subgoals.length > 0 && <ul className="subagent-goal-subgoals">{goal.subgoals.map((item, index) => <li key={index}>{item}</li>)}</ul>}
-        {goal.lastReason && <p className="subagent-goal-reason">{goal.lastReason}</p>}
+        {goalReason && <p className="subagent-goal-reason">{goalReason}</p>}
       </div>
     </details>}
     {(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>

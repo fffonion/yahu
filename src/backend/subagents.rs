@@ -691,9 +691,10 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
 }
 
 fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
-    for message in messages.iter().rev() {
+    let mut current = Vec::<SubagentTodo>::new();
+    for message in messages {
         if message.get("role").and_then(Value::as_str) == Some("assistant") {
-            for call in tool_calls(message.get("tool_calls")).iter().rev() {
+            for call in tool_calls(message.get("tool_calls")) {
                 let function = call.get("function").and_then(Value::as_object);
                 if function
                     .and_then(|value| value.get("name"))
@@ -710,12 +711,16 @@ fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
                     Value::Object(_) => Some(arguments.clone()),
                     _ => None,
                 };
-                if let Some(items) = parsed
-                    .as_ref()
-                    .and_then(|value| value.get("todos"))
-                    .and_then(Value::as_array)
-                {
-                    return normalize_todos(items);
+                let Some(parsed) = parsed else {
+                    continue;
+                };
+                let Some(items) = parsed.get("todos").and_then(Value::as_array) else {
+                    continue;
+                };
+                if parsed.get("merge").and_then(Value::as_bool).unwrap_or(false) {
+                    merge_todos(&mut current, items);
+                } else {
+                    current = normalize_todos(items);
                 }
             }
         }
@@ -726,26 +731,72 @@ fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
             if let Ok(value) = serde_json::from_str::<Value>(&content)
                 && let Some(items) = value.get("todos").and_then(Value::as_array)
             {
-                return normalize_todos(items);
+                current = normalize_todos(items);
             }
         }
     }
-    Vec::new()
+    current
 }
 
 fn normalize_todos(items: &[Value]) -> Vec<SubagentTodo> {
-    items
-        .iter()
-        .take(100)
-        .filter_map(|item| {
-            let content = string_field(item, "content")?;
-            Some(SubagentTodo {
-                id: string_field(item, "id").unwrap_or_default(),
-                content: truncate_chars(content.trim(), 240),
-                status: normalize_todo_status(item.get("status").and_then(Value::as_str)),
-            })
-        })
-        .collect()
+    let mut normalized = Vec::<SubagentTodo>::new();
+    for item in items {
+        let id = string_field(item, "id").unwrap_or_else(|| "?".to_string());
+        let id = if id.trim().is_empty() { "?" } else { id.trim() };
+        let content = string_field(item, "content").unwrap_or_else(|| "(no description)".to_string());
+        let content = if content.trim().is_empty() {
+            "(no description)"
+        } else {
+            content.trim()
+        };
+        if let Some(position) = normalized.iter().position(|todo| todo.id == id) {
+            normalized.remove(position);
+        }
+        normalized.push(SubagentTodo {
+            id: id.to_string(),
+            content: truncate_chars(content, 240),
+            status: normalize_todo_status(item.get("status").and_then(Value::as_str)),
+        });
+    }
+    normalized.truncate(100);
+    normalized
+}
+
+fn merge_todos(current: &mut Vec<SubagentTodo>, items: &[Value]) {
+    for item in items {
+        let Some(id) = string_field(item, "id") else {
+            continue;
+        };
+        let id = id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        if let Some(existing) = current.iter_mut().find(|todo| todo.id == id) {
+            if let Some(content) = string_field(item, "content")
+                && !content.trim().is_empty()
+            {
+                existing.content = truncate_chars(content.trim(), 240);
+            }
+            if let Some(status) = valid_todo_status(item.get("status").and_then(Value::as_str)) {
+                existing.status = status;
+            }
+            continue;
+        }
+        let content = string_field(item, "content").unwrap_or_else(|| "(no description)".to_string());
+        let content = if content.trim().is_empty() {
+            "(no description)"
+        } else {
+            content.trim()
+        };
+        current.push(SubagentTodo {
+            id: id.to_string(),
+            content: truncate_chars(content, 240),
+            status: normalize_todo_status(item.get("status").and_then(Value::as_str)),
+        });
+        if current.len() == 100 {
+            break;
+        }
+    }
 }
 
 fn subagent_status(ended_at: Option<f64>, end_reason: Option<&str>) -> String {
@@ -765,13 +816,17 @@ fn subagent_status(ended_at: Option<f64>, end_reason: Option<&str>) -> String {
 }
 
 fn normalize_todo_status(status: Option<&str>) -> String {
-    match status.unwrap_or_default() {
-        "completed" => "completed",
-        "in_progress" => "in_progress",
-        "cancelled" => "cancelled",
-        _ => "pending",
+    valid_todo_status(status).unwrap_or_else(|| "pending".to_string())
+}
+
+fn valid_todo_status(status: Option<&str>) -> Option<String> {
+    match status?.trim().to_ascii_lowercase().as_str() {
+        "pending" => Some("pending".to_string()),
+        "in_progress" => Some("in_progress".to_string()),
+        "completed" => Some("completed".to_string()),
+        "cancelled" => Some("cancelled".to_string()),
+        _ => None,
     }
-    .to_string()
 }
 
 fn tool_calls(value: Option<&Value>) -> Vec<Value> {
