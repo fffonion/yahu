@@ -353,6 +353,7 @@ const translations: Record<string, Record<string, string>> = {
   'nav.openList': { en: 'Open list', 'zh-CN': '打开列表', 'zh-TW': '開啟列表', ja: 'リストを開く' },
   'nav.collapseSidebar': { en: 'Collapse sidebar', 'zh-CN': '折叠侧栏', 'zh-TW': '摺疊側欄', ja: 'サイドバーを折りたたむ' },
   'nav.expandSidebar': { en: 'Expand sidebar', 'zh-CN': '展开侧栏', 'zh-TW': '展開側欄', ja: 'サイドバーを展開' },
+  'nav.resizeSidebar': { en: 'Resize sidebar', 'zh-CN': '调整侧栏宽度', 'zh-TW': '調整側欄寬度', ja: 'サイドバーの幅を調整' },
   'nav.mobile': { en: 'Mobile navigation', 'zh-CN': '移动端导航', 'zh-TW': '行動端導覽', ja: 'モバイルナビゲーション' },
   'nav.theme': { en: 'Theme', 'zh-CN': '主题', 'zh-TW': '主題', ja: 'テーマ' },
   'nav.closeList': { en: 'Close list', 'zh-CN': '关闭列表', 'zh-TW': '關閉列表', ja: 'リストを閉じる' },

@@ -73,7 +73,7 @@ describe('skills UI', () => {
     expect(source).toContain("fetch(`/skills/file?name=${encodeURIComponent(skillName)}");
     expect(source).toContain("saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined}");
     expect(source).toContain('const target = saveUrl ? saveUrl(preview.path) : `/workspace/file?path=${encodeURIComponent(preview.path)}`;');
-    expect(styles).toContain('.app-shell.skills-mode{grid-template-columns:360px minmax(480px,1fr) 320px}');
+    expect(styles).toContain('.app-shell.skills-mode{grid-template-columns:var(--sidebar-width) minmax(480px,1fr) 320px}');
     expect(styles).toContain('.skill-workspace');
   });
 

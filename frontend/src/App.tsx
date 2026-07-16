@@ -28,6 +28,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMar
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
+import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 
@@ -87,6 +88,7 @@ const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const SHOW_REASONING_KEY = 'showReasoning';
 const DESKTOP_COMPACT_MESSAGES_KEY = 'desktopCompactMessages';
 const HIDE_CRON_SESSIONS_KEY = 'hideCronSessions';
+const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
 const THEME_OPTIONS: Array<{ id: Theme; label: string }> = [
   { id: 'hermes-light', label: 'Hermes Light' },
   { id: 'hermes-dark', label: 'Hermes Dark' },
@@ -524,6 +526,10 @@ export default function App() {
   const [mode, setMode] = useState<Mode>(initialRoute.mode || 'chat');
   const [lang, setLangState] = useState<Lang>(initLang);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'insights' || initialRoute.mode === 'settings');
+  const [sidebarWidth, setSidebarWidth] = useState(() => readSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY)));
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const sidebarResizeRef = useRef<{ pointerId: number; left: number } | null>(null);
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => normalizeTheme(localStorage.getItem('theme')));
@@ -1813,6 +1819,39 @@ export default function App() {
     await loadWorkspace(workspacePath);
     setStatus(t('workspace.deleted'));
   };
+  const applySidebarWidth = useCallback((nextWidth: number) => {
+    sidebarWidthRef.current = nextWidth;
+    setSidebarWidth(nextWidth);
+  }, []);
+  const beginSidebarResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (sidebarCollapsed || window.matchMedia('(max-width: 900px)').matches) return;
+    const shell = event.currentTarget.closest('.app-shell');
+    if (!(shell instanceof HTMLElement)) return;
+    event.preventDefault();
+    sidebarResizeRef.current = { pointerId: event.pointerId, left: shell.getBoundingClientRect().left };
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* continue without pointer capture */ }
+    setSidebarResizing(true);
+  }, [sidebarCollapsed]);
+  const resizeSidebar = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const active = sidebarResizeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    applySidebarWidth(sidebarWidthFromPointer(event.clientX, active.left));
+  }, [applySidebarWidth]);
+  const endSidebarResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const active = sidebarResizeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    sidebarResizeRef.current = null;
+    setSidebarResizing(false);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
+  }, []);
+  const resizeSidebarWithKeyboard = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const nextWidth = sidebarWidthFromKey(sidebarWidthRef.current, event.key);
+    if (nextWidth === sidebarWidthRef.current) return;
+    event.preventDefault();
+    applySidebarWidth(nextWidth);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth));
+  }, [applySidebarWidth]);
   const closeMobileSidebar = () => setMobileSidebarOpen(false);
   const toggleMobileSidebar = () => {
     if (!hasMobileDrawer(mode)) return;
@@ -1831,7 +1870,7 @@ export default function App() {
 
   const activeSessionModelOverride = activeSessionId ? sessionModelOverrides[activeSessionId] : undefined;
   return (
-    <div className={`app-shell ${wideMode ? 'wide-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''}`}>
+    <div className={`app-shell ${wideMode ? 'wide-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''} ${sidebarResizing ? 'sidebar-resizing' : ''}`} style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}>
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="rail">
           <button className="rail-btn muted" onClick={() => setSidebarCollapsed((v) => !v)} title={sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>{sidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}</button>
@@ -1850,6 +1889,7 @@ export default function App() {
         </div>}
         {!sidebarCollapsed && <ThemeCard theme={theme} setTheme={setTheme} />}
       </aside>
+      <div className="sidebar-resize-handle" role="separator" aria-label={t('nav.resizeSidebar')} aria-orientation="vertical" aria-valuemin={MIN_SIDEBAR_WIDTH} aria-valuemax={MAX_SIDEBAR_WIDTH} aria-valuenow={sidebarWidth} tabIndex={sidebarCollapsed ? -1 : 0} onPointerDown={beginSidebarResize} onPointerMove={resizeSidebar} onPointerUp={endSidebarResize} onPointerCancel={endSidebarResize} onKeyDown={resizeSidebarWithKeyboard} />
       {mobileSidebarOpen && <button type="button" className="mobile-sidebar-backdrop" aria-label={t('nav.closeList')} onClick={closeMobileSidebar} />}
       {sessionMenu && <div className="session-context-menu" role="menu" style={{ left: sessionMenu.x, top: sessionMenu.y }} onContextMenu={(event) => event.preventDefault()}>
         <button type="button" role="menuitem" onClick={() => renameSession(sessionMenu.session)}><Pencil /> {t('chat.rename')}</button>
