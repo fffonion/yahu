@@ -89,12 +89,17 @@ describe('subagent progress UI', () => {
     expect(source).toContain('className="subagent-goal-panel" open={goalExpanded}');
     expect(source).toContain("<strong>{t('subagents.goal')}</strong>");
     expect(source).toContain('className="subagent-goal-body">{preview.goal}</div>');
+    expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.subagents.length && !snapshot.error)) return null;");
+    expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
+    expect(source).toContain("aria-label={`${t('subagents.title')}: ${statusLabel(node.status)}`}");
     expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));
     expect(source).toContain('<span className="subagent-progress-heading"><strong>{t(\'subagents.title\')}</strong>');
-    expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:6px;');
-    expect(styles).toContain('.subagent-goal-panel{width:100%;flex:0 0 auto;');
+    expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:6px;pointer-events:none;');
+    expect(styles).toContain('.subagent-goal-panel{--subagent-goal-accent:var(--chart-2);width:100%;flex:0 0 auto;pointer-events:auto;');
+    expect(styles).toContain('color:var(--subagent-goal-accent)');
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-chevron{transform:rotate(90deg)}');
     expect(styles).toContain('.subagent-goal-body{');
+    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}');
   });
 
   test('uses a responsive card that remains readable in compact desktop and mobile chat', () => {
@@ -114,7 +119,7 @@ describe('subagent progress UI', () => {
     expect(cardRule).toContain('max-width:none');
     expect(cardRule).toContain('border-radius:14px');
     expect(overlayRule).toContain('padding:0');
-    expect(styles).toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0}');
+    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}.subagent-progress-overlay{padding:0}');
     expect(styles).not.toContain('.subagent-progress-card.expanded{height:90%;max-height:90%;border-radius:');
     expect(styles).not.toContain('.subagent-progress-card.collapsed{border-radius:');
   });
@@ -163,7 +168,7 @@ describe('subagent progress UI', () => {
     expect(overlayIndex).toBeGreaterThan(-1);
     expect(chatScrollIndex).toBeGreaterThan(overlayIndex);
     expect(cardSource).toContain('const [expanded, setExpanded] = useState(false);');
-    expect(cardSource).toContain('const latest = latestSubagent(snapshot.subagents);');
+    expect(cardSource).toContain('const preview = previewSubagent(snapshot.subagents);');
     expect(cardSource).toContain('aria-expanded={expanded}');
     expect(cardSource).toContain("className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`}");
     expect(cardSource).toContain('{!expanded && preview && <SubagentProgressPreview');
@@ -177,7 +182,7 @@ describe('subagent progress UI', () => {
     expect(styles).not.toContain('.subagent-progress-card.expanded{height:90%');
     expect(styles).not.toContain('.subagent-progress-card.expanded{height:90%;max-height:90%');
     expect(styles).toContain('.subagent-progress-panel-body{min-height:0;');
-    expect(styles).toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0}');
-    expect(styles).not.toContain('@media(max-width:760px){.subagent-progress-overlay{padding:0}.subagent-progress-card.expanded{height:90%');
+    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}.subagent-progress-overlay{padding:0}');
+    expect(styles).not.toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}.subagent-progress-overlay{padding:0}.subagent-progress-card.expanded{height:90%');
   });
 });

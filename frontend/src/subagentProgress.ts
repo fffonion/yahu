@@ -146,6 +146,11 @@ export function latestSubagent(subagents: SubagentProgress[]): SubagentProgress 
   return subagents.reduce<SubagentProgress | undefined>((latest, item) => !latest || (item.startedAt || 0) >= (latest.startedAt || 0) ? item : latest, undefined);
 }
 
+export function previewSubagent(subagents: SubagentProgress[]): SubagentProgress | undefined {
+  const running = subagents.filter((item) => item.status === 'running');
+  return latestSubagent(running.length > 0 ? running : subagents);
+}
+
 export function isSubagentDetailNearBottom(metrics: Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>, thresholdPx = 96): boolean {
   return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= thresholdPx;
 }

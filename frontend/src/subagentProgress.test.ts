@@ -7,6 +7,7 @@ import {
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
+  previewSubagent,
   subagentMessagesUrl,
   subagentWebSocketUrl,
 } from './subagentProgress';
@@ -127,6 +128,20 @@ describe('subagent progress websocket projection', () => {
 
     expect(latestSubagent(snapshot.subagents)?.sessionId).toBe('newest');
     expect(latestSubagent([])).toBeUndefined();
+  });
+
+  test('prefers the latest running subagent even when a newer subagent already completed', () => {
+    const snapshot = normalizeSubagentSnapshot({
+      type: 'subagents.snapshot',
+      session_id: 'parent',
+      subagents: [
+        { session_id: 'running-only', parent_session_id: 'parent', goal: 'Active goal', status: 'running', started_at: 100 },
+        { session_id: 'completed-new', parent_session_id: 'parent', goal: 'Finished goal', status: 'completed', started_at: 300 },
+      ],
+    }, 'parent')!;
+
+    expect(latestSubagent(snapshot.subagents)?.sessionId).toBe('completed-new');
+    expect(previewSubagent(snapshot.subagents)?.sessionId).toBe('running-only');
   });
 
   test('detects when a long subagent detail remains close enough to its latest content', () => {

@@ -7,11 +7,11 @@ import {
   formatSubagentElapsed,
   formatSubagentFinalMessages,
   isSubagentDetailNearBottom,
-  latestSubagent,
   mergeSubagentMessages,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
+  previewSubagent,
   subagentElapsedSeconds,
   subagentMessagesUrl,
   subagentWebSocketUrl,
@@ -67,6 +67,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
       socket = new WebSocket(subagentWebSocketUrl(window.location, sessionId));
       socket.onopen = () => { reconnectDelay = 750; };
       socket.onmessage = (event) => {
+        if (stopped) return;
         try {
           const next = normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId);
           if (next) setSnapshot(next);
@@ -99,10 +100,9 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   }, [running]);
 
   const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
-  if (!snapshot || (!snapshot.subagents.length && !snapshot.error)) return null;
+  if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.subagents.length && !snapshot.error)) return null;
 
-  const latest = latestSubagent(snapshot.subagents);
-  const preview = runningCount > 1 ? latestSubagent(snapshot.subagents.filter((item) => item.status === 'running')) || latest : latest;
+  const preview = previewSubagent(snapshot.subagents);
   const finished = snapshot.subagents.filter((item) => item.status !== 'running').length;
   const total = snapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
@@ -140,7 +140,7 @@ function SubagentProgressPreview({ node, runningCount, nowSeconds }: { node: Sub
   const previewStatus = runningCount > 1 ? tf('subagents.runningCount', runningCount) : statusLabel(node.status);
   return <>
     <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
-    <span className="subagent-progress-heading"><strong>{t('subagents.title')}</strong>{!completed && <small>{previewStatus} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
+    <span className="subagent-progress-heading" aria-label={`${t('subagents.title')}: ${statusLabel(node.status)}`}><strong>{t('subagents.title')}</strong>{!completed && <small>{previewStatus} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
     {!completed && <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />}
   </>;
 }
