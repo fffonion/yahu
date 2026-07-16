@@ -24,6 +24,7 @@ import {
 export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, compact }: { sessionId: string; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [goalExpanded, setGoalExpanded] = useState(false);
   const [openNodeIds, setOpenNodeIds] = useState<Set<string>>(() => new Set());
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
   const detailTreeRef = useRef<HTMLDivElement>(null);
@@ -52,6 +53,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   useEffect(() => {
     setSnapshot(null);
     setExpanded(false);
+    setGoalExpanded(false);
     setOpenNodeIds(new Set());
     followLatestDetailRef.current = true;
     if (!sessionId || sessionId === '__webui_draft_session__') return;
@@ -104,7 +106,16 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   const finished = snapshot.subagents.filter((item) => item.status !== 'running').length;
   const total = snapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
-  return <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
+  return <div className="subagent-progress-stack">
+    {preview && <details className="subagent-goal-panel" open={goalExpanded} onToggle={(event) => { const open = event.currentTarget.open; if (open !== goalExpanded) setGoalExpanded(open); }}>
+      <summary className="subagent-goal-summary" aria-label={t('subagents.goal')}>
+        <strong>{t('subagents.goal')}</strong>
+        <span className="subagent-goal-preview">{preview.goal}</span>
+        <ChevronRight className="subagent-goal-chevron" aria-hidden="true" />
+      </summary>
+      <div className="subagent-goal-body">{preview.goal}</div>
+    </details>}
+    <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
     <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
       {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
       {(expanded || !preview) && <>
@@ -119,15 +130,17 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
       {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
       <div className="subagent-progress-tree" ref={detailTreeRef} onScroll={(event) => { followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget); }}>{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} openNodeIds={openNodeIds} onOpenChange={setNodeOpen} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={startFollowingLatestDetail} onDetailContentChange={followLatestDetail} />)}</div>
     </div>}
-  </section>;
+    </section>
+  </div>;
 }
 
-function SubagentProgressPreview({ node, nowSeconds }: { node: SubagentProgress; nowSeconds: number }) {
+function SubagentProgressPreview({ node, runningCount, nowSeconds }: { node: SubagentProgress; runningCount: number; nowSeconds: number }) {
   const elapsed = formatSubagentElapsed(subagentElapsedSeconds(node, nowSeconds));
   const completed = node.status === 'completed';
+  const previewStatus = runningCount > 1 ? tf('subagents.runningCount', runningCount) : statusLabel(node.status);
   return <>
     <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
-    <span className="subagent-progress-goal"><strong>{node.goal}</strong>{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
+    <span className="subagent-progress-heading"><strong>{t('subagents.title')}</strong>{!completed && <small>{previewStatus} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
     {!completed && <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />}
   </>;
 }

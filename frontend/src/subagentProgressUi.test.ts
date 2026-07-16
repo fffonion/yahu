@@ -80,6 +80,23 @@ describe('subagent progress UI', () => {
     expect(css()).not.toContain('.subagent-progress-tool-calls{');
   });
 
+  test('shows the current goal above the subagent card in a default-collapsed disclosure', () => {
+    const source = card();
+    const styles = css();
+    expect(source).toContain('const [goalExpanded, setGoalExpanded] = useState(false);');
+    expect(source).toContain('setGoalExpanded(false);');
+    expect(source).toContain('className="subagent-progress-stack"');
+    expect(source).toContain('className="subagent-goal-panel" open={goalExpanded}');
+    expect(source).toContain("<strong>{t('subagents.goal')}</strong>");
+    expect(source).toContain('className="subagent-goal-body">{preview.goal}</div>');
+    expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));
+    expect(source).toContain('<span className="subagent-progress-heading"><strong>{t(\'subagents.title\')}</strong>');
+    expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:6px;');
+    expect(styles).toContain('.subagent-goal-panel{width:100%;flex:0 0 auto;');
+    expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-chevron{transform:rotate(90deg)}');
+    expect(styles).toContain('.subagent-goal-body{');
+  });
+
   test('uses a responsive card that remains readable in compact desktop and mobile chat', () => {
     const styles = css();
     expect(styles).toContain('.subagent-progress-card{');
