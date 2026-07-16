@@ -73,7 +73,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain("${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}");
     expect(source).toContain("<strong>{completed ? node.task : t('subagents.title')}</strong>");
     expect(source).toContain("aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}");
-    expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-heading strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
+    expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-heading strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:400}');
     expect(styles).toContain('.subagent-progress-node>details>summary.completed{grid-template-columns:auto minmax(0,1fr);min-height:36px;');
     expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-panel-toggle{grid-template-columns:auto minmax(0,1fr);min-height:40px;');
     expect(styles).toContain('.subagent-progress-node>details[open]>summary.completed .subagent-progress-goal strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
