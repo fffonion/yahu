@@ -1870,7 +1870,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} reconnect={() => { loadModels(); loadSessions(filter); }} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2450,7 +2450,62 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
   </nav>;
 }
 
-function ChatMain(props: any) {
+type ChatMainProps = {
+  sessions: Session[];
+  activeSessionDetail: Session | null;
+  activeSessionModelOverride?: SessionModelOverride;
+  activeSessionId: string;
+  messages: ChatMessage[];
+  userMessageNav: UserMessageNavItem[];
+  onJumpToMessage: (sessionId: string, messageId: string) => void;
+  contextWindowSnapshot: ContextWindowSnapshot | null;
+  showReasoning: boolean;
+  setShowReasoning: React.Dispatch<React.SetStateAction<boolean>>;
+  showToolCalls: boolean;
+  setShowToolCalls: React.Dispatch<React.SetStateAction<boolean>>;
+  desktopCompactMessages: boolean;
+  setDesktopCompactMessages: React.Dispatch<React.SetStateAction<boolean>>;
+  hasOlder: boolean;
+  hasNewer: boolean;
+  loadingMessages: boolean;
+  loadMessageWindow: (sessionId: string, direction: 'latest' | 'older' | 'newer') => Promise<void>;
+  attachments: Attachment[];
+  setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
+  input: string;
+  setInput: React.Dispatch<React.SetStateAction<string>>;
+  onFiles: (files: FileList | null) => Promise<void>;
+  fileInput: React.RefObject<HTMLInputElement | null>;
+  sendMessage: () => Promise<void>;
+  stopStreaming: () => void;
+  composerEnterMode: ComposerEnterMode;
+  model: string;
+  selectedModelProvider: string;
+  setModel: (model: string, option?: ModelOption) => void;
+  models: ModelOption[];
+  effort: (typeof EFFORTS)[number];
+  setEffort: React.Dispatch<React.SetStateAction<(typeof EFFORTS)[number]>>;
+  busy: boolean;
+  streaming: boolean;
+  followUpQueue: FollowUpQueueItem[];
+  onSteerQueuedItem: (item: FollowUpQueueItem) => Promise<void>;
+  onEditQueuedItem: (item: FollowUpQueueItem) => void;
+  onReorderQueuedItem: (fromIndex: number, toIndex: number) => void;
+  chatScrollRef: React.RefObject<HTMLElement | null>;
+  composerRef: React.RefObject<HTMLElement | null>;
+  composerCompact: boolean;
+  setComposerCompact: React.Dispatch<React.SetStateAction<boolean>>;
+  theme: Theme;
+  setTheme: React.Dispatch<React.SetStateAction<Theme>>;
+  mobileSidebarOpen: boolean;
+  toggleMobileSidebar: () => void;
+  mode: Mode;
+  onNavigateToSettings: () => void;
+  newMessageCount: number;
+  newMessageBoundaryId: string;
+  onClearNewMessages: () => void;
+};
+
+function ChatMain(props: ChatMainProps) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
   const isMobile = useMediaQuery('(max-width: 760px)');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -2505,7 +2560,7 @@ function ChatMain(props: any) {
     collapseComposerForHistory();
     if (shouldLoadOlderFromWheel(e.currentTarget, e.deltaY, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
   };
-  const sessionModelOverride = props.activeSessionModelOverride as SessionModelOverride | undefined;
+  const sessionModelOverride = props.activeSessionModelOverride;
   const sessionModel = sessionModelOverride?.model || realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id || '';
   const messageProvider = latestMessageProviderForModel(props.messages, sessionModel);
   const apiSessionProvider = String(active?.provider || props.activeSessionDetail?.provider || messageProvider).trim();
@@ -2607,7 +2662,7 @@ function ChatMain(props: any) {
           <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
           <DropdownControl icon={<Bot />} ariaLabel={t('chat.model')} value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
-          <DropdownControl icon={<Brain />} ariaLabel={t('chat.reasoning')} value={props.effort} options={effortOptions} onChange={props.setEffort} hideLabel />
+          <DropdownControl icon={<Brain />} ariaLabel={t('chat.reasoning')} value={props.effort} options={effortOptions} onChange={(value) => props.setEffort(value as (typeof EFFORTS)[number])} hideLabel />
           <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
           <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={t('chat.compactMode')} title={t('chat.compactMode')} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>
@@ -2645,14 +2700,44 @@ function FollowUpQueueView({ items, onSteer, onEdit, onReorder }: { items: Follo
   </div>;
 }
 
-function WorkspaceAside(props: any) {
+type WorkspacePreviewSetter = React.Dispatch<React.SetStateAction<WorkspacePreview>>;
+
+type WorkspaceTreeProps = {
+  rootEntries: WorkspaceEntry[];
+  workspaceTree: Record<string, WorkspaceEntry[]>;
+  expandedWorkspacePaths: Set<string>;
+  toggleWorkspaceFolder: (entry: WorkspaceEntry) => void | Promise<void>;
+  openWorkspaceEntry: (entry: WorkspaceEntry, options?: { edit?: boolean; route?: boolean }) => void | Promise<void>;
+  downloadEntry: (entry: WorkspaceEntry) => void;
+  openWorkspaceMenu?: (entry: WorkspaceEntry, event: React.MouseEvent) => void;
+};
+
+type WorkspaceAsideProps = WorkspaceTreeProps & {
+  preview: WorkspacePreview;
+  setPreview: WorkspacePreviewSetter;
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+};
+
+type WorkspaceMainProps = {
+  preview: WorkspacePreview;
+  setPreview: WorkspacePreviewSetter;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  mobileSidebarOpen: boolean;
+  toggleMobileSidebar: () => void;
+  mode: Mode;
+  onNavigateToSettings: () => void;
+};
+
+function WorkspaceAside(props: WorkspaceAsideProps) {
   if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label={t('workspace.expand')} onClick={() => props.setCollapsed(false)}><ChevronLeft /></button></div></aside>;
   return <aside className="workspace"><WorkspaceBrowser rootEntries={props.rootEntries} workspaceTree={props.workspaceTree} expandedWorkspacePaths={props.expandedWorkspacePaths} toggleWorkspaceFolder={props.toggleWorkspaceFolder} openWorkspaceEntry={props.openWorkspaceEntry} downloadEntry={props.downloadEntry} preview={props.preview} setPreview={props.setPreview} compact setCollapsed={props.setCollapsed} openWorkspaceMenu={props.openWorkspaceMenu} /></aside>;
 }
-function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: any) {
+function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: WorkspaceMainProps) {
   return <main className="main-panel workspace-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
-function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu }: any) {
+function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu }: WorkspaceTreeProps) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
     const expanded = entry.kind === 'dir' && expandedWorkspacePaths.has(entry.path);
     const children = expanded ? (workspaceTree[entry.path] || []) : [];
@@ -2696,8 +2781,15 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
   const toggleCat = (cat: string) => setExpandedCats(new Set(expandedCats.has(cat) ? [...expandedCats].filter((c) => c !== cat) : [...expandedCats, cat]));
   return <><div className="cron-sidebar-head"><div><h2>{t('skills.title')}</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}{skill.version ? <span className="skill-version">{skill.version}</span> : null}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
-function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings, showToast: st }: { skill: Skill | null; preview: any; setPreview: (value: any) => void; theme: Theme; setTheme: (v: Theme) => void; mobileSidebarOpen: boolean; toggleMobileSidebar: () => void; mode: Mode; onNavigateToSettings: () => void; showToast: (msg: string) => void }) {
-  const [backups, setBackups] = useState<any[]>([]);
+type SkillBackup = { id?: string | number; version?: string | number; reason?: string };
+
+type SkillMainProps = WorkspaceMainProps & {
+  skill: Skill | null;
+  showToast: (message: string) => void;
+};
+
+function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings, showToast: st }: SkillMainProps) {
+  const [backups, setBackups] = useState<SkillBackup[]>([]);
   const [rollbacking, setRollbacking] = useState(false);
   useEffect(() => {
     setBackups([]);
@@ -2742,7 +2834,17 @@ function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleS
   });
   return <aside className="skill-workspace workspace"><div className="workspace-sidebar-head"><div><h2>{t('skills.skillFiles')}</h2><p>{skill?.category || t('skills.select')}</p></div>{skill && <button className="icon-btn" aria-label={t('skills.download')} title={t('skills.download')} onClick={() => triggerSkillDownload(skill)}><Download /></button>}</div><div className="workspace-tree file-list">{renderRows(skillFileTree[''] || [])}</div></aside>;
 }
-function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl, toolbarExtra }: any) {
+type WorkspaceEditorPreviewProps = {
+  preview: WorkspacePreview;
+  setPreview: WorkspacePreviewSetter;
+  emptyIcon?: React.ComponentType<{ className?: string }>;
+  emptyTitle?: string;
+  emptyDesc?: string;
+  saveUrl?: (path: string) => string;
+  toolbarExtra?: React.ReactNode;
+};
+
+function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl, toolbarExtra }: WorkspaceEditorPreviewProps) {
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
@@ -2767,7 +2869,14 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
     : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />;
   return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview">{textPreview}</div>}</section>;
 }
-function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, preview, setPreview, compact, setCollapsed, openWorkspaceMenu }: any) {
+type WorkspaceBrowserProps = WorkspaceTreeProps & {
+  preview: WorkspacePreview;
+  setPreview: WorkspacePreviewSetter;
+  compact: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+};
+
+function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, preview, setPreview, compact, setCollapsed, openWorkspaceMenu }: WorkspaceBrowserProps) {
   const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
     const expanded = entry.kind === 'dir' && expandedWorkspacePaths.has(entry.path);
     const children = expanded ? (workspaceTree[entry.path] || []) : [];
