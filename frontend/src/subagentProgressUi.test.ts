@@ -16,8 +16,8 @@ describe('subagent progress UI', () => {
     expect(app()).toContain('<SubagentProgressCard sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} />');
     expect(card()).toContain('new WebSocket(subagentWebSocketUrl(window.location, sessionId))');
     expect(card()).toContain('fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })');
-    expect(card()).toContain('return () => { stopped = true; controller.abort(); };');
-    expect(card()).toContain('if (stopped || controller.signal.aborted) return;');
+    expect(card()).toContain('return () => { requestGuard.stop(); controller.abort(); };');
+    expect(card()).toContain('if (!requestGuard.isActive(controller.signal)) return;');
     expect(card()).toContain('}, [sessionId]);');
     expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer)');
     expect(app()).toContain('scheduleSubagentWindowUpdate();');
@@ -25,7 +25,7 @@ describe('subagent progress UI', () => {
     expect(app()).toContain('observer.observe(scroller);');
     expect(app()).toContain('}, 150);');
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');
-    expect(card()).toContain('node.ancestryOmitted && <small className="subagent-progress-omitted-ancestry"');
+    expect(card()).toContain("node.ancestryOmitted && <span className=\"subagent-progress-omitted-ancestry\" title={t('subagents.parentOmitted')}");
   });
 
   test('keeps todos and shared conversation detail while removing counters, model, and recent activity chrome', () => {

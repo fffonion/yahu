@@ -59,6 +59,14 @@ export type SubagentTreeNode = SubagentProgress & { children: SubagentTreeNode[]
 
 type WebSocketLocation = Pick<Location, 'protocol' | 'host'>;
 
+export function createSubagentSnapshotGuard() {
+  let stopped = false;
+  return {
+    stop: () => { stopped = true; },
+    isActive: (signal: Pick<AbortSignal, 'aborted'>) => !stopped && !signal.aborted,
+  };
+}
+
 export function subagentWebSocketUrl(location: WebSocketLocation, sessionId: string): string {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${scheme}//${location.host}/chat/subagents/${encodeURIComponent(sessionId)}/ws`;

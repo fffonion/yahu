@@ -4,6 +4,7 @@ import { ChatTranscript, type ChatMessage } from './ChatTranscript';
 import { t, tf } from './i18n';
 import {
   buildSubagentTree,
+  createSubagentSnapshotGuard,
   formatSubagentElapsed,
   formatSubagentFinalMessages,
   isSubagentDetailNearBottom,
@@ -71,6 +72,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     }
     if (typeof beforeTime === 'number') {
       const controller = new AbortController();
+      const requestGuard = createSubagentSnapshotGuard();
       setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);
       fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })
         .then((response) => {
@@ -78,15 +80,15 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
           return response.json();
         })
         .then((payload) => {
-          if (stopped || controller.signal.aborted) return;
+          if (!requestGuard.isActive(controller.signal)) return;
           const next = normalizeSubagentSnapshot(payload, sessionId);
           if (next) setSnapshot(next);
         })
         .catch((error) => {
-          if (stopped || controller.signal.aborted) return;
+          if (!requestGuard.isActive(controller.signal)) return;
           setSnapshot((current) => current ? { ...current, subagents: [], error: String(error) } : null);
         });
-      return () => { stopped = true; controller.abort(); };
+      return () => { requestGuard.stop(); controller.abort(); };
     }
     let socket: WebSocket | null = null;
     let reconnectTimer = 0;
@@ -195,7 +197,7 @@ function SubagentProgressPreview({ node, runningCount, nowSeconds }: { node: Sub
   </>;
 }
 
-function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, depth, showReasoning, showToolCalls, compact, onDetailOpen, onDetailContentChange }: { node: SubagentTreeNode; openNodeIds: ReadonlySet<string>; onOpenChange: (sessionId: string, open: boolean) => void; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean; onDetailOpen: () => void; onDetailContentChange: () => void }) {
+export function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, depth, showReasoning, showToolCalls, compact, onDetailOpen, onDetailContentChange }: { node: SubagentTreeNode; openNodeIds: ReadonlySet<string>; onOpenChange: (sessionId: string, open: boolean) => void; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean; onDetailOpen: () => void; onDetailContentChange: () => void }) {
   const elapsed = formatSubagentElapsed(subagentElapsedSeconds(node, nowSeconds));
   const completed = node.status === 'completed';
   const open = openNodeIds.has(node.sessionId);
@@ -248,7 +250,7 @@ function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, dep
     <details open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; if (nextOpen !== open) onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(); }}>
       <summary className={completed ? 'completed' : undefined}>
         <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
-        <span className="subagent-progress-goal"><strong>{node.task}</strong>{node.ancestryOmitted && <small className="subagent-progress-omitted-ancestry" title="Parent outside the current 24-hour window">↳ Parent outside window</small>}{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
+        <span className="subagent-progress-goal"><strong>{node.task}{node.ancestryOmitted && <span className="subagent-progress-omitted-ancestry" title={t('subagents.parentOmitted')}> · {t('subagents.parentOmitted')}</span>}</strong>{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
         {!completed && <ChevronRight className="subagent-progress-chevron" aria-hidden="true" />}
       </summary>
       <div className="subagent-progress-detail">

@@ -78,6 +78,7 @@ const translations: Record<string, Record<string, string>> = {
   'subagents.recent': { en: 'Recent', 'zh-CN': '最近活动', 'zh-TW': '最近活動', ja: '最近' },
   'subagents.loadingDetails': { en: 'Loading conversation…', 'zh-CN': '正在加载会话详情…', 'zh-TW': '正在載入會話詳情…', ja: '会話の詳細を読み込み中…' },
   'subagents.detailsUnavailable': { en: 'Conversation details unavailable.', 'zh-CN': '会话详情不可用。', 'zh-TW': '會話詳情無法使用。', ja: '会話の詳細を取得できません。' },
+  'subagents.parentOmitted': { en: 'parent omitted', 'zh-CN': '父级未显示', 'zh-TW': '父級未顯示', ja: '親を省略' },
   'subagents.reasoning': { en: 'Reasoning', 'zh-CN': '思考', 'zh-TW': '思考', ja: '思考' },
   'subagents.unavailable': { en: 'Progress is temporarily unavailable.', 'zh-CN': '进度暂时不可用。', 'zh-TW': '進度暫時無法使用。', ja: '進捗を取得できません。' },
   'goals.title': { en: 'Goal', 'zh-CN': '目标', 'zh-TW': '目標', ja: '目標' },

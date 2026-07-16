@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildSubagentTree,
+  createSubagentSnapshotGuard,
   formatSubagentFinalMessages,
   latestSubagent,
   isSubagentDetailNearBottom,
@@ -33,6 +34,36 @@ describe('subagent progress websocket projection', () => {
     expect(subagentViewportIsLive(bottom, true)).toBe(false);
     expect(subagentViewportIsLive({ ...bottom, scrollTop: 498 }, false)).toBe(false);
     expect(subagentViewportIsLive({ ...bottom, scrollTop: 499.5 }, false)).toBe(true);
+  });
+
+  test('rejects an older deferred historical response after a newer request starts', async () => {
+    const deferred = () => {
+      let resolve!: (value: string) => void;
+      const promise = new Promise<string>((next) => { resolve = next; });
+      return { promise, resolve };
+    };
+    const applied: string[] = [];
+    const older = deferred();
+    const olderController = new AbortController();
+    const olderGuard = createSubagentSnapshotGuard();
+    const olderResult = older.promise.then((value) => {
+      if (olderGuard.isActive(olderController.signal)) applied.push(value);
+    });
+
+    olderGuard.stop();
+    olderController.abort();
+    const newer = deferred();
+    const newerController = new AbortController();
+    const newerGuard = createSubagentSnapshotGuard();
+    const newerResult = newer.promise.then((value) => {
+      if (newerGuard.isActive(newerController.signal)) applied.push(value);
+    });
+    newer.resolve('newer');
+    await newerResult;
+    older.resolve('older');
+    await olderResult;
+
+    expect(applied).toEqual(['newer']);
   });
 
   test('uses the latest timestamp in the visible message range as the historical upper bound', () => {

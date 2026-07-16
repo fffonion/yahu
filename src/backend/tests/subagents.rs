@@ -298,8 +298,12 @@
 
     #[tokio::test]
     async fn subagent_api_pagination_continues_and_deduplicates_session_ids() {
-        async fn api_sessions(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+        async fn api_sessions(
+            State(requested_offsets): State<Arc<std::sync::Mutex<Vec<usize>>>>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<Value> {
             let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+            requested_offsets.lock().unwrap().push(offset);
             if offset == 0 {
                 let data = (0..2).map(|index| serde_json::json!({
                     "id": format!("other-{index}"),
@@ -318,7 +322,8 @@
             }))
         }
 
-        let app = Router::new().route("/api/sessions", get(api_sessions));
+        let requested_offsets = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let app = Router::new().route("/api/sessions", get(api_sessions)).with_state(requested_offsets.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -331,6 +336,7 @@
         assert_eq!(sessions.len(), 3);
         assert!(ids.contains("target"));
         assert_eq!(ids.len(), sessions.len());
+        assert_eq!(*requested_offsets.lock().unwrap(), vec![0, 2]);
     }
 
     #[tokio::test]
