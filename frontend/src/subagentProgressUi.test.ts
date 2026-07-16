@@ -95,7 +95,7 @@ describe('subagent progress UI', () => {
     expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));
     expect(source).toContain('<span className="subagent-progress-heading"><strong>{t(\'subagents.title\')}</strong>');
     expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:6px;pointer-events:none;');
-    expect(styles).toContain('.subagent-goal-panel{--subagent-goal-accent:var(--chart-2);width:100%;flex:0 0 auto;pointer-events:auto;');
+    expect(styles).toContain('.subagent-goal-panel{--subagent-goal-accent:var(--accent-2);width:100%;flex:0 0 auto;pointer-events:auto;');
     expect(styles).toContain('color:var(--subagent-goal-accent)');
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-chevron{transform:rotate(90deg)}');
     expect(styles).toContain('.subagent-goal-body{');
