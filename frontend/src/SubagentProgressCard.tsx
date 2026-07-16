@@ -13,6 +13,7 @@ import {
   parseSubagentFinalStructuredContent,
   previewSubagent,
   subagentElapsedSeconds,
+  subagentIteration,
   subagentMessagesUrl,
   subagentWebSocketUrl,
   type SubagentProgress,
@@ -103,6 +104,13 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.subagents.length && !snapshot.error)) return null;
 
   const preview = previewSubagent(snapshot.subagents);
+  const completedTodos = preview?.todos.filter((todo) => todo.status === 'completed').length || 0;
+  const goalMetadata = preview ? [
+    tf('subagents.iteration', subagentIteration(preview)),
+    formatSubagentElapsed(subagentElapsedSeconds(preview, nowSeconds)),
+    preview.currentTool ? tf('subagents.currentTool', preview.currentTool) : '',
+    preview.todos.length ? tf('subagents.todoProgress', completedTodos, preview.todos.length) : '',
+  ].filter(Boolean).join(' · ') : '';
   const finished = snapshot.subagents.filter((item) => item.status !== 'running').length;
   const total = snapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
@@ -110,7 +118,10 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
     {preview && <details className="subagent-goal-panel" open={goalExpanded} onToggle={(event) => { const open = event.currentTarget.open; if (open !== goalExpanded) setGoalExpanded(open); }}>
       <summary className="subagent-goal-summary" aria-label={t('subagents.goal')}>
         <span className="subagent-status-icon subagent-goal-icon"><CheckCircle2 aria-hidden="true" /></span>
-        <span className="subagent-goal-preview">{preview.goal}</span>
+        <span className="subagent-goal-copy">
+          <span className="subagent-goal-preview">{preview.goal}</span>
+          <small className="subagent-goal-meta">{goalMetadata}</small>
+        </span>
         <ChevronRight className="subagent-goal-chevron" aria-hidden="true" />
       </summary>
       <div className="subagent-goal-body">{preview.goal}</div>

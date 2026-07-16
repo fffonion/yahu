@@ -8,6 +8,7 @@ import {
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
   previewSubagent,
+  subagentIteration,
   subagentMessagesUrl,
   subagentWebSocketUrl,
 } from './subagentProgress';
@@ -128,6 +129,13 @@ describe('subagent progress websocket projection', () => {
 
     expect(latestSubagent(snapshot.subagents)?.sessionId).toBe('newest');
     expect(latestSubagent([])).toBeUndefined();
+  });
+
+  test('reports the current agent iteration from persisted API call progress', () => {
+    expect(subagentIteration({ status: 'running', apiCalls: 0 })).toBe(1);
+    expect(subagentIteration({ status: 'running', apiCalls: 4 })).toBe(4);
+    expect(subagentIteration({ status: 'completed', apiCalls: 4 })).toBe(4);
+    expect(subagentIteration({ status: 'completed', apiCalls: 0 })).toBe(0);
   });
 
   test('prefers the latest running subagent even when a newer subagent already completed', () => {

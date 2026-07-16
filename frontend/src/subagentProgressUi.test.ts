@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const card = () => readFileSync(new URL('./SubagentProgressCard.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+const i18n = () => readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
 const transcript = () => {
   const path = new URL('./ChatTranscript.tsx', import.meta.url);
   return existsSync(path) ? readFileSync(path, 'utf8') : '';
@@ -91,6 +92,16 @@ describe('subagent progress UI', () => {
     expect(source).not.toContain("<strong>{t('subagents.goal')}</strong>");
     expect(source).toContain('className="subagent-goal-body">{preview.goal}</div>');
     expect(styles).toContain('.subagent-goal-icon{color:var(--subagent-goal-accent);background:color-mix(in srgb,var(--subagent-goal-accent) 12%,transparent)}');
+    expect(source).toContain('const goalMetadata = preview ? [');
+    expect(source).toContain("tf('subagents.iteration', subagentIteration(preview))");
+    expect(source).toContain("tf('subagents.currentTool', preview.currentTool)");
+    expect(source).toContain("tf('subagents.todoProgress', completedTodos, preview.todos.length)");
+    expect(source).toContain('className="subagent-goal-meta">{goalMetadata}</small>');
+    expect(styles).toContain('.subagent-goal-copy{min-width:0;display:grid;gap:3px}');
+    expect(styles).toContain('.subagent-goal-meta{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');
+    expect(i18n()).toContain("'subagents.iteration': { en: 'Iteration {0}', 'zh-CN': '第 {0} 轮'");
+    expect(i18n()).toContain("'subagents.currentTool': { en: 'Tool: {0}', 'zh-CN': '工具：{0}'");
+    expect(i18n()).toContain("'subagents.todoProgress': { en: '{0}/{1} tasks', 'zh-CN': '{0}/{1} 任务'");
     expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.subagents.length && !snapshot.error)) return null;");
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
     expect(source).toContain("aria-label={`${t('subagents.title')}: ${statusLabel(node.status)}`}");
