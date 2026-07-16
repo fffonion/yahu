@@ -806,12 +806,27 @@ fn normalize_todos(items: &[Value]) -> Vec<SubagentTodo> {
 }
 
 fn merge_todos(current: &mut Vec<SubagentTodo>, items: &[Value]) {
-    for item in items {
+    current.truncate(100);
+
+    // TodoStore collapses an incoming batch by id before applying it. Preserve
+    // the last occurrence (and its position) so an earlier duplicate cannot
+    // leak fields into the update that Hermes itself discarded.
+    let mut last_index_by_id = std::collections::HashMap::<String, usize>::new();
+    for (index, item) in items.iter().enumerate() {
+        if let Some(id) = string_field(item, "id") {
+            last_index_by_id.insert(id, index);
+        }
+    }
+
+    for (index, item) in items.iter().enumerate() {
         let Some(id) = string_field(item, "id") else {
             continue;
         };
         let id = id.trim();
         if id.is_empty() {
+            continue;
+        }
+        if last_index_by_id.get(id) != Some(&index) {
             continue;
         }
         if let Some(existing) = current.iter_mut().find(|todo| todo.id == id) {
@@ -825,6 +840,9 @@ fn merge_todos(current: &mut Vec<SubagentTodo>, items: &[Value]) {
             }
             continue;
         }
+        if current.len() >= 100 {
+            continue;
+        }
         let content = string_field(item, "content").unwrap_or_else(|| "(no description)".to_string());
         let content = if content.trim().is_empty() {
             "(no description)"
@@ -836,9 +854,6 @@ fn merge_todos(current: &mut Vec<SubagentTodo>, items: &[Value]) {
             content: truncate_chars(content, 240),
             status: normalize_todo_status(item.get("status").and_then(Value::as_str)),
         });
-        if current.len() == 100 {
-            break;
-        }
     }
 }
 

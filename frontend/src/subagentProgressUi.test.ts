@@ -95,8 +95,7 @@ describe('subagent progress UI', () => {
     expect(source).not.toContain("<strong>{t('subagents.goal')}</strong>");
     expect(source).toContain('const goal = snapshot.goal;');
     expect(source).toContain('className="subagent-goal-text">{goal.text}</div>');
-    expect(source).toContain("const goalReason = goal?.status === 'paused' ? goal.pausedReason || goal.lastReason : goal?.lastReason;");
-    expect(source).toContain("{goalReason && <p className=\"subagent-goal-reason\">{goalReason}</p>}");
+    expect(source).toContain('<GoalReason goal={goal} />');
     expect(source).toContain('<SubagentTodoList todos={goal.todos} className="subagent-goal-todos" />');
     expect(source).toContain('<SubagentTodoList todos={node.todos} />');
     expect(source).toContain("function SubagentTodoList({ todos, className = '' }");

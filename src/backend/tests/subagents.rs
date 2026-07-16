@@ -143,6 +143,67 @@
     }
 
     #[test]
+    fn todo_merge_deduplicates_incoming_ids_before_applying_updates() {
+        let messages = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "tool_calls": [{"function": {"name": "todo", "arguments": {
+                    "todos": [{"id": "task", "content": "Original", "status": "pending"}]
+                }}}]
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "tool_calls": [{"function": {"name": "todo", "arguments": {
+                    "merge": true,
+                    "todos": [
+                        {"id": "task", "content": "Discarded duplicate", "status": "in_progress"},
+                        {"id": "task", "status": "completed"}
+                    ]
+                }}}]
+            }),
+        ];
+
+        let todos = latest_todos(&messages);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].content, "Original");
+        assert_eq!(todos[0].status, "completed");
+    }
+
+    #[test]
+    fn todo_merge_never_grows_a_full_projection_past_its_bound() {
+        let initial = (0..100)
+            .map(|index| serde_json::json!({
+                "id": format!("task-{index}"),
+                "content": format!("Task {index}"),
+                "status": "pending"
+            }))
+            .collect::<Vec<_>>();
+        let messages = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "tool_calls": [{"function": {"name": "todo", "arguments": {"todos": initial}}}]
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "tool_calls": [{"function": {"name": "todo", "arguments": {
+                    "merge": true,
+                    "todos": [
+                        {"id": "overflow-a", "content": "Must be omitted", "status": "pending"},
+                        {"id": "task-99", "status": "completed"},
+                        {"id": "overflow-b", "content": "Must also be omitted", "status": "pending"}
+                    ]
+                }}}]
+            }),
+        ];
+
+        let todos = latest_todos(&messages);
+        assert_eq!(todos.len(), 100);
+        assert_eq!(todos.last().unwrap().id, "task-99");
+        assert_eq!(todos.last().unwrap().status, "completed");
+        assert!(!todos.iter().any(|todo| todo.id.starts_with("overflow-")));
+    }
+
+    #[test]
     fn subagent_projection_does_not_expose_tool_arguments_or_results() {
         let session = serde_json::json!({
             "id": "child-secret",
