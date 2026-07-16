@@ -8,7 +8,6 @@ import {
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
   previewSubagent,
-  shouldShowSubagentPanel,
   subagentIteration,
   subagentMessagesUrl,
   subagentWebSocketUrl,
@@ -33,7 +32,7 @@ describe('subagent progress websocket projection', () => {
       subagents: [{
         session_id: 'child',
         parent_session_id: 's1',
-        goal: 'Review code',
+        task: 'Review code',
         status: 'running',
         started_at: 90,
         message_count: 4,
@@ -45,7 +44,7 @@ describe('subagent progress websocket projection', () => {
       }],
     }, 's1')).toMatchObject({
       sessionId: 's1',
-      subagents: [{ sessionId: 'child', goal: 'Review code', status: 'running', currentTool: 'terminal' }],
+      subagents: [{ sessionId: 'child', task: 'Review code', status: 'running', currentTool: 'terminal' }],
     });
   });
 
@@ -86,8 +85,8 @@ describe('subagent progress websocket projection', () => {
       type: 'subagents.snapshot',
       session_id: 'parent',
       subagents: [
-        { session_id: 'root', parent_session_id: 'parent', goal: 'Root', status: 'completed' },
-        { session_id: 'leaf', parent_session_id: 'root', goal: 'Leaf', status: 'running' },
+        { session_id: 'root', parent_session_id: 'parent', task: 'Root', status: 'completed' },
+        { session_id: 'leaf', parent_session_id: 'root', task: 'Leaf', status: 'running' },
       ],
     }, 'parent')!;
 
@@ -103,11 +102,11 @@ describe('subagent progress websocket projection', () => {
       type: 'subagents.snapshot',
       session_id: 'parent',
       subagents: [
-        { session_id: 'old', parent_session_id: 'parent', goal: 'Old', status: 'completed', started_at: 10 },
-        { session_id: 'new', parent_session_id: 'parent', goal: 'New', status: 'completed', started_at: 30 },
-        { session_id: 'middle', parent_session_id: 'parent', goal: 'Middle', status: 'completed', started_at: 20 },
-        { session_id: 'child-old', parent_session_id: 'new', goal: 'Child old', status: 'completed', started_at: 31 },
-        { session_id: 'child-new', parent_session_id: 'new', goal: 'Child new', status: 'completed', started_at: 32 },
+        { session_id: 'old', parent_session_id: 'parent', task: 'Old', status: 'completed', started_at: 10 },
+        { session_id: 'new', parent_session_id: 'parent', task: 'New', status: 'completed', started_at: 30 },
+        { session_id: 'middle', parent_session_id: 'parent', task: 'Middle', status: 'completed', started_at: 20 },
+        { session_id: 'child-old', parent_session_id: 'new', task: 'Child old', status: 'completed', started_at: 31 },
+        { session_id: 'child-new', parent_session_id: 'new', task: 'Child new', status: 'completed', started_at: 32 },
       ],
     }, 'parent')!;
 
@@ -122,9 +121,9 @@ describe('subagent progress websocket projection', () => {
       type: 'subagents.snapshot',
       session_id: 'parent',
       subagents: [
-        { session_id: 'older', parent_session_id: 'parent', goal: 'Older', status: 'completed', started_at: 100 },
-        { session_id: 'newest', parent_session_id: 'parent', goal: 'Newest', status: 'running', started_at: 300 },
-        { session_id: 'middle', parent_session_id: 'parent', goal: 'Middle', status: 'completed', started_at: 200 },
+        { session_id: 'older', parent_session_id: 'parent', task: 'Older', status: 'completed', started_at: 100 },
+        { session_id: 'newest', parent_session_id: 'parent', task: 'Newest', status: 'running', started_at: 300 },
+        { session_id: 'middle', parent_session_id: 'parent', task: 'Middle', status: 'completed', started_at: 200 },
       ],
     }, 'parent')!;
 
@@ -139,11 +138,32 @@ describe('subagent progress websocket projection', () => {
     expect(subagentIteration({ status: 'completed', apiCalls: 0 })).toBe(0);
   });
 
-  test('merges a running associated agent into Goal and restores its panel after exit', () => {
-    expect(shouldShowSubagentPanel({ status: 'running' })).toBe(false);
-    expect(shouldShowSubagentPanel({ status: 'completed' })).toBe(true);
-    expect(shouldShowSubagentPanel({ status: 'failed' })).toBe(true);
-    expect(shouldShowSubagentPanel(undefined)).toBe(true);
+  test('keeps the persistent goal distinct from a running subagent task', () => {
+    const snapshot = normalizeSubagentSnapshot({
+      type: 'subagents.snapshot',
+      session_id: 'parent',
+      goal: {
+        text: 'Optimize the interpreter',
+        status: 'active',
+        turns_used: 4,
+        max_turns: 20,
+        subgoals: [],
+        todos: [{ id: 'main-test', content: 'Run the main-session tests', status: 'in_progress' }],
+      },
+      subagents: [
+        { session_id: 'child', parent_session_id: 'parent', task: 'Profile the hot path', status: 'running' },
+      ],
+    }, 'parent')!;
+
+    expect(snapshot.goal).toEqual({
+      text: 'Optimize the interpreter',
+      status: 'active',
+      turnsUsed: 4,
+      maxTurns: 20,
+      subgoals: [],
+      todos: [{ id: 'main-test', content: 'Run the main-session tests', status: 'in_progress' }],
+    });
+    expect(snapshot.subagents[0].task).toBe('Profile the hot path');
   });
 
   test('prefers the latest running subagent even when a newer subagent already completed', () => {
@@ -151,8 +171,8 @@ describe('subagent progress websocket projection', () => {
       type: 'subagents.snapshot',
       session_id: 'parent',
       subagents: [
-        { session_id: 'running-only', parent_session_id: 'parent', goal: 'Active goal', status: 'running', started_at: 100 },
-        { session_id: 'completed-new', parent_session_id: 'parent', goal: 'Finished goal', status: 'completed', started_at: 300 },
+        { session_id: 'running-only', parent_session_id: 'parent', task: 'Active task', status: 'running', started_at: 100 },
+        { session_id: 'completed-new', parent_session_id: 'parent', task: 'Finished task', status: 'completed', started_at: 300 },
       ],
     }, 'parent')!;
 

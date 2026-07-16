@@ -3,6 +3,18 @@ import { normalizeChatMessage } from './chatMessage';
 
 export type SubagentStatus = 'running' | 'completed' | 'failed' | 'interrupted' | 'timeout';
 export type SubagentTodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type PersistentGoalStatus = 'active' | 'paused' | 'done';
+
+export type PersistentGoal = {
+  text: string;
+  status: PersistentGoalStatus;
+  turnsUsed: number;
+  maxTurns: number;
+  subgoals: string[];
+  todos: SubagentTodo[];
+  lastReason?: string;
+  pausedReason?: string;
+};
 
 export type SubagentTodo = {
   id: string;
@@ -20,7 +32,7 @@ export type SubagentMessage = ChatMessage;
 export type SubagentProgress = {
   sessionId: string;
   parentSessionId: string;
-  goal: string;
+  task: string;
   model?: string;
   status: SubagentStatus;
   startedAt?: number;
@@ -37,6 +49,7 @@ export type SubagentProgress = {
 export type SubagentProgressSnapshot = {
   sessionId: string;
   generatedAt?: number;
+  goal?: PersistentGoal;
   subagents: SubagentProgress[];
   error?: string;
 };
@@ -137,6 +150,7 @@ export function normalizeSubagentSnapshot(value: unknown, expectedSessionId: str
   return {
     sessionId: expectedSessionId,
     generatedAt: numberValue(raw.generated_at),
+    goal: normalizePersistentGoal(raw.goal),
     subagents,
     error: stringValue(raw.error) || undefined,
   };
@@ -153,10 +167,6 @@ export function previewSubagent(subagents: SubagentProgress[]): SubagentProgress
 
 export function subagentIteration(subagent: Pick<SubagentProgress, 'status' | 'apiCalls'>): number {
   return Math.max(subagent.status === 'running' ? 1 : 0, subagent.apiCalls);
-}
-
-export function shouldShowSubagentPanel(subagent: Pick<SubagentProgress, 'status'> | undefined): boolean {
-  return subagent?.status !== 'running';
 }
 
 export function isSubagentDetailNearBottom(metrics: Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>, thresholdPx = 96): boolean {
@@ -196,6 +206,25 @@ export function formatSubagentElapsed(seconds: number): string {
   return `${rest}s`;
 }
 
+function normalizePersistentGoal(value: unknown): PersistentGoal | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const text = stringValue(raw.text);
+  if (!text) return undefined;
+  const rawStatus = stringValue(raw.status);
+  const status: PersistentGoalStatus = rawStatus === 'paused' || rawStatus === 'done' ? rawStatus : 'active';
+  return {
+    text,
+    status,
+    turnsUsed: integerValue(raw.turns_used),
+    maxTurns: integerValue(raw.max_turns),
+    subgoals: Array.isArray(raw.subgoals) ? raw.subgoals.map(stringValue).filter(Boolean) : [],
+    todos: Array.isArray(raw.todos) ? raw.todos.map(normalizeTodo).filter((item): item is SubagentTodo => !!item) : [],
+    lastReason: stringValue(raw.last_reason) || undefined,
+    pausedReason: stringValue(raw.paused_reason) || undefined,
+  };
+}
+
 function normalizeSubagent(value: unknown): SubagentProgress | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
@@ -204,7 +233,7 @@ function normalizeSubagent(value: unknown): SubagentProgress | null {
   return {
     sessionId,
     parentSessionId: stringValue(raw.parent_session_id),
-    goal: stringValue(raw.goal) || 'Subagent',
+    task: stringValue(raw.task) || stringValue(raw.goal) || 'Subagent',
     model: stringValue(raw.model) || undefined,
     status: normalizeStatus(raw.status),
     startedAt: numberValue(raw.started_at),

@@ -12,11 +12,10 @@ import {
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
   previewSubagent,
-  shouldShowSubagentPanel,
   subagentElapsedSeconds,
-  subagentIteration,
   subagentMessagesUrl,
   subagentWebSocketUrl,
+  type PersistentGoalStatus,
   type SubagentProgress,
   type SubagentProgressSnapshot,
   type SubagentStatus,
@@ -103,37 +102,37 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   }, [running]);
 
   const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
-  if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.subagents.length && !snapshot.error)) return null;
+  if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;
 
+  const goal = snapshot.goal;
   const preview = previewSubagent(snapshot.subagents);
-  const completedTodos = preview?.todos.filter((todo) => todo.status === 'completed').length || 0;
-  const goalMetadata = preview ? [
-    runningCount > 1 ? tf('subagents.runningCount', runningCount) : '',
-    tf('subagents.iteration', subagentIteration(preview)),
-    formatSubagentElapsed(subagentElapsedSeconds(preview, nowSeconds)),
-    preview.currentTool ? tf('subagents.currentTool', preview.currentTool) : '',
-    preview.todos.length ? tf('subagents.todoProgress', completedTodos, preview.todos.length) : '',
+  const completedGoalTodos = goal?.todos.filter((item) => item.status === 'completed').length || 0;
+  const goalMetadata = goal ? [
+    persistentGoalStatusLabel(goal.status),
+    tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns),
+    goal.todos.length ? tf('subagents.todoProgress', completedGoalTodos, goal.todos.length) : '',
   ].filter(Boolean).join(' · ') : '';
-  const showSubagentPanel = shouldShowSubagentPanel(preview);
   const finished = snapshot.subagents.filter((item) => item.status !== 'running').length;
   const total = snapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
   return <div className="subagent-progress-stack">
-    {preview && <details className="subagent-goal-panel" open={goalExpanded} onToggle={(event) => { const open = event.currentTarget.open; if (open !== goalExpanded) setGoalExpanded(open); }}>
-      <summary className="subagent-goal-summary" aria-label={t('subagents.goal')}>
+    {goal && <details className="subagent-goal-panel" open={goalExpanded} onToggle={(event) => { const open = event.currentTarget.open; if (open !== goalExpanded) setGoalExpanded(open); }}>
+      <summary className="subagent-goal-summary" aria-label={t('goals.title')}>
         <span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>
         <span className="subagent-goal-copy">
-          <span className="subagent-goal-preview">{preview.goal}</span>
+          <span className="subagent-goal-preview">{goal.text}</span>
           <small className="subagent-goal-meta">{goalMetadata}</small>
         </span>
         <ChevronRight className="subagent-goal-chevron" aria-hidden="true" />
       </summary>
       <div className="subagent-goal-body">
-        <div className="subagent-goal-text">{preview.goal}</div>
-        <SubagentTodoList todos={preview.todos} className="subagent-goal-todos" />
+        <div className="subagent-goal-text">{goal.text}</div>
+        <SubagentTodoList todos={goal.todos} className="subagent-goal-todos" />
+        {goal.subgoals.length > 0 && <ul className="subagent-goal-subgoals">{goal.subgoals.map((item, index) => <li key={index}>{item}</li>)}</ul>}
+        {goal.lastReason && <p className="subagent-goal-reason">{goal.lastReason}</p>}
       </div>
     </details>}
-    {showSubagentPanel && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
+    {(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
     <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
       {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
       {(expanded || !preview) && <>
@@ -158,7 +157,7 @@ function SubagentProgressPreview({ node, runningCount, nowSeconds }: { node: Sub
   const previewStatus = runningCount > 1 ? tf('subagents.runningCount', runningCount) : statusLabel(node.status);
   return <>
     <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
-    <span className="subagent-progress-heading" aria-label={`${completed ? node.goal : t('subagents.title')}: ${statusLabel(node.status)}`}><strong>{completed ? node.goal : t('subagents.title')}</strong>{!completed && <small>{previewStatus} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
+    <span className="subagent-progress-heading" aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}><strong>{completed ? node.task : t('subagents.title')}</strong>{!completed && <small>{previewStatus} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
     {!completed && <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />}
   </>;
 }
@@ -216,7 +215,7 @@ function SubagentProgressNode({ node, openNodeIds, onOpenChange, nowSeconds, dep
     <details open={open} onToggle={(event) => { const nextOpen = event.currentTarget.open; if (nextOpen !== open) onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(); }}>
       <summary className={completed ? 'completed' : undefined}>
         <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
-        <span className="subagent-progress-goal"><strong>{node.goal}</strong>{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
+        <span className="subagent-progress-goal"><strong>{node.task}</strong>{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}</span>
         {!completed && <ChevronRight className="subagent-progress-chevron" aria-hidden="true" />}
       </summary>
       <div className="subagent-progress-detail">
@@ -249,4 +248,10 @@ function statusLabel(status: SubagentStatus): string {
   if (status === 'interrupted') return t('subagents.interrupted');
   if (status === 'timeout') return t('subagents.timeout');
   return t('subagents.running');
+}
+
+function persistentGoalStatusLabel(status: PersistentGoalStatus): string {
+  if (status === 'paused') return t('goals.paused');
+  if (status === 'done') return t('goals.done');
+  return t('goals.active');
 }
