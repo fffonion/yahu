@@ -5,6 +5,7 @@ import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
 import { waitForCronRunOutput } from './cronRunOutput';
 import { errorMessage, isAbortError } from './errorMessage';
+import { formatFileSize } from './formatFileSize';
 import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
 import { fallbackContextWindowForModel, latestMessageProviderForModel, resolvePreferredModelProvider as resolveModelProvider, selectModelOption } from './modelContext';
@@ -66,11 +67,12 @@ type CronOutput = { job_id?: string; timestamp?: string; filename?: string; cont
 type MemoryDoc = { memory: string; user: string };
 type ImageEntry = { filename: string; heic_filename?: string | null; image_url: string; png_url: string; heic_url?: string | null; heic_status: 'available' | 'missing' | 'not_applicable' | string; download_filename: string; download_url: string; download_label: string; created_at: number; modified_at: number; size: number };
 type ImageStats = { total_images: number; total_bytes: number };
-type ImageMetadata = { filename: string; dimensions?: { width: number; height: number } | null; png: { filename: string; url: string; size: number; modified_at: number }; webp?: unknown; heic?: unknown; heic_status: string; png_text: Array<{ keyword: string; value: string }> };
+type ImageFileMetadata = { size: number; [key: string]: unknown };
+type ImageMetadata = { filename: string; dimensions?: { width: number; height: number } | null; png: ImageFileMetadata & { filename: string; url: string; modified_at: number }; webp?: ImageFileMetadata | null; heic?: ImageFileMetadata | null; heic_status: string; png_text: Array<{ keyword: string; value: string }> };
 type ChatLightboxImage = ChatMarkdownImage & { key: string; messageId: string };
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
-type MessagePage = ChatHistoryPageRaw & { data: any[]; total: number; has_older: boolean; has_newer: boolean; started_at?: number | string; last_active?: number | string };
+type MessagePage = ChatHistoryPageRaw & Required<Pick<ChatHistoryPageRaw, 'data' | 'total' | 'has_older' | 'has_newer'>>;
 type UserMessageNavItem = { id: string; role: 'user'; content: string; assistant_preview?: string; timestamp?: string | number; position: number; index: number; total: number };
 type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: boolean; compressed?: boolean };
 
@@ -123,7 +125,6 @@ const OTHER_PLATFORM_PENDING_ID = 'other-platform-pending';
 const initialRoute = getCurrentHashRoute();
 
 const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
-const fmtSize = (bytes?: number) => bytes === undefined ? '' : bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} k` : `${(bytes / 1024 / 1024).toFixed(1)} M`;
 const clampNumber = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 const basename = (path: string) => path.split('/').filter(Boolean).pop() || 'Home';
 
@@ -969,7 +970,7 @@ export default function App() {
         if (!response.ok) throw new Error(await response.text());
         return response.json();
       };
-      const normalizePageChunk = (items: any[] | null | undefined) => normalizeChatHistoryChunk<ChatMessage>(items, normalizeMessage);
+      const normalizePageChunk = (items: ChatHistoryPageRaw['data']) => normalizeChatHistoryChunk<ChatMessage>(items, normalizeMessage);
       const page = await fetchMessagePage(params);
       let chunk = normalizePageChunk(page.data || []);
       let pageHasOlder = Boolean(page.has_older);
@@ -1241,7 +1242,6 @@ export default function App() {
     setCronScript(values.script);
     setCronDeliver(values.deliver);
     writeHashRoute({ mode: 'cron', jobId: jobId(job) });
-    buildHashRoute({ mode: 'cron', jobId: jobId(job) });
   }, [writeHashRoute]);
   const saveCronJob = useCallback(async () => {
     if (!cronEditingId) {
@@ -1705,7 +1705,6 @@ export default function App() {
       else downloadEntry(entry);
     }
     if (options?.route !== false) writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
-    if (options?.route !== false) buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
   }, [downloadEntry, toggleWorkspaceFolder, writeHashRoute]);
   const openWorkspacePathFile = useCallback(async (targetPath: string) => {
     await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' });
@@ -2751,7 +2750,7 @@ function WorkspaceTreeRows({ entries, workspaceTree, expandedWorkspacePaths, tog
     const activate = () => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openFile(entry);
     return <React.Fragment key={entry.path}>
       <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={activate} onContextMenu={(event) => openWorkspaceMenu?.(entry, event)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(event) => { event.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? formatFileSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(event) => { event.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
       </div>
       {expanded && children.length > 0 && <WorkspaceTreeRows entries={children} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} depth={depth + 1} />}
     </React.Fragment>;
@@ -2838,7 +2837,7 @@ function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleS
     const children = expanded ? (skillFileTree[entry.path] || []) : [];
     return <React.Fragment key={entry.path}>
       <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleSkillFolder(entry) : skill && openSkillFile(skill.name, entry.path)} onContextMenu={(ev) => skill && openSkillFileMenu(skill, entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleSkillFolder(entry) : skill && openSkillFile(skill.name, entry.path); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? formatFileSize(entry.size) : ''}</span>
       </div>
       {expanded && renderRows(children, depth + 1)}
     </React.Fragment>;
@@ -3180,7 +3179,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   };
   const updateImages = (next: ImageEntry[]) => { const sorted = sortImages(next); imagesRef.current = sorted; setImages(sorted); };
   const mergeImage = (entry: ImageEntry) => updateImages([entry, ...imagesRef.current.filter((x) => x.filename !== entry.filename)]);
-  const openImageModal = (item: ImageEntry) => { setModal(item); setModalMetadataOpen(false); writeHashRoute({ mode: 'images', imageFilename: item.filename }); buildHashRoute({ mode: 'images', imageFilename: item.filename }); };
+  const openImageModal = (item: ImageEntry) => { setModal(item); setModalMetadataOpen(false); writeHashRoute({ mode: 'images', imageFilename: item.filename }); };
   const closeImageModal = () => { setModal(null); setModalMetadataOpen(false); writeHashRoute({ mode: 'images' }); };
   const removeImages = (names: string[], modalReplacement?: ImageEntry | null) => {
     const gone = new Set(names.filter(Boolean));
@@ -3570,7 +3569,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       <aside className={`modal-meta ${metadataPlacement === 'bottom' ? 'metadata-bottom' : ''}`} onClick={(event) => event.stopPropagation()}>
         <h2>{t('gallery.metadata')}</h2>
         {metadata?.dimensions && <p className="metadata-dim">{t('gallery.dimensions')}: {metadata.dimensions.width} × {metadata.dimensions.height}</p>}
-        <section className="metadata-files-section"><span>{t('gallery.files')}</span><p>PNG {metadata?.png ? formatImageBytes(metadata.png.size) : formatImageBytes(modal.size)}</p><p>WebP {metadata?.webp ? formatImageBytes((metadata.webp as any).size) : '—'}</p><p>HEIC {metadata?.heic ? formatImageBytes((metadata.heic as any).size) : modal.heic_status}</p></section>
+        <section className="metadata-files-section"><span>{t('gallery.files')}</span><p>PNG {metadata?.png ? formatImageBytes(metadata.png.size) : formatImageBytes(modal.size)}</p><p>WebP {metadata?.webp ? formatImageBytes(metadata.webp.size) : '—'}</p><p>HEIC {metadata?.heic ? formatImageBytes(metadata.heic.size) : modal.heic_status}</p></section>
         <section className="metadata-png-section"><span>{t('gallery.pngMetadata')}</span>{metadataEntries.length ? metadataEntries.map((entry) => <p key={entry.keyword}><b>{entry.keyword}</b><br />{entry.value}</p>) : <p>{t('gallery.noPngText')}</p>}</section>
       </aside>
       <div className="modalbar" onClick={(event) => event.stopPropagation()}>
