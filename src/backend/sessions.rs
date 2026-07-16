@@ -1566,13 +1566,31 @@ fn request_dump_messages(
             }
             _ => continue,
         }
+        if role == Some("system") {
+            let gap = item.get("history_gap").and_then(|value| value.as_object());
+            let after = gap.and_then(|value| value.get("after")).and_then(|value| value.as_f64());
+            let before = gap.and_then(|value| value.get("before")).and_then(|value| value.as_f64());
+            if let (Some(after), Some(before)) = (after, before)
+                && after.is_finite()
+                && before.is_finite()
+                && after >= 0.0
+                && after < before
+                && before <= dump_timestamp
+            {
+                message.insert(
+                    "history_gap".to_string(),
+                    serde_json::json!({"after": after, "before": before}),
+                );
+            }
+        }
         let index = messages.len();
         message.insert("id".to_string(), serde_json::json!(-9_000_000_000_000i64 + index as i64));
         message.insert("session_id".to_string(), serde_json::json!(session_id));
-        message.insert(
-            "timestamp".to_string(),
-            serde_json::json!(dump_timestamp - ((items.len().saturating_sub(index)) as f64 / 1_000.0)),
-        );
+        let fallback_timestamp = dump_timestamp - ((items.len().saturating_sub(index)) as f64 / 1_000.0);
+        let timestamp = nav_message_timestamp_seconds(item)
+            .filter(|timestamp| timestamp.is_finite() && *timestamp >= 0.0 && *timestamp <= dump_timestamp)
+            .unwrap_or(fallback_timestamp);
+        message.insert("timestamp".to_string(), serde_json::json!(timestamp));
         messages.push(serde_json::Value::Object(message));
     }
     (!messages.is_empty()).then_some((dump_timestamp, messages))

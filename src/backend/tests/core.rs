@@ -68,6 +68,37 @@
     }
 
     #[test]
+    fn request_dump_messages_preserve_valid_explicit_time_and_gap() {
+        let first_timestamp = 1_783_486_063.0;
+        let gap_before = 1_783_662_592.0;
+        let dump = serde_json::json!({
+            "timestamp": "2026-07-11T05:19:53.762060",
+            "session_id": "s1",
+            "request": {"body": {"input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "verified first prompt"}],
+                    "timestamp": first_timestamp
+                },
+                {
+                    "role": "system",
+                    "content": "History coverage gap",
+                    "timestamp": first_timestamp + 1.0,
+                    "history_gap": {"after": first_timestamp, "before": gap_before}
+                },
+                {"role": "assistant", "content": "later recovered reply"}
+            ]}}
+        });
+
+        let (_, messages) = request_dump_messages("s1", &dump).unwrap();
+
+        assert_eq!(messages[0]["timestamp"], first_timestamp);
+        assert_eq!(messages[1]["history_gap"]["after"], first_timestamp);
+        assert_eq!(messages[1]["history_gap"]["before"], gap_before);
+        assert_eq!(messages[1]["content"], "History coverage gap");
+    }
+
+    #[test]
     fn session_preview_removes_gateway_sender_prefix() {
         assert_eq!(
             session_preview_from_raw_content(
