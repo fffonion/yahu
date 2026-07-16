@@ -297,6 +297,58 @@
     }
 
     #[tokio::test]
+    async fn subagent_missing_intermediate_ancestor_is_resolved_through_the_api() {
+        async fn api_session(AxumPath(id): AxumPath<String>) -> Json<Value> {
+            assert_eq!(id, "older-parent");
+            Json(serde_json::json!({
+                "session": {
+                    "id": "older-parent",
+                    "parent_session_id": "parent",
+                    "started_at": 300_000.0,
+                    "last_active": 300_100.0
+                }
+            }))
+        }
+
+        let app = Router::new().route("/api/sessions/{id}", get(api_session));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+        let mut sessions = vec![serde_json::json!({
+            "id": "nested-visible",
+            "parent_session_id": "older-parent",
+            "started_at": 490_000.0,
+            "last_active": 490_100.0
+        })];
+
+        resolve_missing_subagent_ancestors(&state, &mut sessions, "parent", 500_000.0).await.unwrap();
+        let visible = select_visible_subagent_sessions("parent", &sessions, 500_000.0);
+
+        assert_eq!(visible.len(), 1);
+        assert_eq!(string_field(&visible[0], "id").as_deref(), Some("nested-visible"));
+    }
+
+    #[tokio::test]
+    async fn subagent_api_json_rejects_a_response_over_the_byte_limit() {
+        async fn oversized() -> String {
+            "x".repeat(256)
+        }
+
+        let app = Router::new().route("/oversized", get(oversized));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let error = fetch_api_json(&state, format!("http://{addr}/oversized"), 32).await.unwrap_err();
+
+        assert!(error.to_string().contains("byte limit"));
+    }
+
+    #[tokio::test]
     async fn subagent_api_pagination_continues_and_deduplicates_session_ids() {
         async fn api_sessions(
             State(requested_offsets): State<Arc<std::sync::Mutex<Vec<usize>>>>,

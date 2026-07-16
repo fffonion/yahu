@@ -12,6 +12,7 @@ import {
   subagentBeforeTimeForMessages,
   subagentIteration,
   subagentMessagesUrl,
+  subagentPrecedingFallbackIds,
   subagentSnapshotUrl,
   subagentViewportIsLive,
   subagentWebSocketUrl,
@@ -34,6 +35,15 @@ describe('subagent progress websocket projection', () => {
     expect(subagentViewportIsLive(bottom, true)).toBe(false);
     expect(subagentViewportIsLive({ ...bottom, scrollTop: 498 }, false)).toBe(false);
     expect(subagentViewportIsLive({ ...bottom, scrollTop: 499.5 }, false)).toBe(true);
+  });
+
+  test('uses only overlapping or preceding rows for a missing-timestamp fallback', () => {
+    expect(subagentPrecedingFallbackIds([
+      { id: 'above', top: 0, bottom: 80, rendered: true },
+      { id: 'overlap', top: 90, bottom: 140, rendered: true },
+      { id: 'below', top: 101, bottom: 150, rendered: true },
+      { id: 'hidden', top: 95, bottom: 95, rendered: false },
+    ], 100)).toEqual(['overlap', 'above']);
   });
 
   test('rejects an older deferred historical response after a newer request starts', async () => {

@@ -3,6 +3,9 @@ const SUBAGENT_IDLE_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const SUBAGENT_POLL_TIMEOUT: Duration = Duration::from_secs(10);
 const SUBAGENT_PAGE_SIZE: usize = 200;
 const SUBAGENT_SESSION_SCAN_LIMIT: usize = 10_000;
+const SUBAGENT_API_PAGE_BYTE_LIMIT: usize = 2 * 1024 * 1024;
+const SUBAGENT_API_DETAIL_BYTE_LIMIT: usize = 4 * 1024 * 1024;
+const SUBAGENT_ANCESTOR_RESOLUTION_LIMIT: usize = 200;
 const SUBAGENT_VISIBLE_LIMIT: usize = 10;
 const SUBAGENT_LOOKBACK_SECONDS: f64 = 86_400.0;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
@@ -472,7 +475,7 @@ async fn fetch_parent_session_todos(
         state.api_url.trim_end_matches('/'),
         path_segment(session_id),
     );
-    let body = fetch_api_json(state, url).await?;
+    let body = fetch_api_json(state, url, SUBAGENT_API_PAGE_BYTE_LIMIT).await?;
     let session = body.get("session").unwrap_or(&body);
     let message_count = u64_field(session, "message_count");
     if cache.message_count == Some(message_count) {
@@ -492,7 +495,8 @@ async fn fetch_subagent_projection_snapshot(
     window_end: f64,
     cache: &mut HashMap<String, CachedSubagentProjection>,
 ) -> anyhow::Result<Vec<SubagentProjection>> {
-    let sessions = fetch_subagent_sessions(state, window_end).await?;
+    let mut sessions = fetch_subagent_sessions(state, window_end).await?;
+    resolve_missing_subagent_ancestors(state, &mut sessions, parent_session_id, window_end).await?;
     let visible = select_visible_subagent_sessions(parent_session_id, &sessions, window_end);
     let visible_ids = visible
         .iter()
@@ -561,7 +565,7 @@ async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::R
             SUBAGENT_PAGE_SIZE,
             offset,
         );
-        let body = fetch_api_json(state, url).await?;
+        let body = fetch_api_json(state, url, SUBAGENT_API_PAGE_BYTE_LIMIT).await?;
         let data = body
             .get("data")
             .and_then(Value::as_array)
@@ -600,6 +604,93 @@ async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::R
     Ok(sessions.into_values().collect())
 }
 
+async fn resolve_missing_subagent_ancestors(
+    state: &AppState,
+    sessions: &mut Vec<Value>,
+    parent_session_id: &str,
+    window_end: f64,
+) -> anyhow::Result<()> {
+    let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
+    let mut by_id = sessions
+        .iter()
+        .filter_map(|session| Some((string_field(session, "id")?, session.clone())))
+        .collect::<HashMap<_, _>>();
+    let mut candidate_ids = sessions
+        .iter()
+        .filter(|session| {
+            number_field(session, "started_at")
+                .is_some_and(|started| started >= window_start && started <= window_end)
+        })
+        .filter_map(|session| string_field(session, "id"))
+        .collect::<Vec<_>>();
+    candidate_ids.sort_by(|left, right| {
+        let left_started = by_id.get(left).and_then(|session| number_field(session, "started_at")).unwrap_or(f64::NEG_INFINITY);
+        let right_started = by_id.get(right).and_then(|session| number_field(session, "started_at")).unwrap_or(f64::NEG_INFINITY);
+        right_started.total_cmp(&left_started)
+    });
+
+    let mut matched = 0usize;
+    let mut resolved = 0usize;
+    for candidate_id in candidate_ids {
+        loop {
+            match subagent_membership_or_missing(&candidate_id, &by_id, parent_session_id) {
+                Ok(true) => {
+                    matched += 1;
+                    break;
+                }
+                Ok(false) => break,
+                Err(missing_id) => {
+                    if resolved >= SUBAGENT_ANCESTOR_RESOLUTION_LIMIT {
+                        anyhow::bail!("subagent ancestor resolution exceeded the safety limit");
+                    }
+                    let url = format!(
+                        "{}/api/sessions/{}",
+                        state.api_url.trim_end_matches('/'),
+                        path_segment(&missing_id),
+                    );
+                    let body = fetch_api_json(state, url, SUBAGENT_API_PAGE_BYTE_LIMIT).await?;
+                    let ancestor = body.get("session").unwrap_or(&body).clone();
+                    let Some(ancestor_id) = string_field(&ancestor, "id") else {
+                        anyhow::bail!("subagent ancestor response omitted its id");
+                    };
+                    by_id.insert(ancestor_id, ancestor.clone());
+                    sessions.push(ancestor);
+                    resolved += 1;
+                }
+            }
+        }
+        if matched >= SUBAGENT_VISIBLE_LIMIT {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn subagent_membership_or_missing(
+    session_id: &str,
+    sessions_by_id: &HashMap<String, Value>,
+    parent_session_id: &str,
+) -> Result<bool, String> {
+    let mut current = session_id.to_string();
+    let mut seen = HashSet::new();
+    while seen.insert(current.clone()) {
+        let Some(session) = sessions_by_id.get(&current) else {
+            return Err(current);
+        };
+        if let Some(lineage_root) = string_field(session, "_lineage_root_id") {
+            return Ok(lineage_root == parent_session_id);
+        }
+        let Some(parent) = string_field(session, "parent_session_id") else {
+            return Ok(false);
+        };
+        if parent == parent_session_id {
+            return Ok(true);
+        }
+        current = parent;
+    }
+    Ok(false)
+}
+
 fn session_activity_time(session: &Value) -> Option<f64> {
     number_field(session, "last_active")
         .or_else(|| number_field(session, "ended_at"))
@@ -612,7 +703,7 @@ async fn fetch_session_messages(state: &AppState, session_id: &str) -> anyhow::R
         state.api_url.trim_end_matches('/'),
         path_segment(session_id),
     );
-    let body = fetch_api_json(state, url).await?;
+    let body = fetch_api_json(state, url, SUBAGENT_API_DETAIL_BYTE_LIMIT).await?;
     Ok(body
         .get("data")
         .and_then(Value::as_array)
@@ -620,15 +711,25 @@ async fn fetch_session_messages(state: &AppState, session_id: &str) -> anyhow::R
         .unwrap_or_default())
 }
 
-async fn fetch_api_json(state: &AppState, url: String) -> anyhow::Result<Value> {
+async fn fetch_api_json(state: &AppState, url: String, max_bytes: usize) -> anyhow::Result<Value> {
     let mut request = state.client.get(url);
     if let Some(key) = &state.api_key
         && !key.is_empty()
     {
         request = request.bearer_auth(key);
     }
-    let response = request.send().await?.error_for_status()?;
-    Ok(response.json::<Value>().await?)
+    let mut response = request.send().await?.error_for_status()?;
+    if response.content_length().is_some_and(|length| length > max_bytes as u64) {
+        anyhow::bail!("subagent API response exceeds the byte limit");
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len().saturating_add(chunk.len()) > max_bytes {
+            anyhow::bail!("subagent API response exceeds the byte limit");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(serde_json::from_slice::<Value>(&body)?)
 }
 
 fn select_visible_subagent_sessions(

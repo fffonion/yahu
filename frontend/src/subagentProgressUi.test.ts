@@ -18,8 +18,11 @@ describe('subagent progress UI', () => {
     expect(card()).toContain('fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })');
     expect(card()).toContain('return () => { requestGuard.stop(); controller.abort(); };');
     expect(card()).toContain('if (!requestGuard.isActive(controller.signal)) return;');
+    expect(card()).toContain("type: 'subagents.snapshot',");
+    expect(card()).toContain('setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);');
     expect(card()).toContain('}, [sessionId]);');
     expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer)');
+    expect(app()).toContain('subagentPrecedingFallbackIds(rows.map((row) => {');
     expect(app()).toContain('scheduleSubagentWindowUpdate();');
     expect(app()).toContain('new ResizeObserver(scheduleSubagentWindowUpdate)');
     expect(app()).toContain('observer.observe(scroller);');

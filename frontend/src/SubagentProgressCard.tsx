@@ -86,13 +86,20 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
         })
         .catch((error) => {
           if (!requestGuard.isActive(controller.signal)) return;
-          setSnapshot((current) => current ? { ...current, subagents: [], error: String(error) } : null);
+          setSnapshot((current) => current ? { ...current, subagents: [], error: String(error) } : {
+            type: 'subagents.snapshot',
+            sessionId,
+            generatedAt: Date.now() / 1000,
+            subagents: [],
+            error: String(error),
+          });
         });
       return () => { requestGuard.stop(); controller.abort(); };
     }
     let socket: WebSocket | null = null;
     let reconnectTimer = 0;
     let reconnectDelay = 750;
+    setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);
 
     const connect = () => {
       if (stopped) return;

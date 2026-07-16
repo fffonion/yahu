@@ -80,6 +80,16 @@ export function subagentViewportIsLive(viewport: Pick<HTMLElement, 'scrollHeight
   return !hasNewer && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1;
 }
 
+export function subagentPrecedingFallbackIds(
+  rows: Array<{ id: string; top: number; bottom: number; rendered: boolean }>,
+  viewportTop: number,
+): string[] {
+  return rows
+    .filter((row) => row.id && row.rendered && row.top <= viewportTop)
+    .sort((left, right) => Math.max(0, viewportTop - left.bottom) - Math.max(0, viewportTop - right.bottom))
+    .map((row) => row.id);
+}
+
 export function subagentBeforeTimeForMessages(messages: Pick<ChatMessage, 'id' | 'timestamp'>[], visibleIds: ReadonlySet<string>): number | undefined {
   let latest: number | undefined;
   for (const message of messages) {

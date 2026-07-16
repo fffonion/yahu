@@ -29,7 +29,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMar
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
 import { SubagentProgressCard } from './SubagentProgressCard';
-import { subagentBeforeTimeForMessages, subagentViewportIsLive } from './subagentProgress';
+import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
@@ -2347,13 +2347,12 @@ function subagentBeforeTimeForVisibleRange(scroller: HTMLElement | null, message
     .filter(Boolean));
   const visibleTime = subagentBeforeTimeForMessages(messages, visibleIds);
   if (visibleTime !== undefined) return visibleTime;
-  const nearestRows = rows.map((row) => {
+  const nearestRowIds = subagentPrecedingFallbackIds(rows.map((row) => {
     const rect = row.getBoundingClientRect();
-    const distance = rect.bottom < viewport.top ? viewport.top - rect.bottom : rect.top > viewport.bottom ? rect.top - viewport.bottom : 0;
-    return { id: row.getAttribute('data-message-id') || '', distance, rendered: rect.width > 0 || rect.height > 0 };
-  }).filter((row) => row.id && row.rendered).sort((left, right) => left.distance - right.distance);
-  for (const row of nearestRows) {
-    const nearestTime = subagentBeforeTimeForMessages(messages, new Set([row.id]));
+    return { id: row.getAttribute('data-message-id') || '', top: rect.top, bottom: rect.bottom, rendered: rect.width > 0 || rect.height > 0 };
+  }), viewport.top);
+  for (const rowId of nearestRowIds) {
+    const nearestTime = subagentBeforeTimeForMessages(messages, new Set([rowId]));
     if (nearestTime !== undefined) return nearestTime;
   }
   return null;
