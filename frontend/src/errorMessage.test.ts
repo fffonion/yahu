@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { errorMessage, isAbortError } from './errorMessage';
 
 describe('errorMessage', () => {
@@ -9,8 +10,26 @@ describe('errorMessage', () => {
 
   test('uses string values and a fallback for empty errors', () => {
     expect(errorMessage('plain failure')).toBe('plain failure');
+    expect(errorMessage(503)).toBe('503');
+    expect(errorMessage({ code: 503 })).toBe('[object Object]');
     expect(errorMessage(null, 'unknown failure')).toBe('unknown failure');
     expect(errorMessage({ message: '' }, 'unknown failure')).toBe('unknown failure');
+  });
+
+  test('never lets hostile error objects escape the error handler', () => {
+    const hostile = new Proxy({}, {
+      get: () => { throw new Error('get trap'); },
+      getPrototypeOf: () => { throw new Error('prototype trap'); },
+      has: () => { throw new Error('has trap'); },
+    });
+
+    expect(errorMessage(hostile, 'unknown failure')).toBe('unknown failure');
+    expect(isAbortError(hostile)).toBe(false);
+  });
+
+  test('App delegates fallback stringification to the helper', () => {
+    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    expect(appSource).not.toContain('errorMessage(err, String(err))');
   });
 
   test('recognizes browser-style abort errors without assuming Error instances', () => {

@@ -1227,7 +1227,7 @@ export default function App() {
     try {
       setCronOutput(await fetchCronOutput(id));
     } catch (err) {
-      setCronOutput({ content: tf('cron.outputUnavailable', errorMessage(err, String(err))) });
+      setCronOutput({ content: tf('cron.outputUnavailable', errorMessage(err)) });
     } finally {
       setCronOutputLoading(false);
     }
@@ -1280,7 +1280,7 @@ export default function App() {
       const output = await waitForCronRunOutput(() => fetchCronOutput(id), previousOutputTimestamp);
       setCronOutput(output);
     } catch (err) {
-      setCronOutput({ content: tf('cron.outputUnavailable', errorMessage(err, String(err))) });
+      setCronOutput({ content: tf('cron.outputUnavailable', errorMessage(err)) });
     } finally {
       setCronOutputLoading(false);
     }
@@ -1520,7 +1520,7 @@ export default function App() {
       if (!res.ok) throw new Error(await res.text());
       setStatus(tf('chat.steeredStatus', `${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`));
     } catch (err) {
-      setStatus(tf('chat.steerFailed', errorMessage(err, String(err))));
+      setStatus(tf('chat.steerFailed', errorMessage(err)));
       enqueueFollowUp(trimmed, sessionId);
     }
   };
@@ -1553,7 +1553,7 @@ export default function App() {
     try {
       payloadAttachments = await uploadAttachments(turnAttachments);
     } catch (err) {
-      setStatus(tf('status.cannotUploadAttachments', errorMessage(err, String(err))));
+      setStatus(tf('status.cannotUploadAttachments', errorMessage(err)));
       setBusy(false);
       return;
     }
@@ -2357,7 +2357,7 @@ function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: 
   return active;
 }
 
-function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatScrollRef }: { items: UserMessageNavItem[]; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void; chatScrollRef: React.RefObject<HTMLElement | null> }) {
+function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatScrollRef }: { items: UserMessageNavItem[]; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>; chatScrollRef: React.RefObject<HTMLElement | null> }) {
   const navRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const popupTimerRef = useRef<number | null>(null);
@@ -2457,7 +2457,7 @@ type ChatMainProps = {
   activeSessionId: string;
   messages: ChatMessage[];
   userMessageNav: UserMessageNavItem[];
-  onJumpToMessage: (sessionId: string, messageId: string) => void;
+  onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>;
   contextWindowSnapshot: ContextWindowSnapshot | null;
   showReasoning: boolean;
   setShowReasoning: React.Dispatch<React.SetStateAction<boolean>>;
@@ -3273,7 +3273,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       if (added || updated) setNotice(tf('gallery.refreshComplete', added, updated));
       else if (window.innerWidth > 760) setNotice(t('gallery.refreshedNone'));
       await loadStats();
-    } catch (err) { setNotice(`${t('gallery.refreshFailed')}: ${errorMessage(err, String(err))}`); }
+    } catch (err) { setNotice(`${t('gallery.refreshFailed')}: ${errorMessage(err)}`); }
     finally { refreshBusyRef.current = false; }
   }, [loadStats]);
   const refresh = refreshIncremental;
