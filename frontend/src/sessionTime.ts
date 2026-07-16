@@ -1,11 +1,16 @@
 export type SessionTimeLike = {
+  id?: string;
   title?: string | null;
+  preview?: string | null;
   started_at?: number | string | null;
   last_active?: number | string | null;
   ended_at?: number | string | null;
 };
 
 export type MessageTimeLike = {
+  id?: string;
+  role?: string;
+  content?: string | null;
   timestamp?: number | string | null;
 };
 

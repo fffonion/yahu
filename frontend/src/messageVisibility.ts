@@ -105,7 +105,7 @@ function rememberToolCallInputs(message: MessageVisibilityInput, inputs: Map<str
   }
 }
 
-export function withToolCallInputs<T extends MessageVisibilityInput>(messages: T[]): T[] {
+export function withToolCallInputs<T extends MessageVisibilityInput>(messages: T[]): Array<T & Pick<MessageVisibilityInput, 'toolInput'>> {
   const toolInputsByCallId = new Map<string, unknown>();
   let changed = false;
   const result = messages.map((rawMessage) => {

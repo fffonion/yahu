@@ -14,9 +14,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "types": ["bun"]
   },
   "include": ["frontend/src"],
-  "exclude": ["frontend/src/**/*.test.ts"],
   "references": []
 }
