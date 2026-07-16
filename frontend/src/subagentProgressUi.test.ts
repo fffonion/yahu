@@ -97,6 +97,16 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-progress-node>details[open]>summary.completed .subagent-progress-goal strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
   });
 
+  test('matches the folded Goal typography and keeps expanded status rows smaller than task descriptions', () => {
+    const styles = css();
+    expect(styles).toContain('.subagent-goal-preview{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text)}');
+    expect(styles).toContain('.subagent-progress-heading strong{font-size:12px;font-weight:400}');
+    expect(styles).toContain('.subagent-progress-goal strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:600}');
+    expect(styles).toContain('.subagent-progress-goal small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px;line-height:1.2;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}');
+    expect(styles).toContain('.subagent-progress-detail-meta{margin:0;color:var(--muted);font-size:10px;line-height:1.2;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}');
+    expect(styles).not.toContain('.subagent-progress-goal small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font:10px/1.2 var(--mono)}');
+  });
+
   test('reuses the exact main-chat transcript renderer without a subagent-only message renderer', () => {
     expect(app()).toContain("import { ChatTranscript");
     expect(app()).toContain('<ChatTranscript');
