@@ -59,6 +59,8 @@ struct GoalMilestoneProjection {
 struct PersistentGoalProjection {
     text: String,
     status: String,
+    #[serde(skip)]
+    created_at: f64,
     turns_used: u64,
     max_turns: u64,
     subgoals: Vec<String>,
@@ -92,6 +94,7 @@ struct CachedSubagentProjection {
 
 #[derive(Default)]
 struct CachedParentTodos {
+    goal_created_at: Option<f64>,
     message_count: Option<u64>,
     todos: Vec<SubagentTodo>,
 }
@@ -154,7 +157,12 @@ async fn subagent_snapshot(
     if let Some(goal) = goal.as_mut() {
         match timeout(
             SUBAGENT_POLL_TIMEOUT,
-            fetch_parent_session_todos(&state, &session_id, &mut parent_todo_cache),
+            fetch_parent_session_todos(
+                &state,
+                &session_id,
+                goal.created_at,
+                &mut parent_todo_cache,
+            ),
         )
         .await
         {
@@ -361,7 +369,12 @@ async fn run_subagent_feed(
         if let Some(goal) = current_goal.as_mut() {
             match timeout(
                 SUBAGENT_POLL_TIMEOUT,
-                fetch_parent_session_todos(&state, &session_id, &mut parent_todo_cache),
+                fetch_parent_session_todos(
+                    &state,
+                    &session_id,
+                    goal.created_at,
+                    &mut parent_todo_cache,
+                ),
             )
             .await
             {
@@ -449,6 +462,7 @@ fn load_persistent_goal(
         "paused" | "done" => raw_status,
         _ => "active".to_string(),
     };
+    let created_at = number_field(&value, "created_at").unwrap_or_default();
     let subgoals = value
         .get("subgoals")
         .and_then(Value::as_array)
@@ -481,12 +495,15 @@ fn load_persistent_goal(
         })
         .collect::<Vec<_>>();
     let milestone_cache_key = format!("yahu:goal_milestones:{session_id}");
-    if let Ok(cached) = conn.query_row(
-        "SELECT value FROM state_meta WHERE key = ?1",
-        [&milestone_cache_key],
-        |row| row.get::<_, String>(0),
-    )
-        && let Ok(items) = serde_json::from_str::<Value>(&cached)
+    let milestone_cache_raw = conn
+        .query_row(
+            "SELECT value FROM state_meta WHERE key = ?1",
+            [&milestone_cache_key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(cached) = milestone_cache_raw.as_deref()
+        && let Ok(items) = serde_json::from_str::<Value>(cached)
         && let Some(items) = items.as_array()
     {
         milestones.extend(items.iter().filter_map(|item| {
@@ -515,6 +532,9 @@ fn load_persistent_goal(
             milestones.push(latest);
         }
     }
+    if created_at > 0.0 {
+        milestones.retain(|item| item.timestamp >= created_at);
+    }
     milestones.sort_by(|left, right| {
         right
             .timestamp
@@ -522,17 +542,19 @@ fn load_persistent_goal(
             .then_with(|| right.turn.cmp(&left.turn))
     });
     milestones.dedup_by(|left, right| left.turn == right.turn);
-    if !milestones.is_empty() {
+    let encoded_milestones = serde_json::to_string(&milestones)?;
+    if milestone_cache_raw.as_deref() != Some(encoded_milestones.as_str()) {
         let write_conn = rusqlite::Connection::open(hermes_home.join("state.db"))?;
         write_conn.execute(
             "INSERT INTO state_meta (key, value) VALUES (?1, ?2) \
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            rusqlite::params![milestone_cache_key, serde_json::to_string(&milestones)?],
+            rusqlite::params![milestone_cache_key, encoded_milestones],
         )?;
     }
     Ok(Some(PersistentGoalProjection {
         text: truncate_chars(text.trim(), 2_000),
         status,
+        created_at,
         turns_used: u64_field(&value, "turns_used"),
         max_turns: u64_field(&value, "max_turns"),
         subgoals,
@@ -548,8 +570,20 @@ fn load_persistent_goal(
 async fn fetch_parent_session_todos(
     state: &AppState,
     session_id: &str,
+    goal_created_at: f64,
     cache: &mut CachedParentTodos,
 ) -> anyhow::Result<Vec<SubagentTodo>> {
+    let goal_created_at = if goal_created_at.is_finite() && goal_created_at > 0.0 {
+        goal_created_at
+    } else {
+        0.0
+    };
+    if cache.goal_created_at != Some(goal_created_at) {
+        cache.goal_created_at = Some(goal_created_at);
+        cache.message_count = None;
+        cache.todos.clear();
+    }
+
     let url = format!(
         "{}/api/sessions/{}",
         state.api_url.trim_end_matches('/'),
@@ -563,7 +597,7 @@ async fn fetch_parent_session_todos(
     }
 
     let messages = fetch_session_messages(state, session_id).await?;
-    let todos = latest_todos(&messages);
+    let todos = latest_todos_since(&messages, goal_created_at);
     cache.message_count = Some(message_count);
     cache.todos = todos.clone();
     Ok(todos)
@@ -1000,6 +1034,21 @@ fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
         }
     }
     current
+}
+
+fn latest_todos_since(messages: &[Value], goal_created_at: f64) -> Vec<SubagentTodo> {
+    if goal_created_at <= 0.0 {
+        return latest_todos(messages);
+    }
+    let current_generation = messages
+        .iter()
+        .filter(|message| {
+            number_field(message, "timestamp")
+                .is_some_and(|timestamp| timestamp >= goal_created_at)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    latest_todos(&current_generation)
 }
 
 fn parse_preserved_todos(content: &str) -> Option<Vec<SubagentTodo>> {

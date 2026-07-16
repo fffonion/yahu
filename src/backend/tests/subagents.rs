@@ -106,6 +106,68 @@
         assert!(load_persistent_goal(temp.path(), "child-1").unwrap().is_none());
     }
 
+    #[test]
+    fn replacing_a_goal_drops_milestones_from_the_previous_goal_generation() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE state_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO state_meta (key, value) VALUES (?1, ?2)",
+            rusqlite::params![
+                "goal:parent-1",
+                serde_json::json!({
+                    "goal": "Previous goal",
+                    "status": "active",
+                    "created_at": 100.0,
+                    "turns_used": 1,
+                    "last_turn_at": 150.0,
+                    "last_reason": "Previous result",
+                    "milestones": [{
+                        "turn": 1,
+                        "timestamp": 150.0,
+                        "verdict": "continue",
+                        "reason": "Previous result"
+                    }]
+                })
+                .to_string()
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let previous = load_persistent_goal(temp.path(), "parent-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(previous.milestones.len(), 1);
+
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute(
+            "UPDATE state_meta SET value = ?2 WHERE key = ?1",
+            rusqlite::params![
+                "goal:parent-1",
+                serde_json::json!({
+                    "goal": "Replacement goal",
+                    "status": "active",
+                    "created_at": 300.0,
+                    "turns_used": 0,
+                    "last_turn_at": 0.0
+                })
+                .to_string()
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let replacement = load_persistent_goal(temp.path(), "parent-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(replacement.text, "Replacement goal");
+        assert!(replacement.milestones.is_empty());
+    }
+
     #[tokio::test]
     async fn persistent_goal_todos_are_loaded_from_parent_api_messages() {
         async fn api_session() -> Json<Value> {
@@ -134,7 +196,7 @@
         let state = test_app_state(format!("http://{addr}"), temp.path());
         let mut cache = CachedParentTodos::default();
 
-        let todos = fetch_parent_session_todos(&state, "parent-1", &mut cache)
+        let todos = fetch_parent_session_todos(&state, "parent-1", 0.0, &mut cache)
             .await
             .unwrap();
 
@@ -144,6 +206,56 @@
         assert_eq!(todos[1].id, "current");
         assert_eq!(todos[1].content, "Current main task");
         assert_eq!(todos[1].status, "completed");
+    }
+
+    #[tokio::test]
+    async fn replacing_a_goal_drops_todos_from_the_previous_goal_generation() {
+        async fn api_session() -> Json<Value> {
+            Json(serde_json::json!({
+                "session": { "id": "parent-1", "message_count": 1 }
+            }))
+        }
+        async fn api_messages() -> Json<Value> {
+            Json(serde_json::json!({
+                "data": [{
+                    "role": "assistant",
+                    "timestamp": 100.0,
+                    "tool_calls": [{
+                        "function": {
+                            "name": "todo",
+                            "arguments": {
+                                "todos": [{
+                                    "id": "previous",
+                                    "content": "Previous goal task",
+                                    "status": "in_progress"
+                                }]
+                            }
+                        }
+                    }]
+                }]
+            }))
+        }
+
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+        let mut cache = CachedParentTodos::default();
+
+        let previous = fetch_parent_session_todos(&state, "parent-1", 50.0, &mut cache)
+            .await
+            .unwrap();
+        assert_eq!(previous.len(), 1);
+
+        let replacement = fetch_parent_session_todos(&state, "parent-1", 200.0, &mut cache)
+            .await
+            .unwrap();
+        assert!(replacement.is_empty());
+        assert!(cache.todos.is_empty());
     }
 
     #[test]
@@ -550,6 +662,7 @@
         let active_goal = PersistentGoalProjection {
             text: "Goal".to_string(),
             status: "active".to_string(),
+            created_at: 100.0,
             turns_used: 1,
             max_turns: 20,
             subgoals: Vec::new(),
