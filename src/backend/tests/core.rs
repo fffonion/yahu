@@ -40,6 +40,34 @@
     }
 
     #[test]
+    fn turn_duration_injection_resets_at_history_gap() {
+        let mut messages = vec![
+            serde_json::json!({"id": -2, "role": "user", "content": "recovered prompt", "timestamp": 1000.0}),
+            serde_json::json!({
+                "id": -1,
+                "role": "system",
+                "content": "history unavailable",
+                "timestamp": 2000.0,
+                "history_gap": {"after": 1000.0, "before": 2000.0}
+            }),
+            serde_json::json!({"id": 1, "role": "assistant", "content": "retained suffix reply", "timestamp": 2001.0}),
+            serde_json::json!({"id": 2, "role": "user", "content": "suffix prompt", "timestamp": 2010.0}),
+            serde_json::json!({"id": 3, "role": "assistant", "content": "tool setup", "timestamp": 2011.0, "tool_calls": [{"id": "call-1"}]}),
+            serde_json::json!({"id": 4, "role": "tool", "content": "tool result", "timestamp": 2012.0}),
+            serde_json::json!({"id": 5, "role": "assistant", "content": "suffix final", "timestamp": 2020.0}),
+        ];
+
+        inject_turn_durations(&mut messages);
+
+        assert!(
+            messages[2].get("duration_ms").is_none(),
+            "the retained suffix must not inherit a user timestamp across a history gap"
+        );
+        assert_eq!(messages[4]["duration_ms"].as_f64().unwrap(), 1_000.0);
+        assert_eq!(messages[6]["duration_ms"].as_f64().unwrap(), 10_000.0);
+    }
+
+    #[test]
     fn session_preview_removes_gateway_sender_prefix() {
         assert_eq!(
             session_preview_from_raw_content(

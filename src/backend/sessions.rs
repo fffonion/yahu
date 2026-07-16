@@ -486,6 +486,10 @@ const MIN_HISTORICAL_TURN_DURATION_MS: f64 = 1000.0;
 fn inject_turn_durations(messages: &mut [serde_json::Value]) {
     let mut last_user_ts: Option<f64> = None;
     for message in messages.iter_mut() {
+        if message.get("history_gap").is_some() {
+            last_user_ts = None;
+            continue;
+        }
         let role = message
             .get("role")
             .and_then(|v| v.as_str())
