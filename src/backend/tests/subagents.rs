@@ -1,5 +1,5 @@
     #[test]
-    fn subagent_projection_reports_goal_current_tool_todos_and_summary() {
+    fn subagent_projection_reports_task_current_tool_todos_and_summary() {
         let session = serde_json::json!({
             "id": "child-1",
             "parent_session_id": "parent-1",
@@ -21,13 +21,90 @@
         let projected = project_subagent_session(&session, &messages).unwrap();
 
         assert_eq!(projected.session_id, "child-1");
-        assert_eq!(projected.goal, "Review the backend");
+        assert_eq!(projected.task, "Review the backend");
         assert_eq!(projected.status, "running");
         assert_eq!(projected.current_tool.as_deref(), Some("terminal"));
         assert_eq!(projected.todos.len(), 2);
         assert_eq!(projected.todos[1].status, "in_progress");
         assert_eq!(projected.summary.as_deref(), Some("Partial review note"));
         assert_eq!(projected.activity.last().unwrap().tool, "todo");
+    }
+
+    #[test]
+    fn persistent_goal_is_loaded_separately_from_subagent_tasks() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE state_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO state_meta (key, value) VALUES (?1, ?2)",
+            rusqlite::params![
+                "goal:parent-1",
+                serde_json::json!({
+                    "goal": "Optimize the interpreter",
+                    "status": "active",
+                    "turns_used": 4,
+                    "max_turns": 20,
+                    "last_reason": "More profiling is required",
+                    "subgoals": ["Keep the script implementation"]
+                })
+                .to_string()
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let goal = load_persistent_goal(temp.path(), "parent-1")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(goal.text, "Optimize the interpreter");
+        assert_eq!(goal.status, "active");
+        assert_eq!(goal.turns_used, 4);
+        assert_eq!(goal.max_turns, 20);
+        assert_eq!(goal.last_reason.as_deref(), Some("More profiling is required"));
+        assert_eq!(goal.subgoals, vec!["Keep the script implementation"]);
+        assert!(goal.todos.is_empty());
+        assert!(load_persistent_goal(temp.path(), "child-1").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn persistent_goal_todos_are_loaded_from_parent_api_messages() {
+        async fn api_session() -> Json<Value> {
+            Json(serde_json::json!({
+                "session": { "id": "parent-1", "message_count": 3 }
+            }))
+        }
+        async fn api_messages() -> Json<Value> {
+            Json(serde_json::json!({
+                "data": [
+                    { "role": "tool", "tool_name": "todo", "content": "{\"todos\":[{\"id\":\"old\",\"content\":\"Old task\",\"status\":\"completed\"}]}" },
+                    { "role": "assistant", "content": "", "tool_calls": [{ "id": "todo-current", "function": { "name": "todo", "arguments": "{\"todos\":[{\"id\":\"current\",\"content\":\"Current main task\",\"status\":\"in_progress\"}]}" } }] },
+                    { "role": "tool", "tool_name": "todo", "tool_call_id": "todo-current", "content": "[todo] updated task list" }
+                ]
+            }))
+        }
+
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+        let mut cache = CachedParentTodos::default();
+
+        let todos = fetch_parent_session_todos(&state, "parent-1", &mut cache)
+            .await
+            .unwrap();
+
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].id, "current");
+        assert_eq!(todos[0].content, "Current main task");
+        assert_eq!(todos[0].status, "in_progress");
     }
 
     #[test]
@@ -144,7 +221,7 @@
             SubagentProjection {
                 session_id: "child".to_string(),
                 parent_session_id: "parent".to_string(),
-                goal: "Review".to_string(),
+                task: "Review".to_string(),
                 model: None,
                 status: status.to_string(),
                 started_at: Some(1.0),
@@ -159,9 +236,29 @@
             }
         }
 
-        assert_eq!(subagent_poll_delay(&[]), SUBAGENT_POLL_INTERVAL);
-        assert_eq!(subagent_poll_delay(&[projection("running")]), SUBAGENT_POLL_INTERVAL);
-        assert_eq!(subagent_poll_delay(&[projection("completed")]), SUBAGENT_IDLE_POLL_INTERVAL);
+        assert_eq!(subagent_poll_delay(&[], None), SUBAGENT_POLL_INTERVAL);
+        assert_eq!(
+            subagent_poll_delay(&[projection("running")], None),
+            SUBAGENT_POLL_INTERVAL
+        );
+        assert_eq!(
+            subagent_poll_delay(&[projection("completed")], None),
+            SUBAGENT_IDLE_POLL_INTERVAL
+        );
+        let active_goal = PersistentGoalProjection {
+            text: "Goal".to_string(),
+            status: "active".to_string(),
+            turns_used: 1,
+            max_turns: 20,
+            subgoals: Vec::new(),
+            todos: Vec::new(),
+            last_reason: None,
+            paused_reason: None,
+        };
+        assert_eq!(
+            subagent_poll_delay(&[projection("completed")], Some(&active_goal)),
+            SUBAGENT_POLL_INTERVAL
+        );
     }
 
     #[test]

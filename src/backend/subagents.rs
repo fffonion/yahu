@@ -27,7 +27,7 @@ struct SubagentActivity {
 struct SubagentProjection {
     session_id: String,
     parent_session_id: String,
-    goal: String,
+    task: String,
     model: Option<String>,
     status: String,
     started_at: Option<f64>,
@@ -41,12 +41,28 @@ struct SubagentProjection {
     summary: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct PersistentGoalProjection {
+    text: String,
+    status: String,
+    turns_used: u64,
+    max_turns: u64,
+    subgoals: Vec<String>,
+    todos: Vec<SubagentTodo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    paused_reason: Option<String>,
+}
+
 #[derive(Serialize)]
 struct SubagentSnapshot<'a> {
     #[serde(rename = "type")]
     kind: &'static str,
     session_id: &'a str,
     generated_at: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    goal: Option<&'a PersistentGoalProjection>,
     subagents: &'a [SubagentProjection],
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<&'a str>,
@@ -57,6 +73,12 @@ struct CachedSubagentProjection {
     message_count: u64,
     ended_at: Option<f64>,
     projection: SubagentProjection,
+}
+
+#[derive(Default)]
+struct CachedParentTodos {
+    message_count: Option<u64>,
+    todos: Vec<SubagentTodo>,
 }
 
 async fn subagent_websocket(
@@ -123,8 +145,14 @@ fn subagent_feed_sender(
     (sender, true)
 }
 
-fn subagent_poll_delay(subagents: &[SubagentProjection]) -> Duration {
-    if subagents.is_empty() || subagents.iter().any(|item| item.status == "running") {
+fn subagent_poll_delay(
+    subagents: &[SubagentProjection],
+    goal: Option<&PersistentGoalProjection>,
+) -> Duration {
+    if subagents.is_empty()
+        || subagents.iter().any(|item| item.status == "running")
+        || goal.is_some_and(|item| item.status == "active")
+    {
         SUBAGENT_POLL_INTERVAL
     } else {
         SUBAGENT_IDLE_POLL_INTERVAL
@@ -186,7 +214,9 @@ async fn run_subagent_feed(
     let mut ticker = interval(SUBAGENT_POLL_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut cache = HashMap::<String, CachedSubagentProjection>::new();
+    let mut parent_todo_cache = CachedParentTodos::default();
     let mut current_subagents = Vec::<SubagentProjection>::new();
+    let mut current_goal = None::<PersistentGoalProjection>;
     let mut last_fingerprint = String::new();
     let mut next_poll = Instant::now();
 
@@ -209,7 +239,7 @@ async fn run_subagent_feed(
             continue;
         }
 
-        let error = match timeout(
+        let mut error = match timeout(
             SUBAGENT_POLL_TIMEOUT,
             fetch_subagent_projection_snapshot(&state, &session_id, &mut cache),
         )
@@ -222,8 +252,45 @@ async fn run_subagent_feed(
             Ok(Err(err)) => Some(err.to_string()),
             Err(_) => Some("subagent progress poll timed out".to_string()),
         };
+        match load_persistent_goal(&state.hermes_home, &session_id) {
+            Ok(goal) => current_goal = goal,
+            Err(err) => {
+                let message = format!("failed to load persistent goal: {err}");
+                error = Some(match error {
+                    Some(existing) => format!("{existing}; {message}"),
+                    None => message,
+                });
+            }
+        }
+        if let Some(goal) = current_goal.as_mut() {
+            match timeout(
+                SUBAGENT_POLL_TIMEOUT,
+                fetch_parent_session_todos(&state, &session_id, &mut parent_todo_cache),
+            )
+            .await
+            {
+                Ok(Ok(todos)) => goal.todos = todos,
+                Ok(Err(err)) => {
+                    goal.todos = parent_todo_cache.todos.clone();
+                    let message = format!("failed to load main-session todos: {err}");
+                    error = Some(match error {
+                        Some(existing) => format!("{existing}; {message}"),
+                        None => message,
+                    });
+                }
+                Err(_) => {
+                    goal.todos = parent_todo_cache.todos.clone();
+                    let message = "main-session todo poll timed out".to_string();
+                    error = Some(match error {
+                        Some(existing) => format!("{existing}; {message}"),
+                        None => message,
+                    });
+                }
+            }
+        }
         let fingerprint = serde_json::to_string(&(
             current_subagents.as_slice(),
+            current_goal.as_ref(),
             error.as_deref(),
         ))
         .unwrap_or_default();
@@ -233,6 +300,7 @@ async fn run_subagent_feed(
                 kind: "subagents.snapshot",
                 session_id: &session_id,
                 generated_at: unix_now_seconds(),
+                goal: current_goal.as_ref(),
                 subagents: &current_subagents,
                 error: error.as_deref(),
             };
@@ -240,8 +308,98 @@ async fn run_subagent_feed(
                 sender.send_replace(text);
             }
         }
-        next_poll = Instant::now() + subagent_poll_delay(&current_subagents);
+        next_poll = Instant::now()
+            + subagent_poll_delay(&current_subagents, current_goal.as_ref());
     }
+}
+
+fn load_persistent_goal(
+    hermes_home: &Path,
+    session_id: &str,
+) -> anyhow::Result<Option<PersistentGoalProjection>> {
+    // API Server currently exposes session metadata/messages but no GoalManager state.
+    // Keep this fallback exact, read-only, and scoped to the selected main session.
+    let db_path = hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(&conn, "state_meta", &["key", "value"])? {
+        return Ok(None);
+    }
+    let raw = conn
+        .query_row(
+            "SELECT value FROM state_meta WHERE key = ?1",
+            [format!("goal:{session_id}")],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let value = serde_json::from_str::<Value>(&raw)?;
+    let Some(text) = string_field(&value, "goal") else {
+        return Ok(None);
+    };
+    let raw_status = string_field(&value, "status").unwrap_or_else(|| "active".to_string());
+    if raw_status == "cleared" {
+        return Ok(None);
+    }
+    let status = match raw_status.as_str() {
+        "paused" | "done" => raw_status,
+        _ => "active".to_string(),
+    };
+    let subgoals = value
+        .get("subgoals")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .take(20)
+        .map(|item| truncate_chars(item, 500))
+        .collect();
+    Ok(Some(PersistentGoalProjection {
+        text: truncate_chars(text.trim(), 2_000),
+        status,
+        turns_used: u64_field(&value, "turns_used"),
+        max_turns: u64_field(&value, "max_turns"),
+        subgoals,
+        todos: Vec::new(),
+        last_reason: string_field(&value, "last_reason")
+            .map(|item| truncate_chars(item.trim(), 1_000)),
+        paused_reason: string_field(&value, "paused_reason")
+            .map(|item| truncate_chars(item.trim(), 500)),
+    }))
+}
+
+async fn fetch_parent_session_todos(
+    state: &AppState,
+    session_id: &str,
+    cache: &mut CachedParentTodos,
+) -> anyhow::Result<Vec<SubagentTodo>> {
+    let url = format!(
+        "{}/api/sessions/{}",
+        state.api_url.trim_end_matches('/'),
+        path_segment(session_id),
+    );
+    let body = fetch_api_json(state, url).await?;
+    let session = body.get("session").unwrap_or(&body);
+    let message_count = u64_field(session, "message_count");
+    if cache.message_count == Some(message_count) {
+        return Ok(cache.todos.clone());
+    }
+
+    let messages = fetch_session_messages(state, session_id).await?;
+    let todos = latest_todos(&messages);
+    cache.message_count = Some(message_count);
+    cache.todos = todos.clone();
+    Ok(todos)
 }
 
 async fn fetch_subagent_projection_snapshot(
@@ -454,7 +612,7 @@ fn select_visible_subagent_sessions(parent_session_id: &str, sessions: &[Value])
 fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<SubagentProjection> {
     let session_id = string_field(session, "id")?;
     let parent_session_id = string_field(session, "parent_session_id").unwrap_or_default();
-    let goal = messages
+    let task = messages
         .iter()
         .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
         .and_then(|message| message.get("content"))
@@ -465,7 +623,7 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
     let mut pending_tools = Vec::<(String, String)>::new();
     let mut completed_tool_ids = HashSet::<String>::new();
     let mut activity = Vec::<SubagentActivity>::new();
-    let mut todos = Vec::<SubagentTodo>::new();
+    let todos = latest_todos(messages);
     let mut summary = None;
 
     for message in messages {
@@ -498,24 +656,6 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
                     tool: tool.clone(),
                     timestamp: number_field(message, "timestamp"),
                 });
-                if tool == "todo" {
-                    let content = message.get("content").map(content_text).unwrap_or_default();
-                    if let Ok(value) = serde_json::from_str::<Value>(&content)
-                        && let Some(items) = value.get("todos").and_then(Value::as_array)
-                    {
-                        todos = items
-                            .iter()
-                            .filter_map(|item| {
-                                let content = string_field(item, "content")?;
-                                Some(SubagentTodo {
-                                    id: string_field(item, "id").unwrap_or_default(),
-                                    content: truncate_chars(content.trim(), 240),
-                                    status: normalize_todo_status(item.get("status").and_then(Value::as_str)),
-                                })
-                            })
-                            .collect();
-                    }
-                }
             }
             _ => {}
         }
@@ -535,7 +675,7 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
     Some(SubagentProjection {
         session_id,
         parent_session_id,
-        goal: truncate_chars(goal.trim(), 500),
+        task: truncate_chars(task.trim(), 500),
         model: string_field(session, "model"),
         status,
         started_at: number_field(session, "started_at"),
@@ -548,6 +688,64 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
         activity,
         summary,
     })
+}
+
+fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
+    for message in messages.iter().rev() {
+        if message.get("role").and_then(Value::as_str) == Some("assistant") {
+            for call in tool_calls(message.get("tool_calls")).iter().rev() {
+                let function = call.get("function").and_then(Value::as_object);
+                if function
+                    .and_then(|value| value.get("name"))
+                    .and_then(Value::as_str)
+                    != Some("todo")
+                {
+                    continue;
+                }
+                let Some(arguments) = function.and_then(|value| value.get("arguments")) else {
+                    continue;
+                };
+                let parsed = match arguments {
+                    Value::String(text) => serde_json::from_str::<Value>(text).ok(),
+                    Value::Object(_) => Some(arguments.clone()),
+                    _ => None,
+                };
+                if let Some(items) = parsed
+                    .as_ref()
+                    .and_then(|value| value.get("todos"))
+                    .and_then(Value::as_array)
+                {
+                    return normalize_todos(items);
+                }
+            }
+        }
+        if message.get("role").and_then(Value::as_str) == Some("tool")
+            && string_field(message, "tool_name").as_deref() == Some("todo")
+        {
+            let content = message.get("content").map(content_text).unwrap_or_default();
+            if let Ok(value) = serde_json::from_str::<Value>(&content)
+                && let Some(items) = value.get("todos").and_then(Value::as_array)
+            {
+                return normalize_todos(items);
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn normalize_todos(items: &[Value]) -> Vec<SubagentTodo> {
+    items
+        .iter()
+        .take(100)
+        .filter_map(|item| {
+            let content = string_field(item, "content")?;
+            Some(SubagentTodo {
+                id: string_field(item, "id").unwrap_or_default(),
+                content: truncate_chars(content.trim(), 240),
+                status: normalize_todo_status(item.get("status").and_then(Value::as_str)),
+            })
+        })
+        .collect()
 }
 
 fn subagent_status(ended_at: Option<f64>, end_reason: Option<&str>) -> String {
