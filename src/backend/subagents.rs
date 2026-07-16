@@ -2,6 +2,7 @@ const SUBAGENT_POLL_INTERVAL: Duration = Duration::from_millis(1_000);
 const SUBAGENT_IDLE_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const SUBAGENT_POLL_TIMEOUT: Duration = Duration::from_secs(10);
 const SUBAGENT_PAGE_SIZE: usize = 200;
+const SUBAGENT_SESSION_SCAN_LIMIT: usize = 10_000;
 const SUBAGENT_VISIBLE_LIMIT: usize = 10;
 const SUBAGENT_LOOKBACK_SECONDS: f64 = 86_400.0;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
@@ -588,10 +589,13 @@ async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::R
         if count == 0 || new_ids == 0 {
             anyhow::bail!("subagent session pagination made no progress");
         }
-        offset = offset.saturating_add(count);
-        if offset > 1_000_000 {
-            anyhow::bail!("subagent session pagination exceeded the API offset limit");
+        let next_offset = offset.saturating_add(count);
+        if sessions.len() >= SUBAGENT_SESSION_SCAN_LIMIT
+            || next_offset >= SUBAGENT_SESSION_SCAN_LIMIT
+        {
+            anyhow::bail!("subagent session scan exceeded the in-memory safety limit");
         }
+        offset = next_offset;
     }
     Ok(sessions.into_values().collect())
 }

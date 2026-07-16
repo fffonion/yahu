@@ -22,6 +22,7 @@ describe('subagent progress UI', () => {
     expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer)');
     expect(app()).toContain('scheduleSubagentWindowUpdate();');
     expect(app()).toContain('new ResizeObserver(scheduleSubagentWindowUpdate)');
+    expect(app()).toContain('observer.observe(scroller);');
     expect(app()).toContain('}, 150);');
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');
     expect(card()).toContain('node.ancestryOmitted && <small className="subagent-progress-omitted-ancestry"');

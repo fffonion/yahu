@@ -2686,6 +2686,7 @@ function ChatMain(props: ChatMainProps) {
     const scroller = props.chatScrollRef.current;
     if (!scroller || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(scheduleSubagentWindowUpdate);
+    observer.observe(scroller);
     scroller.querySelectorAll<HTMLElement>('[data-message-id]').forEach((row) => observer.observe(row));
     return () => observer.disconnect();
   }, [visibleMessages.length, props.activeSessionId, props.chatScrollRef, props.messages[0]?.id, props.messages.at(-1)?.id, scheduleSubagentWindowUpdate]);

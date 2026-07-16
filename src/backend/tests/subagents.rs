@@ -351,6 +351,31 @@
         assert!(error.to_string().contains("pagination made no progress"));
     }
 
+    #[tokio::test]
+    async fn subagent_api_pagination_fails_closed_at_the_memory_limit() {
+        async fn api_sessions(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+            let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+            let data = (offset..offset + SUBAGENT_PAGE_SIZE).map(|index| serde_json::json!({
+                "id": format!("child-{index}"),
+                "parent_session_id": "another",
+                "started_at": 499_000.0,
+                "last_active": 499_500.0
+            })).collect::<Vec<_>>();
+            Json(serde_json::json!({"data": data, "has_more": true}))
+        }
+
+        let app = Router::new().route("/api/sessions", get(api_sessions));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let error = fetch_subagent_sessions(&state, 500_000.0).await.unwrap_err();
+
+        assert!(error.to_string().contains("in-memory safety limit"));
+    }
+
     #[test]
     fn omitted_parent_is_preserved_and_marked_explicitly() {
         let session = serde_json::json!({
