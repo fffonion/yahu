@@ -21,7 +21,7 @@ import { type TurnDetailMetadata } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow } from './chatMessageWindow';
-import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, type ChatHistoryPageRaw } from './chatHistoryPage';
+import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, numericHistoryMessageId, type ChatHistoryPageRaw } from './chatHistoryPage';
 import { computeNewMessageMarker } from './chatNewMessages';
 import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMarkdownImage } from './markdown';
@@ -168,7 +168,7 @@ function isHourlyBucket(bucket: UsageDay | UsageHour | undefined): bucket is Usa
 const navLabel = (mode: Mode) => t(`nav.${mode}`);
 const modeSummary = (mode: Mode) => mode === 'memory' ? t('mode.memorySummary') : mode === 'insights' ? t('mode.insightsSummary') : mode === 'workspace' ? t('mode.workspaceSummary') : mode === 'settings' ? t('mode.settingsSummary') : mode === 'images' ? t('mode.imagesSummary') : t('mode.cronSummary');
 const apiJoin = (base: string, path: string) => `${base.replace(/\/$/, '')}${path}`;
-const numericId = (id?: string): string => /^\d+$/.test(id || '') ? String(id) : '';
+const numericId = numericHistoryMessageId;
 const workspaceRouteParents = (path: string) => {
   const parts = path.split('/').filter(Boolean);
   const parents: string[] = [''];

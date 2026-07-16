@@ -1572,6 +1572,16 @@ fn request_dump_messages(
     (!messages.is_empty()).then_some((dump_timestamp, messages))
 }
 
+fn trim_stale_request_dump_tail(messages: &mut Vec<serde_json::Value>, dump_timestamp: f64, first_history_timestamp: f64) {
+    const MAX_CONTIGUOUS_REQUEST_GAP_SECONDS: f64 = 24.0 * 60.0 * 60.0;
+    if first_history_timestamp - dump_timestamp <= MAX_CONTIGUOUS_REQUEST_GAP_SECONDS {
+        return;
+    }
+    if messages.last().and_then(|message| message.get("role")).and_then(|role| role.as_str()) == Some("user") {
+        messages.pop();
+    }
+}
+
 fn recovered_request_dump_prefix(
     state: &AppState,
     session_id: &str,
@@ -1601,10 +1611,17 @@ fn recovered_request_dump_prefix(
             Ok(dump) => dump,
             Err(_) => continue,
         };
-        let Some((dump_timestamp, messages)) = request_dump_messages(session_id, &dump) else {
+        let Some((dump_timestamp, mut messages)) = request_dump_messages(session_id, &dump) else {
             continue;
         };
         if dump_timestamp >= first_history_timestamp {
+            continue;
+        }
+        // A request dump ends at the input being sent. If all locally retained
+        // history starts much later, its first assistant row cannot be treated
+        // as the response to that dangling input.
+        trim_stale_request_dump_tail(&mut messages, dump_timestamp, first_history_timestamp);
+        if messages.is_empty() {
             continue;
         }
         // A later dump may already contain a compacted summary with fewer raw

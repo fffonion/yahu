@@ -24,6 +24,11 @@ export type ChatHistoryPageRaw = {
 const RENDERABLE_HISTORY_ROLES = new Set(['user', 'assistant', 'tool', 'system']);
 const HISTORY_BOUNDARY_ROLES = new Set(['user', 'system']);
 
+export function numericHistoryMessageId(id?: string | number | null): string {
+  const value = String(id ?? '');
+  return /^-?\d+$/.test(value) ? value : '';
+}
+
 export function normalizeChatHistoryChunk<T extends ChatHistoryMessageLike>(items: RawChatHistoryMessage[] | null | undefined, normalize: (raw: RawChatHistoryMessage) => T): T[] {
   return (items || [])
     .filter((message) => RENDERABLE_HISTORY_ROLES.has(String(message.role || '')))

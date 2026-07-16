@@ -1,11 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, type ChatHistoryPageRaw } from './chatHistoryPage';
+import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, numericHistoryMessageId, type ChatHistoryPageRaw } from './chatHistoryPage';
 
 type Msg = { id: string; role: string; content?: string };
 const normalize = (raw: any): Msg => ({ id: String(raw.id), role: String(raw.role), content: raw.content });
-const numericId = (id?: string) => /^\d+$/.test(id || '') ? String(id) : '';
+const numericId = numericHistoryMessageId;
 
 describe('chat history page helpers', () => {
+  test('accepts signed synthetic ids for stitched history cursors and jumps', () => {
+    expect(numericHistoryMessageId('-8999999999395')).toBe('-8999999999395');
+    expect(numericHistoryMessageId('291019')).toBe('291019');
+    expect(numericHistoryMessageId('message-1')).toBe('');
+  });
+
   test('normalizes only renderable chat roles while preserving order', () => {
     const chunk = normalizeChatHistoryChunk([
       { id: 1, role: 'user' },

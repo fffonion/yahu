@@ -472,6 +472,31 @@
         assert_eq!(texts, vec!["already preserved older prompt", "current prompt"]);
     }
 
+    #[test]
+    fn stale_request_dump_tail_drops_a_dangling_user_turn_before_a_large_gap() {
+        let mut recovered = vec![
+            serde_json::json!({"role":"assistant","content":"completed answer"}),
+            serde_json::json!({"role":"user","content":"unanswered request"}),
+        ];
+
+        trim_stale_request_dump_tail(&mut recovered, 5.0, 5.0 + 86_400.0 + 1.0);
+
+        assert_eq!(recovered, vec![serde_json::json!({"role":"assistant","content":"completed answer"})]);
+    }
+
+    #[test]
+    fn recent_request_dump_tail_keeps_a_user_turn_for_its_local_response() {
+        let mut recovered = vec![
+            serde_json::json!({"role":"assistant","content":"completed answer"}),
+            serde_json::json!({"role":"user","content":"current request"}),
+        ];
+
+        trim_stale_request_dump_tail(&mut recovered, 5.0, 6.0);
+
+        assert_eq!(recovered.len(), 2);
+        assert_eq!(recovered[1]["content"], "current request");
+    }
+
     #[tokio::test]
     async fn chat_history_trims_compression_child_carryover_prefix_without_content_dedupe() {
         let temp = tempfile::tempdir().unwrap();
