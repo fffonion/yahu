@@ -8,6 +8,7 @@ import {
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
   previewSubagent,
+  subagentBeforeTimeForMessages,
   subagentIteration,
   subagentMessagesUrl,
   subagentWebSocketUrl,
@@ -21,6 +22,21 @@ describe('subagent progress websocket projection', () => {
     expect(subagentWebSocketUrl({ protocol: 'http:', host: '127.0.0.1:9642' }, 's1')).toBe(
       'ws://127.0.0.1:9642/chat/subagents/s1/ws',
     );
+    expect(subagentWebSocketUrl({ protocol: 'https:', host: 'yahu.example' }, 's1', 123.5)).toBe(
+      'wss://yahu.example/chat/subagents/s1/ws?before=123.5',
+    );
+  });
+
+  test('uses the latest timestamp in the visible message range as the historical upper bound', () => {
+    const messages = [
+      { id: 'old', timestamp: 100 },
+      { id: 'visible-a', timestamp: '1970-01-01T00:03:20Z' },
+      { id: 'visible-b', timestamp: 300_000 },
+      { id: 'future-loaded', timestamp: 400 },
+    ];
+
+    expect(subagentBeforeTimeForMessages(messages, new Set(['visible-a', 'visible-b']))).toBe(300_000);
+    expect(subagentBeforeTimeForMessages(messages, new Set(['missing']))).toBeUndefined();
   });
 
   test('normalizes websocket snapshots and rejects another session', () => {

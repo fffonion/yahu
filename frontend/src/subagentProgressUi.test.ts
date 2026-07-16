@@ -13,8 +13,11 @@ const transcript = () => {
 describe('subagent progress UI', () => {
   test('renders the websocket-backed progress card inside the chat stream', () => {
     expect(app()).toContain("import { SubagentProgressCard } from './SubagentProgressCard';");
-    expect(app()).toContain('<SubagentProgressCard sessionId={props.activeSessionId} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} />');
-    expect(card()).toContain('new WebSocket(subagentWebSocketUrl(window.location, sessionId))');
+    expect(app()).toContain('<SubagentProgressCard sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} />');
+    expect(card()).toContain('new WebSocket(subagentWebSocketUrl(window.location, sessionId, beforeTime))');
+    expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages)');
+    expect(app()).toContain('scheduleSubagentWindowUpdate();');
+    expect(app()).toContain('}, 150);');
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');
   });
 

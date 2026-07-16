@@ -58,9 +58,34 @@ export type SubagentTreeNode = SubagentProgress & { children: SubagentTreeNode[]
 
 type WebSocketLocation = Pick<Location, 'protocol' | 'host'>;
 
-export function subagentWebSocketUrl(location: WebSocketLocation, sessionId: string): string {
+export function subagentWebSocketUrl(location: WebSocketLocation, sessionId: string, beforeTime?: number): string {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${location.host}/chat/subagents/${encodeURIComponent(sessionId)}/ws`;
+  const url = `${scheme}//${location.host}/chat/subagents/${encodeURIComponent(sessionId)}/ws`;
+  return Number.isFinite(beforeTime) && Number(beforeTime) > 0 ? `${url}?before=${encodeURIComponent(String(beforeTime))}` : url;
+}
+
+export function subagentBeforeTimeForMessages(messages: Pick<ChatMessage, 'id' | 'timestamp'>[], visibleIds: ReadonlySet<string>): number | undefined {
+  let latest: number | undefined;
+  for (const message of messages) {
+    if (!visibleIds.has(String(message.id || ''))) continue;
+    const seconds = timestampSeconds(message.timestamp);
+    if (seconds !== undefined && (latest === undefined || seconds > latest)) latest = seconds;
+  }
+  return latest;
+}
+
+function timestampSeconds(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) return undefined;
+    return value >= 1e12 ? value / 1000 : value;
+  }
+  const text = String(value).trim();
+  if (!text) return undefined;
+  const numeric = Number(text);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric >= 1e12 ? numeric / 1000 : numeric;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed / 1000 : undefined;
 }
 
 export function subagentMessagesUrl(sessionId: string): string {

@@ -29,6 +29,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMar
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
 import { SubagentProgressCard } from './SubagentProgressCard';
+import { subagentBeforeTimeForMessages } from './subagentProgress';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
@@ -2332,6 +2333,19 @@ function numericMessageId(value?: string | number | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function subagentBeforeTimeForVisibleRange(scroller: HTMLElement | null, messages: ChatMessage[]): number | undefined {
+  if (!scroller || isNearBottom(scroller)) return undefined;
+  const viewport = scroller.getBoundingClientRect();
+  const visibleIds = new Set(Array.from(scroller.querySelectorAll<HTMLElement>('[data-message-id]'))
+    .filter((row) => {
+      const rect = row.getBoundingClientRect();
+      return rect.bottom >= viewport.top + 4 && rect.top <= viewport.bottom - 4;
+    })
+    .map((row) => row.getAttribute('data-message-id') || '')
+    .filter(Boolean));
+  return subagentBeforeTimeForMessages(messages, visibleIds);
+}
+
 function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: UserMessageNavItem[]): Set<string> {
   const active = new Set<string>();
   if (!scroller || !items.length) return active;
@@ -2547,12 +2561,32 @@ function ChatMain(props: ChatMainProps) {
     if (activeElement instanceof HTMLElement && props.composerRef.current?.contains(activeElement)) activeElement.blur();
     props.setComposerCompact(true);
   };
+  const [subagentWindow, setSubagentWindow] = useState<{ sessionId: string; beforeTime?: number }>(() => ({ sessionId: props.activeSessionId }));
+  const updateSubagentWindow = useCallback(() => {
+    const beforeTime = subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages);
+    setSubagentWindow((current) => current.sessionId === props.activeSessionId && current.beforeTime === beforeTime
+      ? current
+      : { sessionId: props.activeSessionId, beforeTime });
+  }, [props.activeSessionId, props.chatScrollRef, props.messages]);
+  const subagentWindowTimerRef = useRef<number | null>(null);
+  const scheduleSubagentWindowUpdate = useCallback(() => {
+    if (subagentWindowTimerRef.current !== null) window.clearTimeout(subagentWindowTimerRef.current);
+    subagentWindowTimerRef.current = window.setTimeout(() => {
+      subagentWindowTimerRef.current = null;
+      updateSubagentWindow();
+    }, 150);
+  }, [updateSubagentWindow]);
+  useEffect(() => () => {
+    if (subagentWindowTimerRef.current !== null) window.clearTimeout(subagentWindowTimerRef.current);
+  }, []);
+  const subagentBeforeTime = subagentWindow.sessionId === props.activeSessionId ? subagentWindow.beforeTime : undefined;
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
     if (isMobile && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (shouldLoadOlderFromScroll(el, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
     if (shouldLoadNewerFromScroll(el, props.hasNewer, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'newer');
     updateActiveNavigatorIds();
+    scheduleSubagentWindowUpdate();
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 120 && props.newMessageCount > 0) props.onClearNewMessages();
   };
   const onWheel = (e: React.WheelEvent<HTMLElement>) => {
@@ -2629,15 +2663,17 @@ function ChatMain(props: ChatMainProps) {
   }, [visibleMessages.length, props.messages[0]?.id, props.activeSessionId, props.hasOlder, props.loadingMessages, props.showReasoning, props.showToolCalls]);
   useLayoutEffect(() => {
     updateActiveNavigatorIds();
+    updateSubagentWindow();
     const raf = requestAnimationFrame(updateActiveNavigatorIds);
-    const timer = window.setTimeout(updateActiveNavigatorIds, 80);
-    return () => { cancelAnimationFrame(raf); window.clearTimeout(timer); };
-  }, [visibleMessages.length, props.activeSessionId, props.userMessageNav, props.showReasoning, props.showToolCalls, updateActiveNavigatorIds]);
+    const windowRaf = requestAnimationFrame(updateSubagentWindow);
+    const timer = window.setTimeout(() => { updateActiveNavigatorIds(); updateSubagentWindow(); }, 80);
+    return () => { cancelAnimationFrame(raf); cancelAnimationFrame(windowRaf); window.clearTimeout(timer); };
+  }, [visibleMessages.length, props.activeSessionId, props.userMessageNav, props.showReasoning, props.showToolCalls, updateActiveNavigatorIds, updateSubagentWindow]);
   return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}`}>
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
-    <div className="subagent-progress-overlay"><SubagentProgressCard sessionId={props.activeSessionId} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} /></div>
+    <div className="subagent-progress-overlay"><SubagentProgressCard sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} /></div>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatMediaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">{t('chat.loadingHistory')}</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>{t('chat.emptyDesc')}</p></div>}

@@ -24,7 +24,7 @@ import {
   type SubagentTreeNode,
 } from './subagentProgress';
 
-export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, compact }: { sessionId: string; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
+export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, showToolCalls, compact }: { sessionId: string; beforeTime?: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [goalExpanded, setGoalExpanded] = useState(false);
@@ -67,7 +67,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
 
     const connect = () => {
       if (stopped) return;
-      socket = new WebSocket(subagentWebSocketUrl(window.location, sessionId));
+      socket = new WebSocket(subagentWebSocketUrl(window.location, sessionId, beforeTime));
       socket.onopen = () => { reconnectDelay = 750; };
       socket.onmessage = (event) => {
         if (stopped) return;
@@ -91,7 +91,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
       window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [sessionId]);
+  }, [beforeTime, sessionId]);
 
   const runningCount = snapshot?.subagents.filter((item) => item.status === 'running').length || 0;
   const running = runningCount > 0;

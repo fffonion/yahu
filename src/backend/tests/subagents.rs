@@ -226,61 +226,74 @@
     }
 
     #[test]
-    fn visible_subagent_sessions_keep_active_batch_and_five_recent_roots_with_descendants() {
-        let sessions = vec![
-            serde_json::json!({"id": "old-a", "parent_session_id": "parent", "started_at": 10.0, "ended_at": 20.0}),
-            serde_json::json!({"id": "root-a", "parent_session_id": "parent", "started_at": 100.0, "ended_at": null}),
-            serde_json::json!({"id": "old-b", "parent_session_id": "parent", "started_at": 20.0, "ended_at": 25.0}),
-            serde_json::json!({"id": "root-b", "parent_session_id": "parent", "started_at": 100.2, "ended_at": 110.0}),
-            serde_json::json!({"id": "old-c", "parent_session_id": "parent", "started_at": 30.0, "ended_at": 35.0}),
-            serde_json::json!({"id": "recent", "parent_session_id": "parent", "started_at": 90.0, "ended_at": 95.0}),
-            serde_json::json!({"id": "nested", "parent_session_id": "root-a", "started_at": 105.0, "ended_at": null}),
-            serde_json::json!({"id": "other", "parent_session_id": "another", "started_at": 120.0, "ended_at": null}),
-        ];
+    fn visible_subagent_sessions_follow_the_backward_one_day_window_and_limit_ten() {
+        let window_end = 200_000.0;
+        let mut sessions = (0..12)
+            .map(|index| serde_json::json!({
+                "id": format!("root-{index}"),
+                "parent_session_id": "parent",
+                "started_at": window_end - f64::from(index) * 100.0,
+                "ended_at": window_end - f64::from(index) * 50.0
+            }))
+            .collect::<Vec<_>>();
+        sessions.extend([
+            serde_json::json!({"id": "nested", "parent_session_id": "root-0", "started_at": window_end - 25.0, "ended_at": window_end - 10.0}),
+            serde_json::json!({"id": "future", "parent_session_id": "parent", "started_at": window_end + 0.1, "ended_at": null}),
+            serde_json::json!({"id": "too-old", "parent_session_id": "parent", "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS - 0.1, "ended_at": window_end}),
+            serde_json::json!({"id": "other", "parent_session_id": "another", "started_at": window_end - 1.0, "ended_at": null}),
+        ]);
 
-        let visible = select_visible_subagent_sessions("parent", &sessions);
-        let direct_ids = visible
+        let visible = select_visible_subagent_sessions("parent", &sessions, window_end);
+        let ids = visible
             .iter()
-            .filter(|item| item.get("parent_session_id").and_then(Value::as_str) == Some("parent"))
             .filter_map(|item| item.get("id").and_then(Value::as_str))
             .collect::<Vec<_>>();
-        let all_ids = visible
-            .iter()
-            .filter_map(|item| item.get("id").and_then(Value::as_str))
-            .collect::<Vec<_>>();
 
-        assert_eq!(direct_ids, vec!["root-b", "root-a", "recent", "old-c", "old-b"]);
-        assert!(all_ids.contains(&"nested"));
-        assert!(!all_ids.contains(&"old-a"));
-        assert!(!all_ids.contains(&"other"));
+        assert_eq!(visible.len(), SUBAGENT_VISIBLE_LIMIT);
+        assert_eq!(ids[0], "root-0");
+        assert_eq!(ids[1], "nested");
+        assert!(!ids.contains(&"future"));
+        assert!(!ids.contains(&"too-old"));
+        assert!(!ids.contains(&"other"));
+        assert!(visible.iter().all(|item| {
+            let started_at = number_field(item, "started_at").unwrap();
+            started_at >= window_end - SUBAGENT_LOOKBACK_SECONDS && started_at <= window_end
+        }));
     }
 
     #[test]
-    fn visible_subagent_sessions_keep_five_recent_roots_when_idle() {
+    fn visible_subagent_sessions_include_both_time_window_boundaries() {
+        let window_end = 500_000.0;
         let sessions = vec![
-            serde_json::json!({"id": "old-a", "parent_session_id": "parent", "started_at": 10.0, "ended_at": 15.0}),
-            serde_json::json!({"id": "old-b", "parent_session_id": "parent", "started_at": 20.0, "ended_at": 25.0}),
-            serde_json::json!({"id": "latest-a", "parent_session_id": "parent", "started_at": 100.0, "ended_at": 120.0}),
-            serde_json::json!({"id": "old-c", "parent_session_id": "parent", "started_at": 30.0, "ended_at": 35.0}),
-            serde_json::json!({"id": "latest-b", "parent_session_id": "parent", "started_at": 100.3, "ended_at": 122.0}),
-            serde_json::json!({"id": "old-d", "parent_session_id": "parent", "started_at": 40.0, "ended_at": 45.0}),
-            serde_json::json!({"id": "nested", "parent_session_id": "latest-a", "started_at": 104.0, "ended_at": 119.0}),
+            serde_json::json!({"id": "at-start", "parent_session_id": "parent", "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS}),
+            serde_json::json!({"id": "at-end", "parent_session_id": "parent", "started_at": window_end}),
+            serde_json::json!({"id": "before-start", "parent_session_id": "parent", "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS - 1.0}),
+            serde_json::json!({"id": "after-end", "parent_session_id": "parent", "started_at": window_end + 1.0}),
         ];
 
-        let visible = select_visible_subagent_sessions("parent", &sessions);
-        let direct_ids = visible
-            .iter()
-            .filter(|item| item.get("parent_session_id").and_then(Value::as_str) == Some("parent"))
-            .filter_map(|item| item.get("id").and_then(Value::as_str))
-            .collect::<Vec<_>>();
-        let all_ids = visible
+        let visible = select_visible_subagent_sessions("parent", &sessions, window_end);
+        let ids = visible
             .iter()
             .filter_map(|item| item.get("id").and_then(Value::as_str))
             .collect::<Vec<_>>();
 
-        assert_eq!(direct_ids, vec!["latest-b", "latest-a", "old-d", "old-c", "old-b"]);
-        assert!(all_ids.contains(&"nested"));
-        assert!(!all_ids.contains(&"old-a"));
+        assert_eq!(ids, vec!["at-end", "at-start"]);
+    }
+
+    #[test]
+    fn visible_subagent_sessions_use_api_lineage_when_an_intermediate_parent_is_on_an_older_page() {
+        let window_end = 500_000.0;
+        let sessions = vec![serde_json::json!({
+            "id": "nested-visible",
+            "parent_session_id": "older-parent-not-in-page",
+            "_lineage_root_id": "parent",
+            "started_at": window_end - 10.0
+        })];
+
+        let visible = select_visible_subagent_sessions("parent", &sessions, window_end);
+
+        assert_eq!(visible.len(), 1);
+        assert_eq!(string_field(&visible[0], "id").as_deref(), Some("nested-visible"));
     }
 
     #[test]

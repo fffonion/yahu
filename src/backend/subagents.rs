@@ -2,11 +2,9 @@ const SUBAGENT_POLL_INTERVAL: Duration = Duration::from_millis(1_000);
 const SUBAGENT_IDLE_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const SUBAGENT_POLL_TIMEOUT: Duration = Duration::from_secs(10);
 const SUBAGENT_PAGE_SIZE: usize = 200;
-// Progress is always represented by the most recently active subagents. Avoid walking
-// historical pages on every poll when a Hermes installation has many old child sessions.
-const SUBAGENT_MAX_PAGES: usize = 1;
-const SUBAGENT_BATCH_WINDOW_SECONDS: f64 = 2.0;
-const SUBAGENT_RECENT_ROOT_LIMIT: usize = 5;
+const SUBAGENT_MAX_PAGES: usize = 50;
+const SUBAGENT_VISIBLE_LIMIT: usize = 10;
+const SUBAGENT_LOOKBACK_SECONDS: f64 = 86_400.0;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
 const SUBAGENT_SUMMARY_LIMIT: usize = 600;
 
@@ -81,16 +79,23 @@ struct CachedParentTodos {
     todos: Vec<SubagentTodo>,
 }
 
+#[derive(Default, Deserialize)]
+struct SubagentWindowQuery {
+    before: Option<f64>,
+}
+
 async fn subagent_websocket(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
+    Query(query): Query<SubagentWindowQuery>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response<Body> {
     if !subagent_websocket_origin_allowed(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    ws.on_upgrade(move |socket| stream_subagent_snapshots(socket, state, session_id))
+    let before = query.before.filter(|value| value.is_finite() && *value > 0.0);
+    ws.on_upgrade(move |socket| stream_subagent_snapshots(socket, state, session_id, before))
         .into_response()
 }
 
@@ -162,24 +167,37 @@ fn subagent_poll_delay(
 async fn subscribe_subagent_snapshots(
     state: Arc<AppState>,
     session_id: &str,
+    before: Option<f64>,
 ) -> watch::Receiver<String> {
+    let feed_key = match before {
+        Some(value) => format!("{session_id}:before:{:016x}", value.to_bits()),
+        None => format!("{session_id}:live"),
+    };
     let (sender, receiver, created) = {
         let mut feeds = state.subagent_feeds.write().await;
-        let (sender, created) = subagent_feed_sender(&mut feeds, session_id);
+        let (sender, created) = subagent_feed_sender(&mut feeds, &feed_key);
         let receiver = sender.subscribe();
         (sender, receiver, created)
     };
     if created {
         let state = state.clone();
         let session_id = session_id.to_string();
-        tokio::spawn(async move { run_subagent_feed(state, session_id, sender).await });
+        let spawned_feed_key = feed_key.clone();
+        tokio::spawn(async move {
+            run_subagent_feed(state, session_id, before, spawned_feed_key, sender).await
+        });
     }
     receiver
 }
 
-async fn stream_subagent_snapshots(socket: WebSocket, state: Arc<AppState>, session_id: String) {
+async fn stream_subagent_snapshots(
+    socket: WebSocket,
+    state: Arc<AppState>,
+    session_id: String,
+    before: Option<f64>,
+) {
     let (mut sender, mut receiver) = socket.split();
-    let mut snapshots = subscribe_subagent_snapshots(state, &session_id).await;
+    let mut snapshots = subscribe_subagent_snapshots(state, &session_id, before).await;
     let initial = snapshots.borrow_and_update().clone();
     if !initial.is_empty() && sender.send(Message::Text(initial.into())).await.is_err() {
         return;
@@ -209,6 +227,8 @@ async fn stream_subagent_snapshots(socket: WebSocket, state: Arc<AppState>, sess
 async fn run_subagent_feed(
     state: Arc<AppState>,
     session_id: String,
+    before: Option<f64>,
+    feed_key: String,
     sender: watch::Sender<String>,
 ) {
     let mut ticker = interval(SUBAGENT_POLL_INTERVAL);
@@ -225,13 +245,13 @@ async fn run_subagent_feed(
         if sender.receiver_count() == 0 {
             let mut feeds = state.subagent_feeds.write().await;
             let current_is_same = feeds
-                .get(&session_id)
+                .get(&feed_key)
                 .is_some_and(|current| current.same_channel(&sender));
             if !current_is_same {
                 return;
             }
             if sender.receiver_count() == 0 {
-                feeds.remove(&session_id);
+                feeds.remove(&feed_key);
                 return;
             }
         }
@@ -239,9 +259,10 @@ async fn run_subagent_feed(
             continue;
         }
 
+        let window_end = before.unwrap_or_else(unix_now_seconds);
         let mut error = match timeout(
             SUBAGENT_POLL_TIMEOUT,
-            fetch_subagent_projection_snapshot(&state, &session_id, &mut cache),
+            fetch_subagent_projection_snapshot(&state, &session_id, window_end, &mut cache),
         )
         .await
         {
@@ -405,10 +426,11 @@ async fn fetch_parent_session_todos(
 async fn fetch_subagent_projection_snapshot(
     state: &AppState,
     parent_session_id: &str,
+    window_end: f64,
     cache: &mut HashMap<String, CachedSubagentProjection>,
 ) -> anyhow::Result<Vec<SubagentProjection>> {
-    let sessions = fetch_subagent_sessions(state).await?;
-    let visible = select_visible_subagent_sessions(parent_session_id, &sessions);
+    let sessions = fetch_subagent_sessions(state, window_end).await?;
+    let visible = select_visible_subagent_sessions(parent_session_id, &sessions, window_end);
     let visible_ids = visible
         .iter()
         .filter_map(|session| string_field(session, "id"))
@@ -447,8 +469,9 @@ async fn fetch_subagent_projection_snapshot(
     Ok(out)
 }
 
-async fn fetch_subagent_sessions(state: &AppState) -> anyhow::Result<Vec<Value>> {
+async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::Result<Vec<Value>> {
     let mut sessions = Vec::new();
+    let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
     for page in 0..SUBAGENT_MAX_PAGES {
         let offset = page * SUBAGENT_PAGE_SIZE;
         let url = format!(
@@ -465,12 +488,22 @@ async fn fetch_subagent_sessions(state: &AppState) -> anyhow::Result<Vec<Value>>
             .unwrap_or_default();
         let has_more = body.get("has_more").and_then(Value::as_bool).unwrap_or(false);
         let count = data.len();
+        let reached_window_start = data
+            .last()
+            .and_then(session_activity_time)
+            .is_some_and(|time| time < window_start);
         sessions.extend(data);
-        if !has_more || count < SUBAGENT_PAGE_SIZE {
+        if !has_more || count < SUBAGENT_PAGE_SIZE || reached_window_start {
             break;
         }
     }
     Ok(sessions)
+}
+
+fn session_activity_time(session: &Value) -> Option<f64> {
+    number_field(session, "last_active")
+        .or_else(|| number_field(session, "ended_at"))
+        .or_else(|| number_field(session, "started_at"))
 }
 
 async fn fetch_session_messages(state: &AppState, session_id: &str) -> anyhow::Result<Vec<Value>> {
@@ -498,15 +531,12 @@ async fn fetch_api_json(state: &AppState, url: String) -> anyhow::Result<Value> 
     Ok(response.json::<Value>().await?)
 }
 
-fn select_visible_subagent_sessions(parent_session_id: &str, sessions: &[Value]) -> Vec<Value> {
-    let direct_roots = sessions
-        .iter()
-        .filter(|session| string_field(session, "parent_session_id").as_deref() == Some(parent_session_id))
-        .collect::<Vec<_>>();
-    if direct_roots.is_empty() {
-        return Vec::new();
-    }
-
+fn select_visible_subagent_sessions(
+    parent_session_id: &str,
+    sessions: &[Value],
+    window_end: f64,
+) -> Vec<Value> {
+    let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
     let parent_by_id = sessions
         .iter()
         .filter_map(|session| {
@@ -517,84 +547,29 @@ fn select_visible_subagent_sessions(parent_session_id: &str, sessions: &[Value])
         })
         .collect::<HashMap<_, _>>();
 
-    let mut selected_roots = HashSet::<String>::new();
-    let active_sessions = sessions
-        .iter()
-        .filter(|session| session.get("ended_at").is_none_or(Value::is_null))
-        .filter_map(|session| string_field(session, "id"))
-        .collect::<Vec<_>>();
-
-    for active_id in active_sessions {
-        let mut current = active_id;
-        let mut seen = HashSet::new();
-        while seen.insert(current.clone()) {
-            let Some(parent) = parent_by_id.get(&current) else {
-                break;
-            };
-            if parent == parent_session_id {
-                selected_roots.insert(current);
-                break;
-            }
-            current = parent.clone();
-        }
-    }
-
-    let anchor_times = if selected_roots.is_empty() {
-        direct_roots
-            .iter()
-            .filter_map(|session| number_field(session, "started_at"))
-            .max_by(f64::total_cmp)
-            .into_iter()
-            .collect::<Vec<_>>()
-    } else {
-        direct_roots
-            .iter()
-            .filter(|session| string_field(session, "id").is_some_and(|id| selected_roots.contains(&id)))
-            .filter_map(|session| number_field(session, "started_at"))
-            .collect::<Vec<_>>()
-    };
-
-    for session in &direct_roots {
-        let Some(id) = string_field(session, "id") else {
-            continue;
-        };
-        let Some(started_at) = number_field(session, "started_at") else {
-            continue;
-        };
-        if anchor_times
-            .iter()
-            .any(|anchor| (started_at - anchor).abs() <= SUBAGENT_BATCH_WINDOW_SECONDS)
-        {
-            selected_roots.insert(id);
-        }
-    }
-
-    let mut recent_roots = direct_roots.clone();
-    recent_roots.sort_by(|left, right| {
-        number_field(right, "started_at")
-            .unwrap_or(f64::NEG_INFINITY)
-            .total_cmp(&number_field(left, "started_at").unwrap_or(f64::NEG_INFINITY))
-    });
-    for session in recent_roots.into_iter().take(SUBAGENT_RECENT_ROOT_LIMIT) {
-        if let Some(id) = string_field(session, "id") {
-            selected_roots.insert(id);
-        }
-    }
-
     let mut visible = sessions
         .iter()
         .filter(|session| {
+            let Some(started_at) = number_field(session, "started_at") else {
+                return false;
+            };
+            if started_at < window_start || started_at > window_end {
+                return false;
+            }
+            if string_field(session, "_lineage_root_id").as_deref() == Some(parent_session_id) {
+                return true;
+            }
             let Some(mut current) = string_field(session, "id") else {
                 return false;
             };
             let mut seen = HashSet::new();
             while seen.insert(current.clone()) {
-                if selected_roots.contains(&current) {
-                    return true;
-                }
                 let Some(parent) = parent_by_id.get(&current) else {
                     return false;
                 };
+                if parent == parent_session_id {
+                    return true;
+                }
                 current = parent.clone();
             }
             false
@@ -606,6 +581,7 @@ fn select_visible_subagent_sessions(parent_session_id: &str, sessions: &[Value])
             .unwrap_or(f64::NEG_INFINITY)
             .total_cmp(&number_field(left, "started_at").unwrap_or(f64::NEG_INFINITY))
     });
+    visible.truncate(SUBAGENT_VISIBLE_LIMIT);
     visible
 }
 
