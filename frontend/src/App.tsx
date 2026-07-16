@@ -2737,18 +2737,29 @@ function WorkspaceAside(props: WorkspaceAsideProps) {
 function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: WorkspaceMainProps) {
   return <main className="main-panel workspace-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
-function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu }: WorkspaceTreeProps) {
-  const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
+
+type WorkspaceTreeRowsProps = Pick<WorkspaceTreeProps, 'workspaceTree' | 'expandedWorkspacePaths' | 'toggleWorkspaceFolder' | 'downloadEntry' | 'openWorkspaceMenu'> & {
+  entries: WorkspaceEntry[];
+  openFile: (entry: WorkspaceEntry) => void | Promise<void>;
+  depth?: number;
+};
+
+function WorkspaceTreeRows({ entries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openFile, downloadEntry, openWorkspaceMenu, depth = 0 }: WorkspaceTreeRowsProps) {
+  return entries.map((entry) => {
     const expanded = entry.kind === 'dir' && expandedWorkspacePaths.has(entry.path);
     const children = expanded ? (workspaceTree[entry.path] || []) : [];
+    const activate = () => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openFile(entry);
     return <React.Fragment key={entry.path}>
-      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry)} onContextMenu={(ev) => openWorkspaceMenu?.(entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(ev) => { ev.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
+      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={activate} onContextMenu={(event) => openWorkspaceMenu?.(entry, event)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(event) => { event.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
       </div>
-      {expanded && children.length > 0 && renderRows(children, depth + 1)}
+      {expanded && children.length > 0 && <WorkspaceTreeRows entries={children} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} depth={depth + 1} />}
     </React.Fragment>;
   });
-  return <><div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div></div><div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div></>;
+}
+
+function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu }: WorkspaceTreeProps) {
+  return <><div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div></div><div className="workspace-tree file-list"><WorkspaceTreeRows entries={rootEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /></div></>;
 }
 function MarqueeText({ children }: { children: React.ReactNode }) {
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -2877,19 +2888,10 @@ type WorkspaceBrowserProps = WorkspaceTreeProps & {
 };
 
 function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, preview, setPreview, compact, setCollapsed, openWorkspaceMenu }: WorkspaceBrowserProps) {
-  const renderRows = (entries: WorkspaceEntry[], depth = 0): React.ReactNode => entries.map((entry) => {
-    const expanded = entry.kind === 'dir' && expandedWorkspacePaths.has(entry.path);
-    const children = expanded ? (workspaceTree[entry.path] || []) : [];
-    return <React.Fragment key={entry.path}>
-      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry, compact ? { route: false } : undefined)} onContextMenu={(ev) => openWorkspaceMenu?.(entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openWorkspaceEntry(entry, compact ? { route: false } : undefined); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? fmtSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(ev) => { ev.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
-      </div>
-      {expanded && children.length > 0 && renderRows(children, depth + 1)}
-    </React.Fragment>;
-  });
+  const openFile = (entry: WorkspaceEntry) => openWorkspaceEntry(entry, compact ? { route: false } : undefined);
   return <>
     <header className="workspace-head"><span className="panel-title">{t('workspace.title')}</span><span>{compact ? t('workspace.main') : t('workspace.full')}</span><button aria-label={compact ? t('workspace.collapse') : t('workspace.closePreview')} onClick={() => compact ? setCollapsed(true) : setPreview({ path: '', content: '', kind: 'none' })}><X /></button></header>
-    <div className="workspace-tree file-list">{renderRows(rootEntries || [])}</div>
+    <div className="workspace-tree file-list"><WorkspaceTreeRows entries={rootEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /></div>
     {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions"><button className="icon-btn" aria-label={t('workspace.openFullPreview')} title={t('workspace.openFullPreview')} onClick={() => { window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path }); }}><Maximize2 /></button><button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div></div>{preview.kind === 'image' ? <img src={preview.url} /> : isMarkdownPath(preview.path) ? <div className="workspace-markdown-preview compact md-content" dangerouslySetInnerHTML={{ __html: markdownText(preview.content || '') }} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />}</div>}
   </>;
 }

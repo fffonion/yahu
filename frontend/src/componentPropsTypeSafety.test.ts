@@ -27,4 +27,9 @@ describe('App component type boundaries', () => {
     expect(source).toContain('type WorkspaceEditorPreviewProps = {');
     expect(source).not.toContain('useState<any[]>([])');
   });
+
+  test('workspace panels share one recursive tree renderer', () => {
+    expect(source).toContain('function WorkspaceTreeRows(');
+    expect(source.match(/<WorkspaceTreeRows\b/g)?.length || 0).toBeGreaterThanOrEqual(3);
+  });
 });
