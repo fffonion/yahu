@@ -87,8 +87,10 @@ describe('subagent progress UI', () => {
     expect(source).toContain('setGoalExpanded(false);');
     expect(source).toContain('className="subagent-progress-stack"');
     expect(source).toContain('className="subagent-goal-panel" open={goalExpanded}');
-    expect(source).toContain("<strong>{t('subagents.goal')}</strong>");
+    expect(source).toContain('<span className="subagent-status-icon subagent-goal-icon"><CheckCircle2 aria-hidden="true" /></span>');
+    expect(source).not.toContain("<strong>{t('subagents.goal')}</strong>");
     expect(source).toContain('className="subagent-goal-body">{preview.goal}</div>');
+    expect(styles).toContain('.subagent-goal-icon{color:var(--subagent-goal-accent);background:color-mix(in srgb,var(--subagent-goal-accent) 12%,transparent)}');
     expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.subagents.length && !snapshot.error)) return null;");
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
     expect(source).toContain("aria-label={`${t('subagents.title')}: ${statusLabel(node.status)}`}");

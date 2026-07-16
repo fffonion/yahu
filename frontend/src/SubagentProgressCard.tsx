@@ -109,7 +109,7 @@ export function SubagentProgressCard({ sessionId, showReasoning, showToolCalls, 
   return <div className="subagent-progress-stack">
     {preview && <details className="subagent-goal-panel" open={goalExpanded} onToggle={(event) => { const open = event.currentTarget.open; if (open !== goalExpanded) setGoalExpanded(open); }}>
       <summary className="subagent-goal-summary" aria-label={t('subagents.goal')}>
-        <strong>{t('subagents.goal')}</strong>
+        <span className="subagent-status-icon subagent-goal-icon"><CheckCircle2 aria-hidden="true" /></span>
         <span className="subagent-goal-preview">{preview.goal}</span>
         <ChevronRight className="subagent-goal-chevron" aria-hidden="true" />
       </summary>
