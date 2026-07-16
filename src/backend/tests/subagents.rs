@@ -296,6 +296,59 @@
         assert_eq!(string_field(&visible[0], "id").as_deref(), Some("nested-visible"));
     }
 
+    #[tokio::test]
+    async fn subagent_api_pagination_continues_and_deduplicates_session_ids() {
+        async fn api_sessions(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+            let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+            if offset == 0 {
+                let data = (0..SUBAGENT_PAGE_SIZE).map(|index| serde_json::json!({
+                    "id": format!("other-{index}"),
+                    "parent_session_id": "another",
+                    "started_at": 499_000.0 - index as f64,
+                    "last_active": 499_500.0 - index as f64
+                })).collect::<Vec<_>>();
+                return Json(serde_json::json!({"data": data, "has_more": true}));
+            }
+            Json(serde_json::json!({
+                "data": [
+                    {"id": "other-0", "parent_session_id": "another", "started_at": 499_000.0, "last_active": 499_500.0},
+                    {"id": "target", "parent_session_id": "parent", "started_at": 498_000.0, "last_active": 498_100.0}
+                ],
+                "has_more": false
+            }))
+        }
+
+        let app = Router::new().route("/api/sessions", get(api_sessions));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let sessions = fetch_subagent_sessions(&state, 500_000.0).await.unwrap();
+        let ids = sessions.iter().filter_map(|session| string_field(session, "id")).collect::<HashSet<_>>();
+
+        assert_eq!(sessions.len(), SUBAGENT_PAGE_SIZE + 1);
+        assert!(ids.contains("target"));
+        assert_eq!(ids.len(), sessions.len());
+    }
+
+    #[test]
+    fn omitted_parent_is_rewritten_as_an_explicit_root() {
+        let session = serde_json::json!({
+            "id": "nested",
+            "parent_session_id": "omitted-parent",
+            "started_at": 100.0,
+            "ended_at": 101.0
+        });
+        let messages = vec![serde_json::json!({"role": "user", "content": "Review"})];
+        let projection = project_subagent_session(&session, &messages).unwrap();
+
+        let rooted = root_subagent_if_parent_omitted(projection, &HashSet::new(), "parent");
+
+        assert_eq!(rooted.parent_session_id, "parent");
+    }
+
     #[test]
     fn subagent_websocket_rejects_cross_origin_browser_handshakes() {
         let mut same_origin = HeaderMap::new();
@@ -374,6 +427,7 @@
     fn subagent_message_details_are_exposed_through_an_authenticated_lazy_route() {
         let backend_source = include_str!("../mod.rs");
         assert!(backend_source.contains("\"/chat/subagents/{session_id}/messages\""));
+        assert!(backend_source.contains("\"/chat/subagents/{session_id}/snapshot\""));
     }
 
     #[test]

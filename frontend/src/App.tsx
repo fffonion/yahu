@@ -29,7 +29,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMar
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
 import { SubagentProgressCard } from './SubagentProgressCard';
-import { subagentBeforeTimeForMessages } from './subagentProgress';
+import { subagentBeforeTimeForMessages, subagentViewportIsLive } from './subagentProgress';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
@@ -2333,17 +2333,30 @@ function numericMessageId(value?: string | number | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function subagentBeforeTimeForVisibleRange(scroller: HTMLElement | null, messages: ChatMessage[]): number | undefined {
-  if (!scroller || isNearBottom(scroller)) return undefined;
+function subagentBeforeTimeForVisibleRange(scroller: HTMLElement | null, messages: ChatMessage[], hasNewer: boolean): number | null | undefined {
+  if (!scroller) return null;
+  if (subagentViewportIsLive(scroller, hasNewer)) return undefined;
   const viewport = scroller.getBoundingClientRect();
-  const visibleIds = new Set(Array.from(scroller.querySelectorAll<HTMLElement>('[data-message-id]'))
+  const rows = Array.from(scroller.querySelectorAll<HTMLElement>('[data-message-id]'));
+  const visibleIds = new Set(rows
     .filter((row) => {
       const rect = row.getBoundingClientRect();
       return rect.bottom >= viewport.top + 4 && rect.top <= viewport.bottom - 4;
     })
     .map((row) => row.getAttribute('data-message-id') || '')
     .filter(Boolean));
-  return subagentBeforeTimeForMessages(messages, visibleIds);
+  const visibleTime = subagentBeforeTimeForMessages(messages, visibleIds);
+  if (visibleTime !== undefined) return visibleTime;
+  const nearestRows = rows.map((row) => {
+    const rect = row.getBoundingClientRect();
+    const distance = rect.bottom < viewport.top ? viewport.top - rect.bottom : rect.top > viewport.bottom ? rect.top - viewport.bottom : 0;
+    return { id: row.getAttribute('data-message-id') || '', distance, rendered: rect.width > 0 || rect.height > 0 };
+  }).filter((row) => row.id && row.rendered).sort((left, right) => left.distance - right.distance);
+  for (const row of nearestRows) {
+    const nearestTime = subagentBeforeTimeForMessages(messages, new Set([row.id]));
+    if (nearestTime !== undefined) return nearestTime;
+  }
+  return null;
 }
 
 function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: UserMessageNavItem[]): Set<string> {
@@ -2561,13 +2574,13 @@ function ChatMain(props: ChatMainProps) {
     if (activeElement instanceof HTMLElement && props.composerRef.current?.contains(activeElement)) activeElement.blur();
     props.setComposerCompact(true);
   };
-  const [subagentWindow, setSubagentWindow] = useState<{ sessionId: string; beforeTime?: number }>(() => ({ sessionId: props.activeSessionId }));
+  const [subagentWindow, setSubagentWindow] = useState<{ sessionId: string; beforeTime: number | null | undefined }>(() => ({ sessionId: props.activeSessionId, beforeTime: null }));
   const updateSubagentWindow = useCallback(() => {
-    const beforeTime = subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages);
+    const beforeTime = subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer);
     setSubagentWindow((current) => current.sessionId === props.activeSessionId && current.beforeTime === beforeTime
       ? current
       : { sessionId: props.activeSessionId, beforeTime });
-  }, [props.activeSessionId, props.chatScrollRef, props.messages]);
+  }, [props.activeSessionId, props.chatScrollRef, props.hasNewer, props.messages]);
   const subagentWindowTimerRef = useRef<number | null>(null);
   const scheduleSubagentWindowUpdate = useCallback(() => {
     if (subagentWindowTimerRef.current !== null) window.clearTimeout(subagentWindowTimerRef.current);
@@ -2579,7 +2592,7 @@ function ChatMain(props: ChatMainProps) {
   useEffect(() => () => {
     if (subagentWindowTimerRef.current !== null) window.clearTimeout(subagentWindowTimerRef.current);
   }, []);
-  const subagentBeforeTime = subagentWindow.sessionId === props.activeSessionId ? subagentWindow.beforeTime : undefined;
+  const subagentBeforeTime = subagentWindow.sessionId === props.activeSessionId ? subagentWindow.beforeTime : null;
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
     if (isMobile && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
@@ -2669,6 +2682,13 @@ function ChatMain(props: ChatMainProps) {
     const timer = window.setTimeout(() => { updateActiveNavigatorIds(); updateSubagentWindow(); }, 80);
     return () => { cancelAnimationFrame(raf); cancelAnimationFrame(windowRaf); window.clearTimeout(timer); };
   }, [visibleMessages.length, props.activeSessionId, props.userMessageNav, props.showReasoning, props.showToolCalls, updateActiveNavigatorIds, updateSubagentWindow]);
+  useLayoutEffect(() => {
+    const scroller = props.chatScrollRef.current;
+    if (!scroller || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(scheduleSubagentWindowUpdate);
+    scroller.querySelectorAll<HTMLElement>('[data-message-id]').forEach((row) => observer.observe(row));
+    return () => observer.disconnect();
+  }, [visibleMessages.length, props.activeSessionId, props.chatScrollRef, props.messages[0]?.id, props.messages.at(-1)?.id, scheduleSubagentWindowUpdate]);
   return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}`}>
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div><h1>{activeTitle}</h1><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span></div><div className="header-actions chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />
         <HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>

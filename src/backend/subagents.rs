@@ -2,11 +2,14 @@ const SUBAGENT_POLL_INTERVAL: Duration = Duration::from_millis(1_000);
 const SUBAGENT_IDLE_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const SUBAGENT_POLL_TIMEOUT: Duration = Duration::from_secs(10);
 const SUBAGENT_PAGE_SIZE: usize = 200;
-const SUBAGENT_MAX_PAGES: usize = 50;
 const SUBAGENT_VISIBLE_LIMIT: usize = 10;
 const SUBAGENT_LOOKBACK_SECONDS: f64 = 86_400.0;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
 const SUBAGENT_SUMMARY_LIMIT: usize = 600;
+const SUBAGENT_SNAPSHOT_CONCURRENCY: usize = 4;
+
+static SUBAGENT_SNAPSHOT_PERMITS: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(SUBAGENT_SNAPSHOT_CONCURRENCY));
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 struct SubagentTodo {
@@ -87,16 +90,85 @@ struct SubagentWindowQuery {
 async fn subagent_websocket(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
-    Query(query): Query<SubagentWindowQuery>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response<Body> {
     if !subagent_websocket_origin_allowed(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let before = query.before.filter(|value| value.is_finite() && *value > 0.0);
-    ws.on_upgrade(move |socket| stream_subagent_snapshots(socket, state, session_id, before))
+    ws.on_upgrade(move |socket| stream_subagent_snapshots(socket, state, session_id))
         .into_response()
+}
+
+async fn subagent_snapshot(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+    Query(query): Query<SubagentWindowQuery>,
+) -> Response<Body> {
+    let Ok(_permit) = SUBAGENT_SNAPSHOT_PERMITS.try_acquire() else {
+        return (StatusCode::TOO_MANY_REQUESTS, "Too many subagent snapshot requests").into_response();
+    };
+    let Some(before) = query.before.filter(|value| value.is_finite() && *value > 0.0) else {
+        return (StatusCode::BAD_REQUEST, "A finite positive before timestamp is required").into_response();
+    };
+    let mut cache = HashMap::<String, CachedSubagentProjection>::new();
+    let mut parent_todo_cache = CachedParentTodos::default();
+    let mut error = None::<String>;
+    let subagents = match timeout(
+        SUBAGENT_POLL_TIMEOUT,
+        fetch_subagent_projection_snapshot(&state, &session_id, before, &mut cache),
+    )
+    .await
+    {
+        Ok(Ok(items)) => items,
+        Ok(Err(err)) => {
+            error = Some(err.to_string());
+            Vec::new()
+        }
+        Err(_) => {
+            error = Some("subagent snapshot timed out".to_string());
+            Vec::new()
+        }
+    };
+    let mut goal = match load_persistent_goal(&state.hermes_home, &session_id) {
+        Ok(goal) => goal,
+        Err(err) => {
+            error = append_subagent_error(error, format!("failed to load persistent goal: {err}"));
+            None
+        }
+    };
+    if let Some(goal) = goal.as_mut() {
+        match timeout(
+            SUBAGENT_POLL_TIMEOUT,
+            fetch_parent_session_todos(&state, &session_id, &mut parent_todo_cache),
+        )
+        .await
+        {
+            Ok(Ok(todos)) => goal.todos = todos,
+            Ok(Err(err)) => {
+                error = append_subagent_error(error, format!("failed to load main-session todos: {err}"));
+            }
+            Err(_) => {
+                error = append_subagent_error(error, "main-session todo snapshot timed out".to_string());
+            }
+        }
+    }
+    Json(serde_json::json!({
+        "type": "subagents.snapshot",
+        "session_id": session_id,
+        "generated_at": unix_now_seconds(),
+        "goal": goal,
+        "subagents": subagents,
+        "error": error,
+    }))
+    .into_response()
+}
+
+fn append_subagent_error(current: Option<String>, message: String) -> Option<String> {
+    Some(match current {
+        Some(existing) => format!("{existing}; {message}"),
+        None => message,
+    })
 }
 
 async fn subagent_messages(
@@ -167,37 +239,24 @@ fn subagent_poll_delay(
 async fn subscribe_subagent_snapshots(
     state: Arc<AppState>,
     session_id: &str,
-    before: Option<f64>,
 ) -> watch::Receiver<String> {
-    let feed_key = match before {
-        Some(value) => format!("{session_id}:before:{:016x}", value.to_bits()),
-        None => format!("{session_id}:live"),
-    };
     let (sender, receiver, created) = {
         let mut feeds = state.subagent_feeds.write().await;
-        let (sender, created) = subagent_feed_sender(&mut feeds, &feed_key);
+        let (sender, created) = subagent_feed_sender(&mut feeds, session_id);
         let receiver = sender.subscribe();
         (sender, receiver, created)
     };
     if created {
         let state = state.clone();
         let session_id = session_id.to_string();
-        let spawned_feed_key = feed_key.clone();
-        tokio::spawn(async move {
-            run_subagent_feed(state, session_id, before, spawned_feed_key, sender).await
-        });
+        tokio::spawn(async move { run_subagent_feed(state, session_id, sender).await });
     }
     receiver
 }
 
-async fn stream_subagent_snapshots(
-    socket: WebSocket,
-    state: Arc<AppState>,
-    session_id: String,
-    before: Option<f64>,
-) {
+async fn stream_subagent_snapshots(socket: WebSocket, state: Arc<AppState>, session_id: String) {
     let (mut sender, mut receiver) = socket.split();
-    let mut snapshots = subscribe_subagent_snapshots(state, &session_id, before).await;
+    let mut snapshots = subscribe_subagent_snapshots(state, &session_id).await;
     let initial = snapshots.borrow_and_update().clone();
     if !initial.is_empty() && sender.send(Message::Text(initial.into())).await.is_err() {
         return;
@@ -227,8 +286,6 @@ async fn stream_subagent_snapshots(
 async fn run_subagent_feed(
     state: Arc<AppState>,
     session_id: String,
-    before: Option<f64>,
-    feed_key: String,
     sender: watch::Sender<String>,
 ) {
     let mut ticker = interval(SUBAGENT_POLL_INTERVAL);
@@ -245,21 +302,25 @@ async fn run_subagent_feed(
         if sender.receiver_count() == 0 {
             let mut feeds = state.subagent_feeds.write().await;
             let current_is_same = feeds
-                .get(&feed_key)
+                .get(&session_id)
                 .is_some_and(|current| current.same_channel(&sender));
             if !current_is_same {
                 return;
             }
             if sender.receiver_count() == 0 {
-                feeds.remove(&feed_key);
+                feeds.remove(&session_id);
                 return;
             }
         }
         if Instant::now() < next_poll {
             continue;
         }
+        let Ok(_permit) = SUBAGENT_SNAPSHOT_PERMITS.try_acquire() else {
+            next_poll = Instant::now() + SUBAGENT_POLL_INTERVAL;
+            continue;
+        };
 
-        let window_end = before.unwrap_or_else(unix_now_seconds);
+        let window_end = unix_now_seconds();
         let mut error = match timeout(
             SUBAGENT_POLL_TIMEOUT,
             fetch_subagent_projection_snapshot(&state, &session_id, window_end, &mut cache),
@@ -448,7 +509,11 @@ async fn fetch_subagent_projection_snapshot(
             && cached.message_count == message_count
             && cached.ended_at == ended_at
         {
-            out.push(cached.projection.clone());
+            out.push(root_subagent_if_parent_omitted(
+                cached.projection.clone(),
+                &visible_ids,
+                parent_session_id,
+            ));
             continue;
         }
 
@@ -464,16 +529,31 @@ async fn fetch_subagent_projection_snapshot(
                 projection: projection.clone(),
             },
         );
-        out.push(projection);
+        out.push(root_subagent_if_parent_omitted(
+            projection,
+            &visible_ids,
+            parent_session_id,
+        ));
     }
     Ok(out)
 }
 
+fn root_subagent_if_parent_omitted(
+    mut projection: SubagentProjection,
+    visible_ids: &HashSet<String>,
+    parent_session_id: &str,
+) -> SubagentProjection {
+    if !visible_ids.contains(&projection.parent_session_id) {
+        projection.parent_session_id = parent_session_id.to_string();
+    }
+    projection
+}
+
 async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::Result<Vec<Value>> {
-    let mut sessions = Vec::new();
+    let mut sessions = HashMap::<String, Value>::new();
     let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
-    for page in 0..SUBAGENT_MAX_PAGES {
-        let offset = page * SUBAGENT_PAGE_SIZE;
+    let mut offset = 0usize;
+    loop {
         let url = format!(
             "{}/api/sessions?source=subagent&include_children=true&limit={}&offset={}",
             state.api_url.trim_end_matches('/'),
@@ -492,12 +572,28 @@ async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::R
             .last()
             .and_then(session_activity_time)
             .is_some_and(|time| time < window_start);
-        sessions.extend(data);
+        let mut new_ids = 0usize;
+        for session in data {
+            let Some(id) = string_field(&session, "id") else {
+                continue;
+            };
+            if let std::collections::hash_map::Entry::Vacant(entry) = sessions.entry(id) {
+                entry.insert(session);
+                new_ids += 1;
+            }
+        }
         if !has_more || count < SUBAGENT_PAGE_SIZE || reached_window_start {
             break;
         }
+        if new_ids == 0 {
+            anyhow::bail!("subagent session pagination made no progress");
+        }
+        offset = offset.saturating_add(count);
+        if offset > 1_000_000 {
+            anyhow::bail!("subagent session pagination exceeded the API offset limit");
+        }
     }
-    Ok(sessions)
+    Ok(sessions.into_values().collect())
 }
 
 fn session_activity_time(session: &Value) -> Option<f64> {

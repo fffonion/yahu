@@ -295,6 +295,10 @@ pub async fn run() -> anyhow::Result<()> {
             "/chat/subagents/{session_id}/messages",
             get(subagent_messages),
         )
+        .route(
+            "/chat/subagents/{session_id}/snapshot",
+            get(subagent_snapshot),
+        )
         .route("/chat/user-nav/{session_id}", get(chat_user_nav))
         .route(
             "/chat/context-window/{session_id}",

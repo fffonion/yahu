@@ -58,10 +58,17 @@ export type SubagentTreeNode = SubagentProgress & { children: SubagentTreeNode[]
 
 type WebSocketLocation = Pick<Location, 'protocol' | 'host'>;
 
-export function subagentWebSocketUrl(location: WebSocketLocation, sessionId: string, beforeTime?: number): string {
+export function subagentWebSocketUrl(location: WebSocketLocation, sessionId: string): string {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${scheme}//${location.host}/chat/subagents/${encodeURIComponent(sessionId)}/ws`;
-  return Number.isFinite(beforeTime) && Number(beforeTime) > 0 ? `${url}?before=${encodeURIComponent(String(beforeTime))}` : url;
+  return `${scheme}//${location.host}/chat/subagents/${encodeURIComponent(sessionId)}/ws`;
+}
+
+export function subagentSnapshotUrl(sessionId: string, beforeTime: number): string {
+  return `/chat/subagents/${encodeURIComponent(sessionId)}/snapshot?before=${encodeURIComponent(String(beforeTime))}`;
+}
+
+export function subagentViewportIsLive(viewport: Pick<HTMLElement, 'scrollHeight' | 'scrollTop' | 'clientHeight'>, hasNewer: boolean): boolean {
+  return !hasNewer && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1;
 }
 
 export function subagentBeforeTimeForMessages(messages: Pick<ChatMessage, 'id' | 'timestamp'>[], visibleIds: ReadonlySet<string>): number | undefined {

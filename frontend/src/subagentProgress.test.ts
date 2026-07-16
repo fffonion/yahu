@@ -11,6 +11,8 @@ import {
   subagentBeforeTimeForMessages,
   subagentIteration,
   subagentMessagesUrl,
+  subagentSnapshotUrl,
+  subagentViewportIsLive,
   subagentWebSocketUrl,
 } from './subagentProgress';
 
@@ -22,9 +24,15 @@ describe('subagent progress websocket projection', () => {
     expect(subagentWebSocketUrl({ protocol: 'http:', host: '127.0.0.1:9642' }, 's1')).toBe(
       'ws://127.0.0.1:9642/chat/subagents/s1/ws',
     );
-    expect(subagentWebSocketUrl({ protocol: 'https:', host: 'yahu.example' }, 's1', 123.5)).toBe(
-      'wss://yahu.example/chat/subagents/s1/ws?before=123.5',
-    );
+    expect(subagentSnapshotUrl('session/with space', 123.5)).toBe('/chat/subagents/session%2Fwith%20space/snapshot?before=123.5');
+  });
+
+  test('uses live mode only at the true latest-history bottom', () => {
+    const bottom = { scrollHeight: 1000, scrollTop: 500, clientHeight: 500 };
+    expect(subagentViewportIsLive(bottom, false)).toBe(true);
+    expect(subagentViewportIsLive(bottom, true)).toBe(false);
+    expect(subagentViewportIsLive({ ...bottom, scrollTop: 498 }, false)).toBe(false);
+    expect(subagentViewportIsLive({ ...bottom, scrollTop: 499.5 }, false)).toBe(true);
   });
 
   test('uses the latest timestamp in the visible message range as the historical upper bound', () => {

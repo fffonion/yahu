@@ -14,6 +14,7 @@ import {
   previewSubagent,
   subagentElapsedSeconds,
   subagentMessagesUrl,
+  subagentSnapshotUrl,
   subagentWebSocketUrl,
   type PersistentGoal,
   type PersistentGoalStatus,
@@ -24,7 +25,7 @@ import {
   type SubagentTreeNode,
 } from './subagentProgress';
 
-export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, showToolCalls, compact }: { sessionId: string; beforeTime?: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
+export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, showToolCalls, compact }: { sessionId: string; beforeTime: number | null | undefined; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [goalExpanded, setGoalExpanded] = useState(false);
@@ -59,7 +60,33 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     setGoalExpanded(false);
     setOpenNodeIds(new Set());
     followLatestDetailRef.current = true;
+  }, [sessionId]);
+
+  useEffect(() => {
     if (!sessionId || sessionId === '__webui_draft_session__') return;
+    if (beforeTime === null) {
+      setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);
+      return;
+    }
+    if (typeof beforeTime === 'number') {
+      const controller = new AbortController();
+      setSnapshot((current) => current ? { ...current, subagents: [], error: undefined } : null);
+      fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })
+        .then((response) => {
+          if (!response.ok) throw new Error(`subagent snapshot failed (${response.status})`);
+          return response.json();
+        })
+        .then((payload) => {
+          if (controller.signal.aborted) return;
+          const next = normalizeSubagentSnapshot(payload, sessionId);
+          if (next) setSnapshot(next);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          setSnapshot((current) => current ? { ...current, subagents: [], error: String(error) } : null);
+        });
+      return () => controller.abort();
+    }
     let socket: WebSocket | null = null;
     let reconnectTimer = 0;
     let stopped = false;
@@ -67,7 +94,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
 
     const connect = () => {
       if (stopped) return;
-      socket = new WebSocket(subagentWebSocketUrl(window.location, sessionId, beforeTime));
+      socket = new WebSocket(subagentWebSocketUrl(window.location, sessionId));
       socket.onopen = () => { reconnectDelay = 750; };
       socket.onmessage = (event) => {
         if (stopped) return;

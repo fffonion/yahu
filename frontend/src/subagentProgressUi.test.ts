@@ -11,12 +11,17 @@ const transcript = () => {
 };
 
 describe('subagent progress UI', () => {
-  test('renders the websocket-backed progress card inside the chat stream', () => {
+  test('uses one live websocket and cancellable historical snapshots for the visible time window', () => {
     expect(app()).toContain("import { SubagentProgressCard } from './SubagentProgressCard';");
     expect(app()).toContain('<SubagentProgressCard sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} />');
-    expect(card()).toContain('new WebSocket(subagentWebSocketUrl(window.location, sessionId, beforeTime))');
-    expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages)');
+    expect(card()).toContain('new WebSocket(subagentWebSocketUrl(window.location, sessionId))');
+    expect(card()).toContain('fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })');
+    expect(card()).toContain('return () => controller.abort();');
+    expect(card()).toContain('if (controller.signal.aborted) return;');
+    expect(card()).toContain('}, [sessionId]);');
+    expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer)');
     expect(app()).toContain('scheduleSubagentWindowUpdate();');
+    expect(app()).toContain('new ResizeObserver(scheduleSubagentWindowUpdate)');
     expect(app()).toContain('}, 150);');
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');
   });
