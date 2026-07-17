@@ -173,7 +173,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   }, [liveGoal, running]);
 
   const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
-  if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error && !projectionPending)) return null;
+  if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;
 
   const goal = snapshot.goal;
   const preview = previewSubagent(snapshot.subagents);
@@ -210,7 +210,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       </div>
       <footer className="subagent-goal-footer">{goalMetadata}</footer>
     </details>}
-    {(snapshot.subagents.length > 0 || snapshot.error || projectionPending) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
+    {(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
     <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
       {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
       {(expanded || !preview) && <>
