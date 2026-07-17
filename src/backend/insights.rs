@@ -358,18 +358,12 @@ async fn fetch_recent_sessions_for_insights(
             .cloned()
             .unwrap_or_default();
         let data_len = data.len();
-        let mut visible_seen = 0usize;
-        let mut visible_older = 0usize;
         for row in data {
             if !is_client_visible_session(&row) {
                 continue;
             }
-            visible_seen += 1;
-            let ts = session_usage_timestamp(&row);
-            if ts >= min_ts {
+            if session_usage_timestamp(&row) >= min_ts {
                 rows.push(row);
-            } else {
-                visible_older += 1;
             }
         }
         let has_more = body
@@ -377,8 +371,7 @@ async fn fetch_recent_sessions_for_insights(
             .and_then(|value| value.as_bool())
             .unwrap_or(data_len == INSIGHTS_PAGE_SIZE);
         offset = offset.saturating_add(INSIGHTS_PAGE_SIZE);
-        let all_visible_older = visible_seen > 0 && visible_seen == visible_older;
-        if !has_more || data_len == 0 || offset >= INSIGHTS_SCAN_LIMIT || all_visible_older {
+        if !has_more || data_len == 0 || offset >= INSIGHTS_SCAN_LIMIT {
             return Ok(rows);
         }
     }
@@ -612,9 +605,12 @@ fn usage_hour_key(ts: f64) -> Option<String> {
 }
 
 fn session_usage_timestamp(row: &serde_json::Value) -> f64 {
-    json_f64(row, "last_active")
-        .max(json_f64(row, "ended_at"))
-        .max(json_f64(row, "started_at"))
+    let started_at = json_f64(row, "started_at");
+    if started_at > 0.0 {
+        started_at
+    } else {
+        json_f64(row, "last_active").max(json_f64(row, "ended_at"))
+    }
 }
 
 fn json_i64(row: &serde_json::Value, key: &str) -> i64 {

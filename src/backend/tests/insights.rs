@@ -37,6 +37,36 @@
     }
 
     #[test]
+    fn insights_attributes_session_totals_to_the_started_day() {
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let started_at = now - (2.0 * 86_400.0);
+        let rows = vec![serde_json::json!({
+            "id": "long-lived",
+            "source": "api_server",
+            "model": "gpt-5.6-sol",
+            "started_at": started_at,
+            "last_active": now,
+            "input_tokens": 100,
+            "estimated_cost_usd": 1.25,
+        })];
+
+        let body = aggregate_usage_insights_with_prices(&rows, now, &ModelPriceCatalog::new(), 7);
+        let daily = body["daily"].as_array().unwrap();
+        let started_day = daily.iter().find(|item| item["date"] == "2026-06-07").unwrap();
+        let today = daily.iter().find(|item| item["date"] == "2026-06-09").unwrap();
+
+        assert_eq!(started_day["totals"]["input"], 100);
+        assert_eq!(started_day["totals"]["cost_usd"], 1.25);
+        assert_eq!(today["totals"]["input"], 0);
+        assert_eq!(today["totals"]["cost_usd"], 0.0);
+    }
+
+    #[test]
     fn insights_defaults_to_seven_day_period_and_accepts_only_ui_periods() {
         assert_eq!(normalize_insights_period(None), 7);
         assert_eq!(normalize_insights_period(Some(7)), 7);
@@ -125,6 +155,46 @@
 
         assert_eq!(body["totals"]["cost_usd"], 0.0);
         assert_eq!(body["totals"]["unpriced_tokens"], 60);
+    }
+
+    #[tokio::test]
+    async fn insights_scans_past_resumed_old_sessions_for_recent_starts() {
+        async fn sessions_page(
+            axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+        ) -> axum::Json<serde_json::Value> {
+            const NOW: f64 = 1_780_000_000.0;
+            let offset = params.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+            if offset == 0 {
+                let old = serde_json::json!({
+                    "id": "resumed-old",
+                    "source": "api_server",
+                    "started_at": NOW - (40.0 * 86_400.0),
+                    "last_active": NOW,
+                    "input_tokens": 10,
+                });
+                axum::Json(serde_json::json!({"data": vec![old; INSIGHTS_PAGE_SIZE], "has_more": true}))
+            } else {
+                axum::Json(serde_json::json!({"data": [{
+                    "id": "recent",
+                    "source": "api_server",
+                    "started_at": NOW - 86_400.0,
+                    "last_active": NOW - 86_400.0,
+                    "input_tokens": 20,
+                }], "has_more": false}))
+            }
+        }
+
+        let app = axum::Router::new().route("/api/sessions", get(sessions_page));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let rows = fetch_recent_sessions_for_insights(&state, 1_780_000_000.0, 7).await.unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "recent");
     }
 
     #[tokio::test]
