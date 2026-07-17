@@ -27,16 +27,14 @@ export function parseSessionStateMessage(content: string): SessionStateContent |
   const noticeMatch = lines[0]?.match(/^\[([^\]\r\n]+)\]$/);
   if (!noticeMatch || noticeMatch[1].includes('|')) return null;
   const notice = noticeMatch[1].trim();
-  if (asyncDelegationCompleteNotice.test(notice)) {
-    const details = lines.slice(1).join('\n').trim();
-    return { notice, tasks: [], ...(details ? { details } : {}) };
-  }
+  const details = lines.slice(1).join('\n').trim();
+  if (asyncDelegationCompleteNotice.test(notice)) return { notice, tasks: [], ...(details ? { details } : {}) };
 
   const tasks: SessionTaskItem[] = [];
   for (const line of lines.slice(1)) {
     if (!line.trim()) continue;
     const match = line.match(taskLine);
-    if (!match) return null;
+    if (!match) return { notice, tasks: [], ...(details ? { details } : {}) };
     const body = match[2].trim();
     const idMatch = body.match(/^([A-Za-z0-9][\w-]*)\.\s+(.+)$/);
     tasks.push({
@@ -46,7 +44,7 @@ export function parseSessionStateMessage(content: string): SessionStateContent |
     });
   }
 
-  return { notice: noticeMatch[1].trim(), tasks };
+  return { notice, tasks };
 }
 
 export function isSessionStateMessage(message: { role?: string | null; content?: string | null }): boolean {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { markdownText } from './markdown';
 import { parseSessionStateMessage } from './sessionStateMessage';
 
 describe('session state message formatting', () => {
@@ -36,12 +37,22 @@ A background fan-out has finished.
     });
   });
 
-  test('leaves sender prefixes and bracketed prose to their existing renderers', () => {
+  test('formats every exact bracketed first line while leaving sender prefixes and inline prose alone', () => {
     expect(parseSessionStateMessage('[Sender|123]\nhello')).toBeNull();
-    expect(parseSessionStateMessage('[Note]\nordinary prose')).toBeNull();
+    expect(parseSessionStateMessage('[Note]\nordinary prose')).toEqual({ notice: 'Note', tasks: [], details: 'ordinary prose' });
     expect(parseSessionStateMessage('ordinary [Note] prose')).toBeNull();
     expect(parseSessionStateMessage('[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0] human follow-up')).toBeNull();
     expect(parseSessionStateMessage(' [ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toBeNull();
     expect(parseSessionStateMessage('\n[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toBeNull();
+  });
+
+  test('formats the standing-goal notice and preserves the following markdown list', () => {
+    const parsed = parseSessionStateMessage('[Continuing toward your standing goal]\n- first item\n- second item');
+    expect(parsed).toEqual({
+      notice: 'Continuing toward your standing goal',
+      tasks: [],
+      details: '- first item\n- second item',
+    });
+    expect(markdownText(parsed?.details || '')).toContain('<ul><li>first item</li><li>second item</li></ul>');
   });
 });
