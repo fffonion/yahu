@@ -1000,7 +1000,7 @@ export default function App() {
       updateSessionMessageCount(sessionId, page.total);
       updateSessionBoundaryTimes(sessionId, direction === 'older' ? boundaryPage : page);
       const merged = mergeMessageWindow<ChatMessage>({
-        current: direction === 'latest' ? [] : messagesRef.current,
+        current: messagesRef.current,
         chunk,
         direction,
         limit: RAW_MESSAGE_WINDOW,

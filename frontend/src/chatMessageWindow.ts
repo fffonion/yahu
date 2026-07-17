@@ -44,12 +44,33 @@ function newMessagesOnly<T>(chunk: T[], current: T[]): T[] {
   });
 }
 
+function mergeLatestMessages<T>(chunk: T[], current: T[]): T[] {
+  const currentById = new Map<string, T>();
+  for (const message of current) {
+    const key = messageKey(message);
+    if (key) currentById.set(key, message);
+  }
+  const chunkIds = new Set<string>();
+  const merged = chunk.map((message) => {
+    const key = messageKey(message);
+    if (!key) return message;
+    chunkIds.add(key);
+    return currentById.get(key) || message;
+  });
+  for (const message of current) {
+    const key = messageKey(message);
+    if (!key || !chunkIds.has(key)) merged.push(message);
+  }
+  return uniqueMessages(merged);
+}
+
 export function mergeMessageWindow<T>(input: MessageWindowMergeInput<T>): MessageWindowMergeResult<T> {
   const limit = Math.max(1, input.limit);
   if (input.direction === 'latest') {
+    const merged = mergeLatestMessages(input.chunk, input.current);
     return {
-      messages: uniqueMessages(input.chunk).slice(-limit),
-      hasOlder: input.pageHasOlder,
+      messages: merged.slice(-limit),
+      hasOlder: input.pageHasOlder || merged.length > limit,
       hasNewer: input.pageHasNewer,
     };
   }

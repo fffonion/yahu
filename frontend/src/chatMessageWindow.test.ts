@@ -9,6 +9,25 @@ type Msg = { id: string };
 const ids = (messages: Msg[]) => messages.map((message) => message.id);
 
 describe('chat message window pagination state', () => {
+  test('latest history keeps watch updates that arrived while the request was in flight', () => {
+    type LiveMsg = Msg & { content?: string };
+    const result = mergeMessageWindow<LiveMsg>({
+      current: [{ id: '21', content: 'live update' }, { id: '22', content: 'new tool row' }],
+      chunk: [{ id: '20', content: 'history' }, { id: '21', content: 'stale skeleton' }],
+      direction: 'latest',
+      limit: 10,
+      hasOlder: false,
+      hasNewer: false,
+      pageHasOlder: true,
+      pageHasNewer: false,
+    });
+
+    expect(ids(result.messages)).toEqual(['20', '21', '22']);
+    expect(result.messages[1]?.content).toBe('live update');
+    expect(result.hasOlder).toBe(true);
+    expect(result.hasNewer).toBe(false);
+  });
+
   test('prepending older history keeps newer=false when the current tail is still loaded', () => {
     const result = mergeMessageWindow<Msg>({
       current: [{ id: '30' }, { id: '31' }],
@@ -75,6 +94,12 @@ describe('chat message window pagination state', () => {
     expect(ids(result.messages)).toEqual(['10', '11']);
     expect(result.hasOlder).toBe(false);
     expect(result.hasNewer).toBe(false);
+  });
+
+  test('latest history response merges with watch updates instead of replacing them', () => {
+    const source = appSource();
+    expect(source).toContain('current: messagesRef.current,');
+    expect(source).not.toContain("current: direction === 'latest' ? [] : messagesRef.current,");
   });
 
   test('app ignores stale watch events from a previous active session', () => {
