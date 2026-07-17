@@ -167,6 +167,30 @@
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
+    #[tokio::test]
+    async fn chat_stream_status_reports_active_run_for_attached_sessions() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let idle = chat_stream_status(State(state.clone()), AxumPath("idle".to_string())).await;
+        assert_eq!(idle.status(), StatusCode::OK);
+        let idle_body: serde_json::Value = json_body(idle).await;
+        assert_eq!(idle_body["running"], serde_json::json!(false));
+        assert!(idle_body.get("run_id").is_none());
+
+        state.active_chat_run_ids.write().await.insert("busy".to_string(), "run-xyz".to_string());
+        let active = chat_stream_status(State(state.clone()), AxumPath("busy".to_string())).await;
+        assert_eq!(active.status(), StatusCode::OK);
+        let active_body: serde_json::Value = json_body(active).await;
+        assert_eq!(active_body["running"], serde_json::json!(true));
+        assert_eq!(active_body["run_id"], serde_json::json!("run-xyz"));
+    }
+
+    async fn json_body(resp: Response<Body>) -> serde_json::Value {
+        let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+    }
+
     #[test]
     fn idle_chat_stream_snapshots_are_evicted_and_capacity_is_released() {
         let now = Instant::now();

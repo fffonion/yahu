@@ -171,6 +171,23 @@ async fn chat_stream(
     }
 }
 
+async fn chat_stream_status(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response<Body> {
+    let run_id = state
+        .active_chat_run_ids
+        .read()
+        .await
+        .get(&session_id)
+        .cloned();
+    let body = match run_id {
+        Some(run_id) => serde_json::json!({"running": true, "run_id": run_id}),
+        None => serde_json::json!({"running": false}),
+    };
+    Json(body).into_response()
+}
+
 async fn stop_chat_stream(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,

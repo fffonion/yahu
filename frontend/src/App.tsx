@@ -564,6 +564,7 @@ export default function App() {
   const setStatus = useCallback((_value: string) => {}, []);
   const [busy, setBusy] = useState(false);
   const [streamingSessionId, setStreamingSessionId] = useState('');
+  const streamingSessionIdRef = useRef('');
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [newMessageBoundaryId, setNewMessageBoundaryId] = useState('');
   const [workspacePath, setWorkspacePath] = useState('');
@@ -1391,6 +1392,29 @@ export default function App() {
     es.onerror = () => { watchSourceRef.current = null; };
     return () => { es.close(); watchSourceRef.current = null; };
   }, [activeSessionId, clearNewMessages, loadContextWindowSnapshot]);
+  useEffect(() => { streamingSessionIdRef.current = streamingSessionId; }, [streamingSessionId]);
+  useEffect(() => {
+    if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
+    const targetSessionId = activeSessionId;
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const res = await fetch(`/chat/stream/${encodeURIComponent(targetSessionId)}/status`, { headers: headers() });
+        if (cancelled || !res.ok) return;
+        const body = await res.json();
+        const running = !!body?.running;
+        if (running) {
+          setStreamingSessionId(targetSessionId);
+          setStatus(t('chat.streamingOther'));
+        } else if (streamingSessionIdRef.current === targetSessionId) {
+          setStreamingSessionId('');
+        }
+      } catch { /* ignore */ }
+    };
+    probe();
+    const timer = window.setInterval(probe, 1500);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [activeSessionId, headers, t]);
   useEffect(() => {
     if (!sessionMenu && !skillMenu && !skillFileMenu && !workspaceMenu) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setSkillMenu(null); setSkillFileMenu(null); setWorkspaceMenu(null); } };
@@ -2762,7 +2786,7 @@ function ChatMain(props: ChatMainProps) {
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
           <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={t('chat.compactMode')} title={t('chat.compactMode')} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>
           {props.streaming && <button type="button" className="send-btn stop-stream-btn mobile-icon-only" aria-label={t('chat.stopStreaming')} title={t('chat.stopStreaming')} onClick={props.stopStreaming}><Square /></button>}
-          <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.busy ? t('chat.queueFollowUp') : t('chat.send')}><Send /> <span className="btn-label">{props.busy ? t('chat.queue') : t('chat.send')}</span></button>
+          <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.streaming ? t('chat.queueFollowUp') : t('chat.send')}><Send /> <span className="btn-label">{props.streaming ? t('chat.queue') : t('chat.send')}</span></button>
         </div>
       </div>
     </footer>

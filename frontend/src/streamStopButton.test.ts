@@ -28,6 +28,21 @@ describe('stream stop button', () => {
     expect(source).not.toContain('<span className="btn-label">Stop</span>');
   });
 
+  test('send button shows the queue label while streaming, including when another platform is driving the run', () => {
+    const source = app();
+    expect(source).toContain("props.streaming ? t('chat.queue') : t('chat.send')");
+    expect(source).not.toContain("props.busy ? t('chat.queue') : t('chat.send')");
+    expect(source).toContain("props.streaming ? t('chat.queueFollowUp') : t('chat.send')");
+  });
+
+  test('probes the active session stream status so attaching to a remote run shows the stop button', () => {
+    const source = app();
+    expect(source).toContain("/chat/stream/${encodeURIComponent(targetSessionId)}/status");
+    expect(source).toContain('setStreamingSessionId(targetSessionId);');
+    expect(source).toMatch(/streamingSessionIdRef\.current\s*===\s*targetSessionId/);
+    expect(source).toContain("setStreamingSessionId('')");
+  });
+
   test('stop button shares send styling and stays adjacent to send on desktop and mobile compact composer', () => {
     const styles = css();
     expect(styles).toContain('.composer-footer .stop-stream-btn{margin-left:auto;flex:0 0 auto;justify-content:center}');
