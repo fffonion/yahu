@@ -15,6 +15,8 @@ export type GoalMilestone = {
 export type PersistentGoal = {
   text: string;
   status: PersistentGoalStatus;
+  createdAt?: number;
+  lastTurnAt?: number;
   turnsUsed: number;
   maxTurns: number;
   subgoals: string[];
@@ -255,6 +257,12 @@ export function subagentElapsedSeconds(subagent: SubagentProgress, nowSeconds: n
   return Math.max(0, Math.round((subagent.endedAt || nowSeconds) - subagent.startedAt));
 }
 
+export function goalElapsedMinutes(goal: Pick<PersistentGoal, 'status' | 'createdAt' | 'lastTurnAt'>, nowSeconds: number): number | undefined {
+  if (!goal.createdAt || goal.createdAt <= 0) return undefined;
+  const end = goal.status === 'active' ? nowSeconds : goal.lastTurnAt || goal.createdAt;
+  return Math.max(0, Math.floor((end - goal.createdAt) / 60));
+}
+
 export function formatSubagentElapsed(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(whole / 3600);
@@ -288,6 +296,8 @@ function normalizePersistentGoal(value: unknown): PersistentGoal | undefined {
   return {
     text,
     status,
+    createdAt: numberValue(raw.created_at),
+    lastTurnAt: numberValue(raw.last_turn_at),
     turnsUsed: integerValue(raw.turns_used),
     maxTurns: integerValue(raw.max_turns),
     subgoals: Array.isArray(raw.subgoals) ? raw.subgoals.map(stringValue).filter(Boolean) : [],

@@ -59,8 +59,8 @@ struct GoalMilestoneProjection {
 struct PersistentGoalProjection {
     text: String,
     status: String,
-    #[serde(skip)]
     created_at: f64,
+    last_turn_at: f64,
     turns_used: u64,
     max_turns: u64,
     subgoals: Vec<String>,
@@ -555,6 +555,7 @@ fn load_persistent_goal(
         text: truncate_chars(text.trim(), 2_000),
         status,
         created_at,
+        last_turn_at: number_field(&value, "last_turn_at").unwrap_or_default(),
         turns_used: u64_field(&value, "turns_used"),
         max_turns: u64_field(&value, "max_turns"),
         subgoals,

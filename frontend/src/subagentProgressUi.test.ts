@@ -149,8 +149,11 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-goal-icon{color:var(--subagent-goal-accent);background:color-mix(in srgb,var(--subagent-goal-accent) 12%,transparent)}');
     expect(source).toContain('const goalMetadata = goal ? [');
     expect(source).toContain("tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns)");
+    expect(source).toContain('const goalElapsed = goal ? goalElapsedMinutes(goal, nowSeconds) : undefined;');
+    expect(source).toContain("goalElapsed !== undefined ? tf('goals.elapsedMinutes', goalElapsed) : ''");
     expect(source).toContain('className="subagent-goal-meta">{goalMetadata}</small>');
     expect(source).toContain('</div>\n      <footer className="subagent-goal-footer">{goalMetadata}</footer>');
+    expect(source).toContain("const liveGoal = snapshot?.goal?.status === 'active';");
     expect(styles).toContain('.subagent-goal-copy{min-width:0;display:grid;gap:3px}');
     expect(styles).toContain('.subagent-goal-meta{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-preview{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px}');
@@ -164,6 +167,7 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-meta{display:none}');
     expect(i18n()).toContain("'goals.active': { en: 'Active', 'zh-CN': '进行中'");
     expect(i18n()).toContain("'goals.turnProgress': { en: '{0}/{1} turns', 'zh-CN': '{0}/{1} 轮'");
+    expect(i18n()).toContain("'goals.elapsedMinutes': { en: '{0} min', 'zh-CN': '{0} 分钟'");
     expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error && !projectionPending)) return null;");
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
     expect(source).toContain("aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}");

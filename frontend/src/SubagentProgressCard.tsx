@@ -7,6 +7,7 @@ import {
   createSubagentSnapshotGuard,
   formatSubagentElapsed,
   formatSubagentFinalMessages,
+  goalElapsedMinutes,
   isSubagentDetailNearBottom,
   mergeSubagentMessages,
   normalizeSubagentMessages,
@@ -163,12 +164,13 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
 
   const runningCount = snapshot?.subagents.filter((item) => item.status === 'running').length || 0;
   const running = runningCount > 0;
+  const liveGoal = snapshot?.goal?.status === 'active';
   useEffect(() => {
-    if (!running) return;
+    if (!running && !liveGoal) return;
     setNowSeconds(Date.now() / 1000);
     const timer = window.setInterval(() => setNowSeconds(Date.now() / 1000), 1_000);
     return () => window.clearInterval(timer);
-  }, [running]);
+  }, [liveGoal, running]);
 
   const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
   if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error && !projectionPending)) return null;
@@ -176,8 +178,10 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   const goal = snapshot.goal;
   const preview = previewSubagent(snapshot.subagents);
   const completedGoalTodos = goal?.todos.filter((item) => item.status === 'completed').length || 0;
+  const goalElapsed = goal ? goalElapsedMinutes(goal, nowSeconds) : undefined;
   const goalMetadata = goal ? [
     persistentGoalStatusLabel(goal.status),
+    goalElapsed !== undefined ? tf('goals.elapsedMinutes', goalElapsed) : '',
     tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns),
     goal.todos.length ? tf('subagents.todoProgress', completedGoalTodos, goal.todos.length) : '',
   ].filter(Boolean).join(' · ') : '';

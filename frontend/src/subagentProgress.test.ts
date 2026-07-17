@@ -3,6 +3,7 @@ import {
   buildSubagentTree,
   createSubagentSnapshotGuard,
   formatSubagentFinalMessages,
+  goalElapsedMinutes,
   latestSubagent,
   isSubagentDetailNearBottom,
   normalizeSubagentMessages,
@@ -211,6 +212,8 @@ describe('subagent progress websocket projection', () => {
       goal: {
         text: 'Optimize the interpreter',
         status: 'active',
+        created_at: 100,
+        last_turn_at: 220,
         turns_used: 4,
         max_turns: 20,
         subgoals: [],
@@ -228,6 +231,8 @@ describe('subagent progress websocket projection', () => {
     expect(snapshot.goal).toEqual({
       text: 'Optimize the interpreter',
       status: 'active',
+      createdAt: 100,
+      lastTurnAt: 220,
       turnsUsed: 4,
       maxTurns: 20,
       subgoals: [],
@@ -238,6 +243,15 @@ describe('subagent progress websocket projection', () => {
       ],
     });
     expect(snapshot.subagents[0].task).toBe('Profile the hot path');
+  });
+
+  test('reports goal elapsed time as whole minutes and freezes completed goals', () => {
+    const activeGoal = { text: 'Active', status: 'active' as const, turnsUsed: 1, maxTurns: 20, subgoals: [], todos: [], milestones: [], createdAt: 100 };
+    const doneGoal = { ...activeGoal, status: 'done' as const, lastTurnAt: 280 };
+
+    expect(goalElapsedMinutes(activeGoal, 279)).toBe(2);
+    expect(goalElapsedMinutes(doneGoal, 1_000)).toBe(3);
+    expect(goalElapsedMinutes({ ...activeGoal, createdAt: undefined }, 1_000)).toBeUndefined();
   });
 
   test('prefers the latest running subagent even when a newer subagent already completed', () => {

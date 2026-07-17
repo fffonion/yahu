@@ -67,6 +67,8 @@
 
         assert_eq!(goal.text, "Optimize the interpreter");
         assert_eq!(goal.status, "active");
+        assert_eq!(goal.created_at, 0.0);
+        assert_eq!(goal.last_turn_at, 0.0);
         assert_eq!(goal.turns_used, 4);
         assert_eq!(goal.max_turns, 20);
         assert_eq!(goal.last_reason.as_deref(), Some("More profiling is required"));
@@ -95,6 +97,7 @@
         let updated = load_persistent_goal(temp.path(), "parent-1")
             .unwrap()
             .unwrap();
+        assert_eq!(updated.last_turn_at, 500.0);
         assert_eq!(
             updated
                 .milestones
@@ -663,6 +666,7 @@
             text: "Goal".to_string(),
             status: "active".to_string(),
             created_at: 100.0,
+            last_turn_at: 150.0,
             turns_used: 1,
             max_turns: 20,
             subgoals: Vec::new(),
