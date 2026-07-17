@@ -1,8 +1,11 @@
 import React from 'react';
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { GoalMilestones, SubagentProgressNode } from './SubagentProgressCard';
+import { setLang } from './i18n';
 import type { PersistentGoal, SubagentTreeNode } from './subagentProgress';
+
+beforeEach(() => setLang('en'));
 
 function goal(overrides: Partial<PersistentGoal>): PersistentGoal {
   return {

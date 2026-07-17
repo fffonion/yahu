@@ -331,7 +331,7 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
   // Match by content+role for user messages (server ID differs from local uid)
   if (msg.role === 'user') {
     const existing = prev.findIndex((m) => m.role === 'user' && m.content === msg.content);
-    if (existing >= 0) return prev.map((m, i) => i === existing ? { ...m, ...msg } : m);
+    if (existing >= 0) return prev.map((m, i) => i === existing ? { ...m, ...msg, id: m.id } : m);
   }
   // Match pending assistant placeholder for assistant messages from watch.
   // Local browser-originated streams use a temporary assistant_* id; once the

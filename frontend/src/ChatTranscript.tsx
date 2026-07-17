@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Brain,
   CalendarClock,
@@ -260,7 +260,6 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
 }
 
 function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails }) {
-  const detailsRef = useRef<HTMLDetailsElement | null>(null);
   const [open, setOpen] = useState(() => !!item.defaultOpen);
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -278,13 +277,7 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails }
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setLoading(false));
   };
-  useLayoutEffect(() => {
-    const node = detailsRef.current;
-    if (!node || !item.defaultOpen) return;
-    node.open = true;
-    setOpen(true);
-  }, [item.defaultOpen]);
-  return <details ref={detailsRef} className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
+  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
     <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><ChevronRight className="tool-chevron turn-detail-arrow" aria-hidden="true" /></summary>
     <div className="turn-detail-body">
       {loading ? t('status.loading') : null}
