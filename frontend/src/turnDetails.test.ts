@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildDesktopTurnBlocks, buildTurnDetailItems } from './turnDetails';
+import { buildDesktopTurnBlocks, buildTurnDetailItems, preserveTurnDetailGroupIds } from './turnDetails';
 
 type Msg = { id: string; role: string; content?: string; pending?: boolean; reasoning?: string; toolName?: string; toolCalls?: unknown; historyGap?: { after: number; before: number }; turnDetails?: { count: number; toolCount?: number; thinkingCount?: number; afterId?: string; beforeId?: string } };
 
@@ -72,6 +72,39 @@ describe('turn detail grouping', () => {
 
     expect(streamingItems[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
     expect(completedItems[1]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1' });
+  });
+
+  test('keeps the mounted rootless detail identity when history later restores its user anchor', () => {
+    const rootlessItems = buildTurnDetailItems([prelude, tool]);
+    const anchoredItems = buildTurnDetailItems([user, prelude, tool]);
+    const preservedItems = preserveTurnDetailGroupIds(rootlessItems, anchoredItems);
+    const rootlessGroup = rootlessItems.find((item) => item.kind === 'detailGroup');
+    const preservedGroup = preservedItems.find((item) => item.kind === 'detailGroup');
+    expect(rootlessGroup?.id).toBe('turn-details:rootless:a1');
+    expect(preservedGroup?.id).toBe(rootlessGroup?.id);
+  });
+
+  test('keeps the compact turn-block identity across the same rootless-to-anchored transition', () => {
+    const rootlessItems = buildTurnDetailItems([prelude, tool]);
+    const anchoredItems = buildTurnDetailItems([user, prelude, tool]);
+    const preservedItems = preserveTurnDetailGroupIds(rootlessItems, anchoredItems);
+    const rootlessGroup = rootlessItems.find((item) => item.kind === 'detailGroup');
+    if (!rootlessGroup || rootlessGroup.kind !== 'detailGroup') throw new Error('expected rootless detail group');
+    const rootlessBlock = buildDesktopTurnBlocks(rootlessItems).at(-1);
+    const anchoredBlock = buildDesktopTurnBlocks(preservedItems).at(-1);
+
+    expect(anchoredBlock?.items.some((item) => item.kind === 'detailGroup' && item.id === rootlessGroup?.id)).toBe(true);
+    expect(anchoredBlock?.id).toBe(rootlessBlock?.id);
+  });
+
+  test('opens a trailing rootless group immediately when stream status is already active', () => {
+    const liveItems = buildTurnDetailItems([prelude, tool], { openTrailingDetails: true });
+    const historyItems = buildTurnDetailItems([prelude, tool]);
+    const liveGroup = liveItems.find((item) => item.kind === 'detailGroup');
+    const historyGroup = historyItems.find((item) => item.kind === 'detailGroup');
+
+    expect(liveGroup?.defaultOpen).toBe(true);
+    expect(historyGroup?.defaultOpen).toBeUndefined();
   });
 
   test('uses a history coverage gap as a hard turn boundary', () => {

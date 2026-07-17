@@ -83,7 +83,10 @@ function turnDetailMetadata(message: MessageVisibilityInput): TurnDetailMetadata
   return detail && Number(detail.count || 0) > 0 ? detail : undefined;
 }
 
-export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages: T[]): Array<TurnDetailItem<T>> {
+export function buildTurnDetailItems<T extends MessageVisibilityInput>(
+  messages: T[],
+  options: { openTrailingDetails?: boolean } = {},
+): Array<TurnDetailItem<T>> {
   const items: Array<TurnDetailItem<T>> = [];
   let activeAnchorId = '';
   let buffer: Array<{ message: T; index: number }> = [];
@@ -122,7 +125,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
   const flushTrailingBuffer = () => {
     if (buffer.length) {
       const last = buffer[buffer.length - 1];
-      const isUnfinishedUserTurn = !!activeAnchorId && activeAnchorId !== ROOTLESS_ANCHOR_ID;
+      const isUnfinishedUserTurn = (!!activeAnchorId && activeAnchorId !== ROOTLESS_ANCHOR_ID) || !!options.openTrailingDetails;
       pushBufferedDetailGroup(bufferedDetailGroupId(last.message, last.index), last.message, last.index, undefined, { defaultOpen: isUnfinishedUserTurn });
       return;
     }
@@ -201,6 +204,26 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(messages:
   return items;
 }
 
+export function preserveTurnDetailGroupIds<T extends MessageVisibilityInput>(
+  previous: Array<TurnDetailItem<T>>,
+  next: Array<TurnDetailItem<T>>,
+): Array<TurnDetailItem<T>> {
+  const previousGroups = previous.filter((item): item is TurnDetailGroupItem<T> => item.kind === 'detailGroup');
+  const claimed = new Set<number>();
+  return next.map((item) => {
+    if (item.kind !== 'detailGroup') return item;
+    const messageIds = new Set(item.messages.map((message) => String(message.id || '').trim()).filter(Boolean));
+    let matchIndex = previousGroups.findIndex((group, index) => !claimed.has(index) && group.id === item.id);
+    if (matchIndex < 0 && messageIds.size > 0) {
+      matchIndex = previousGroups.findIndex((group, index) => !claimed.has(index) && group.messages.some((message) => messageIds.has(String(message.id || '').trim())));
+    }
+    if (matchIndex < 0) return item;
+    claimed.add(matchIndex);
+    const preservedId = previousGroups[matchIndex].id;
+    return preservedId === item.id ? item : { ...item, id: preservedId };
+  });
+}
+
 export function buildDesktopTurnBlocks<T extends MessageVisibilityInput>(items: Array<TurnDetailItem<T>>): Array<TurnDetailBlock<T>> {
   const blocks: Array<TurnDetailBlock<T>> = [];
   let current: TurnDetailBlock<T> | null = null;
@@ -217,5 +240,8 @@ export function buildDesktopTurnBlocks<T extends MessageVisibilityInput>(items: 
     splitAfterHistoryGap = item.kind === 'message' && !!item.message.historyGap;
   };
   items.forEach(append);
-  return blocks;
+  return blocks.map((block) => {
+    const detailGroup = block.items.find((item): item is TurnDetailGroupItem<T> => item.kind === 'detailGroup');
+    return detailGroup ? { ...block, id: `desktop-turn:${detailGroup.id}` } : block;
+  });
 }

@@ -128,6 +128,21 @@ describe('turn detail fold UI', () => {
     expect(styles).toContain('.session-state-details{');
   });
 
+  test('keeps the same mounted detail instance when history restores a missing stream anchor', () => {
+    const source = app();
+    expect(source).toContain('const previousTurnDetailItemsRef = useRef<Array<TurnDetailItem<ChatMessage>>>([]);');
+    expect(source).toContain('preserveTurnDetailGroupIds(previousTurnDetailItemsRef.current, groupedTurnDetailItems)');
+    expect(source).toContain('previousTurnDetailItemsRef.current = turnDetailItems;');
+  });
+
+  test('opens a rootless trailing frame immediately when stream status is active', () => {
+    const source = app();
+    expect(source).toContain('streaming?: boolean;');
+    expect(source).toContain('streaming = false,');
+    expect(source).toContain('buildTurnDetailItems(visibleMessages, { openTrailingDetails: streaming })');
+    expect(source).toContain('streaming={props.streaming}');
+  });
+
   test('streaming path still appends full detail messages instead of skeleton-only rows', () => {
     const source = app();
     expect(source).toContain("if (createdSession) setMessages(() => [userMsg, assistantMsg]);");

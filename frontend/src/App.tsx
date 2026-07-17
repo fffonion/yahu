@@ -2778,6 +2778,7 @@ function ChatMain(props: ChatMainProps) {
       <ChatTranscript
         messages={props.messages}
         showReasoning={props.showReasoning} showToolCalls={props.showToolCalls}
+        streaming={props.streaming}
         assistantName={sessionModel || undefined}
         compact={props.desktopCompactMessages}
         newMessageBoundaryId={props.newMessageBoundaryId}

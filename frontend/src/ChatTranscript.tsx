@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain,
   CalendarClock,
@@ -37,10 +37,12 @@ import { summarizeToolMessage } from './toolMessage';
 import {
   buildDesktopTurnBlocks,
   buildTurnDetailItems,
+  preserveTurnDetailGroupIds,
   type SessionStateMessageItem,
   type SpecialContextGroupItem,
   type TurnDetailBlock,
   type TurnDetailGroupItem,
+  type TurnDetailItem,
   type TurnDetailMetadata,
 } from './turnDetails';
 
@@ -54,6 +56,7 @@ type ChatTranscriptProps = {
   messages: ChatMessage[];
   showReasoning: boolean;
   showToolCalls: boolean;
+  streaming?: boolean;
   assistantName?: string;
   compact?: boolean;
   newMessageBoundaryId?: string | null;
@@ -64,6 +67,7 @@ export function ChatTranscript({
   messages,
   showReasoning,
   showToolCalls,
+  streaming = false,
   assistantName,
   compact = false,
   newMessageBoundaryId,
@@ -73,7 +77,16 @@ export function ChatTranscript({
     () => visibleChatMessages<ChatMessage>(messages, showReasoning, showToolCalls),
     [messages, showReasoning, showToolCalls],
   );
-  const turnDetailItems = useMemo(() => buildTurnDetailItems(visibleMessages), [visibleMessages]);
+  const previousTurnDetailItemsRef = useRef<Array<TurnDetailItem<ChatMessage>>>([]);
+  const groupedTurnDetailItems = useMemo(
+    () => buildTurnDetailItems(visibleMessages, { openTrailingDetails: streaming }),
+    [visibleMessages, streaming],
+  );
+  const turnDetailItems = useMemo(
+    () => preserveTurnDetailGroupIds(previousTurnDetailItemsRef.current, groupedTurnDetailItems),
+    [groupedTurnDetailItems],
+  );
+  useLayoutEffect(() => { previousTurnDetailItemsRef.current = turnDetailItems; }, [turnDetailItems]);
   const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
   const splitIdx = findNewMessageSplitIndex(visibleMessages, newMessageBoundaryId || undefined);
 
