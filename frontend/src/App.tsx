@@ -565,6 +565,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [streamingSessionId, setStreamingSessionId] = useState('');
   const streamingSessionIdRef = useRef('');
+  const streamStatusProbeRef = useRef<{ sessionId: string; promise: Promise<boolean | null> } | null>(null);
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [newMessageBoundaryId, setNewMessageBoundaryId] = useState('');
   const [workspacePath, setWorkspacePath] = useState('');
@@ -1398,22 +1399,32 @@ export default function App() {
     const targetSessionId = activeSessionId;
     let cancelled = false;
     const probe = async () => {
-      try {
-        const res = await fetch(`/chat/stream/${encodeURIComponent(targetSessionId)}/status`, { headers: headers() });
-        if (cancelled || !res.ok) return;
-        const body = await res.json();
-        const running = !!body?.running;
-        if (running) {
-          setStreamingSessionId(targetSessionId);
-          setStatus(t('chat.streamingOther'));
-        } else if (streamingSessionIdRef.current === targetSessionId) {
-          setStreamingSessionId('');
-        }
-      } catch { /* ignore */ }
+      const promise = (async () => {
+        try {
+          const res = await fetch(`/chat/stream/${encodeURIComponent(targetSessionId)}/status`, { headers: headers() });
+          if (!res.ok) return null;
+          const body = await res.json();
+          return !!body?.running;
+        } catch { return null; }
+      })();
+      streamStatusProbeRef.current = { sessionId: targetSessionId, promise };
+      const running = await promise;
+      if (streamStatusProbeRef.current?.promise === promise) streamStatusProbeRef.current = null;
+      if (cancelled || running === null) return;
+      if (running) {
+        setStreamingSessionId(targetSessionId);
+        setStatus(t('chat.streamingOther'));
+      } else if (streamingSessionIdRef.current === targetSessionId) {
+        setStreamingSessionId('');
+      }
     };
     probe();
     const timer = window.setInterval(probe, 1500);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      if (streamStatusProbeRef.current?.sessionId === targetSessionId) streamStatusProbeRef.current = null;
+    };
   }, [activeSessionId, headers, t]);
   useEffect(() => {
     if (!sessionMenu && !skillMenu && !skillFileMenu && !workspaceMenu) return;
@@ -1698,10 +1709,13 @@ export default function App() {
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     clearNewMessages();
-    if (currentSessionStreaming) {
+    const sessionId = activeSessionId;
+    const pendingStreamProbe = streamStatusProbeRef.current;
+    const remoteSessionStreaming = pendingStreamProbe?.sessionId === sessionId && await pendingStreamProbe.promise === true;
+    if (currentSessionStreaming || remoteSessionStreaming) {
       if (!text) return;
       if (followUpBehaviour === 'steer') await steerFollowUp(text);
-      else enqueueFollowUp(text);
+      else enqueueFollowUp(text, sessionId);
       setInput('');
       return;
     }

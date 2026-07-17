@@ -33,7 +33,7 @@ describe('stream stop button', () => {
     expect(source).toContain("props.streaming ? t('chat.queue') : t('chat.send')");
     expect(source).not.toContain("props.busy ? t('chat.queue') : t('chat.send')");
     expect(source).toContain("props.streaming ? t('chat.queueFollowUp') : t('chat.send')");
-    expect(source).toContain('if (currentSessionStreaming) {');
+    expect(source).toContain('if (currentSessionStreaming || remoteSessionStreaming) {');
   });
 
   test('probes the active session stream status so attaching to a remote run shows the stop button', () => {

@@ -179,9 +179,14 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   const preview = previewSubagent(snapshot.subagents);
   const completedGoalTodos = goal?.todos.filter((item) => item.status === 'completed').length || 0;
   const goalElapsed = goal ? goalElapsedMinutes(goal, nowSeconds) : undefined;
+  const goalElapsedLabel = goalElapsed === undefined
+    ? ''
+    : goalElapsed >= 60
+      ? tf('goals.elapsedHoursMinutes', Math.floor(goalElapsed / 60), goalElapsed % 60)
+      : tf('goals.elapsedMinutes', goalElapsed);
   const goalMetadata = goal ? [
     persistentGoalStatusLabel(goal.status),
-    goalElapsed !== undefined ? tf('goals.elapsedMinutes', goalElapsed) : '',
+    goalElapsedLabel,
     tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns),
     goal.todos.length ? tf('subagents.todoProgress', completedGoalTodos, goal.todos.length) : '',
   ].filter(Boolean).join(' · ') : '';

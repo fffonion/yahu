@@ -598,10 +598,77 @@ async fn fetch_parent_session_todos(
     }
 
     let messages = fetch_session_messages(state, session_id).await?;
-    let todos = latest_todos_since(&messages, goal_created_at);
+    let todos = if let Some(todos) = latest_todos_state_since(&messages, goal_created_at) {
+        todos
+    } else {
+        match fetch_local_goal_todo_messages(state, session_id, goal_created_at) {
+            Ok(Some(messages)) => latest_todos_state_since(&messages, goal_created_at).unwrap_or_default(),
+            Ok(None) => Vec::new(),
+            Err(err) => {
+                warn!(session_id = %session_id, error = %err, "cannot restore Goal todos from local todo history");
+                Vec::new()
+            }
+        }
+    };
     cache.message_count = Some(message_count);
     cache.todos = todos.clone();
     Ok(todos)
+}
+
+fn fetch_local_goal_todo_messages(
+    state: &AppState,
+    session_id: &str,
+    goal_created_at: f64,
+) -> anyhow::Result<Option<Vec<Value>>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(
+        &conn,
+        "messages",
+        &[
+            "id",
+            "session_id",
+            "role",
+            "content",
+            "tool_call_id",
+            "tool_calls",
+            "tool_name",
+            "timestamp",
+            "token_count",
+            "finish_reason",
+            "reasoning",
+            "reasoning_content",
+            "active",
+            "compacted",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, \
+                token_count, finish_reason, reasoning, reasoning_content \
+         FROM messages \
+         WHERE (active = 1 OR compacted = 1) \
+           AND session_id = ?1 \
+           AND timestamp >= ?2 \
+           AND ( \
+               (role = 'user' AND content LIKE '[Your active task list was preserved across context compression]%') \
+               OR (role = 'assistant' AND tool_calls LIKE '%todo%') \
+               OR (role = 'tool' AND tool_name = 'todo') \
+           ) \
+         ORDER BY timestamp, id",
+    )?;
+    let rows = stmt.query_map(
+        rusqlite::params![session_id, goal_created_at],
+        row_to_session_message,
+    )?;
+    Ok(Some(rows.collect::<rusqlite::Result<Vec<_>>>()?))
 }
 
 async fn fetch_subagent_projection_snapshot(
@@ -983,13 +1050,15 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
     })
 }
 
-fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
+fn latest_todos_state(messages: &[Value]) -> Option<Vec<SubagentTodo>> {
     let mut current = Vec::<SubagentTodo>::new();
+    let mut observed = false;
     for message in messages {
         if message.get("role").and_then(Value::as_str) == Some("user")
             && let Some(content) = message.get("content").map(content_text)
             && let Some(preserved) = parse_preserved_todos(&content)
         {
+            observed = true;
             current = preserved;
         }
         if message.get("role").and_then(Value::as_str) == Some("assistant") {
@@ -1016,6 +1085,7 @@ fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
                 let Some(items) = parsed.get("todos").and_then(Value::as_array) else {
                     continue;
                 };
+                observed = true;
                 if parsed.get("merge").and_then(Value::as_bool).unwrap_or(false) {
                     merge_todos(&mut current, items);
                 } else {
@@ -1030,16 +1100,21 @@ fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
             if let Ok(value) = serde_json::from_str::<Value>(&content)
                 && let Some(items) = value.get("todos").and_then(Value::as_array)
             {
+                observed = true;
                 current = normalize_todos(items);
             }
         }
     }
-    current
+    observed.then_some(current)
 }
 
-fn latest_todos_since(messages: &[Value], goal_created_at: f64) -> Vec<SubagentTodo> {
+fn latest_todos(messages: &[Value]) -> Vec<SubagentTodo> {
+    latest_todos_state(messages).unwrap_or_default()
+}
+
+fn latest_todos_state_since(messages: &[Value], goal_created_at: f64) -> Option<Vec<SubagentTodo>> {
     if goal_created_at <= 0.0 {
-        return latest_todos(messages);
+        return latest_todos_state(messages);
     }
     let current_generation = messages
         .iter()
@@ -1049,7 +1124,7 @@ fn latest_todos_since(messages: &[Value], goal_created_at: f64) -> Vec<SubagentT
         })
         .cloned()
         .collect::<Vec<_>>();
-    latest_todos(&current_generation)
+    latest_todos_state(&current_generation)
 }
 
 fn parse_preserved_todos(content: &str) -> Option<Vec<SubagentTodo>> {

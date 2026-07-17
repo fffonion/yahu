@@ -294,6 +294,79 @@
     }
 
     #[test]
+    fn compacted_goal_todos_are_available_when_the_api_window_has_no_todo_state() {
+        let api_messages = vec![serde_json::json!({
+            "role": "user",
+            "timestamp": 300.0,
+            "content": "Continue"
+        })];
+        let local_messages = vec![serde_json::json!({
+            "role": "user",
+            "timestamp": 200.0,
+            "content": "[Your active task list was preserved across context compression]\n- [>] implementation. Complete the implementation (in_progress)\n- [ ] report. Write the report (pending)"
+        })];
+
+        assert!(latest_todos_state_since(&api_messages, 100.0).is_none());
+        let todos = latest_todos_state_since(&local_messages, 100.0).unwrap();
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0].id, "implementation");
+        assert_eq!(todos[1].id, "report");
+    }
+
+    #[test]
+    fn local_goal_todo_history_includes_compacted_preserved_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                compacted INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (session_id, role, content, timestamp, active, compacted) VALUES (?1, 'user', ?2, 200.0, 0, 1)",
+            rusqlite::params![
+                "parent-1",
+                "[Your active task list was preserved across context compression]\n- [>] implementation. Complete the implementation (in_progress)"
+            ],
+        )
+        .unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        let messages = fetch_local_goal_todo_messages(&state, "parent-1", 100.0)
+            .unwrap()
+            .unwrap();
+        let todos = latest_todos_state_since(&messages, 100.0).unwrap();
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].id, "implementation");
+    }
+
+    #[test]
+    fn explicit_empty_api_todo_state_does_not_request_a_history_fallback() {
+        let api_messages = vec![serde_json::json!({
+            "role": "assistant",
+            "timestamp": 300.0,
+            "tool_calls": [{"function": {"name": "todo", "arguments": {"todos": []}}}]
+        })];
+
+        assert_eq!(latest_todos_state_since(&api_messages, 100.0), Some(Vec::new()));
+    }
+
+    #[test]
     fn todo_merge_deduplicates_incoming_ids_before_applying_updates() {
         let messages = vec![
             serde_json::json!({

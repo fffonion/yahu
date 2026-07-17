@@ -16,12 +16,21 @@ describe('chat follow-up queue and steer behaviour', () => {
 
   test('sending while the current session streams keeps the composer enabled and queues or steers instead of returning early', () => {
     const source = app();
-    expect(source).toContain('if (currentSessionStreaming) {');
+    expect(source).toContain('if (currentSessionStreaming || remoteSessionStreaming) {');
     expect(source).toContain("if (followUpBehaviour === 'steer')");
     expect(source).toContain('await steerFollowUp(text);');
-    expect(source).toContain('enqueueFollowUp(text);');
+    expect(source).toContain('enqueueFollowUp(text, sessionId);');
     expect(source).not.toContain("if ((!input.trim() && attachments.length === 0) || busy) return;");
     expect(source).not.toContain('disabled={props.busy} onClick={props.sendMessage}');
+  });
+
+  test('sending waits for an attach-time stream probe before choosing queue or a new turn', () => {
+    const source = app();
+    expect(source).toContain("const streamStatusProbeRef = useRef<{ sessionId: string; promise: Promise<boolean | null> } | null>(null);");
+    expect(source).toContain('const pendingStreamProbe = streamStatusProbeRef.current;');
+    expect(source).toContain('const remoteSessionStreaming = pendingStreamProbe?.sessionId === sessionId && await pendingStreamProbe.promise === true;');
+    expect(source).toContain('if (currentSessionStreaming || remoteSessionStreaming) {');
+    expect(source.indexOf('const remoteSessionStreaming = pendingStreamProbe')).toBeLessThan(source.indexOf('await runChatTurn(text, attachments);'));
   });
 
   test('queue items are stored in localStorage per session and render above the composer with controls', () => {

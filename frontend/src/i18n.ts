@@ -90,6 +90,7 @@ const translations: Record<string, Record<string, string>> = {
   'goals.done': { en: 'Done', 'zh-CN': '已完成', 'zh-TW': '完了', ja: '完了' },
   'goals.turnProgress': { en: '{0}/{1} turns', 'zh-CN': '{0}/{1} 轮', 'zh-TW': '{0}/{1} 輪', ja: '{0}/{1} ターン' },
   'goals.elapsedMinutes': { en: '{0} min', 'zh-CN': '{0} 分钟', 'zh-TW': '{0} 分鐘', ja: '{0} 分' },
+  'goals.elapsedHoursMinutes': { en: '{0} hr {1} min', 'zh-CN': '{0} 小时 {1} 分钟', 'zh-TW': '{0} 小時 {1} 分鐘', ja: '{0} 時間 {1} 分' },
 
   // Cron
   'cron.title': { en: 'Cron', 'zh-CN': '定时任务', 'zh-TW': '定時任務', ja: 'Cron' },
