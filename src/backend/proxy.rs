@@ -175,17 +175,76 @@ async fn chat_stream_status(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Response<Body> {
-    let run_id = state
+    let local_run_id = state
         .active_chat_run_ids
         .read()
         .await
         .get(&session_id)
         .cloned();
-    let body = match run_id {
+    let body = match local_run_id {
         Some(run_id) => serde_json::json!({"running": true, "run_id": run_id}),
+        None if upstream_session_appears_running(&state, &session_id).await => {
+            serde_json::json!({"running": true, "external": true})
+        }
         None => serde_json::json!({"running": false}),
     };
     Json(body).into_response()
+}
+
+const EXTERNAL_STREAM_ACTIVITY_TTL_SECONDS: f64 = 10.0 * 60.0;
+
+fn session_message_tail_appears_running(messages: &[serde_json::Value], now: f64) -> bool {
+    let Some(message) = messages.last() else {
+        return false;
+    };
+    let timestamp = message
+        .get("timestamp")
+        .and_then(|value| value.as_f64())
+        .unwrap_or_default();
+    if timestamp <= 0.0 || now - timestamp > EXTERNAL_STREAM_ACTIVITY_TTL_SECONDS {
+        return false;
+    }
+    match message.get("role").and_then(|value| value.as_str()) {
+        Some("user" | "tool") => true,
+        Some("assistant") => {
+            message.get("finish_reason").and_then(|value| value.as_str()) == Some("tool_calls")
+                || message.get("pending").and_then(|value| value.as_bool()) == Some(true)
+        }
+        _ => false,
+    }
+}
+
+async fn upstream_gateway_has_active_agents(state: &Arc<AppState>) -> bool {
+    let mut req = state
+        .client
+        .get(format!("{}/health/detailed", state.api_url.trim_end_matches('/')));
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        req = req.bearer_auth(key);
+    }
+    let Ok(resp) = req.send().await else {
+        return false;
+    };
+    if !resp.status().is_success() {
+        return false;
+    }
+    resp.json::<serde_json::Value>()
+        .await
+        .ok()
+        .and_then(|body| body.get("active_agents").and_then(|value| value.as_u64()))
+        .unwrap_or_default()
+        > 0
+}
+
+async fn upstream_session_appears_running(state: &Arc<AppState>, session_id: &str) -> bool {
+    if !upstream_gateway_has_active_agents(state).await {
+        return false;
+    }
+    fetch_session_messages_for_watch(&state.client, &state.api_url, &state.api_key, session_id)
+        .await
+        .map(|messages| session_message_tail_appears_running(&messages, unix_now_seconds()))
+        .unwrap_or(false)
 }
 
 async fn stop_chat_stream(

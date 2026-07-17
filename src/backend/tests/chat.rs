@@ -186,6 +186,59 @@
         assert_eq!(active_body["run_id"], serde_json::json!("run-xyz"));
     }
 
+    #[test]
+    fn external_stream_detection_requires_a_recent_unfinished_message_tail() {
+        let now = 10_000.0;
+        assert!(session_message_tail_appears_running(
+            &[serde_json::json!({"role":"user","timestamp":now - 2.0})],
+            now,
+        ));
+        assert!(session_message_tail_appears_running(
+            &[serde_json::json!({"role":"tool","timestamp":now - 2.0})],
+            now,
+        ));
+        assert!(session_message_tail_appears_running(
+            &[serde_json::json!({"role":"assistant","finish_reason":"tool_calls","timestamp":now - 2.0})],
+            now,
+        ));
+        assert!(!session_message_tail_appears_running(
+            &[serde_json::json!({"role":"assistant","content":"done","timestamp":now - 2.0})],
+            now,
+        ));
+        assert!(!session_message_tail_appears_running(
+            &[serde_json::json!({"role":"tool","timestamp":now - EXTERNAL_STREAM_ACTIVITY_TTL_SECONDS - 1.0})],
+            now,
+        ));
+    }
+
+    #[tokio::test]
+    async fn chat_stream_status_detects_a_gateway_run_started_on_another_platform() {
+        async fn api_health() -> Json<serde_json::Value> {
+            Json(serde_json::json!({"active_agents":1}))
+        }
+        async fn api_messages() -> Json<serde_json::Value> {
+            Json(serde_json::json!({
+                "object":"list",
+                "data":[{"id":1,"role":"tool","content":"working","timestamp":unix_now_seconds()}]
+            }))
+        }
+
+        let app = Router::new()
+            .route("/health/detailed", get(api_health))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let response = chat_stream_status(State(state), AxumPath("telegram-session".to_string())).await;
+        let body: serde_json::Value = json_body(response).await;
+
+        assert_eq!(body["running"], serde_json::json!(true));
+        assert_eq!(body["external"], serde_json::json!(true));
+    }
+
     async fn json_body(resp: Response<Body>) -> serde_json::Value {
         let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
         serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)

@@ -1698,7 +1698,7 @@ export default function App() {
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     clearNewMessages();
-    if (busy) {
+    if (currentSessionStreaming) {
       if (!text) return;
       if (followUpBehaviour === 'steer') await steerFollowUp(text);
       else enqueueFollowUp(text);

@@ -14,9 +14,9 @@ describe('chat follow-up queue and steer behaviour', () => {
     expect(source).toContain('setFollowUpBehaviour={setFollowUpBehaviour}');
   });
 
-  test('sending while busy keeps the composer enabled and queues or steers instead of returning early', () => {
+  test('sending while the current session streams keeps the composer enabled and queues or steers instead of returning early', () => {
     const source = app();
-    expect(source).toContain('if (busy) {');
+    expect(source).toContain('if (currentSessionStreaming) {');
     expect(source).toContain("if (followUpBehaviour === 'steer')");
     expect(source).toContain('await steerFollowUp(text);');
     expect(source).toContain('enqueueFollowUp(text);');
