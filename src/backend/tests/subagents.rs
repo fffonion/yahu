@@ -110,6 +110,37 @@
     }
 
     #[test]
+    fn completed_goal_is_not_loaded_as_a_standing_goal() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE state_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO state_meta (key, value) VALUES (?1, ?2)",
+            rusqlite::params![
+                "goal:parent-1",
+                serde_json::json!({
+                    "goal": "Archived completed goal",
+                    "status": "done",
+                    "turns_used": 3,
+                    "max_turns": 20,
+                    "last_verdict": "done",
+                    "last_reason": "goal satisfied"
+                })
+                .to_string()
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        assert!(load_persistent_goal(temp.path(), "parent-1")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
     fn replacing_a_goal_drops_milestones_from_the_previous_goal_generation() {
         let temp = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();

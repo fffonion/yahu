@@ -455,11 +455,11 @@ fn load_persistent_goal(
         return Ok(None);
     };
     let raw_status = string_field(&value, "status").unwrap_or_else(|| "active".to_string());
-    if raw_status == "cleared" {
+    if matches!(raw_status.as_str(), "done" | "cleared") {
         return Ok(None);
     }
     let status = match raw_status.as_str() {
-        "paused" | "done" => raw_status,
+        "paused" => raw_status,
         _ => "active".to_string(),
     };
     let created_at = number_field(&value, "created_at").unwrap_or_default();
