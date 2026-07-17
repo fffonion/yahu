@@ -105,7 +105,7 @@ describe('skills UI', () => {
     expect(source).toContain('className="skill-subtitle-item" aria-hidden="true"');
     expect(styles).toContain('.skill-subtitle-marquee{');
     expect(styles).toContain('overflow:hidden');
-    expect(styles).toContain('animation:skill-subtitle-scroll 9s linear 1s infinite');
+    expect(styles).toContain('animation:skill-subtitle-scroll 18s linear 1s infinite');
     expect(styles).toContain('to{transform:translateX(calc(-1 * var(--skill-subtitle-cycle)))}');
     expect(styles).not.toContain('animation:skill-subtitle-scroll 9s ease-in-out 1s infinite alternate');
     expect(styles).not.toContain('.skill-header-copy{min-width:0;overflow-x:auto');
