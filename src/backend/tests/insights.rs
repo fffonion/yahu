@@ -102,6 +102,53 @@
     }
 
     #[test]
+    fn insights_one_day_window_includes_previous_calendar_day_hours() {
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(1, 30, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![
+            serde_json::json!({
+                "id": "previous-evening",
+                "source": "telegram",
+                "model": "gpt-5.3-codex-spark",
+                "started_at": now - (3.0 * 3600.0),
+                "input_tokens": 70,
+                "output_tokens": 30
+            }),
+            serde_json::json!({
+                "id": "current-day",
+                "source": "api_server",
+                "model": "gpt-5.6-sol",
+                "started_at": now - 1800.0,
+                "input_tokens": 40,
+                "output_tokens": 10
+            }),
+        ];
+
+        let body = aggregate_usage_insights_with_prices(&rows, now, &ModelPriceCatalog::new(), 1);
+
+        assert_eq!(body["totals"]["total_tokens"], 150);
+        assert_eq!(body["models"].as_array().unwrap().len(), 2);
+        assert_eq!(body["daily"][0]["totals"]["total_tokens"], 150);
+        assert_eq!(
+            body["hourly"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|hour| hour["totals"]["total_tokens"].as_i64())
+                .sum::<i64>(),
+            150
+        );
+        let one_day = &body["periods"][0];
+        assert_eq!(one_day["totals"]["total_tokens"], 150);
+        assert_eq!(one_day["models"].as_array().unwrap().len(), 2);
+        assert_eq!(one_day["sources"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
     fn insights_estimates_cost_from_models_dev_catalog_when_api_rows_have_no_cost() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()

@@ -790,11 +790,19 @@ fn aggregate_usage_insights_with_prices_at_offset(
     for row in rows {
         let ts = session_usage_timestamp(row);
         let Some(day) = usage_day_key_at_offset(ts, timezone_offset_minutes) else { continue };
-        if !days.iter().any(|item| item.date == day) {
-            continue;
-        }
         let hour = usage_hour_key_at_offset(ts, timezone_offset_minutes)
             .filter(|value| hour_keys.contains(value));
+        let bucket_day = if period_days == 1 {
+            if hour.is_none() {
+                continue;
+            }
+            days.first().map(|item| item.date.clone()).unwrap_or(day)
+        } else {
+            if !days.iter().any(|item| item.date == day) {
+                continue;
+            }
+            day
+        };
         totals.add_row(row, prices);
         let model_name = row
             .get("model")
@@ -823,7 +831,7 @@ fn aggregate_usage_insights_with_prices_at_offset(
                 .collect(),
         });
         model.totals.add_row(row, prices);
-        model.daily.entry(day.clone()).or_default().add_row(row, prices);
+        model.daily.entry(bucket_day).or_default().add_row(row, prices);
         if let Some(hour) = hour {
             model.hourly.entry(hour).or_default().add_row(row, prices);
         }
@@ -889,11 +897,15 @@ fn aggregate_usage_insights_with_prices_at_offset(
                 .collect();
             let mut period_sources: HashMap<String, UsageTotals> = HashMap::new();
             for row in rows {
-                let Some(row_day) = usage_day_key_at_offset(
-                    session_usage_timestamp(row),
-                    timezone_offset_minutes,
-                ) else { continue };
-                if !period_dates.contains(&row_day) {
+                let row_timestamp = session_usage_timestamp(row);
+                let in_period = if period == 1 {
+                    usage_hour_key_at_offset(row_timestamp, timezone_offset_minutes)
+                        .is_some_and(|hour| hour_keys.contains(&hour))
+                } else {
+                    usage_day_key_at_offset(row_timestamp, timezone_offset_minutes)
+                        .is_some_and(|day| period_dates.contains(&day))
+                };
+                if !in_period {
                     continue;
                 }
                 let source_name = row
