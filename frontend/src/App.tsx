@@ -12,6 +12,7 @@ import { fallbackContextWindowForModel, latestMessageProviderForModel, resolvePr
 import { ChatTranscript, type ChatMessage, type ChatTurnMetrics } from './ChatTranscript';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { compactSessionPreview, latestSessionPreviewFromMessages } from './sessionPreview';
+import { highlightSourceText } from './syntaxHighlight';
 import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { mergeTurnMetrics, normalizeChatMessage, readTurnMetrics } from './chatMessage';
@@ -203,93 +204,6 @@ function parseSseBlock(block: string) {
     if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
   }
   return { event, data: data.join('\n') };
-}
-function escapeHtml(text: string) {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-function highlightWorkspaceText(text: string, filePath?: string) {
-  const ext = (filePath || '').split('.').pop()?.toLowerCase();
-  const language = (() => {
-    switch (ext) {
-      case 'rs': return 'rust';
-      case 'py': return 'python';
-      case 'ts': case 'tsx': case 'js': case 'jsx': return 'javascript';
-      case 'css': return 'css';
-      case 'html': case 'htm': return 'html';
-      case 'json': return 'json';
-      case 'md': return 'markdown';
-      case 'toml': case 'yaml': case 'yml': return 'config';
-      case 'sh': case 'bash': return 'shell';
-      case 'go': return 'go';
-      case 'c': case 'h': return 'c';
-      case 'cpp': case 'hpp': case 'cc': case 'cxx': return 'cpp';
-      case 'java': return 'java';
-      case 'rb': return 'ruby';
-      case 'sql': return 'sql';
-      case 'xml': case 'svg': return 'xml';
-      default: return 'plain';
-    }
-  })();
-
-  const patterns: Record<string, RegExp> = {
-    rust: /\/\/[^\n]*|\/\/!.*|"(?:[^"\\]|\\.)*"|r#"(?:[^"]|"(?!\n#))*"#|r"(?:[^"]|"(?!\n))*"|'(?:[^'\\]|\\.)'|b'(?:[^'\\])'|\b(?:fn|let|mut|pub|struct|impl|trait|enum|match|if|else|for|while|loop|return|use|mod|const|static|type|where|as|in|ref|move|unsafe|extern|crate|self|super|true|false|Some|None|Ok|Err)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:_?\d+)*(?:[uUiIfF](?:8|16|32|64|128|size)?)?\b/g,
-    python: /#[^\n]*|"""["\n]*?"""|'''['\n]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:def|class|import|from|return|if|elif|else|for|while|try|except|finally|raise|with|as|in|is|not|and|or|lambda|yield|async|await|pass|break|continue|True|False|None)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g,
-    javascript: /\/\/[^\n]*|\/\*[\s\S]*?\*\/|`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:const|let|var|function|return|async|await|import|export|from|type|interface|if|else|for|while|class|extends|new|true|false|null|undefined|try|catch|throw|switch|case|default|break|continue|of|in|typeof)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g,
-    css: /\/\*[\s\S]*?\*\/|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|#[0-9a-fA-F]{3,8}\b|\b\d+(?:\.\d+)?(?:px|em|rem|%|vh|vw|pt|ms|s|deg)?\b|[\w-]+(?=\s*:)|[:;{},]/g,
-    html: /<!--[\s\S]*?-->|<[\/!]?\w[\w-]*(?:\s[^>]*)?>|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,
-    json: /"(?:[^"\\]|\\.)*"\s*:/g,
-    markdown: /^#{1,6}\s.*$|`[^`]+`|```[\s\S]*?```|\*\*[^*]+\*\*|__[^_]+__|\[[^\]]+\]\([^)]+\)/gm,
-    config: /#[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:true|false|null|yes|no|on|off)\b|\b\d+(?:\.\d+)?\b/g,
-    shell: /#[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:if|then|else|elif|fi|for|while|do|done|case|esac|in|function|return|exit|echo|export|source|local|readonly|declare)\b|\b\d+\b|\$\{?[\w_]+\}?/g,
-    go: /\/\/[^\n]*|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|'(?:[^'\\])'|\b(?:func|return|if|else|for|range|switch|case|default|break|continue|go|defer|chan|select|map|struct|interface|type|var|const|package|import|nil|true|false)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g,
-    c: /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\]|\\.)*"|'(?:[^'\\])'|\b(?:if|else|for|while|do|switch|case|default|break|continue|return|struct|typedef|enum|union|static|extern|const|volatile|sizeof|void|int|char|float|double|long|short|unsigned|signed)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[fFlLuU]?\b/g,
-    cpp: /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\]|\\.)*"|'(?:[^'\\])'|\b(?:class|struct|enum|namespace|using|template|typename|virtual|override|public|private|protected|const|constexpr|auto|decltype|static_cast|dynamic_cast|nullptr|new|delete|try|catch|throw|if|else|for|while|do|switch|case|default|break|continue|return|true|false)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[fFlLuU]?\b/g,
-    java: /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\]|\\.)*"|'(?:[^'\\])'|\b(?:public|private|protected|static|final|class|interface|extends|implements|abstract|synchronized|volatile|transient|native|strictfp|void|int|long|double|float|boolean|char|byte|short|new|return|if|else|for|while|do|switch|case|default|break|continue|try|catch|throw|throws|import|package|true|false|null|this|super)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[fFdDlL]?\b/g,
-    ruby: /#[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|:(?:\w+[?!]?)|:\s*"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|\b(?:def|end|class|module|if|elsif|else|unless|while|until|for|do|begin|rescue|ensure|case|when|return|yield|self|nil|true|false|and|or|not|require|include|extend|attr_accessor|attr_reader|attr_writer|private|protected|public)\b|\b\d+(?:\.\d+)?\b/g,
-    sql: /--[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^'\\]|\\.)*'|\b(?:SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|AND|OR|NOT|IN|BETWEEN|LIKE|IS|NULL|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|UNION|ALL|DISTINCT|COUNT|SUM|AVG|MIN|MAX|CASE|WHEN|THEN|ELSE|END|SET|VALUES|INTO|PRIMARY|KEY|FOREIGN|REFERENCES|CONSTRAINT|DEFAULT|CHECK|UNIQUE|EXISTS)\b|\b\d+(?:\.\d+)?\b/gi,
-    xml: /<!--[\s\S]*?-->|<[\/!]?\w[\w:.-]*(?:\s[^>]*)?>|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,
-  };
-
-  const token = patterns[language] || patterns.javascript;
-  if (language === 'plain' && !/[\w#"'/]/.test(text.slice(0, 200))) return escapeHtml(text);
-
-  let out = '';
-  let last = 0;
-  for (const match of text.matchAll(token)) {
-    const part = match[0];
-    const index = match.index || 0;
-    out += escapeHtml(text.slice(last, index));
-    let cls: string;
-    if (language === 'css') {
-      if (part.startsWith('/*')) cls = 'tok-comment';
-      else if (part.startsWith('#') || (part.startsWith('"') && part.includes(':')) || part.startsWith("'")) cls = 'tok-string';
-      else if (/^[\w-]+(?=:)/.test(part)) cls = 'tok-keyword';
-      else if (/[:;{},]/.test(part)) cls = 'tok-keyword';
-      else if (/^\d/.test(part)) cls = 'tok-number';
-      else cls = 'tok-string';
-    } else if (language === 'html' || language === 'xml') {
-      if (part.startsWith('<!--')) cls = 'tok-comment';
-      else if (part.startsWith('<')) cls = 'tok-keyword';
-      else cls = 'tok-string';
-    } else if (language === 'json') {
-      const m = part.match(/"([^"]*)":/);
-      cls = 'tok-keyword';
-    } else if (language === 'markdown') {
-      if (part.startsWith('#')) cls = 'tok-keyword';
-      else if (part.startsWith('`')) cls = 'tok-string';
-      else if (part.startsWith('[')) cls = 'tok-string';
-      else cls = 'tok-string';
-    } else {
-      // Standard: comment, string, number, keyword
-      if (part.startsWith('//') || part.startsWith('/*') || part.startsWith('#') || part.startsWith('--') || part.startsWith('<!--')) cls = 'tok-comment';
-      else if (part.startsWith('"') || part.startsWith("'") || part.startsWith('`') || part.startsWith('r"') || part.startsWith('r#"') || part.startsWith('b\'')) cls = 'tok-string';
-      else if (/^\d/.test(part)) cls = 'tok-number';
-      else cls = 'tok-keyword';
-    }
-    out += `<span class="${cls}">${escapeHtml(part)}</span>`;
-    last = index + part.length;
-  }
-  return out + escapeHtml(text.slice(last));
 }
 function normalizeContent(value: unknown) {
   return normalizeMessageParts(value).content;
@@ -3016,8 +2930,8 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   if (preview.kind === 'none') { const Icon = emptyIcon || Folder; return <section className="workspace-editor-preview empty"><div className="empty-state"><Icon className="big-mark" /><h2>{emptyTitle || t('workspace.selectFile')}</h2><p>{emptyDesc || t('workspace.selectFileDesc')}</p></div></section>; }
   const textPreview = isMarkdownPath(preview.path)
     ? <div className="workspace-markdown-preview md-content" dangerouslySetInnerHTML={{ __html: markdownText(preview.content || '') }} />
-    : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />;
-  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview">{textPreview}</div>}</section>;
+    : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightSourceText(preview.content || '', preview.path) }} />;
+  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightSourceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview">{textPreview}</div>}</section>;
 }
 type WorkspaceBrowserProps = WorkspaceTreeProps & {
   preview: WorkspacePreview;
@@ -3031,7 +2945,7 @@ function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, 
   return <>
     <header className="workspace-head"><span className="panel-title">{t('workspace.title')}</span><span>{compact ? t('workspace.main') : t('workspace.full')}</span><button aria-label={compact ? t('workspace.collapse') : t('workspace.closePreview')} onClick={() => compact ? setCollapsed(true) : setPreview({ path: '', content: '', kind: 'none' })}><X /></button></header>
     <div className="workspace-tree file-list"><WorkspaceTreeRows entries={rootEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /></div>
-    {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions"><button className="icon-btn" aria-label={t('workspace.openFullPreview')} title={t('workspace.openFullPreview')} onClick={() => { window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path }); }}><Maximize2 /></button><button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div></div>{preview.kind === 'image' ? <img src={preview.url} /> : isMarkdownPath(preview.path) ? <div className="workspace-markdown-preview compact md-content" dangerouslySetInnerHTML={{ __html: markdownText(preview.content || '') }} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightWorkspaceText(preview.content || '', preview.path) }} />}</div>}
+    {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions"><button className="icon-btn" aria-label={t('workspace.openFullPreview')} title={t('workspace.openFullPreview')} onClick={() => { window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path }); }}><Maximize2 /></button><button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div></div>{preview.kind === 'image' ? <img src={preview.url} /> : isMarkdownPath(preview.path) ? <div className="workspace-markdown-preview compact md-content" dangerouslySetInnerHTML={{ __html: markdownText(preview.content || '') }} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightSourceText(preview.content || '', preview.path) }} />}</div>}
   </>;
 }
 function AdminMain({ mode, setStatus, showToast, theme, setTheme, onNavigateToSettings }: { mode: Extract<Mode, 'memory'>; apiBase: string; headers: (json?: boolean) => Record<string, string>; setStatus: (v: string) => void; showToast: (v: string) => void; theme: Theme; setTheme: (v: Theme) => void; onNavigateToSettings: () => void }) {

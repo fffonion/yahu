@@ -1,5 +1,5 @@
 export type ToolField = { key: string; value: string };
-export type ToolSummary = { title: string; toolName: string; subtitle: string; fields: ToolField[]; raw: unknown; input?: unknown; result: unknown; status: string };
+export type ToolSummary = { title: string; toolName: string; subtitle: string; fields: ToolField[]; raw: unknown; input?: unknown; result: unknown; status: string; filePath: string };
 
 const INPUT_KEYS = ['arguments', 'args', 'params', 'parameters', 'input', 'tool_input', 'tool_args', 'request'];
 const META_KEYS = new Set(['source', 'tool_name', 'name', 'tool', 'recipient_name', 'function', 'status', 'success', ...INPUT_KEYS]);
@@ -84,11 +84,15 @@ function commandFromInput(toolName: string, input: unknown): string {
   return name === 'terminal' && typeof command === 'string' && command.trim() ? command.trim() : '';
 }
 
-function filePathFromInput(root: Record<string, unknown> | null, input: unknown): string {
+function fullFilePathFromInput(root: Record<string, unknown> | null, input: unknown): string {
   const invocation = asRecord(input);
   const files = Array.isArray(root?.files_modified) ? root.files_modified : [];
   const value = invocation?.path ?? root?.resolved_path ?? root?.path ?? root?.file ?? files[0];
   if (typeof value !== 'string' || !value.trim()) return '';
+  return value.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
+function compactFilePath(value: string): string {
   const normalized = value.trim().replace(/\\/g, '/').replace(/\/+$/, '');
   const parts = normalized.split('/').filter(Boolean);
   if (parts.length < 2) return normalized;
@@ -147,7 +151,8 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
   const errorSubtitle = fields.find((f) => f.key === 'error')?.value;
   const resultSubtitle = fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value;
   const canonicalToolName = toolName.replace(/^functions\./, '');
-  const fileSummaryPath = ['patch', 'read_file'].includes(canonicalToolName) ? filePathFromInput(root, input) : '';
+  const filePath = ['patch', 'read_file'].includes(canonicalToolName) ? fullFilePathFromInput(root, input) : '';
+  const fileSummaryPath = compactFilePath(filePath);
   const fileSummary = fileSummaryPath ? `${fileSummaryPath}${root ? ` · ${Object.keys(root).length} fields` : ''}` : '';
   const subtitle = command
     || errorSubtitle
@@ -155,5 +160,5 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
     || resultSubtitle
     || (root ? `${Object.keys(root).length} fields` : content);
 
-  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status };
+  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status, filePath };
 }

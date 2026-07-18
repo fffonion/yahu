@@ -20,8 +20,8 @@ describe('workspace page file tree layout', () => {
     expect(source).toContain('WorkspaceEditorPreview');
     expect(source).toContain('workspace-editor-preview');
     expect(source).toContain('workspace-code-highlight');
-    expect(source).toContain('highlightWorkspaceText');
-    expect(source).toContain("highlightWorkspaceText(preview.content || '', preview.path)");
+    expect(source).toContain("import { highlightSourceText } from './syntaxHighlight';");
+    expect(source).toContain("highlightSourceText(preview.content || '', preview.path)");
     expect(source).toContain('preview.kind === \'image\'');
   });
 

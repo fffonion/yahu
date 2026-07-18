@@ -113,5 +113,6 @@ describe('summarizeToolMessage', () => {
       { path: '/home/wow/project/src/features/chat/tools/ToolMessage.tsx', offset: 1, limit: 200 },
     );
     expect(summary.subtitle).toBe('src/…/tools/ToolMessage.tsx · 3 fields');
+    expect(summary.filePath).toBe('/home/wow/project/src/features/chat/tools/ToolMessage.tsx');
   });
 });

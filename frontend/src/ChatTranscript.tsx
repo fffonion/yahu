@@ -33,7 +33,8 @@ import { markdownText } from './markdown';
 import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
 import { parseSessionStateMessage, type SessionTaskStatus } from './sessionStateMessage';
 import { formatChatMessageTime } from './sessionTime';
-import { summarizeToolMessage } from './toolMessage';
+import { highlightedDiffLines, highlightedReadFileLines, type HighlightedToolCodeLine } from './toolCodeHighlight';
+import { summarizeToolMessage, type ToolSummary } from './toolMessage';
 import {
   buildDesktopTurnBlocks,
   buildTurnDetailItems,
@@ -133,8 +134,34 @@ export function StructuredDataView({ value }: { value: unknown }) {
   return <span className={`tool-scalar ${typeof value}`}>{String(value)}</span>;
 }
 
-function ToolDetailSection({ title, value }: { title: string; value: unknown }) {
-  return <section className="tool-detail-section"><h4>{title}</h4><StructuredDataView value={value} /></section>;
+function ToolCodeBlock({ lines, variant }: { lines: HighlightedToolCodeLine[]; variant: 'diff' | 'source' }) {
+  return <pre className={`tool-code-block tool-code-${variant}`}><code>{lines.map((line, index) => <span className={`tool-code-line ${variant === 'diff' ? `diff-${line.kind}` : ''}`} key={`${index}-${line.lineNumber || ''}`}>
+    {variant === 'source' && <span className="tool-code-line-number" aria-hidden="true">{line.lineNumber}</span>}
+    {variant === 'diff' && <span className="tool-code-prefix" aria-hidden="true">{line.prefix}</span>}
+    <span className="tool-code-source" dangerouslySetInnerHTML={{ __html: line.html || ' ' }} />
+  </span>)}</code></pre>;
+}
+
+function PatchResultView({ value, filePath }: { value: unknown; filePath: string }) {
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  const diff = typeof value === 'string' ? value : typeof record?.diff === 'string' ? record.diff : '';
+  if (!diff) return <StructuredDataView value={value} />;
+  const block = <ToolCodeBlock lines={highlightedDiffLines(diff, filePath)} variant="diff" />;
+  if (!record) return block;
+  return <div className="tool-children">{Object.entries(record).map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span>{key === 'diff' ? block : <StructuredDataView value={child} />}</div>)}</div>;
+}
+
+function ToolResultView({ summary }: { summary: ToolSummary }) {
+  const canonicalToolName = summary.toolName.replace(/^functions\./, '');
+  if (canonicalToolName === 'read_file' && typeof summary.result === 'string') {
+    return <ToolCodeBlock lines={highlightedReadFileLines(summary.result, summary.filePath)} variant="source" />;
+  }
+  if (canonicalToolName === 'patch') return <PatchResultView value={summary.result} filePath={summary.filePath} />;
+  return <StructuredDataView value={summary.result} />;
+}
+
+function ToolDetailSection({ title, value, summary }: { title: string; value: unknown; summary?: ToolSummary }) {
+  return <section className="tool-detail-section"><h4>{title}</h4>{summary ? <ToolResultView summary={summary} /> : <StructuredDataView value={value} />}</section>;
 }
 
 function getToolIcon(toolName: string): React.ReactNode {
@@ -188,7 +215,7 @@ function ToolMessageView({ message, suppressMessageAnchor = false }: { message: 
       </button>
       {expanded && <div className="tool-detail">
         {summary.input !== undefined && <ToolDetailSection title={t('tool.invocation')} value={summary.input} />}
-        <ToolDetailSection title={t('tool.result')} value={summary.result} />
+        <ToolDetailSection title={t('tool.result')} value={summary.result} summary={summary} />
       </div>}
     </div>
   </article>;

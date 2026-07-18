@@ -26,6 +26,19 @@ describe('tool message structured layout css', () => {
     expect(styles).toContain('.tool-detail-section{display:grid;gap:7px}');
   });
 
+  test('patch and read_file results render filename-aware highlighted code blocks', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("canonicalToolName === 'read_file'");
+    expect(source).toContain('highlightedReadFileLines(summary.result, summary.filePath)');
+    expect(source).toContain("canonicalToolName === 'patch'");
+    expect(source).toContain('highlightedDiffLines(diff, filePath)');
+    expect(source).toContain('tool-code-line-number');
+    expect(styles).toContain('.tool-code-line.diff-add{background:');
+    expect(styles).toContain('.tool-code-line.diff-remove{background:');
+    expect(styles).toContain('.tool-code-source .tok-keyword{color:var(--syntax-keyword)}');
+  });
+
   test('assistant structured content reuses the exact recursive tool value formatter', () => {
     const source = app();
     expect(source).toContain('export function StructuredDataView({ value }: { value: unknown })');
