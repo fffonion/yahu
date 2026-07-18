@@ -17,6 +17,8 @@ struct UsageCounter {
     session_id: String,
     model: String,
     source: String,
+    #[serde(default)]
+    started_at: f64,
     input_tokens: i64,
     output_tokens: i64,
     cache_read_tokens: i64,
@@ -48,6 +50,7 @@ impl UsageCounter {
                 .unwrap_or("unknown")
                 .trim()
                 .to_string(),
+            started_at: json_timestamp(row, "started_at"),
             input_tokens: json_i64(row, "input_tokens"),
             output_tokens: json_i64(row, "output_tokens"),
             cache_read_tokens: json_i64(row, "cache_read_tokens"),
@@ -72,6 +75,7 @@ impl UsageCounter {
             session_id: self.session_id.clone(),
             model: self.model.clone(),
             source: self.source.clone(),
+            started_at: self.started_at,
             input_tokens: delta_i64(self.input_tokens, previous.input_tokens),
             output_tokens: delta_i64(self.output_tokens, previous.output_tokens),
             cache_read_tokens: delta_i64(self.cache_read_tokens, previous.cache_read_tokens),
@@ -82,6 +86,36 @@ impl UsageCounter {
             estimated_cost_usd: delta_f64(self.estimated_cost_usd, previous.estimated_cost_usd),
             actual_cost_usd: delta_f64(self.actual_cost_usd, previous.actual_cost_usd),
         }
+    }
+
+    fn subtract(&self, used: &Self) -> Self {
+        Self {
+            session_id: self.session_id.clone(),
+            model: self.model.clone(),
+            source: self.source.clone(),
+            started_at: self.started_at,
+            input_tokens: (self.input_tokens - used.input_tokens).max(0),
+            output_tokens: (self.output_tokens - used.output_tokens).max(0),
+            cache_read_tokens: (self.cache_read_tokens - used.cache_read_tokens).max(0),
+            cache_write_tokens: (self.cache_write_tokens - used.cache_write_tokens).max(0),
+            reasoning_tokens: (self.reasoning_tokens - used.reasoning_tokens).max(0),
+            api_call_count: (self.api_call_count - used.api_call_count).max(0),
+            tool_call_count: (self.tool_call_count - used.tool_call_count).max(0),
+            estimated_cost_usd: (self.estimated_cost_usd - used.estimated_cost_usd).max(0.0),
+            actual_cost_usd: (self.actual_cost_usd - used.actual_cost_usd).max(0.0),
+        }
+    }
+
+    fn add_assign(&mut self, other: &Self) {
+        self.input_tokens += other.input_tokens;
+        self.output_tokens += other.output_tokens;
+        self.cache_read_tokens += other.cache_read_tokens;
+        self.cache_write_tokens += other.cache_write_tokens;
+        self.reasoning_tokens += other.reasoning_tokens;
+        self.api_call_count += other.api_call_count;
+        self.tool_call_count += other.tool_call_count;
+        self.estimated_cost_usd += other.estimated_cost_usd;
+        self.actual_cost_usd += other.actual_cost_usd;
     }
 
     fn has_delta(&self) -> bool {
@@ -129,6 +163,10 @@ fn prepare_insights_snapshot_db(conn: &rusqlite::Connection) -> anyhow::Result<(
              last_seen REAL NOT NULL,
              counters_json TEXT NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS insights_initial_baselines (
+             session_id TEXT PRIMARY KEY,
+             counters_json TEXT NOT NULL
+         );
          CREATE TABLE IF NOT EXISTS insights_events (
              id INTEGER PRIMARY KEY AUTOINCREMENT,
              captured_at REAL NOT NULL,
@@ -161,6 +199,34 @@ fn persist_insights_snapshot(path: &Path, captured_at: f64, rows: &[serde_json::
         )?;
     }
 
+    let needs_initial_backfill = coverage_started_at.is_some()
+        && tx.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM insights_baselines b
+                 LEFT JOIN insights_initial_baselines i ON i.session_id = b.session_id
+                 WHERE i.session_id IS NULL
+             )",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?;
+    let mut recorded_deltas: HashMap<String, UsageCounter> = HashMap::new();
+    if needs_initial_backfill {
+        let mut statement = tx.prepare("SELECT row_json FROM insights_events ORDER BY id")?;
+        let event_rows = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .filter_map(Result::ok)
+            .collect::<Vec<_>>();
+        drop(statement);
+        for value in event_rows {
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(&value) else { continue };
+            let Some(counter) = UsageCounter::from_api_row(&json) else { continue };
+            recorded_deltas
+                .entry(counter.session_id.clone())
+                .or_default()
+                .add_assign(&counter);
+        }
+    }
+
     for current in rows.iter().filter_map(UsageCounter::from_api_row) {
         let previous = tx
             .query_row(
@@ -170,6 +236,42 @@ fn persist_insights_snapshot(path: &Path, captured_at: f64, rows: &[serde_json::
             )
             .optional()?
             .and_then(|value| serde_json::from_str::<UsageCounter>(&value).ok());
+        let has_initial = tx
+            .query_row(
+                "SELECT 1 FROM insights_initial_baselines WHERE session_id = ?1",
+                [&current.session_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !has_initial {
+            let initial = if coverage_started_at.is_none() {
+                Some(current.clone())
+            } else if current.started_at <= coverage_started_at.unwrap_or(0.0) {
+                previous.as_ref().map(|value| {
+                    let recorded = recorded_deltas.get(&current.session_id).cloned().unwrap_or_default();
+                    let mut baseline = value.subtract(&recorded);
+                    baseline.started_at = current.started_at;
+                    baseline.model.clone_from(&current.model);
+                    baseline.source.clone_from(&current.source);
+                    baseline
+                })
+            } else {
+                Some(UsageCounter {
+                    session_id: current.session_id.clone(),
+                    model: current.model.clone(),
+                    source: current.source.clone(),
+                    started_at: current.started_at,
+                    ..UsageCounter::default()
+                })
+            };
+            if let Some(initial) = initial {
+                tx.execute(
+                    "INSERT OR IGNORE INTO insights_initial_baselines(session_id, counters_json) VALUES(?1, ?2)",
+                    rusqlite::params![initial.session_id, serde_json::to_string(&initial)?],
+                )?;
+            }
+        }
         if coverage_started_at.is_some() {
             let delta = current.delta_from(previous.as_ref());
             if delta.has_delta() {
@@ -194,11 +296,16 @@ fn persist_insights_snapshot(path: &Path, captured_at: f64, rows: &[serde_json::
     let retention_cutoff = captured_at - INSIGHTS_SNAPSHOT_RETENTION_SECONDS;
     tx.execute("DELETE FROM insights_events WHERE captured_at < ?1", [retention_cutoff])?;
     tx.execute("DELETE FROM insights_baselines WHERE last_seen < ?1", [retention_cutoff])?;
+    tx.execute(
+        "DELETE FROM insights_initial_baselines
+         WHERE session_id NOT IN (SELECT session_id FROM insights_baselines)",
+        [],
+    )?;
     tx.commit()?;
     Ok(())
 }
 
-fn load_insights_usage_events(
+fn load_insights_usage_rows(
     path: &Path,
     min_timestamp: f64,
 ) -> anyhow::Result<(Vec<serde_json::Value>, Option<f64>)> {
@@ -214,15 +321,28 @@ fn load_insights_usage_events(
             |row| row.get::<_, f64>(0),
         )
         .optional()?;
-    let mut statement = conn.prepare(
-        "SELECT row_json FROM insights_events WHERE captured_at >= ?1 ORDER BY captured_at, id",
-    )?;
-    let events = statement
-        .query_map([min_timestamp], |row| row.get::<_, String>(0))?
-        .filter_map(Result::ok)
-        .filter_map(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
-        .collect();
-    Ok((events, coverage_started_at))
+    let mut usage_rows = {
+        let mut statement = conn.prepare(
+            "SELECT row_json FROM insights_events WHERE captured_at >= ?1 ORDER BY captured_at, id",
+        )?;
+        statement
+            .query_map([min_timestamp], |row| row.get::<_, String>(0))?
+            .filter_map(Result::ok)
+            .filter_map(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
+            .collect::<Vec<_>>()
+    };
+    let fallback_rows = {
+        let mut statement = conn.prepare("SELECT counters_json FROM insights_initial_baselines")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .filter_map(Result::ok)
+            .filter_map(|value| serde_json::from_str::<UsageCounter>(&value).ok())
+            .filter(|counter| counter.started_at >= min_timestamp && counter.has_delta())
+            .map(|counter| counter.to_event_json(counter.started_at))
+            .collect::<Vec<_>>()
+    };
+    usage_rows.extend(fallback_rows);
+    Ok((usage_rows, coverage_started_at))
 }
 
 #[derive(Clone, Default)]
@@ -480,7 +600,7 @@ async fn insights_usage(
     let snapshot_path = state.hermes_home.join(INSIGHTS_SNAPSHOT_DB);
     let min_timestamp = now - (INSIGHTS_MAX_DAYS as f64 * 86_400.0);
     let snapshot_data = tokio::task::spawn_blocking(move || {
-        load_insights_usage_events(&snapshot_path, min_timestamp)
+        load_insights_usage_rows(&snapshot_path, min_timestamp)
     })
     .await;
     let (rows, coverage_started_at) = match snapshot_data {
@@ -890,12 +1010,27 @@ fn usage_hour_key_at_offset(ts: f64, timezone_offset_minutes: i32) -> Option<Str
 }
 
 fn session_usage_timestamp(row: &serde_json::Value) -> f64 {
-    let started_at = json_f64(row, "started_at");
+    let started_at = json_timestamp(row, "started_at");
     if started_at > 0.0 {
         started_at
     } else {
-        json_f64(row, "last_active").max(json_f64(row, "ended_at"))
+        json_timestamp(row, "last_active").max(json_timestamp(row, "ended_at"))
     }
+}
+
+fn json_timestamp(row: &serde_json::Value, key: &str) -> f64 {
+    row.get(key)
+        .and_then(|value| {
+            value.as_f64().or_else(|| {
+                let text = value.as_str()?;
+                text.parse::<f64>().ok().or_else(|| {
+                    chrono::DateTime::parse_from_rfc3339(text)
+                        .ok()
+                        .map(|timestamp| timestamp.timestamp_millis() as f64 / 1000.0)
+                })
+            })
+        })
+        .unwrap_or(0.0)
 }
 
 fn json_i64(row: &serde_json::Value, key: &str) -> i64 {

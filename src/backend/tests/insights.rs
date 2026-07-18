@@ -196,7 +196,7 @@
     }
 
     #[test]
-    fn insights_snapshot_deltas_are_attributed_to_capture_day() {
+    fn insights_snapshot_uses_started_day_fallback_before_coverage_without_double_counting() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("insights-usage.db");
         let first = chrono::NaiveDate::from_ymd_opt(2026, 7, 12)
@@ -234,28 +234,37 @@
 
         persist_insights_snapshot(&path, first, &first_rows).unwrap();
         persist_insights_snapshot(&path, second, &second_rows).unwrap();
-        let (events, coverage_started_at) = load_insights_usage_events(&path, first - 1.0).unwrap();
+        let (usage_rows, coverage_started_at) =
+            load_insights_usage_rows(&path, first - (7.0 * 86_400.0)).unwrap();
 
         assert_eq!(coverage_started_at, Some(first));
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["input_tokens"], 50);
-        assert_eq!(events[0]["output_tokens"], 5);
-        assert_eq!(events[0]["cache_read_tokens"], 100);
-        assert_eq!(events[0]["api_call_count"], 2);
-        assert_eq!(events[0]["started_at"], second);
+        assert_eq!(usage_rows.len(), 2);
+        let fallback = usage_rows
+            .iter()
+            .find(|row| row["started_at"] == first - 172_800.0)
+            .unwrap();
+        let event = usage_rows.iter().find(|row| row["started_at"] == second).unwrap();
+        assert_eq!(fallback["input_tokens"], 100);
+        assert_eq!(fallback["output_tokens"], 20);
+        assert_eq!(fallback["cache_read_tokens"], 1_000);
+        assert_eq!(event["input_tokens"], 50);
+        assert_eq!(event["output_tokens"], 5);
+        assert_eq!(event["cache_read_tokens"], 100);
+        assert_eq!(event["api_call_count"], 2);
 
         let body = aggregate_usage_insights_with_prices_at_offset(
-            &events,
+            &usage_rows,
             second + 3600.0,
             &ModelPriceCatalog::new(),
             7,
             -480,
         );
         let daily = body["daily"].as_array().unwrap();
-        let first_day = daily.iter().find(|item| item["date"] == "2026-07-12").unwrap();
-        let second_day = daily.iter().find(|item| item["date"] == "2026-07-13").unwrap();
-        assert_eq!(first_day["totals"]["total_tokens"], 0);
-        assert_eq!(second_day["totals"]["total_tokens"], 155);
+        let fallback_day = daily.iter().find(|item| item["date"] == "2026-07-10").unwrap();
+        let event_day = daily.iter().find(|item| item["date"] == "2026-07-13").unwrap();
+        assert_eq!(fallback_day["totals"]["total_tokens"], 1_120);
+        assert_eq!(event_day["totals"]["total_tokens"], 155);
+        assert_eq!(body["totals"]["total_tokens"], 1_275);
     }
 
     #[tokio::test]
