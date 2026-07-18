@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const source = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
 const styles = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+const translations = () => readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
 
 describe('session search and composer session model UI', () => {
   test('left search uses backend results instead of client-side title filtering', () => {
@@ -28,6 +29,14 @@ describe('session search and composer session model UI', () => {
     expect(css).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px');
     expect(css).toContain('.filter{height:44px');
     expect(css).toContain('.session-filter-btn{width:44px;height:44px');
+  });
+
+  test('session source filter copy names both cron and CLI conversations', () => {
+    const i18n = translations();
+    expect(i18n).toContain("en: 'Hide cron and CLI conversations'");
+    expect(i18n).toContain("'zh-CN': '隐藏定时任务和 CLI 对话'");
+    expect(i18n).toContain("en: 'Show cron and CLI conversations'");
+    expect(i18n).toContain("'zh-CN': '显示定时任务和 CLI 对话'");
   });
 
   test('composer model comes from selected session details, not a global Hermes fallback', () => {

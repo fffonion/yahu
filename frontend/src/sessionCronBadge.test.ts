@@ -4,13 +4,15 @@ import { readFileSync } from 'node:fs';
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
-describe('session sidebar cron badges', () => {
-  test('session rows show cron badges but no default circle marker', () => {
+describe('session sidebar source badges', () => {
+  test('session rows show cron and CLI badges but no default circle marker', () => {
     const source = app();
 
     expect(source).toContain("source?: string");
     expect(source).toContain("session.source === 'cron'");
     expect(source).toContain('<CalendarClock />');
+    expect(source).toContain("session.source === 'cli'");
+    expect(source).toContain('<Terminal />');
     expect(source).not.toContain('Circle,');
     expect(source).not.toContain('<Circle />');
   });
