@@ -90,6 +90,16 @@ describe('insights chart UI', () => {
     expect(i18n).toContain("'insights.modelRowDetail': { en: '{0} input · {1} output · {2} cache read · {3} hit'");
   });
 
+  test('shows the exact daily tracking coverage start for partial windows', () => {
+    const app = appSource();
+    const insights = readFileSync(new URL('./insights.ts', import.meta.url), 'utf8');
+    const i18n = i18nSource();
+    expect(insights).toContain('coverage_started_at?: number | null;');
+    expect(insights).toContain('coverage_complete?: boolean;');
+    expect(app).toContain("tf('insights.trackingSince', formatInsightCoverageStart(props.insights.coverage_started_at))");
+    expect(i18n).toContain("'insights.trackingSince': { en: 'Daily tracking since {0}'");
+  });
+
   test('renders insights source channels as a wrapping right-panel list instead of one compressed line', () => {
     const app = appSource();
     const css = cssSource();
@@ -194,7 +204,8 @@ describe('insights chart UI', () => {
   test('requests only the selected Insights period instead of all periods by default', () => {
     const app = appSource();
     expect(app).toContain('const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod');
-    expect(app).toContain('const usageRes = await fetch(`/insights/usage?period=${period}`);');
+    expect(app).toContain('const timezoneOffset = new Date().getTimezoneOffset();');
+    expect(app).toContain('const usageRes = await fetch(`/insights/usage?period=${period}&tz_offset=${timezoneOffset}`);');
     expect(app).toContain("useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);");
     expect(app).not.toContain("fetch('/insights/usage')");
   });

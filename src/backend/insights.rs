@@ -6,8 +6,224 @@ const INSIGHTS_SCAN_LIMIT: usize = 5_000;
 const INSIGHTS_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MODELS_DEV_API_URL: &str = "https://models.dev/api.json";
 const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const INSIGHTS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const INSIGHTS_SNAPSHOT_RETENTION_SECONDS: f64 = 35.0 * 86_400.0;
+const INSIGHTS_SNAPSHOT_DB: &str = "state/yahu-insights-usage.db";
 
 type ModelPriceCatalog = HashMap<String, ModelPrice>;
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+struct UsageCounter {
+    session_id: String,
+    model: String,
+    source: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_write_tokens: i64,
+    reasoning_tokens: i64,
+    api_call_count: i64,
+    tool_call_count: i64,
+    estimated_cost_usd: f64,
+    actual_cost_usd: f64,
+}
+
+impl UsageCounter {
+    fn from_api_row(row: &serde_json::Value) -> Option<Self> {
+        let session_id = row.get("id")?.as_str()?.trim().to_string();
+        if session_id.is_empty() {
+            return None;
+        }
+        Some(Self {
+            session_id,
+            model: row
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .trim()
+                .to_string(),
+            source: row
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .trim()
+                .to_string(),
+            input_tokens: json_i64(row, "input_tokens"),
+            output_tokens: json_i64(row, "output_tokens"),
+            cache_read_tokens: json_i64(row, "cache_read_tokens"),
+            cache_write_tokens: json_i64(row, "cache_write_tokens"),
+            reasoning_tokens: json_i64(row, "reasoning_tokens"),
+            api_call_count: json_i64(row, "api_call_count"),
+            tool_call_count: json_i64(row, "tool_call_count"),
+            estimated_cost_usd: json_f64(row, "estimated_cost_usd"),
+            actual_cost_usd: json_f64(row, "actual_cost_usd"),
+        })
+    }
+
+    fn delta_from(&self, previous: Option<&Self>) -> Self {
+        fn delta_i64(current: i64, previous: i64) -> i64 {
+            if current >= previous { current - previous } else { current.max(0) }
+        }
+        fn delta_f64(current: f64, previous: f64) -> f64 {
+            if current >= previous { current - previous } else { current.max(0.0) }
+        }
+        let previous = previous.cloned().unwrap_or_default();
+        Self {
+            session_id: self.session_id.clone(),
+            model: self.model.clone(),
+            source: self.source.clone(),
+            input_tokens: delta_i64(self.input_tokens, previous.input_tokens),
+            output_tokens: delta_i64(self.output_tokens, previous.output_tokens),
+            cache_read_tokens: delta_i64(self.cache_read_tokens, previous.cache_read_tokens),
+            cache_write_tokens: delta_i64(self.cache_write_tokens, previous.cache_write_tokens),
+            reasoning_tokens: delta_i64(self.reasoning_tokens, previous.reasoning_tokens),
+            api_call_count: delta_i64(self.api_call_count, previous.api_call_count),
+            tool_call_count: delta_i64(self.tool_call_count, previous.tool_call_count),
+            estimated_cost_usd: delta_f64(self.estimated_cost_usd, previous.estimated_cost_usd),
+            actual_cost_usd: delta_f64(self.actual_cost_usd, previous.actual_cost_usd),
+        }
+    }
+
+    fn has_delta(&self) -> bool {
+        self.input_tokens > 0
+            || self.output_tokens > 0
+            || self.cache_read_tokens > 0
+            || self.cache_write_tokens > 0
+            || self.reasoning_tokens > 0
+            || self.api_call_count > 0
+            || self.tool_call_count > 0
+            || self.estimated_cost_usd > 0.0
+            || self.actual_cost_usd > 0.0
+    }
+
+    fn to_event_json(&self, captured_at: f64) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.session_id,
+            "source": self.source,
+            "model": self.model,
+            "started_at": captured_at,
+            "last_active": captured_at,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
+            "api_call_count": self.api_call_count,
+            "tool_call_count": self.tool_call_count,
+            "estimated_cost_usd": self.estimated_cost_usd,
+            "actual_cost_usd": self.actual_cost_usd,
+        })
+    }
+}
+
+fn prepare_insights_snapshot_db(conn: &rusqlite::Connection) -> anyhow::Result<()> {
+    conn.busy_timeout(Duration::from_secs(5))?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS insights_meta (
+             key TEXT PRIMARY KEY,
+             value REAL NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS insights_baselines (
+             session_id TEXT PRIMARY KEY,
+             captured_at REAL NOT NULL,
+             last_seen REAL NOT NULL,
+             counters_json TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS insights_events (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             captured_at REAL NOT NULL,
+             row_json TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS insights_events_captured_at
+             ON insights_events(captured_at);",
+    )?;
+    Ok(())
+}
+
+fn persist_insights_snapshot(path: &Path, captured_at: f64, rows: &[serde_json::Value]) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut conn = rusqlite::Connection::open(path)?;
+    prepare_insights_snapshot_db(&conn)?;
+    let tx = conn.transaction()?;
+    let coverage_started_at = tx
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'coverage_started_at'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    if coverage_started_at.is_none() {
+        tx.execute(
+            "INSERT INTO insights_meta(key, value) VALUES('coverage_started_at', ?1)",
+            [captured_at],
+        )?;
+    }
+
+    for current in rows.iter().filter_map(UsageCounter::from_api_row) {
+        let previous = tx
+            .query_row(
+                "SELECT counters_json FROM insights_baselines WHERE session_id = ?1",
+                [&current.session_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|value| serde_json::from_str::<UsageCounter>(&value).ok());
+        if coverage_started_at.is_some() {
+            let delta = current.delta_from(previous.as_ref());
+            if delta.has_delta() {
+                let row_json = serde_json::to_string(&delta.to_event_json(captured_at))?;
+                tx.execute(
+                    "INSERT INTO insights_events(captured_at, row_json) VALUES(?1, ?2)",
+                    rusqlite::params![captured_at, row_json],
+                )?;
+            }
+        }
+        tx.execute(
+            "INSERT INTO insights_baselines(session_id, captured_at, last_seen, counters_json)
+             VALUES(?1, ?2, ?2, ?3)
+             ON CONFLICT(session_id) DO UPDATE SET
+                 captured_at = excluded.captured_at,
+                 last_seen = excluded.last_seen,
+                 counters_json = excluded.counters_json",
+            rusqlite::params![current.session_id, captured_at, serde_json::to_string(&current)?],
+        )?;
+    }
+
+    let retention_cutoff = captured_at - INSIGHTS_SNAPSHOT_RETENTION_SECONDS;
+    tx.execute("DELETE FROM insights_events WHERE captured_at < ?1", [retention_cutoff])?;
+    tx.execute("DELETE FROM insights_baselines WHERE last_seen < ?1", [retention_cutoff])?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn load_insights_usage_events(
+    path: &Path,
+    min_timestamp: f64,
+) -> anyhow::Result<(Vec<serde_json::Value>, Option<f64>)> {
+    if !path.exists() {
+        return Ok((Vec::new(), None));
+    }
+    let conn = rusqlite::Connection::open(path)?;
+    prepare_insights_snapshot_db(&conn)?;
+    let coverage_started_at = conn
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'coverage_started_at'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    let mut statement = conn.prepare(
+        "SELECT row_json FROM insights_events WHERE captured_at >= ?1 ORDER BY captured_at, id",
+    )?;
+    let events = statement
+        .query_map([min_timestamp], |row| row.get::<_, String>(0))?
+        .filter_map(Result::ok)
+        .filter_map(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
+        .collect();
+    Ok((events, coverage_started_at))
+}
 
 #[derive(Clone, Default)]
 struct UsageTotals {
@@ -235,6 +451,7 @@ struct ModelUsage {
 struct InsightsUsageQuery {
     period: Option<usize>,
     days: Option<usize>,
+    tz_offset: Option<i32>,
 }
 
 fn normalize_insights_period(value: Option<usize>) -> usize {
@@ -246,27 +463,82 @@ fn normalize_insights_period(value: Option<usize>) -> usize {
     }
 }
 
+fn normalize_insights_timezone_offset(value: Option<i32>) -> i32 {
+    value.unwrap_or(0).clamp(-14 * 60, 14 * 60)
+}
+
 async fn insights_usage(
     State(state): State<Arc<AppState>>,
     Query(query): Query<InsightsUsageQuery>,
 ) -> Response<Body> {
     let now = unix_now_seconds();
     let period_days = normalize_insights_period(query.period.or(query.days));
-    match fetch_recent_sessions_for_insights(&state, now, period_days).await {
-        Ok(rows) => {
-            let prices = match fetch_models_dev_price_catalog(&state).await {
-                Ok(prices) => prices,
-                Err(err) => {
-                    warn!("models.dev price fetch failed: {err}");
-                    ModelPriceCatalog::new()
-                }
-            };
-            Json(aggregate_usage_insights_with_prices(&rows, now, &prices, period_days)).into_response()
+    let timezone_offset = normalize_insights_timezone_offset(query.tz_offset);
+    if let Err(err) = capture_insights_snapshot(&state, now).await {
+        warn!("insights usage snapshot capture failed: {err}");
+    }
+    let snapshot_path = state.hermes_home.join(INSIGHTS_SNAPSHOT_DB);
+    let min_timestamp = now - (INSIGHTS_MAX_DAYS as f64 * 86_400.0);
+    let snapshot_data = tokio::task::spawn_blocking(move || {
+        load_insights_usage_events(&snapshot_path, min_timestamp)
+    })
+    .await;
+    let (rows, coverage_started_at) = match snapshot_data {
+        Ok(Ok(value)) => value,
+        Ok(Err(err)) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("insights snapshot read failed: {err}"),
+            );
         }
-        Err(err) => json_error(
-            StatusCode::BAD_GATEWAY,
-            &format!("insights API request failed: {err}"),
-        ),
+        Err(err) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("insights snapshot task failed: {err}"),
+            );
+        }
+    };
+    let prices = match fetch_models_dev_price_catalog(&state).await {
+        Ok(prices) => prices,
+        Err(err) => {
+            warn!("models.dev price fetch failed: {err}");
+            ModelPriceCatalog::new()
+        }
+    };
+    let mut body = aggregate_usage_insights_with_prices_at_offset(
+        &rows,
+        now,
+        &prices,
+        period_days,
+        timezone_offset,
+    );
+    if let Some(object) = body.as_object_mut() {
+        object.insert("coverage_started_at".to_string(), serde_json::json!(coverage_started_at));
+        object.insert(
+            "coverage_complete".to_string(),
+            serde_json::json!(coverage_started_at.is_some_and(|value| {
+                value <= now - (period_days as f64 * 86_400.0)
+            })),
+        );
+    }
+    Json(body).into_response()
+}
+
+async fn capture_insights_snapshot(state: &AppState, captured_at: f64) -> anyhow::Result<()> {
+    let rows = fetch_sessions_for_insights_snapshot(state).await?;
+    let path = state.hermes_home.join(INSIGHTS_SNAPSHOT_DB);
+    tokio::task::spawn_blocking(move || persist_insights_snapshot(&path, captured_at, &rows)).await??;
+    Ok(())
+}
+
+async fn run_insights_snapshot_collector(state: Arc<AppState>) {
+    let mut ticker = interval(INSIGHTS_SNAPSHOT_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        if let Err(err) = capture_insights_snapshot(&state, unix_now_seconds()).await {
+            warn!("background insights snapshot capture failed: {err}");
+        }
     }
 }
 
@@ -323,12 +595,7 @@ async fn fetch_models_dev_price_catalog_from_url(
     }
 }
 
-async fn fetch_recent_sessions_for_insights(
-    state: &AppState,
-    now: f64,
-    window_days: usize,
-) -> anyhow::Result<Vec<serde_json::Value>> {
-    let min_ts = now - (window_days as f64 * 86_400.0);
+async fn fetch_sessions_for_insights_snapshot(state: &AppState) -> anyhow::Result<Vec<serde_json::Value>> {
     let mut rows = Vec::new();
     let mut offset = 0usize;
     loop {
@@ -350,14 +617,7 @@ async fn fetch_recent_sessions_for_insights(
             .cloned()
             .unwrap_or_default();
         let data_len = data.len();
-        for row in data {
-            if !is_client_visible_session(&row) {
-                continue;
-            }
-            if session_usage_timestamp(&row) >= min_ts {
-                rows.push(row);
-            }
-        }
+        rows.extend(data.into_iter().filter(is_client_visible_session));
         let has_more = body
             .get("has_more")
             .and_then(|value| value.as_bool())
@@ -369,14 +629,39 @@ async fn fetch_recent_sessions_for_insights(
     }
 }
 
+#[cfg(test)]
+async fn fetch_recent_sessions_for_insights(
+    state: &AppState,
+    now: f64,
+    window_days: usize,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let min_ts = now - (window_days as f64 * 86_400.0);
+    Ok(fetch_sessions_for_insights_snapshot(state)
+        .await?
+        .into_iter()
+        .filter(|row| session_usage_timestamp(row) >= min_ts)
+        .collect())
+}
+
+#[cfg(test)]
 fn aggregate_usage_insights_with_prices(
     rows: &[serde_json::Value],
     now: f64,
     prices: &ModelPriceCatalog,
     period_days: usize,
 ) -> serde_json::Value {
-    let days = insight_days(now, period_days);
-    let hours = insight_hours(now);
+    aggregate_usage_insights_with_prices_at_offset(rows, now, prices, period_days, 0)
+}
+
+fn aggregate_usage_insights_with_prices_at_offset(
+    rows: &[serde_json::Value],
+    now: f64,
+    prices: &ModelPriceCatalog,
+    period_days: usize,
+    timezone_offset_minutes: i32,
+) -> serde_json::Value {
+    let days = insight_days_at_offset(now, period_days, timezone_offset_minutes);
+    let hours = insight_hours_at_offset(now, timezone_offset_minutes);
     let hour_keys: HashSet<String> = hours.iter().map(|item| item.hour.clone()).collect();
     let mut totals = UsageTotals::default();
     let mut models: HashMap<String, ModelUsage> = HashMap::new();
@@ -384,11 +669,12 @@ fn aggregate_usage_insights_with_prices(
 
     for row in rows {
         let ts = session_usage_timestamp(row);
-        let Some(day) = usage_day_key(ts) else { continue };
+        let Some(day) = usage_day_key_at_offset(ts, timezone_offset_minutes) else { continue };
         if !days.iter().any(|item| item.date == day) {
             continue;
         }
-        let hour = usage_hour_key(ts).filter(|value| hour_keys.contains(value));
+        let hour = usage_hour_key_at_offset(ts, timezone_offset_minutes)
+            .filter(|value| hour_keys.contains(value));
         totals.add_row(row, prices);
         let model_name = row
             .get("model")
@@ -483,7 +769,10 @@ fn aggregate_usage_insights_with_prices(
                 .collect();
             let mut period_sources: HashMap<String, UsageTotals> = HashMap::new();
             for row in rows {
-                let Some(row_day) = usage_day_key(session_usage_timestamp(row)) else { continue };
+                let Some(row_day) = usage_day_key_at_offset(
+                    session_usage_timestamp(row),
+                    timezone_offset_minutes,
+                ) else { continue };
                 if !period_dates.contains(&row_day) {
                     continue;
                 }
@@ -546,8 +835,9 @@ fn aggregate_usage_insights_with_prices(
     })
 }
 
-fn insight_days(now: f64, window_days: usize) -> Vec<DailyUsage> {
-    let today = chrono::DateTime::<chrono::Utc>::from_timestamp(now as i64, 0)
+fn insight_days_at_offset(now: f64, window_days: usize, timezone_offset_minutes: i32) -> Vec<DailyUsage> {
+    let adjusted_now = now as i64 - (timezone_offset_minutes as i64 * 60);
+    let today = chrono::DateTime::<chrono::Utc>::from_timestamp(adjusted_now, 0)
         .unwrap_or_else(chrono::Utc::now)
         .date_naive();
     (0..window_days.clamp(1, INSIGHTS_MAX_DAYS))
@@ -562,8 +852,9 @@ fn insight_days(now: f64, window_days: usize) -> Vec<DailyUsage> {
         .collect()
 }
 
-fn insight_hours(now: f64) -> Vec<HourlyUsage> {
-    let current_hour = ((now as i64).div_euclid(3600)) * 3600;
+fn insight_hours_at_offset(now: f64, timezone_offset_minutes: i32) -> Vec<HourlyUsage> {
+    let adjusted_now = now as i64 - (timezone_offset_minutes as i64 * 60);
+    let current_hour = adjusted_now.div_euclid(3600) * 3600;
     (0..INSIGHTS_HOURS)
         .rev()
         .filter_map(|offset| {
@@ -586,13 +877,15 @@ fn unix_now_seconds() -> f64 {
         .as_secs_f64()
 }
 
-fn usage_day_key(ts: f64) -> Option<String> {
-    chrono::DateTime::<chrono::Utc>::from_timestamp(ts as i64, 0)
+fn usage_day_key_at_offset(ts: f64, timezone_offset_minutes: i32) -> Option<String> {
+    let adjusted = ts as i64 - (timezone_offset_minutes as i64 * 60);
+    chrono::DateTime::<chrono::Utc>::from_timestamp(adjusted, 0)
         .map(|date| date.date_naive().format("%Y-%m-%d").to_string())
 }
 
-fn usage_hour_key(ts: f64) -> Option<String> {
-    chrono::DateTime::<chrono::Utc>::from_timestamp(ts as i64, 0)
+fn usage_hour_key_at_offset(ts: f64, timezone_offset_minutes: i32) -> Option<String> {
+    let adjusted = ts as i64 - (timezone_offset_minutes as i64 * 60);
+    chrono::DateTime::<chrono::Utc>::from_timestamp(adjusted, 0)
         .map(|date| date.format("%Y-%m-%dT%H:00:00Z").to_string())
 }
 

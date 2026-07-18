@@ -263,6 +263,7 @@ const translations: Record<string, Record<string, string>> = {
   'insights.byModel': { en: '{0} by model', 'zh-CN': '按模型统计 {0}', 'zh-TW': '按模型統計 {0}', ja: 'モデル別 {0}' },
   'insights.lastDistribution': { en: 'Last {0} distribution by model', 'zh-CN': '最近 {0} 按模型分布', 'zh-TW': '最近 {0} 按模型分布', ja: '直近{0}のモデル別分布' },
   'insights.recentTrend': { en: 'Recent {0} trend with cache/input/output usage', 'zh-CN': '最近 {0} 缓存/输入/输出趋势', 'zh-TW': '最近 {0} 快取/輸入/輸出趨勢', ja: '直近{0}のキャッシュ/入力/出力トレンド' },
+  'insights.trackingSince': { en: 'Daily tracking since {0}', 'zh-CN': '每日追踪始于 {0}', 'zh-TW': '每日追蹤始於 {0}', ja: '{0} から日次追跡' },
   'insights.showStackedChart': { en: 'Show stacked chart', 'zh-CN': '显示堆叠图表', 'zh-TW': '顯示堆疊圖表', ja: '積み上げチャートを表示' },
   'insights.showUnstackedChart': { en: 'Show unstacked chart', 'zh-CN': '显示非堆叠图表', 'zh-TW': '顯示非堆疊圖表', ja: '非積み上げチャートを表示' },
   'insights.models': { en: 'Models', 'zh-CN': '模型', 'zh-TW': '模型', ja: 'モデル' },

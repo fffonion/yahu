@@ -258,6 +258,7 @@ pub async fn run() -> anyhow::Result<()> {
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
     });
     tokio::spawn(run_idle_cache_cleanup(state.clone()));
+    tokio::spawn(run_insights_snapshot_collector(state.clone()));
 
     let app = Router::new()
         .route("/health", get(health))

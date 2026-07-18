@@ -31,6 +31,8 @@ export type UsageInsights = {
   models: UsageModel[];
   sources: UsageSource[];
   periods: UsagePeriod[];
+  coverage_started_at?: number | null;
+  coverage_complete?: boolean;
 };
 
 export type UsageMetric = 'total_tokens' | 'input' | 'output' | 'cache_read' | 'reasoning' | 'cost_usd';

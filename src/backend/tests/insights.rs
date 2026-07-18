@@ -195,6 +195,69 @@
         assert_eq!(body["totals"]["unpriced_tokens"], 60);
     }
 
+    #[test]
+    fn insights_snapshot_deltas_are_attributed_to_capture_day() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("insights-usage.db");
+        let first = chrono::NaiveDate::from_ymd_opt(2026, 7, 12)
+            .unwrap()
+            .and_hms_opt(15, 55, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let second = chrono::NaiveDate::from_ymd_opt(2026, 7, 12)
+            .unwrap()
+            .and_hms_opt(16, 5, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let first_rows = vec![serde_json::json!({
+            "id": "long-session",
+            "source": "telegram",
+            "model": "gpt-5.6-sol",
+            "started_at": first - 172_800.0,
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cache_read_tokens": 1_000,
+            "api_call_count": 4
+        })];
+        let second_rows = vec![serde_json::json!({
+            "id": "long-session",
+            "source": "telegram",
+            "model": "gpt-5.6-sol",
+            "started_at": first - 172_800.0,
+            "input_tokens": 150,
+            "output_tokens": 25,
+            "cache_read_tokens": 1_100,
+            "api_call_count": 6
+        })];
+
+        persist_insights_snapshot(&path, first, &first_rows).unwrap();
+        persist_insights_snapshot(&path, second, &second_rows).unwrap();
+        let (events, coverage_started_at) = load_insights_usage_events(&path, first - 1.0).unwrap();
+
+        assert_eq!(coverage_started_at, Some(first));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["input_tokens"], 50);
+        assert_eq!(events[0]["output_tokens"], 5);
+        assert_eq!(events[0]["cache_read_tokens"], 100);
+        assert_eq!(events[0]["api_call_count"], 2);
+        assert_eq!(events[0]["started_at"], second);
+
+        let body = aggregate_usage_insights_with_prices_at_offset(
+            &events,
+            second + 3600.0,
+            &ModelPriceCatalog::new(),
+            7,
+            -480,
+        );
+        let daily = body["daily"].as_array().unwrap();
+        let first_day = daily.iter().find(|item| item["date"] == "2026-07-12").unwrap();
+        let second_day = daily.iter().find(|item| item["date"] == "2026-07-13").unwrap();
+        assert_eq!(first_day["totals"]["total_tokens"], 0);
+        assert_eq!(second_day["totals"]["total_tokens"], 155);
+    }
+
     #[tokio::test]
     async fn insights_scans_past_resumed_old_sessions_for_recent_starts() {
         async fn sessions_page(

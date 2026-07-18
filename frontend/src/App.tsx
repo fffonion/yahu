@@ -167,6 +167,7 @@ function cronPinnedModel(job?: Job | null) {
   return { model, provider, nonAgent: false };
 }
 const usageMetricLabel = (metric: UsageMetric) => t(`insights.metric.${metric}`);
+const formatInsightCoverageStart = (timestamp: number) => new Date(timestamp * 1000).toLocaleString(getLang(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 function isHourlyBucket(bucket: UsageDay | UsageHour | undefined): bucket is UsageHour { return !!bucket && 'hour' in bucket; }
 const navLabel = (mode: Mode) => t(`nav.${mode}`);
 const modeSummary = (mode: Mode) => mode === 'memory' ? t('mode.memorySummary') : mode === 'insights' ? t('mode.insightsSummary') : mode === 'workspace' ? t('mode.workspaceSummary') : mode === 'settings' ? t('mode.settingsSummary') : mode === 'images' ? t('mode.imagesSummary') : t('mode.cronSummary');
@@ -798,7 +799,8 @@ export default function App() {
     setUsageLoading(true);
     setUsageError('');
     try {
-      const usageRes = await fetch(`/insights/usage?period=${period}`);
+      const timezoneOffset = new Date().getTimezoneOffset();
+      const usageRes = await fetch(`/insights/usage?period=${period}&tz_offset=${timezoneOffset}`);
       if (!usageRes.ok) throw new Error(await usageRes.text());
       const nextInsights = await usageRes.json();
       usageInsightsCacheRef.current[period] = nextInsights;
@@ -2056,6 +2058,9 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   const activeHours = props.insights?.hourly || [];
   const activeSources = periodSources(props.insights?.periods || [], props.insights?.sources || [], props.period);
   const periodLabel = `${props.period}d`;
+  const coverageLabel = props.insights?.coverage_started_at && !props.insights.coverage_complete
+    ? tf('insights.trackingSince', formatInsightCoverageStart(props.insights.coverage_started_at))
+    : '';
   const isSingleDay = props.period === 1;
   const showSkeleton = props.loading;
   const fmtCost = (value: number | undefined) => fmtMoney(value);
@@ -2084,7 +2089,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         </>}
       </div>
       <section className="insights-chart-card">
-        <div className="insights-card-head"><div><h2>{tf('insights.byModel', usageMetricLabel(props.metric))}</h2><p>{tf('insights.recentTrend', periodLabel)}</p></div><button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} title={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button></div>
+        <div className="insights-card-head"><div><h2>{tf('insights.byModel', usageMetricLabel(props.metric))}</h2><p>{tf('insights.recentTrend', periodLabel)}{coverageLabel ? ` · ${coverageLabel}` : ''}</p></div><button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} title={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button></div>
         {showSkeleton ? <UsageChartSkeleton /> : <><UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} /><UsageShareBar models={models} metric={props.metric} /></>}
       </section>
       <div className="insights-grid">
