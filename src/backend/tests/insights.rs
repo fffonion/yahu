@@ -131,11 +131,49 @@
         let totals = &body["totals"];
 
         assert!((totals["estimated_cost_usd"].as_f64().unwrap() - 3.84).abs() < 0.000001);
-        assert!((totals["cost_usd"].as_f64().unwrap() - 43.92).abs() < 0.000001);
+        assert!((totals["cost_usd"].as_f64().unwrap() - 3.84).abs() < 0.000001);
         assert_eq!(totals["actual_cost_usd"], 42.0);
         assert_eq!(totals["unpriced_tokens"], 600);
         let one_day = body["periods"].as_array().unwrap().iter().find(|item| item["days"] == 1).unwrap();
-        assert!((one_day["totals"]["cost_usd"].as_f64().unwrap() - 43.92).abs() < 0.000001);
+        assert!((one_day["totals"]["cost_usd"].as_f64().unwrap() - 3.84).abs() < 0.000001);
+    }
+
+    #[test]
+    fn insights_uses_catalog_api_price_for_full_tokens_instead_of_partial_session_estimate() {
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![serde_json::json!({
+            "id": "partial-estimate",
+            "source": "telegram",
+            "model": "gpt-5.6-sol",
+            "provider": "openai-codex",
+            "last_active": ts,
+            "input_tokens": 1_000_000,
+            "output_tokens": 100_000,
+            "cache_read_tokens": 9_000_000,
+            "estimated_cost_usd": 7.5
+        })];
+        let catalog = model_price_catalog_from_models_dev(&serde_json::json!({
+            "openai": {
+                "models": {
+                    "gpt-5.6-sol": {
+                        "id": "gpt-5.6-sol",
+                        "cost": {"input": 5.0, "output": 30.0, "cache_read": 0.5}
+                    }
+                }
+            }
+        }));
+
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog, 1);
+
+        assert_eq!(body["totals"]["cost_usd"], 12.5);
+        assert_eq!(body["totals"]["estimated_cost_usd"], 12.5);
+        assert_eq!(body["totals"]["unpriced_tokens"], 0);
+        assert_eq!(body["models"][0]["totals"]["cost_usd"], 12.5);
     }
 
     #[test]

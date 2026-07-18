@@ -2079,7 +2079,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         </> : <>
           <InsightCard label={t('insights.tokens')} value={fmtTokens(totals.total_tokens)} detail={tf('insights.inputOutputDetail', fmtTokens(totals.input), fmtTokens(totals.output))} />
           <InsightCard label={t('insights.cacheHit')} value={fmtPercent(totals.cache_hit_rate)} detail={tf('insights.cacheDetail', fmtTokens(totals.cache_read), fmtTokens(totals.cache_write))} />
-          <InsightCard label={costMetricLabel} value={fmtCost(totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd)} detail={totals.unpriced_tokens ? tf('insights.unpricedApiCalls', fmtTokens(totals.unpriced_tokens), totals.api_calls || 0) : tf('insights.sessionsApiCalls', totals.sessions || 0, totals.api_calls || 0)} />
+          <InsightCard label={costMetricLabel} value={fmtCost(totals.cost_usd)} detail={totals.unpriced_tokens ? tf('insights.unpricedApiCalls', fmtTokens(totals.unpriced_tokens), totals.api_calls || 0) : tf('insights.sessionsApiCalls', totals.sessions || 0, totals.api_calls || 0)} />
           <InsightCard label={t('insights.topModel')} value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || t('insights.noUsage')} />
         </>}
       </div>
@@ -2118,7 +2118,7 @@ function SourceSignalList({ sources }: { sources: UsageSource[] }) {
 function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: UsageTotals }; rank: number }) {
   const max = Math.max(1, model.periodTotals.total_tokens);
   const cache = Math.min(100, Math.round((model.periodTotals.cache_read / max) * 100));
-  return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{tf('insights.modelRowDetail', fmtTokens(model.periodTotals.input), fmtTokens(model.periodTotals.output), fmtPercent(model.periodTotals.cache_hit_rate))}</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
+  return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{tf('insights.modelRowDetail', fmtTokens(model.periodTotals.input), fmtTokens(model.periodTotals.output), fmtTokens(model.periodTotals.cache_read), fmtPercent(model.periodTotals.cache_hit_rate))}</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
 }
 function UsageShareBar({ models, metric }: { models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
   const rawSlices = models.slice(0, 6).map((model, index) => ({ model: model.model, index, value: Number(model.periodTotals[metric] || 0) })).filter((item) => item.value > 0);

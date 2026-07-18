@@ -278,7 +278,7 @@ const translations: Record<string, Record<string, string>> = {
   'insights.loadingChart': { en: 'Loading chart', 'zh-CN': '正在加载图表', 'zh-TW': '正在載入圖表', ja: 'チャートを読み込み中' },
   'insights.loading': { en: 'Loading', 'zh-CN': '加载中', 'zh-TW': '載入中', ja: '読み込み中' },
   'insights.total': { en: 'Total', 'zh-CN': '总计', 'zh-TW': '總計', ja: '合計' },
-  'insights.modelRowDetail': { en: '{0} input · {1} output · {2} cache', 'zh-CN': '{0} 输入 · {1} 输出 · {2} 缓存', 'zh-TW': '{0} 輸入 · {1} 輸出 · {2} 快取', ja: '{0} 入力 · {1} 出力 · {2} キャッシュ' },
+  'insights.modelRowDetail': { en: '{0} input · {1} output · {2} cache read · {3} hit', 'zh-CN': '{0} 输入 · {1} 输出 · {2} 缓存读取 · {3} 命中', 'zh-TW': '{0} 輸入 · {1} 輸出 · {2} 快取讀取 · {3} 命中', ja: '{0} 入力 · {1} 出力 · {2} キャッシュ読み取り · {3} ヒット' },
 
   // Skills
   'skills.title': { en: 'Skills', 'zh-CN': '技能', 'zh-TW': '技能', ja: 'スキル' },

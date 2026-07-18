@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const appSource = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const cssSource = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+const i18nSource = () => readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
 
 describe('insights chart UI', () => {
   test('renders left value axis and hoverable datapoint tooltips', () => {
@@ -74,6 +75,19 @@ describe('insights chart UI', () => {
     expect(app).not.toContain('currencyRates');
     expect(css).toContain('.model-value{display:grid;justify-items:end;gap:3px}');
     expect(css).toContain('.model-cost-sub{font-size:11px;color:var(--muted);line-height:1}');
+  });
+
+  test('uses the backend-selected total cost even when it is zero', () => {
+    const app = appSource();
+    expect(app).toContain('value={fmtCost(totals.cost_usd)}');
+    expect(app).not.toContain('totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd');
+  });
+
+  test('shows cache-read token volume so model totals can be reconciled', () => {
+    const app = appSource();
+    const i18n = i18nSource();
+    expect(app).toContain("tf('insights.modelRowDetail', fmtTokens(model.periodTotals.input), fmtTokens(model.periodTotals.output), fmtTokens(model.periodTotals.cache_read), fmtPercent(model.periodTotals.cache_hit_rate))");
+    expect(i18n).toContain("'insights.modelRowDetail': { en: '{0} input · {1} output · {2} cache read · {3} hit'");
   });
 
   test('renders insights source channels as a wrapping right-panel list instead of one compressed line', () => {

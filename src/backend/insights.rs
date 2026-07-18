@@ -64,16 +64,8 @@ impl UsageTotals {
             .and_then(|value| value.as_str())
             .and_then(|model| model_price_for_model(prices, model))
             .map(|price| price.estimate(input, output, cache_read, cache_write));
-        let estimated_cost = if api_estimated_cost > 0.0 {
-            Some(api_estimated_cost)
-        } else {
-            catalog_estimated_cost
-        };
-        let row_cost = if actual_cost > 0.0 {
-            Some(actual_cost)
-        } else {
-            estimated_cost
-        };
+        let estimated_cost = catalog_estimated_cost.or((api_estimated_cost > 0.0).then_some(api_estimated_cost));
+        let row_cost = estimated_cost.or((actual_cost > 0.0).then_some(actual_cost));
         self.sessions += 1;
         self.input += input;
         self.output += output;
