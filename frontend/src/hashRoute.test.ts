@@ -1,7 +1,18 @@
 import { describe, expect, test } from 'bun:test';
-import { buildHashRoute, parseHashRoute } from './hashRoute';
+import { buildHashRoute, parseHashRoute, pushHashRoute } from './hashRoute';
 
 describe('hash route helpers', () => {
+  test('pushes a changed route into browser history and skips the current route', () => {
+    const calls: Array<{ state: unknown; url: string | URL | null | undefined }> = [];
+    const history = { pushState: (state: unknown, _unused: string, url?: string | URL | null) => calls.push({ state, url }) };
+    const route = { mode: 'chat', sessionId: 'session-123' } as const;
+
+    expect(pushHashRoute(history, '#/chat', route)).toBe(true);
+    expect(calls).toEqual([{ state: { yahuRoute: route }, url: '#/chat/session-123' }]);
+    expect(pushHashRoute(history, '#/chat/session-123', route)).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
   test('parses and builds chat session routes', () => {
     expect(parseHashRoute('#/chat/session-123')).toEqual({ mode: 'chat', sessionId: 'session-123' });
     expect(buildHashRoute({ mode: 'chat', sessionId: 'session-123' })).toBe('#/chat/session-123');

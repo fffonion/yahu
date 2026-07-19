@@ -50,3 +50,12 @@ export function buildHashRoute(route: HashRoute): string {
   if (route.mode === 'skills') return route.skillName ? `#/skills/${encodePart(route.skillName)}` : '#/skills';
   return `#/${route.mode}`;
 }
+
+type PushStateHistory = Pick<History, 'pushState'>;
+
+export function pushHashRoute(history: PushStateHistory, currentHash: string, route: HashRoute): boolean {
+  const nextHash = buildHashRoute(route);
+  if (currentHash === nextHash) return false;
+  history.pushState({ yahuRoute: route }, '', nextHash);
+  return true;
+}

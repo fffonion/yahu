@@ -46,6 +46,7 @@ use serde_json::Value;
 use sha2::Sha256;
 use tokio::{
     fs,
+    io::AsyncReadExt,
     net::TcpListener,
     process::Command,
     sync::{RwLock, broadcast, mpsc, watch},
@@ -66,6 +67,7 @@ const API_MESSAGE_WATCH_WINDOW: usize = 80;
 const CHAT_STREAM_BROADCAST_CAPACITY: usize = 32;
 const CHAT_STREAM_SNAPSHOT_IDLE_TTL: Duration = Duration::from_secs(10 * 60);
 const IDLE_CACHE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+const WORKSPACE_BINARY_PREVIEW_LIMIT: usize = 1024 * 1024;
 
 #[derive(Clone)]
 struct ActiveChatStreamSnapshot {
@@ -140,6 +142,7 @@ struct AppState {
 struct WorkspaceQuery {
     path: Option<String>,
     download: Option<String>,
+    preview: Option<String>,
 }
 
 #[derive(Serialize)]

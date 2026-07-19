@@ -5,10 +5,14 @@ const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const server = () => readFileSync(new URL('../../src/backend/mod.rs', import.meta.url), 'utf8');
 
 describe('hash route integration', () => {
-  test('App imports hash route helpers and listens for hashchange', () => {
+  test('App writes route transitions to history and listens for browser traversal', () => {
     const source = app();
     expect(source).toContain("from './hashRoute'");
+    expect(source).toContain('pushHashRoute(window.history, window.location.hash, route)');
+    expect(source).toContain("window.addEventListener('popstate', applyCurrentHashRoute)");
     expect(source).toContain("window.addEventListener('hashchange', applyCurrentHashRoute)");
+    expect(source).not.toContain('window.history.replaceState(null');
+    expect(source).not.toContain('window.location.hash = buildHashRoute');
     expect(source).toContain('const initialRoute = getCurrentHashRoute();');
   });
 

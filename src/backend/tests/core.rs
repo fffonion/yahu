@@ -195,6 +195,32 @@
         std::fs::remove_dir_all(root).ok();
     }
 
+    #[tokio::test]
+    async fn workspace_binary_preview_reads_only_the_first_mebibyte() {
+        let temp = tempfile::tempdir().unwrap();
+        let bytes = vec![0x5a; WORKSPACE_BINARY_PREVIEW_LIMIT + 257];
+        std::fs::write(temp.path().join("sample.bin"), &bytes).unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let response = workspace_file(
+            State(state),
+            Query(WorkspaceQuery {
+                path: Some("sample.bin".to_string()),
+                download: None,
+                preview: Some("1".to_string()),
+            }),
+        )
+        .await;
+        let file_size = response.headers()["x-yahu-file-size"].to_str().unwrap().to_string();
+        let truncated = response.headers()["x-yahu-preview-truncated"].to_str().unwrap().to_string();
+        let body = to_bytes(response.into_body(), WORKSPACE_BINARY_PREVIEW_LIMIT + 1).await.unwrap();
+
+        assert_eq!(body.len(), WORKSPACE_BINARY_PREVIEW_LIMIT);
+        assert!(body.iter().all(|byte| *byte == 0x5a));
+        assert_eq!(file_size, bytes.len().to_string());
+        assert_eq!(truncated, "1");
+    }
+
     #[test]
     fn workspace_destination_keeps_rename_inside_parent_directory() {
         let root = std::env::temp_dir().join(format!(

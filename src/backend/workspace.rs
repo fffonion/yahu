@@ -66,11 +66,35 @@ async fn workspace_file(
     if !meta.is_file() {
         return json_error(StatusCode::BAD_REQUEST, "path is not a file");
     }
-    let bytes = match fs::read(&file).await {
-        Ok(bytes) => bytes,
-        Err(err) => return json_error(StatusCode::NOT_FOUND, &format!("cannot read file: {err}")),
-    };
     let mime = mime_guess::from_path(&file).first_or_octet_stream();
+    let mime_name = mime.as_ref();
+    let full_preview = mime_name.starts_with("text/")
+        || mime_name.starts_with("image/")
+        || workspace_path_is_text(&file);
+    let limit_binary_preview = query.preview.as_deref() == Some("1")
+        && query.download.as_deref() != Some("1")
+        && !full_preview;
+    let bytes = if limit_binary_preview {
+        let handle = match fs::File::open(&file).await {
+            Ok(handle) => handle,
+            Err(err) => {
+                return json_error(StatusCode::NOT_FOUND, &format!("cannot read file: {err}"));
+            }
+        };
+        let mut reader = handle.take(WORKSPACE_BINARY_PREVIEW_LIMIT as u64);
+        let mut bytes = Vec::with_capacity(WORKSPACE_BINARY_PREVIEW_LIMIT.min(meta.len() as usize));
+        if let Err(err) = reader.read_to_end(&mut bytes).await {
+            return json_error(StatusCode::NOT_FOUND, &format!("cannot read file: {err}"));
+        }
+        bytes
+    } else {
+        match fs::read(&file).await {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                return json_error(StatusCode::NOT_FOUND, &format!("cannot read file: {err}"));
+            }
+        }
+    };
     let filename = file
         .file_name()
         .and_then(|s| s.to_str())
@@ -78,6 +102,14 @@ async fn workspace_file(
     let mut builder = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime.as_ref());
+    if query.preview.as_deref() == Some("1") {
+        builder = builder
+            .header("x-yahu-file-size", meta.len().to_string())
+            .header(
+                "x-yahu-preview-truncated",
+                if meta.len() > bytes.len() as u64 { "1" } else { "0" },
+            );
+    }
     if query.download.as_deref() == Some("1") {
         builder = builder.header(
             header::CONTENT_DISPOSITION,
@@ -85,6 +117,29 @@ async fn workspace_file(
         );
     }
     builder.body(Body::from(bytes)).unwrap()
+}
+
+fn workspace_path_is_text(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "md" | "txt" | "json" | "yaml" | "yml" | "toml" | "csv" | "ts" | "tsx"
+                    | "js" | "jsx" | "py" | "rs" | "go" | "sh" | "css" | "html" | "lock"
+            )
+        })
+        .unwrap_or_else(|| {
+            path.file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| {
+                    matches!(
+                        name,
+                        "Makefile" | "Dockerfile" | ".gitignore" | ".dockerignore" | ".env"
+                            | ".npmrc" | ".prettierrc" | ".eslintrc"
+                    )
+                })
+        })
 }
 
 async fn workspace_rename(

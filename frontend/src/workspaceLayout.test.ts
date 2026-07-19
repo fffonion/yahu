@@ -33,6 +33,31 @@ describe('workspace page file tree layout', () => {
     expect(component).toContain('editMode');
   });
 
+  test('edit mode copies the current unsaved file content beside the close control', () => {
+    const source = app();
+    const component = source.slice(source.indexOf('function WorkspaceEditorPreview'), source.indexOf('function WorkspaceBrowser'));
+    expect(source).toContain('Copy,');
+    expect(component).toContain('navigator.clipboard.writeText(editContent)');
+    expect(component).toContain("aria-label={t('workspace.copyContent')}");
+    expect(component.indexOf("aria-label={t('workspace.copyContent')}")).toBeLessThan(component.indexOf("aria-label={t('workspace.cancelEdit')}"));
+  });
+
+  test('binary files render a capped read-only hex and ASCII preview', () => {
+    const source = app();
+    const styles = css();
+    const opener = source.slice(source.indexOf('const openWorkspaceEntry'), source.indexOf('const openWorkspacePathFile'));
+    const component = source.slice(source.indexOf('function WorkspaceEditorPreview'), source.indexOf('function WorkspaceBrowser'));
+    expect(source).toContain("import { formatHexDump } from './hexViewer';");
+    expect(source).toContain("kind: 'text' | 'image' | 'hex' | 'none'");
+    expect(opener).toContain('&preview=1');
+    expect(opener).toContain("kind: 'hex'");
+    expect(opener).toContain('formatHexDump(new Uint8Array(await blob.arrayBuffer()))');
+    expect(opener).not.toContain('else downloadEntry(entry)');
+    expect(component).toContain("preview.kind === 'hex'");
+    expect(component).toContain('workspace-hex-viewer');
+    expect(styles).toContain('.workspace-hex-viewer{');
+  });
+
   test('markdown files render as formatted markdown outside edit mode', () => {
     const source = app();
     const styles = css();
@@ -82,7 +107,7 @@ describe('workspace page file tree layout', () => {
     expect(source).toContain('Maximize2');
     expect(source).toContain("'workspace.openFullPreview'");
     expect(browser).toContain('aria-label={t(\'workspace.openFullPreview\')}');
-    expect(browser).toContain("window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path });");
+    expect(browser).toContain('onClick={() => openFullPreview(preview.path)}');
     expect(browser).toContain("aria-label={t('workspace.closePreview')}");
   });
 

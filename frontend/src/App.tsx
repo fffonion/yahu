@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Copy, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
@@ -13,7 +13,8 @@ import { ChatTranscript, type ChatMessage, type ChatTurnMetrics } from './ChatTr
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { compactSessionPreview, latestSessionPreviewFromMessages } from './sessionPreview';
 import { highlightSourceText } from './syntaxHighlight';
-import { buildHashRoute, getCurrentHashRoute, type HashRoute } from './hashRoute';
+import { buildHashRoute, getCurrentHashRoute, pushHashRoute, type HashRoute } from './hashRoute';
+import { formatHexDump } from './hexViewer';
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { mergeTurnMetrics, normalizeChatMessage, readTurnMetrics } from './chatMessage';
 import { normalizeMessageParts } from './messageReasoning';
@@ -60,7 +61,7 @@ type SessionContextMenu = { session: Session; x: number; y: number } | null;
 
 type SkillContextMenu = { skill: Skill; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
-type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'none'; url?: string; editRequest?: number };
+type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'hex' | 'none'; url?: string; editRequest?: number; totalSize?: number; truncated?: boolean };
 type Skill = { name: string; description?: string; version?: string; category?: string; enabled?: boolean };
 type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y: number } | null;
 type WorkspaceContextMenu = { entry: WorkspaceEntry; x: number; y: number } | null;
@@ -544,6 +545,7 @@ export default function App() {
   const showToolCallsRef = useRef(showToolCalls);
   const newMessageBoundaryIdRef = useRef(newMessageBoundaryId);
   const renamedSessionTitlesRef = useRef<Record<string, string>>({});
+  const routeEventHashRef = useRef('');
   const applyRenamedSessionTitleOverride = useCallback((session: Session) => {
     const titleOverride = renamedSessionTitlesRef.current[session.id];
     if (titleOverride && String(session.title || '').trim() !== titleOverride) return { ...session, title: titleOverride };
@@ -596,8 +598,7 @@ export default function App() {
   }, []);
 
   const writeHashRoute = useCallback((route: HashRoute) => {
-    const nextHash = buildHashRoute(route);
-    if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash);
+    pushHashRoute(window.history, window.location.hash, route);
   }, []);
   const switchActiveSession = useCallback((sessionId: string) => {
     activeSessionIdRef.current = sessionId;
@@ -633,10 +634,25 @@ export default function App() {
     if (route.mode === 'workspace' && route.workspaceKind) setWorkspaceRouteTarget({ workspaceKind: route.workspaceKind, workspacePath: route.workspacePath || '' });
   }, [clearSelectedSkill, switchActiveSession]);
   useEffect(() => {
-    const applyCurrentHashRoute = () => applyHashRoute(getCurrentHashRoute());
+    let clearRouteEventFrame = 0;
+    const applyCurrentHashRoute = () => {
+      const currentHash = window.location.hash;
+      if (routeEventHashRef.current === currentHash) return;
+      routeEventHashRef.current = currentHash;
+      applyHashRoute(getCurrentHashRoute());
+      window.cancelAnimationFrame(clearRouteEventFrame);
+      clearRouteEventFrame = window.requestAnimationFrame(() => {
+        if (routeEventHashRef.current === currentHash) routeEventHashRef.current = '';
+      });
+    };
+    window.addEventListener('popstate', applyCurrentHashRoute);
     window.addEventListener('hashchange', applyCurrentHashRoute);
     applyCurrentHashRoute();
-    return () => window.removeEventListener('hashchange', applyCurrentHashRoute);
+    return () => {
+      window.cancelAnimationFrame(clearRouteEventFrame);
+      window.removeEventListener('popstate', applyCurrentHashRoute);
+      window.removeEventListener('hashchange', applyCurrentHashRoute);
+    };
   }, [applyHashRoute]);
 
   useEffect(() => { document.documentElement.dataset.yahuBuild = APP_BUILD_ID; }, []);
@@ -1657,7 +1673,7 @@ export default function App() {
       await toggleWorkspaceFolder(entry);
       return;
     }
-    const res = await fetch(`/workspace/file?path=${encodeURIComponent(entry.path)}`);
+    const res = await fetch(`/workspace/file?path=${encodeURIComponent(entry.path)}&preview=1`);
     if (!res.ok) { setStatus(tf('workspace.previewFailed', res.status)); return; }
     const blob = await res.blob();
     if (blob.type.startsWith('image/')) {
@@ -1666,11 +1682,18 @@ export default function App() {
     } else if (blob.type.startsWith('text/') || isWorkspaceTextFile(entry.name)) {
       setPreview({ path: entry.path, content: await blob.text(), kind: 'text', editRequest: options?.edit ? Date.now() : undefined });
     } else {
+      const totalSize = Number(res.headers.get('x-yahu-file-size')) || entry.size || blob.size;
+      setPreview({
+        path: entry.path,
+        content: formatHexDump(new Uint8Array(await blob.arrayBuffer())),
+        kind: 'hex',
+        totalSize,
+        truncated: res.headers.get('x-yahu-preview-truncated') === '1',
+      });
       if (options?.edit) setStatus(t('workspace.itemNotEditable'));
-      else downloadEntry(entry);
     }
     if (options?.route !== false) writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
-  }, [downloadEntry, toggleWorkspaceFolder, writeHashRoute]);
+  }, [toggleWorkspaceFolder, writeHashRoute]);
   const openWorkspacePathFile = useCallback(async (targetPath: string) => {
     await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' });
   }, [openWorkspaceEntry]);
@@ -1869,7 +1892,7 @@ export default function App() {
 
       {mode === 'chat' && <>
         <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
-        <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} />
+        <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => { setMode('workspace'); setSidebarCollapsed(false); writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path }); setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path }); }} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
 
@@ -2774,6 +2797,7 @@ type WorkspaceAsideProps = WorkspaceTreeProps & {
   setPreview: WorkspacePreviewSetter;
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
+  openFullPreview: (path: string) => void;
 };
 
 type WorkspaceMainProps = {
@@ -2789,7 +2813,7 @@ type WorkspaceMainProps = {
 
 function WorkspaceAside(props: WorkspaceAsideProps) {
   if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label={t('workspace.expand')} onClick={() => props.setCollapsed(false)}><ChevronLeft /></button></div></aside>;
-  return <aside className="workspace"><WorkspaceBrowser rootEntries={props.rootEntries} workspaceTree={props.workspaceTree} expandedWorkspacePaths={props.expandedWorkspacePaths} toggleWorkspaceFolder={props.toggleWorkspaceFolder} openWorkspaceEntry={props.openWorkspaceEntry} downloadEntry={props.downloadEntry} preview={props.preview} setPreview={props.setPreview} compact setCollapsed={props.setCollapsed} openWorkspaceMenu={props.openWorkspaceMenu} /></aside>;
+  return <aside className="workspace"><WorkspaceBrowser rootEntries={props.rootEntries} workspaceTree={props.workspaceTree} expandedWorkspacePaths={props.expandedWorkspacePaths} toggleWorkspaceFolder={props.toggleWorkspaceFolder} openWorkspaceEntry={props.openWorkspaceEntry} downloadEntry={props.downloadEntry} preview={props.preview} setPreview={props.setPreview} compact setCollapsed={props.setCollapsed} openWorkspaceMenu={props.openWorkspaceMenu} openFullPreview={props.openFullPreview} /></aside>;
 }
 function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: WorkspaceMainProps) {
   return <main className="main-panel workspace-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderThemeControl theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
@@ -2918,6 +2942,7 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   const [saving, setSaving] = useState(false);
   const startEdit = () => { setEditContent(preview.content || ''); setEditMode(true); };
   const cancelEdit = () => { setEditMode(false); setEditContent(''); };
+  const copyEditContent = async () => { await navigator.clipboard.writeText(editContent); };
   useEffect(() => { setEditMode(false); setEditContent(''); }, [preview.path]);
   useEffect(() => { if (preview.editRequest && preview.kind === 'text') startEdit(); }, [preview.editRequest]);
   const saveEdit = async () => {
@@ -2935,21 +2960,25 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   const textPreview = isMarkdownPath(preview.path)
     ? <div className="workspace-markdown-preview md-content" dangerouslySetInnerHTML={{ __html: markdownText(preview.content || '') }} />
     : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightSourceText(preview.content || '', preview.path) }} />;
-  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightSourceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : <div className="workspace-text-preview">{textPreview}</div>}</section>;
+  const readOnlyPreview = preview.kind === 'hex'
+    ? <div className="workspace-hex-preview">{preview.truncated && <div className="workspace-hex-note">{tf('workspace.hexPreviewTruncated', formatFileSize(preview.totalSize || 0))}</div>}<pre className="workspace-hex-viewer">{preview.content}</pre></div>
+    : <div className="workspace-text-preview">{textPreview}</div>;
+  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.copyContent')} title={t('workspace.copyContent')} onClick={copyEditContent}><Copy /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightSourceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : readOnlyPreview}</section>;
 }
 type WorkspaceBrowserProps = WorkspaceTreeProps & {
   preview: WorkspacePreview;
   setPreview: WorkspacePreviewSetter;
   compact: boolean;
   setCollapsed: (collapsed: boolean) => void;
+  openFullPreview: (path: string) => void;
 };
 
-function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, preview, setPreview, compact, setCollapsed, openWorkspaceMenu }: WorkspaceBrowserProps) {
+function WorkspaceBrowser({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, preview, setPreview, compact, setCollapsed, openWorkspaceMenu, openFullPreview }: WorkspaceBrowserProps) {
   const openFile = (entry: WorkspaceEntry) => openWorkspaceEntry(entry, compact ? { route: false } : undefined);
   return <>
     <header className="workspace-head"><span className="panel-title">{t('workspace.title')}</span><span>{compact ? t('workspace.main') : t('workspace.full')}</span><button aria-label={compact ? t('workspace.collapse') : t('workspace.closePreview')} onClick={() => compact ? setCollapsed(true) : setPreview({ path: '', content: '', kind: 'none' })}><X /></button></header>
     <div className="workspace-tree file-list"><WorkspaceTreeRows entries={rootEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /></div>
-    {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions"><button className="icon-btn" aria-label={t('workspace.openFullPreview')} title={t('workspace.openFullPreview')} onClick={() => { window.location.hash = buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: preview.path }); }}><Maximize2 /></button><button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div></div>{preview.kind === 'image' ? <img src={preview.url} /> : isMarkdownPath(preview.path) ? <div className="workspace-markdown-preview compact md-content" dangerouslySetInnerHTML={{ __html: markdownText(preview.content || '') }} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightSourceText(preview.content || '', preview.path) }} />}</div>}
+    {preview.kind !== 'none' && <div className="preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions"><button className="icon-btn" aria-label={t('workspace.openFullPreview')} title={t('workspace.openFullPreview')} onClick={() => openFullPreview(preview.path)}><Maximize2 /></button><button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button></div></div>{preview.kind === 'image' ? <img src={preview.url} /> : preview.kind === 'hex' ? <pre className="workspace-hex-viewer compact">{preview.content}</pre> : isMarkdownPath(preview.path) ? <div className="workspace-markdown-preview compact md-content" dangerouslySetInnerHTML={{ __html: markdownText(preview.content || '') }} /> : <pre className="workspace-code-highlight" dangerouslySetInnerHTML={{ __html: highlightSourceText(preview.content || '', preview.path) }} />}</div>}
   </>;
 }
 function AdminMain({ mode, setStatus, showToast, theme, setTheme, onNavigateToSettings }: { mode: Extract<Mode, 'memory'>; apiBase: string; headers: (json?: boolean) => Record<string, string>; setStatus: (v: string) => void; showToast: (v: string) => void; theme: Theme; setTheme: (v: Theme) => void; onNavigateToSettings: () => void }) {
