@@ -369,6 +369,8 @@ const translations: Record<string, Record<string, string>> = {
   'tool.collapse': { en: 'Hide details', 'zh-CN': '隐藏详情', 'zh-TW': '隱藏詳情', ja: '詳細を非表示' },
   'tool.invocation': { en: 'Invocation', 'zh-CN': '调用', 'zh-TW': '呼叫', ja: '呼び出し' },
   'tool.result': { en: 'Result', 'zh-CN': '结果', 'zh-TW': '結果', ja: '結果' },
+  'tool.searchMatches': { en: '{0} matches', 'zh-CN': '{0} 个匹配', 'zh-TW': '{0} 個匹配', ja: '{0} 件の一致' },
+  'tool.searchNoMatches': { en: 'No matches', 'zh-CN': '没有匹配', 'zh-TW': '沒有匹配', ja: '一致なし' },
 
   // Dialogs
   'dialog.cancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-TW': '取消', ja: 'キャンセル' },

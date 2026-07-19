@@ -39,6 +39,19 @@ describe('tool message structured layout css', () => {
     expect(styles).toContain('.tool-code-source .tok-keyword{color:var(--syntax-keyword)}');
   });
 
+  test('search_files results parse JSON into grouped match rows instead of recursive fields', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("canonicalToolName === 'search_files'");
+    expect(source).toContain('<SearchFilesResultView value={summary.result} />');
+    expect(source).toContain('parseSearchFilesResult(value)');
+    expect(source).toContain('search-files-path');
+    expect(source).toContain('search-files-line');
+    expect(styles).toContain('.search-files-result{display:grid;gap:9px;min-width:0}');
+    expect(styles).toContain('.search-files-path{');
+    expect(styles).toContain('.search-files-file{');
+  });
+
   test('assistant structured content reuses the exact recursive tool value formatter', () => {
     const source = app();
     expect(source).toContain('export function StructuredDataView({ value }: { value: unknown })');

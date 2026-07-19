@@ -33,6 +33,8 @@ import { markdownText } from './markdown';
 import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
 import { parseSessionStateMessage, type SessionTaskStatus } from './sessionStateMessage';
 import { formatChatMessageTime } from './sessionTime';
+import { parseSearchFilesResult } from './searchFilesResult';
+import { highlightSourceText } from './syntaxHighlight';
 import { highlightedDiffLines, highlightedReadFileLines, type HighlightedToolCodeLine } from './toolCodeHighlight';
 import { summarizeToolMessage, type ToolSummary } from './toolMessage';
 import {
@@ -151,12 +153,32 @@ function PatchResultView({ value, filePath }: { value: unknown; filePath: string
   return <div className="tool-children">{Object.entries(record).map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span>{key === 'diff' ? block : <StructuredDataView value={child} />}</div>)}</div>;
 }
 
+function SearchFilesResultView({ value }: { value: unknown }) {
+  const parsed = parseSearchFilesResult(value);
+  if (!parsed) return <StructuredDataView value={value} />;
+  const empty = parsed.groups.length === 0 && parsed.files.length === 0;
+  return <div className="search-files-result">
+    <div className="search-files-meta">{tf('tool.searchMatches', parsed.totalCount)}</div>
+    {parsed.error && <div className="search-files-error">{parsed.error}</div>}
+    {parsed.groups.map((group) => <section className="search-files-group" key={group.path}>
+      <div className="search-files-path" title={group.path}>{group.path}</div>
+      <pre className="tool-code-block search-files-code"><code>{group.matches.map((match, index) => <span className={`tool-code-line search-files-line${match.isMatch ? '' : ' context'}`} key={`${match.lineNumber}-${index}`}>
+        <span className="tool-code-line-number" aria-hidden="true">{match.lineNumber}</span>
+        <span className="tool-code-source" dangerouslySetInnerHTML={{ __html: highlightSourceText(match.content, group.path) || ' ' }} />
+      </span>)}</code></pre>
+    </section>)}
+    {parsed.files.length > 0 && <div className="search-files-list">{parsed.files.map((file) => <code className="search-files-file" key={file}>{file}</code>)}</div>}
+    {empty && !parsed.error && <div className="search-files-empty">{t('tool.searchNoMatches')}</div>}
+  </div>;
+}
+
 function ToolResultView({ summary }: { summary: ToolSummary }) {
   const canonicalToolName = summary.toolName.replace(/^functions\./, '');
   if (canonicalToolName === 'read_file' && typeof summary.result === 'string') {
     return <ToolCodeBlock lines={highlightedReadFileLines(summary.result, summary.filePath)} variant="source" />;
   }
   if (canonicalToolName === 'patch') return <PatchResultView value={summary.result} filePath={summary.filePath} />;
+  if (canonicalToolName === 'search_files') return <SearchFilesResultView value={summary.result} />;
   return <StructuredDataView value={summary.result} />;
 }
 
