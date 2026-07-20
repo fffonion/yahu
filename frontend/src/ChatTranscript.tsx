@@ -311,7 +311,7 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
         <time>{formatChatMessageTime(message.timestamp)}</time>
         {isPending && <span className="stream-state" aria-label={t('chat.streaming')}><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">{t('chat.streaming')}</span></span>}
       </div>
-      {message.reasoning && showReasoning && <details open className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>}
+      {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>}
       <div className="msg-body">
         {message.structuredContent ? <StructuredDataView value={message.structuredContent.value} /> : <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(message.content || (isPending ? '…' : '')) }} />}
         {isPending && <span className="stream-caret" aria-hidden="true" />}
