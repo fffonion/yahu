@@ -650,9 +650,10 @@ fn fetch_local_goal_todo_messages(
     )? {
         return Ok(None);
     }
-    let mut stmt = conn.prepare(
+    let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let sql = format!(
         "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, \
-                token_count, finish_reason, reasoning, reasoning_content \
+                token_count, finish_reason, {reasoning_columns} \
          FROM messages \
          WHERE (active = 1 OR compacted = 1) \
            AND session_id = ?1 \
@@ -662,8 +663,9 @@ fn fetch_local_goal_todo_messages(
                OR (role = 'assistant' AND tool_calls LIKE '%todo%') \
                OR (role = 'tool' AND tool_name = 'todo') \
            ) \
-         ORDER BY timestamp, id",
-    )?;
+         ORDER BY timestamp, id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
         rusqlite::params![session_id, goal_created_at],
         row_to_session_message,

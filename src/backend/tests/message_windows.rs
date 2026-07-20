@@ -18,12 +18,14 @@
                 finish_reason TEXT,
                 reasoning TEXT,
                 reasoning_content TEXT,
+                reasoning_details TEXT,
+                codex_reasoning_items TEXT,
                 active INTEGER NOT NULL DEFAULT 1
              );",
         ).unwrap();
         conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source) VALUES ('s1',NULL,1,NULL,NULL,'telegram')", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','do it',1,1)", []).unwrap();
-        conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,reasoning_content,timestamp,active) VALUES ('s1','assistant','I will inspect','[{\"id\":\"call_1\"}]','plan',2,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,reasoning_content,reasoning_details,codex_reasoning_items,timestamp,active) VALUES ('s1','assistant','I will inspect','[{\"id\":\"call_1\"}]','plan','[{\"type\":\"thinking\",\"thinking\":\"provider thought\",\"signature\":\"opaque-signature\"}]','[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"provider summary\"}],\"encrypted_content\":\"opaque-encrypted-payload\"}]',2,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','{\"ok\":true}','terminal',3,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','assistant','final answer',4,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','next prompt',5,1)", []).unwrap();
@@ -49,6 +51,9 @@
         assert_eq!(skeleton_data[1]["turn_details"]["thinking_count"], 1);
         assert_eq!(skeleton_data[1]["turn_details"]["after_id"], "1");
         assert_eq!(skeleton_data[1]["turn_details"]["before_id"], "4");
+        assert_eq!(skeleton_data[1]["reasoning"], "plan\nprovider thought\nprovider summary");
+        assert!(!skeleton_data[1].to_string().contains("opaque-signature"));
+        assert!(!skeleton_data[1].to_string().contains("opaque-encrypted-payload"));
 
         let default_resp = chat_messages_page(
             State(state.clone()),
@@ -70,6 +75,7 @@
         let details_page: serde_json::Value = serde_json::from_slice(&details_body).unwrap();
         let details_texts: Vec<_> = details_page["data"].as_array().unwrap().iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
         assert_eq!(details_texts, vec!["I will inspect", "{\"ok\":true}"]);
+        assert_eq!(details_page["data"].as_array().unwrap()[0]["reasoning"], "plan\nprovider thought\nprovider summary");
     }
 
     #[test]

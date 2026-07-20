@@ -41,4 +41,19 @@ describe('message reasoning normalization', () => {
     expect(parts.content).toBe('answer');
     expect(parts.reasoning).toBe('same trace');
   });
+
+  test('extracts readable provider details without exposing signatures or encrypted payloads', () => {
+    const parts = normalizeMessageParts('answer', {
+      reasoning_details: [{ type: 'thinking', thinking: 'provider thought', signature: 'opaque-signature' }],
+      codex_reasoning_items: [{
+        type: 'reasoning',
+        summary: [{ type: 'summary_text', text: 'provider summary' }],
+        encrypted_content: 'opaque-encrypted-payload',
+      }],
+    });
+
+    expect(parts.reasoning).toBe('provider thought\nprovider summary');
+    expect(parts.reasoning).not.toContain('opaque-signature');
+    expect(parts.reasoning).not.toContain('opaque-encrypted-payload');
+  });
 });

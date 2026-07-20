@@ -32,10 +32,34 @@ function textFromUnknown(value: unknown): string {
 
 function collectReasoningFields(raw?: Record<string, unknown> | null): string[] {
   if (!raw) return [];
-  return REASONING_FIELD_NAMES.reduce<string[]>((acc, key) => {
+  const reasoning = REASONING_FIELD_NAMES.reduce<string[]>((acc, key) => {
     pushUniqueText(acc, textFromUnknown(raw[key]));
     return acc;
   }, []);
+  const structuredValue = (value: unknown) => {
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return value;
+    try { return JSON.parse(trimmed); } catch { return value; }
+  };
+  const collectThinking = (value: unknown) => {
+    const parsed = structuredValue(value);
+    if (Array.isArray(parsed)) { parsed.forEach(collectThinking); return; }
+    const record = asRecord(parsed);
+    if (!record) return;
+    pushUniqueText(reasoning, textFromUnknown(record.thinking));
+    if (String(record.type || '').toLowerCase().includes('reason')) pushUniqueText(reasoning, textFromUnknown(record.text));
+  };
+  const collectCodexSummary = (value: unknown) => {
+    const parsed = structuredValue(value);
+    if (Array.isArray(parsed)) { parsed.forEach(collectCodexSummary); return; }
+    const record = asRecord(parsed);
+    if (!record) return;
+    pushUniqueText(reasoning, textFromUnknown(record.summary));
+  };
+  collectThinking(raw.reasoning_details ?? raw.reasoningDetails);
+  collectCodexSummary(raw.codex_reasoning_items ?? raw.codexReasoningItems);
+  return reasoning;
 }
 
 export function normalizeMessageParts(value: unknown, raw?: Record<string, unknown> | null): MessageParts {

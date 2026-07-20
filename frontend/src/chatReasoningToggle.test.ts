@@ -25,12 +25,12 @@ describe('chat reasoning display toggle', () => {
     const source = app();
     expect(source).toContain("<MessageView message={item.message} showReasoning={showReasoning} assistantName={assistantName} />");
     expect(source).toContain("message.reasoning && showReasoning");
-    expect(source).toContain("className=\"msg-reasoning msg-reasoning-collapsed\"");
+    expect(source).toContain("<details open className=\"msg-reasoning msg-reasoning-collapsed\"");
   });
 
   test('assistant reasoning is rendered before the response body', () => {
     const source = app();
-    const reasoningIndex = source.indexOf('{message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed"');
+    const reasoningIndex = source.indexOf('{message.reasoning && showReasoning && <details open className="msg-reasoning msg-reasoning-collapsed"');
     const responseBodyIndex = source.indexOf('<div className="msg-body">', reasoningIndex);
     expect(reasoningIndex).toBeGreaterThan(-1);
     expect(responseBodyIndex).toBeGreaterThan(reasoningIndex);
@@ -48,7 +48,7 @@ describe('chat reasoning display toggle', () => {
     const i18n = readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
     expect(source).toContain('function reasoningSummaryLabel(message: ChatMessage): string');
     expect(source).toContain("const reasoningSummary = reasoningSummaryLabel(message);");
-    expect(source).toContain("<details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label={reasoningSummary}><summary><span className=\"reasoning-chevron\"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>");
+    expect(source).toContain("<details open className=\"msg-reasoning msg-reasoning-collapsed\" aria-label={reasoningSummary}><summary><span className=\"reasoning-chevron\"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>");
     expect(source).not.toContain("<span>{t('chat.details')}</span></summary><pre>{message.reasoning}</pre>");
     expect(source).not.toContain(">Thinking<");
     expect(source).not.toContain("aria-label=\"Reasoning / thinking\"");

@@ -786,6 +786,18 @@ fn is_rootless_history_detail_candidate(message: &serde_json::Value) -> bool {
     message_role(message) == "tool" || message_has_tool_calls(message)
 }
 
+fn append_message_reasoning(message: &serde_json::Value, parts: &mut Vec<String>) {
+    if let Some(text) = message.get("reasoning").and_then(|value| value.as_str()).filter(|text| !text.trim().is_empty()) {
+        push_unique_reasoning(parts, text);
+        return;
+    }
+    for key in ["reasoning_content", "reasoningContent"] {
+        if let Some(text) = message.get(key).and_then(|value| value.as_str()) {
+            push_unique_reasoning(parts, text);
+        }
+    }
+}
+
 fn annotate_turn_details(final_message: &mut serde_json::Value, details: &[serde_json::Value], after_id: Option<String>) {
     if details.is_empty() {
         return;
@@ -806,8 +818,16 @@ fn annotate_turn_details(final_message: &mut serde_json::Value, details: &[serde
         detail.insert("after_id".to_string(), serde_json::json!(after_id));
     }
     detail.insert("before_id".to_string(), serde_json::json!(before_id));
+    let mut reasoning_parts = Vec::new();
+    for message in details {
+        append_message_reasoning(message, &mut reasoning_parts);
+    }
+    append_message_reasoning(final_message, &mut reasoning_parts);
     if let Some(obj) = final_message.as_object_mut() {
         obj.insert("turn_details".to_string(), serde_json::Value::Object(detail));
+        if !reasoning_parts.is_empty() {
+            obj.insert("reasoning".to_string(), serde_json::Value::String(reasoning_parts.join("\n")));
+        }
     }
 }
 
@@ -1623,7 +1643,111 @@ fn local_session_history_entries(
     Ok(predecessor)
 }
 
+fn local_reasoning_select_columns(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
+    let details = if sqlite_table_has_columns(conn, "messages", &["reasoning_details"])? {
+        "reasoning_details"
+    } else {
+        "NULL AS reasoning_details"
+    };
+    let codex_items = if sqlite_table_has_columns(conn, "messages", &["codex_reasoning_items"])? {
+        "codex_reasoning_items"
+    } else {
+        "NULL AS codex_reasoning_items"
+    };
+    Ok(format!("reasoning, reasoning_content, {details}, {codex_items}"))
+}
+
+fn push_unique_reasoning(parts: &mut Vec<String>, text: &str) {
+    let text = text.trim();
+    if !text.is_empty() && !parts.iter().any(|part| part == text) {
+        parts.push(text.to_string());
+    }
+}
+
+fn collect_direct_reasoning(raw: Option<String>, parts: &mut Vec<String>) {
+    let Some(raw) = raw else {
+        return;
+    };
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+        let mut text = String::new();
+        collect_json_text(&value, &mut text);
+        push_unique_reasoning(parts, &text);
+    } else {
+        push_unique_reasoning(parts, &raw);
+    }
+}
+
+fn collect_provider_thinking(value: &serde_json::Value, parts: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_provider_thinking(item, parts);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            if let Some(text) = map.get("thinking").and_then(|value| value.as_str()) {
+                push_unique_reasoning(parts, text);
+            }
+            let kind = map.get("type").and_then(|value| value.as_str()).unwrap_or("");
+            if kind.contains("reason")
+                && let Some(text) = map.get("text").and_then(|value| value.as_str())
+            {
+                push_unique_reasoning(parts, text);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_codex_reasoning_summaries(value: &serde_json::Value, parts: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_codex_reasoning_summaries(item, parts);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            if let Some(summary) = map.get("summary") {
+                let mut text = String::new();
+                collect_json_text(summary, &mut text);
+                push_unique_reasoning(parts, &text);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn canonical_stored_reasoning(
+    reasoning: Option<String>,
+    reasoning_content: Option<String>,
+    reasoning_details: Option<String>,
+    codex_reasoning_items: Option<String>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    collect_direct_reasoning(reasoning, &mut parts);
+    collect_direct_reasoning(reasoning_content, &mut parts);
+    if let Some(details) = reasoning_details
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(&details)
+    {
+        collect_provider_thinking(&value, &mut parts);
+    }
+    if let Some(items) = codex_reasoning_items
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(&items)
+    {
+        collect_codex_reasoning_summaries(&value, &mut parts);
+    }
+    (!parts.is_empty()).then(|| parts.join("\n"))
+}
+
 fn row_to_session_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
+    let raw_reasoning = row.get::<_, Option<String>>("reasoning")?;
+    let raw_reasoning_content = row.get::<_, Option<String>>("reasoning_content")?;
+    let canonical_reasoning = canonical_stored_reasoning(
+        raw_reasoning,
+        raw_reasoning_content.clone(),
+        row.get::<_, Option<String>>("reasoning_details")?,
+        row.get::<_, Option<String>>("codex_reasoning_items")?,
+    );
     let mut map = serde_json::Map::new();
     map.insert("id".to_string(), serde_json::json!(row.get::<_, i64>("id")?));
     map.insert("session_id".to_string(), serde_json::json!(row.get::<_, String>("session_id")?));
@@ -1635,8 +1759,8 @@ fn row_to_session_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_jso
     map.insert("timestamp".to_string(), serde_json::json!(row.get::<_, f64>("timestamp")?));
     map.insert("token_count".to_string(), row.get::<_, Option<i64>>("token_count")?.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null));
     map.insert("finish_reason".to_string(), json_or_string_field(row.get::<_, Option<String>>("finish_reason")?));
-    map.insert("reasoning".to_string(), json_or_string_field(row.get::<_, Option<String>>("reasoning")?));
-    map.insert("reasoning_content".to_string(), json_or_string_field(row.get::<_, Option<String>>("reasoning_content")?));
+    map.insert("reasoning".to_string(), canonical_reasoning.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
+    map.insert("reasoning_content".to_string(), json_or_string_field(raw_reasoning_content));
     Ok(serde_json::Value::Object(map))
 }
 
@@ -2115,10 +2239,11 @@ fn fetch_local_detached_session_switch_messages(
         return Ok(Vec::new());
     }
     let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
+    let reasoning_columns = local_reasoning_select_columns(&conn)?;
     let mut messages = Vec::new();
     for peer_id in peer_ids {
         let sql = format!(
-            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_content \
+            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} \
              FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY timestamp, id"
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -2246,9 +2371,10 @@ fn fetch_local_context_messages_with_entries(
         return Ok(None);
     }
     let message_filter = local_message_history_filter(&conn, mode)?;
+    let reasoning_columns = local_reasoning_select_columns(&conn)?;
     let context = messages_with_context_boundary_from_entries(&entries, mode, |entry_id| {
         let sql = format!(
-            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, reasoning, reasoning_content \
+            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} \
              FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY id"
         );
         let mut stmt = conn.prepare(&sql)?;
