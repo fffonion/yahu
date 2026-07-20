@@ -326,7 +326,12 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails }
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const detailMessages = useMemo(() => loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages, [loadedMessages, item.messages, showReasoning]);
+  const commentary = item.detail?.commentary || [];
+  const commentaryIds = new Set(commentary.map((message) => message.id));
+  const detailMessages = useMemo(() => {
+    const messages = loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages;
+    return messages.filter((message) => !commentaryIds.has(message.id));
+  }, [loadedMessages, item.messages, showReasoning, commentary]);
   const detailCount = item.detail?.count ?? detailMessages.length;
   const detailSummary = tf('chat.detailEntries', detailCount);
   const detailAnchorId = String(item.messages[0]?.id || item.id);
@@ -339,14 +344,17 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails }
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setLoading(false));
   };
-  return <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
-    <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><ChevronRight className="tool-chevron turn-detail-arrow" aria-hidden="true" /></summary>
-    <div className="turn-detail-body">
-      {loading ? t('status.loading') : null}
-      {error && <p className="error-text">{error}</p>}
-      {detailMessages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} suppressMessageAnchor={!open} />)}
-    </div>
-  </details>;
+  return <>
+    {commentary.map((message) => <MessageView key={`commentary:${message.id}`} message={message} showReasoning={showReasoning} assistantName={assistantName} />)}
+    {detailCount > 0 && <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
+      <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><ChevronRight className="tool-chevron turn-detail-arrow" aria-hidden="true" /></summary>
+      <div className="turn-detail-body">
+        {loading ? t('status.loading') : null}
+        {error && <p className="error-text">{error}</p>}
+        {detailMessages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} suppressMessageAnchor={!open} />)}
+      </div>
+    </details>}
+  </>;
 }
 
 function SpecialContextGroup({ item }: { item: SpecialContextGroupItem<ChatMessage> }) {

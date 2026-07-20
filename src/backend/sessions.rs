@@ -798,22 +798,48 @@ fn append_message_reasoning(message: &serde_json::Value, parts: &mut Vec<String>
     }
 }
 
+fn is_visible_tool_commentary(message: &serde_json::Value) -> bool {
+    message_role(message) == "assistant" && !message_text(message).trim().is_empty() && message_has_tool_calls(message)
+}
+
+fn turn_commentary_message(message: &serde_json::Value) -> serde_json::Value {
+    let mut commentary = serde_json::Map::new();
+    for key in ["id", "session_id", "role", "content", "timestamp", "model", "provider"] {
+        if let Some(value) = message.get(key) {
+            commentary.insert(key.to_string(), value.clone());
+        }
+    }
+    serde_json::Value::Object(commentary)
+}
+
 fn annotate_turn_details(final_message: &mut serde_json::Value, details: &[serde_json::Value], after_id: Option<String>) {
     if details.is_empty() {
         return;
     }
-    let tool_count = details
+    let hidden_details: Vec<_> = details.iter().filter(|message| !is_visible_tool_commentary(message)).collect();
+    let commentary: Vec<_> = details
+        .iter()
+        .filter(|message| is_visible_tool_commentary(message))
+        .map(turn_commentary_message)
+        .collect();
+    let tool_count = hidden_details
         .iter()
         .filter(|message| message_role(message) == "tool")
         .count();
-    let thinking_count = details.iter().filter(|message| message_has_reasoning(message)).count();
+    let thinking_count = hidden_details
+        .iter()
+        .filter(|message| message_has_reasoning(message))
+        .count();
     let Some(before_id) = nav_message_id(final_message) else {
         return;
     };
     let mut detail = serde_json::Map::new();
-    detail.insert("count".to_string(), serde_json::json!(details.len()));
+    detail.insert("count".to_string(), serde_json::json!(hidden_details.len()));
     detail.insert("tool_count".to_string(), serde_json::json!(tool_count));
     detail.insert("thinking_count".to_string(), serde_json::json!(thinking_count));
+    if !commentary.is_empty() {
+        detail.insert("commentary".to_string(), serde_json::Value::Array(commentary));
+    }
     if let Some(after_id) = after_id.filter(|id| !id.is_empty()) {
         detail.insert("after_id".to_string(), serde_json::json!(after_id));
     }

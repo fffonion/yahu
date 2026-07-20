@@ -7,12 +7,22 @@ export type TurnDetailMessageItem<T> = {
   sourceIndexes: number[];
 };
 
+export type TurnDetailCommentary = {
+  id: string;
+  role: 'assistant';
+  content: string;
+  timestamp?: string | number;
+  model?: string;
+  provider?: string;
+};
+
 export type TurnDetailMetadata = {
   count: number;
   toolCount?: number;
   thinkingCount?: number;
   afterId?: string;
   beforeId?: string;
+  commentary?: TurnDetailCommentary[];
 };
 
 export type TurnDetailGroupItem<T> = {
@@ -80,7 +90,7 @@ function isRootlessDetailCandidate(message: MessageVisibilityInput) {
 
 function turnDetailMetadata(message: MessageVisibilityInput): TurnDetailMetadata | undefined {
   const detail = (message as MessageWithTurnDetails).turnDetails;
-  return detail && Number(detail.count || 0) > 0 ? detail : undefined;
+  return detail && (Number(detail.count || 0) > 0 || !!detail.commentary?.length) ? detail : undefined;
 }
 
 export function buildTurnDetailItems<T extends MessageVisibilityInput>(
@@ -178,6 +188,11 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
       const savedAnchor = activeAnchorId || ROOTLESS_ANCHOR_ID;
       flushBufferAsMessages();
       pushSpecialContextGroup(message, index, savedAnchor);
+      return;
+    }
+
+    if (isAssistantToolPreludeMessage(message)) {
+      items.push({ kind: 'message', message, sourceIndexes: [index] });
       return;
     }
 

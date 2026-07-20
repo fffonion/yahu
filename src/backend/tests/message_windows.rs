@@ -46,11 +46,16 @@
 
         assert_eq!(skeleton_roles, vec!["user", "assistant", "user", "tool"]);
         assert_eq!(skeleton_texts, vec!["do it", "final answer", "next prompt", "unfinished detail"]);
-        assert_eq!(skeleton_data[1]["turn_details"]["count"], 2);
+        assert_eq!(skeleton_data[1]["turn_details"]["count"], 1);
         assert_eq!(skeleton_data[1]["turn_details"]["tool_count"], 1);
-        assert_eq!(skeleton_data[1]["turn_details"]["thinking_count"], 1);
+        assert_eq!(skeleton_data[1]["turn_details"]["thinking_count"], 0);
         assert_eq!(skeleton_data[1]["turn_details"]["after_id"], "1");
         assert_eq!(skeleton_data[1]["turn_details"]["before_id"], "4");
+        assert_eq!(skeleton_data[1]["turn_details"]["commentary"].as_array().unwrap().len(), 1);
+        assert_eq!(skeleton_data[1]["turn_details"]["commentary"][0]["id"], 2);
+        assert_eq!(skeleton_data[1]["turn_details"]["commentary"][0]["role"], "assistant");
+        assert_eq!(skeleton_data[1]["turn_details"]["commentary"][0]["content"], "I will inspect");
+        assert!(skeleton_data[1]["turn_details"]["commentary"][0].get("tool_calls").is_none());
         assert_eq!(skeleton_data[1]["reasoning"], "plan\nprovider thought\nprovider summary");
         assert!(!skeleton_data[1].to_string().contains("opaque-signature"));
         assert!(!skeleton_data[1].to_string().contains("opaque-encrypted-payload"));
@@ -64,7 +69,8 @@
         let default_page: serde_json::Value = serde_json::from_slice(&default_body).unwrap();
         let default_roles: Vec<_> = default_page["data"].as_array().unwrap().iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
         assert_eq!(default_roles, skeleton_roles);
-        assert_eq!(default_page["data"].as_array().unwrap()[1]["turn_details"]["count"], 2);
+        assert_eq!(default_page["data"].as_array().unwrap()[1]["turn_details"]["count"], 1);
+        assert_eq!(default_page["data"].as_array().unwrap()[1]["turn_details"]["commentary"][0]["content"], "I will inspect");
 
         let details = chat_messages_page(
             State(state),

@@ -18,6 +18,14 @@ describe('turn detail fold UI', () => {
     expect(source).not.toContain('Turn tools and thinking');
   });
 
+  test('keeps completed tool-call commentary outside the collapsed lazy detail body', () => {
+    const source = app();
+    expect(source).toContain('const commentary = item.detail?.commentary || [];');
+    expect(source).toContain('commentary.map((message) => <MessageView');
+    expect(source).toContain('const commentaryIds = new Set(commentary.map((message) => message.id));');
+    expect(source).toContain('.filter((message) => !commentaryIds.has(message.id))');
+  });
+
   test('outer turn detail summary is a single long bar with only a right chevron glyph', () => {
     const source = app();
     const styles = css();
@@ -83,7 +91,7 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("detailParams.set('view', 'details');");
     expect(source).toContain("fetch(`/chat/messages/${encodeURIComponent(props.activeSessionId)}?${detailParams}`)");
     expect(source).toContain('loadTurnDetails(item.detail)');
-    expect(source).toContain("const detailMessages = useMemo(() => loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages");
+    expect(source).toContain("const messages = loadedMessages.length ? visibleChatMessages<ChatMessage>(loadedMessages, showReasoning, true) : item.messages;");
     expect(source).toContain("loading ? t('status.loading')");
   });
 

@@ -76,8 +76,22 @@ export function mergeTurnMetrics(base?: ChatTurnMetrics, next?: ChatTurnMetrics)
 function readTurnDetails(raw: any): TurnDetailMetadata | undefined {
   const detail = asRecordish(raw?.turnDetails) || asRecordish(raw?.turn_details);
   if (!detail) return undefined;
+  const commentary = (Array.isArray(detail.commentary) ? detail.commentary : [])
+    .map((value) => asRecordish(value))
+    .filter((value): value is Record<string, unknown> => !!value)
+    .map((value) => {
+      const id = String(value.id || '').trim();
+      const content = String(value.content || '').trim();
+      if (!id || !content) return null;
+      const message: NonNullable<TurnDetailMetadata['commentary']>[number] = { id, role: 'assistant', content };
+      if (typeof value.timestamp === 'string' || typeof value.timestamp === 'number') message.timestamp = value.timestamp;
+      if (typeof value.model === 'string' && value.model.trim()) message.model = value.model.trim();
+      if (typeof value.provider === 'string' && value.provider.trim()) message.provider = value.provider.trim();
+      return message;
+    })
+    .filter((value): value is NonNullable<TurnDetailMetadata['commentary']>[number] => !!value);
   const count = Number(detail.count || 0);
-  if (!Number.isFinite(count) || count <= 0) return undefined;
+  if (!Number.isFinite(count) || count < 0 || (count === 0 && commentary.length === 0)) return undefined;
   const out: TurnDetailMetadata = { count };
   const toolCount = Number(detail.toolCount ?? detail.tool_count ?? 0);
   const thinkingCount = Number(detail.thinkingCount ?? detail.thinking_count ?? 0);
@@ -87,6 +101,7 @@ function readTurnDetails(raw: any): TurnDetailMetadata | undefined {
   const beforeId = String(detail.beforeId ?? detail.before_id ?? '').trim();
   if (afterId) out.afterId = afterId;
   if (beforeId) out.beforeId = beforeId;
+  if (commentary.length) out.commentary = commentary;
   return out;
 }
 
