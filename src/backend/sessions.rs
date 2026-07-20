@@ -10,7 +10,19 @@ async fn sessions_search(
     let limit = query.limit.unwrap_or(80).clamp(1, 100);
     let q = query.q.unwrap_or_default();
     let hide_cron_cli = query.hide_cron_cli.unwrap_or(false);
-    match fetch_sessions_from_api_server(&state, &q, limit, hide_cron_cli).await {
+    let data = if hide_cron_cli && q.trim().is_empty() {
+        match fetch_filtered_sidebar_sessions_from_local_db(&state, limit) {
+            Ok(Some(rows)) => Ok(rows),
+            Ok(None) => fetch_sessions_from_api_server(&state, &q, limit, true).await,
+            Err(err) => {
+                warn!(error = %err, "cannot read filtered sidebar sessions from local metadata");
+                fetch_sessions_from_api_server(&state, &q, limit, true).await
+            }
+        }
+    } else {
+        fetch_sessions_from_api_server(&state, &q, limit, hide_cron_cli).await
+    };
+    match data {
         Ok(data) => Json(serde_json::json!({
             "object": "list",
             "data": data,
@@ -220,50 +232,159 @@ async fn fetch_sessions_from_api_server(
     };
 
     loop {
-        let url = api_sessions_url(&state.api_url, page_size, offset, trimmed, hide_cron_cli)?;
-        let mut req = state.client.get(url);
-        if let Some(key) = &state.api_key
-            && !key.is_empty()
-        {
-            req = req.bearer_auth(key);
-        }
-        let resp = timeout(API_SESSION_REQUEST_TIMEOUT, req.send()).await??;
-        if !resp.status().is_success() {
-            anyhow::bail!("session list request failed: {}", resp.status());
-        }
-        let body = resp.json::<serde_json::Value>().await?;
-        let data = body
-            .get("data")
-            .and_then(|value| value.as_array())
-            .cloned()
-            .unwrap_or_default();
-        let data_len = data.len();
-        for row in data {
-            if !is_client_visible_session(&row, hide_cron_cli) {
-                continue;
-            }
-            rows.push(row);
-        }
-        let mut visible_rows = session_rows_with_local_previews(state, rows.clone());
-        if visible_rows.len() >= limit {
+        let batch_width = if hide_cron_cli && offset > 0 { 4 } else { 1 };
+        let offsets = (0..batch_width)
+            .map(|index| offset.saturating_add(index * page_size))
+            .take_while(|page_offset| *page_offset < max_scan)
+            .collect::<Vec<_>>();
+        if offsets.is_empty() {
+            let mut visible_rows = session_rows_with_local_previews(state, rows);
             visible_rows.truncate(limit);
             return Ok(visible_rows);
         }
+        let pages = futures_util::future::join_all(offsets.iter().map(|page_offset| {
+            fetch_api_session_page(state, page_size, *page_offset, trimmed)
+        }))
+        .await;
 
-        let has_more = body
-            .get("has_more")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(data_len == page_size);
-        offset = offset.saturating_add(page_size);
-        if (trimmed.is_empty() && !hide_cron_cli)
-            || !has_more
-            || data_len == 0
-            || offset >= max_scan
-        {
-            visible_rows.truncate(limit);
-            return Ok(visible_rows);
+        for (page_offset, page) in offsets.into_iter().zip(pages) {
+            let page = page?;
+            let data_len = page.data.len();
+            for row in page.data {
+                if is_client_visible_session(&row, hide_cron_cli) {
+                    rows.push(row);
+                }
+            }
+            let mut visible_rows = session_rows_with_local_previews(state, rows.clone());
+            if visible_rows.len() >= limit {
+                visible_rows.truncate(limit);
+                return Ok(visible_rows);
+            }
+
+            offset = page_offset.saturating_add(page_size);
+            if (trimmed.is_empty() && !hide_cron_cli)
+                || !page.has_more
+                || data_len == 0
+                || offset >= max_scan
+            {
+                visible_rows.truncate(limit);
+                return Ok(visible_rows);
+            }
         }
     }
+}
+
+fn fetch_filtered_sidebar_sessions_from_local_db(
+    state: &AppState,
+    limit: usize,
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(
+        &conn,
+        "sessions",
+        &[
+            "id",
+            "source",
+            "model",
+            "model_config",
+            "billing_provider",
+            "parent_session_id",
+            "started_at",
+            "ended_at",
+            "end_reason",
+            "message_count",
+            "title",
+            "archived",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let mut statement = conn.prepare(
+        "SELECT id, source, model, model_config, billing_provider,
+                started_at, ended_at, message_count, title
+         FROM sessions
+         WHERE parent_session_id IS NULL
+           AND COALESCE(archived, 0) = 0
+           AND (source IS NULL OR source NOT IN ('tool', 'cron', 'cli'))
+         ORDER BY started_at DESC
+         LIMIT ?1",
+    )?;
+    let mapped = statement.query_map([API_SESSION_SOURCE_FILTER_SCAN_LIMIT as i64], |row| {
+        let model_config: Option<String> = row.get(3)?;
+        let billing_provider: Option<String> = row.get(4)?;
+        let provider = model_config
+            .as_deref()
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+            .and_then(|value| {
+                value
+                    .pointer("/gateway_runtime/provider")
+                    .and_then(|provider| provider.as_str())
+                    .map(str::to_string)
+            })
+            .or_else(|| billing_provider.filter(|value| !value.trim().is_empty()));
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "source": row.get::<_, Option<String>>(1)?,
+            "model": row.get::<_, Option<String>>(2)?,
+            "provider": provider,
+            "started_at": row.get::<_, Option<f64>>(5)?,
+            "ended_at": row.get::<_, Option<f64>>(6)?,
+            "message_count": row.get::<_, Option<i64>>(7)?.unwrap_or_default(),
+            "title": row.get::<_, Option<String>>(8)?,
+        }))
+    })?;
+    let mut rows = mapped.collect::<rusqlite::Result<Vec<_>>>()?;
+    if let Err(err) = filter_session_rows_shadowed_by_local_successors(state, &mut rows) {
+        warn!(error = %err, "cannot filter stitched predecessor sessions from local metadata");
+    }
+    rows.truncate(limit);
+    sanitize_session_row_previews(&mut rows);
+    Ok(Some(rows))
+}
+
+struct ApiSessionPage {
+    data: Vec<serde_json::Value>,
+    has_more: bool,
+}
+
+async fn fetch_api_session_page(
+    state: &AppState,
+    page_size: usize,
+    offset: usize,
+    query: &str,
+) -> anyhow::Result<ApiSessionPage> {
+    let url = api_sessions_url(&state.api_url, page_size, offset, query)?;
+    let mut req = state.client.get(url);
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        req = req.bearer_auth(key);
+    }
+    let resp = timeout(API_SESSION_REQUEST_TIMEOUT, req.send()).await??;
+    if !resp.status().is_success() {
+        anyhow::bail!("session list request failed: {}", resp.status());
+    }
+    let body = resp.json::<serde_json::Value>().await?;
+    let data = body
+        .get("data")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let has_more = body
+        .get("has_more")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(data.len() == page_size);
+    Ok(ApiSessionPage { data, has_more })
 }
 
 fn api_sessions_url(
@@ -271,16 +392,12 @@ fn api_sessions_url(
     limit: usize,
     offset: usize,
     query: &str,
-    hide_cron_cli: bool,
 ) -> anyhow::Result<String> {
     let mut params = vec![
         ("limit", limit.to_string()),
         ("offset", offset.to_string()),
         ("include_children", "false".to_string()),
-        (
-            "exclude_sources",
-            if hide_cron_cli { "tool,cron,cli" } else { "tool" }.to_string(),
-        ),
+        ("exclude_sources", "tool".to_string()),
     ];
     let trimmed = query.trim();
     if !trimmed.is_empty() {
@@ -369,13 +486,41 @@ fn filter_session_rows_shadowed_by_local_successors(
         .filter_map(|row| row.get("id").and_then(|value| value.as_str()).filter(|id| !id.is_empty()))
         .map(str::to_string)
         .collect::<HashSet<_>>();
-    let mut hidden = HashSet::new();
-    for session_id in &row_ids {
-        let successor_id = local_session_reset_successor_id(&conn, session_id)?;
-        if successor_id.is_some_and(|id| row_ids.contains(&id)) {
-            hidden.insert(session_id.clone());
-        }
-    }
+    let mut statement = conn.prepare(
+        "SELECT id, started_at, ended_at, end_reason, session_key, source, chat_id, thread_id
+         FROM sessions
+         ORDER BY started_at ASC",
+    )?;
+    let metadata = statement
+        .query_map([], |row| {
+            Ok(LocalSessionListMetadata {
+                id: row.get(0)?,
+                started_at: row.get(1)?,
+                ended_at: row.get(2)?,
+                end_reason: row.get(3)?,
+                session_key: row.get(4)?,
+                source: row.get(5)?,
+                chat_id: row.get(6)?,
+                thread_id: row.get(7)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let metadata_by_id = metadata
+        .iter()
+        .enumerate()
+        .map(|(index, session)| (session.id.as_str(), index))
+        .collect::<HashMap<_, _>>();
+    let hidden = row_ids
+        .iter()
+        .filter(|session_id| {
+            let Some(index) = metadata_by_id.get(session_id.as_str()) else {
+                return false;
+            };
+            local_session_reset_successor_from_metadata(&metadata[*index], &metadata)
+                .is_some_and(|successor_id| row_ids.contains(successor_id))
+        })
+        .cloned()
+        .collect::<HashSet<_>>();
     if hidden.is_empty() {
         return Ok(());
     }
@@ -383,11 +528,73 @@ fn filter_session_rows_shadowed_by_local_successors(
     Ok(())
 }
 
+struct LocalSessionListMetadata {
+    id: String,
+    started_at: f64,
+    ended_at: Option<f64>,
+    end_reason: Option<String>,
+    session_key: Option<String>,
+    source: Option<String>,
+    chat_id: Option<String>,
+    thread_id: Option<String>,
+}
+
+fn local_session_reset_successor_from_metadata<'a>(
+    current: &LocalSessionListMetadata,
+    sessions: &'a [LocalSessionListMetadata],
+) -> Option<&'a str> {
+    let ended_at = current.ended_at?;
+    if !matches!(current.end_reason.as_deref(), Some("session_reset" | "agent_close")) {
+        return None;
+    }
+    if let Some(session_key) = current.session_key.as_deref().filter(|value| !value.trim().is_empty()) {
+        return sessions
+            .iter()
+            .find(|candidate| {
+                candidate.id != current.id
+                    && candidate.started_at >= ended_at - 1.0
+                    && candidate.session_key.as_deref() == Some(session_key)
+                    && candidate.source == current.source
+                    && candidate.chat_id == current.chat_id
+                    && candidate.thread_id == current.thread_id
+            })
+            .map(|candidate| candidate.id.as_str());
+    }
+    if current.chat_id.as_deref().unwrap_or("").trim().is_empty()
+        && current.thread_id.as_deref().unwrap_or("").trim().is_empty()
+    {
+        let mut candidates = sessions.iter().filter(|candidate| {
+            candidate.id != current.id
+                && candidate.started_at >= ended_at - 0.1
+                && candidate.started_at <= ended_at + 2.0
+                && candidate.source == current.source
+        });
+        let candidate = candidates.next()?;
+        return candidates.next().is_none().then_some(candidate.id.as_str());
+    }
+    sessions
+        .iter()
+        .find(|candidate| {
+            candidate.id != current.id
+                && candidate.started_at >= ended_at - 1.0
+                && candidate.source == current.source
+                && candidate.chat_id == current.chat_id
+                && candidate.thread_id == current.thread_id
+        })
+        .map(|candidate| candidate.id.as_str())
+}
+
 fn enrich_session_previews_from_local_db(
     state: &AppState,
     rows: &mut [serde_json::Value],
 ) -> anyhow::Result<()> {
-    if rows.iter().all(session_row_has_preview) {
+    let missing_ids = rows
+        .iter()
+        .filter(|row| !session_row_has_preview(row))
+        .filter_map(|row| row.get("id").and_then(|value| value.as_str()).filter(|id| !id.is_empty()))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if missing_ids.is_empty() {
         return Ok(());
     }
     let db_path = state.hermes_home.join("state.db");
@@ -398,18 +605,54 @@ fn enrich_session_previews_from_local_db(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    if !sqlite_table_has_columns(&conn, "messages", &["session_id", "role", "content"])? {
+    if !sqlite_table_has_columns(&conn, "messages", &["id", "session_id", "role", "content"])? {
         return Ok(());
     }
     let has_active = sqlite_table_has_columns(&conn, "messages", &["active"])?;
+    let mut previews = HashMap::new();
+    for id_chunk in missing_ids.chunks(200) {
+        let placeholders = std::iter::repeat_n("?", id_chunk.len()).collect::<Vec<_>>().join(",");
+        let active_clause = if has_active { "active = 1 AND" } else { "" };
+        let sql = format!(
+            "SELECT session_id, content
+             FROM (
+                 SELECT session_id, content,
+                        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS preview_rank
+                 FROM messages
+                 WHERE {active_clause}
+                       session_id IN ({placeholders})
+                   AND role IN ('assistant', 'user')
+                   AND content IS NOT NULL
+                   AND trim(content) != ''
+             )
+             WHERE preview_rank <= 20
+             ORDER BY preview_rank ASC"
+        );
+        let mut statement = conn.prepare(&sql)?;
+        let candidates = statement.query_map(rusqlite::params_from_iter(id_chunk.iter()), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for candidate in candidates {
+            let (session_id, content) = candidate?;
+            if previews.contains_key(&session_id) {
+                continue;
+            }
+            let preview = session_preview_from_raw_content(&content);
+            if !preview.is_empty() {
+                previews.insert(session_id, preview);
+            }
+        }
+    }
     for row in rows.iter_mut() {
         if session_row_has_preview(row) {
             continue;
         }
-        let Some(session_id) = row.get("id").and_then(|value| value.as_str()).filter(|id| !id.is_empty()) else {
-            continue;
-        };
-        let Some(preview) = local_latest_session_preview(&conn, session_id, has_active)? else {
+        let session_id = row
+            .get("id")
+            .and_then(|value| value.as_str())
+            .filter(|id| !id.is_empty())
+            .map(str::to_string);
+        let Some(preview) = session_id.as_ref().and_then(|id| previews.get(id)).cloned() else {
             continue;
         };
         if let Some(obj) = row.as_object_mut() {
@@ -423,40 +666,6 @@ fn session_row_has_preview(row: &serde_json::Value) -> bool {
     row.get("preview")
         .and_then(|value| value.as_str())
         .is_some_and(|text| !text.trim().is_empty())
-}
-
-fn local_latest_session_preview(
-    conn: &rusqlite::Connection,
-    session_id: &str,
-    has_active: bool,
-) -> rusqlite::Result<Option<String>> {
-    let sql = if has_active {
-        "SELECT content FROM messages
-         WHERE active = 1
-           AND session_id = ?1
-           AND role IN ('assistant', 'user')
-           AND content IS NOT NULL
-           AND trim(content) != ''
-         ORDER BY id DESC
-         LIMIT 20"
-    } else {
-        "SELECT content FROM messages
-         WHERE session_id = ?1
-           AND role IN ('assistant', 'user')
-           AND content IS NOT NULL
-           AND trim(content) != ''
-         ORDER BY id DESC
-         LIMIT 20"
-    };
-    let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map([session_id], |row| row.get::<_, String>(0))?;
-    for row in rows {
-        let preview = session_preview_from_raw_content(&row?);
-        if !preview.is_empty() {
-            return Ok(Some(preview));
-        }
-    }
-    Ok(None)
 }
 
 fn strip_gateway_sender_prefix(text: &str) -> &str {

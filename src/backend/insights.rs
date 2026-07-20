@@ -724,7 +724,6 @@ async fn fetch_sessions_for_insights_snapshot(state: &AppState) -> anyhow::Resul
             INSIGHTS_PAGE_SIZE,
             offset,
             "",
-            false,
         )?;
         let mut req = state.client.get(url);
         if let Some(key) = &state.api_key

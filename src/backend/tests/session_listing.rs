@@ -72,7 +72,7 @@
         ) -> Json<serde_json::Value> {
             assert_eq!(
                 query.get("exclude_sources").map(String::as_str),
-                Some("tool,cron,cli")
+                Some("tool")
             );
             let offset = query
                 .get("offset")
@@ -109,6 +109,127 @@
 
         assert_eq!(rows.len(), 80);
         assert!(rows.iter().all(|row| row["source"] == "telegram"));
+    }
+
+    #[tokio::test]
+    async fn session_source_filter_fetches_followup_pages_concurrently() {
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Default)]
+        struct ConcurrencyProbe {
+            active: AtomicUsize,
+            max_active: AtomicUsize,
+        }
+
+        async fn api_sessions(
+            State(probe): State<Arc<ConcurrencyProbe>>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<serde_json::Value> {
+            let active = probe.active.fetch_add(1, Ordering::SeqCst) + 1;
+            probe.max_active.fetch_max(active, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            probe.active.fetch_sub(1, Ordering::SeqCst);
+            let offset = query
+                .get("offset")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or_default();
+            let rows = (0..200)
+                .map(|index| {
+                    let ordinary = index < 10;
+                    serde_json::json!({
+                        "id": format!("{}-{offset}-{index}", if ordinary { "normal" } else { "cron" }),
+                        "source": if ordinary { "telegram" } else { "cron" },
+                    })
+                })
+                .collect::<Vec<_>>();
+            Json(serde_json::json!({
+                "data": rows,
+                "has_more": offset < 1_400,
+            }))
+        }
+
+        let probe = Arc::new(ConcurrencyProbe::default());
+        let app = Router::new()
+            .route("/api/sessions", get(api_sessions))
+            .with_state(probe.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let rows = fetch_sessions_from_api_server(&state, "", 80, true)
+            .await
+            .unwrap();
+
+        assert_eq!(rows.len(), 80);
+        assert!(probe.max_active.load(Ordering::SeqCst) >= 2);
+    }
+
+    #[test]
+    fn local_filtered_sidebar_query_excludes_sources_before_the_limit() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let mut conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                source TEXT,
+                model TEXT,
+                model_config TEXT,
+                billing_provider TEXT,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                message_count INTEGER,
+                title TEXT,
+                archived INTEGER,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+            );",
+        )
+        .unwrap();
+        let transaction = conn.transaction().unwrap();
+        for index in 0..120 {
+            transaction
+                .execute(
+                    "INSERT INTO sessions
+                     (id, source, model, started_at, message_count, title, archived)
+                     VALUES (?1, 'cron', 'cron-model', ?2, 1, 'scheduled', 0)",
+                    rusqlite::params![format!("cron-{index}"), 1_000.0 + index as f64],
+                )
+                .unwrap();
+        }
+        for index in 0..90 {
+            transaction
+                .execute(
+                    "INSERT INTO sessions
+                     (id, source, model, model_config, billing_provider, started_at, message_count, title, archived)
+                     VALUES (?1, 'telegram', 'chat-model', ?2, 'fallback-provider', ?3, 2, ?4, 0)",
+                    rusqlite::params![
+                        format!("normal-{index}"),
+                        r#"{"gateway_runtime":{"provider":"chat-provider"}}"#,
+                        10.0 + index as f64,
+                        format!("ordinary {index}"),
+                    ],
+                )
+                .unwrap();
+        }
+        transaction.commit().unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:9".to_string(), temp.path());
+
+        let rows = fetch_filtered_sidebar_sessions_from_local_db(&state, 80)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(rows.len(), 80);
+        assert!(rows.iter().all(|row| row["source"] == "telegram"));
+        assert_eq!(rows[0]["id"], "normal-89");
+        assert_eq!(rows[0]["provider"], "chat-provider");
     }
 
     #[test]
