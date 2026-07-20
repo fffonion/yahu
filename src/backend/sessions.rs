@@ -1,5 +1,6 @@
 const API_SESSION_PAGE_SIZE: usize = 200;
 const API_SESSION_SEARCH_SCAN_LIMIT: usize = 2_000;
+const API_SESSION_SOURCE_FILTER_SCAN_LIMIT: usize = 10_000;
 const API_SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 
 async fn sessions_search(
@@ -8,7 +9,8 @@ async fn sessions_search(
 ) -> Response<Body> {
     let limit = query.limit.unwrap_or(80).clamp(1, 100);
     let q = query.q.unwrap_or_default();
-    match fetch_sessions_from_api_server(&state, &q, limit).await {
+    let hide_cron_cli = query.hide_cron_cli.unwrap_or(false);
+    match fetch_sessions_from_api_server(&state, &q, limit, hide_cron_cli).await {
         Ok(data) => Json(serde_json::json!({
             "object": "list",
             "data": data,
@@ -199,23 +201,26 @@ async fn fetch_sessions_from_api_server(
     state: &AppState,
     query: &str,
     limit: usize,
+    hide_cron_cli: bool,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
     let trimmed = query.trim();
     let mut offset = 0usize;
     let mut rows = Vec::new();
-    let page_size = if trimmed.is_empty() {
+    let page_size = if trimmed.is_empty() && !hide_cron_cli {
         limit.saturating_mul(2).clamp(1, API_SESSION_PAGE_SIZE)
     } else {
         API_SESSION_PAGE_SIZE
     };
-    let max_scan = if trimmed.is_empty() {
+    let max_scan = if hide_cron_cli {
+        API_SESSION_SOURCE_FILTER_SCAN_LIMIT.max(limit)
+    } else if trimmed.is_empty() {
         API_SESSION_PAGE_SIZE
     } else {
         API_SESSION_SEARCH_SCAN_LIMIT.max(limit)
     };
 
     loop {
-        let url = api_sessions_url(&state.api_url, page_size, offset, trimmed)?;
+        let url = api_sessions_url(&state.api_url, page_size, offset, trimmed, hide_cron_cli)?;
         let mut req = state.client.get(url);
         if let Some(key) = &state.api_key
             && !key.is_empty()
@@ -234,13 +239,15 @@ async fn fetch_sessions_from_api_server(
             .unwrap_or_default();
         let data_len = data.len();
         for row in data {
-            if !is_client_visible_session(&row) {
+            if !is_client_visible_session(&row, hide_cron_cli) {
                 continue;
             }
             rows.push(row);
-            if rows.len() >= limit {
-                return Ok(session_rows_with_local_previews(state, rows));
-            }
+        }
+        let mut visible_rows = session_rows_with_local_previews(state, rows.clone());
+        if visible_rows.len() >= limit {
+            visible_rows.truncate(limit);
+            return Ok(visible_rows);
         }
 
         let has_more = body
@@ -248,8 +255,13 @@ async fn fetch_sessions_from_api_server(
             .and_then(|value| value.as_bool())
             .unwrap_or(data_len == page_size);
         offset = offset.saturating_add(page_size);
-        if trimmed.is_empty() || !has_more || data_len == 0 || offset >= max_scan {
-            return Ok(session_rows_with_local_previews(state, rows));
+        if (trimmed.is_empty() && !hide_cron_cli)
+            || !has_more
+            || data_len == 0
+            || offset >= max_scan
+        {
+            visible_rows.truncate(limit);
+            return Ok(visible_rows);
         }
     }
 }
@@ -259,11 +271,16 @@ fn api_sessions_url(
     limit: usize,
     offset: usize,
     query: &str,
+    hide_cron_cli: bool,
 ) -> anyhow::Result<String> {
     let mut params = vec![
         ("limit", limit.to_string()),
         ("offset", offset.to_string()),
         ("include_children", "false".to_string()),
+        (
+            "exclude_sources",
+            if hide_cron_cli { "tool,cron,cli" } else { "tool" }.to_string(),
+        ),
     ];
     let trimmed = query.trim();
     if !trimmed.is_empty() {
@@ -276,10 +293,10 @@ fn api_sessions_url(
     ))
 }
 
-fn is_client_visible_session(row: &serde_json::Value) -> bool {
+fn is_client_visible_session(row: &serde_json::Value, hide_cron_cli: bool) -> bool {
     row.get("source")
         .and_then(|value| value.as_str())
-        .map(|source| source != "tool")
+        .map(|source| source != "tool" && (!hide_cron_cli || !matches!(source, "cron" | "cli")))
         .unwrap_or(true)
 }
 

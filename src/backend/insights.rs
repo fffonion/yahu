@@ -719,7 +719,13 @@ async fn fetch_sessions_for_insights_snapshot(state: &AppState) -> anyhow::Resul
     let mut rows = Vec::new();
     let mut offset = 0usize;
     loop {
-        let url = api_sessions_url(state.api_url.trim_end_matches('/'), INSIGHTS_PAGE_SIZE, offset, "")?;
+        let url = api_sessions_url(
+            state.api_url.trim_end_matches('/'),
+            INSIGHTS_PAGE_SIZE,
+            offset,
+            "",
+            false,
+        )?;
         let mut req = state.client.get(url);
         if let Some(key) = &state.api_key
             && !key.is_empty()
@@ -737,7 +743,7 @@ async fn fetch_sessions_for_insights_snapshot(state: &AppState) -> anyhow::Resul
             .cloned()
             .unwrap_or_default();
         let data_len = data.len();
-        rows.extend(data.into_iter().filter(is_client_visible_session));
+        rows.extend(data.into_iter().filter(|row| is_client_visible_session(row, false)));
         let has_more = body
             .get("has_more")
             .and_then(|value| value.as_bool())

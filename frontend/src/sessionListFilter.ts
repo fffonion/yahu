@@ -6,11 +6,9 @@ export type SidebarSession = {
 export function splitSidebarSessions<T extends SidebarSession>(
   sessions: T[],
   pinnedIds: Set<string>,
-  hideCronSessions = false,
 ) {
-  const visibleSessions = hideCronSessions ? sessions.filter((session) => session.source !== 'cron' && session.source !== 'cli') : sessions;
   return {
-    pinned: visibleSessions.filter((session) => pinnedIds.has(session.id)),
-    normal: visibleSessions.filter((session) => !pinnedIds.has(session.id)),
+    pinned: sessions.filter((session) => pinnedIds.has(session.id)),
+    normal: sessions.filter((session) => !pinnedIds.has(session.id)),
   };
 }

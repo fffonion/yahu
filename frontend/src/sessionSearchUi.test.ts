@@ -15,6 +15,13 @@ describe('session search and composer session model UI', () => {
     expect(app).not.toContain("`${s.title || ''} ${s.preview || ''}`");
   });
 
+  test('session source filter is sent to the backend before pagination', () => {
+    const app = source();
+    expect(app).toContain("if (hideCronSessions) params.set('hide_cron_cli', 'true');");
+    expect(app).toContain('splitSidebarSessions(sessions, pinnedIds)');
+    expect(app).not.toContain('splitSidebarSessions(sessions, pinnedIds, hideCronSessions)');
+  });
+
   test('new conversation and cron filter are icon buttons beside the search field', () => {
     const app = source();
     const css = styles();

@@ -210,6 +210,7 @@ struct ChatMessagesQuery {
 struct SessionSearchQuery {
     q: Option<String>,
     limit: Option<usize>,
+    hide_cron_cli: Option<bool>,
 }
 
 pub async fn run() -> anyhow::Result<()> {

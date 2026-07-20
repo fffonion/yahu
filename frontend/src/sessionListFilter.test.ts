@@ -13,16 +13,16 @@ describe('session list source filter', () => {
   ];
 
   test('defaults to showing cron and CLI sessions', () => {
-    const result = splitSidebarSessions(sessions, new Set(['cron-1', 'cli-1']), false);
+    const result = splitSidebarSessions(sessions, new Set(['cron-1', 'cli-1']));
 
     expect(result.pinned.map((session) => session.id)).toEqual(['cron-1', 'cli-1']);
     expect(result.normal.map((session) => session.id)).toEqual(['normal-1', 'normal-2', 'cron-2', 'cli-2', 'tui-1']);
   });
 
-  test('hides cron and CLI sessions from pinned and recent groups together', () => {
-    const result = splitSidebarSessions(sessions, new Set(['cron-1', 'cli-1', 'normal-2']), true);
+  test('source filtering is left to the backend before pagination', () => {
+    const result = splitSidebarSessions(sessions, new Set(['cron-1', 'cli-1', 'normal-2']));
 
-    expect(result.pinned.map((session) => session.id)).toEqual(['normal-2']);
-    expect(result.normal.map((session) => session.id)).toEqual(['normal-1', 'tui-1']);
+    expect(result.pinned.map((session) => session.id)).toEqual(['cron-1', 'cli-1', 'normal-2']);
+    expect(result.normal.map((session) => session.id)).toEqual(['normal-1', 'cron-2', 'cli-2', 'tui-1']);
   });
 });

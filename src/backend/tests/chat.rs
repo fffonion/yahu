@@ -330,7 +330,7 @@
         let temp = tempfile::tempdir().unwrap();
         let state = test_app_state(format!("http://{addr}"), temp.path());
 
-        let rows = fetch_sessions_from_api_server(&state, "cache", 10)
+        let rows = fetch_sessions_from_api_server(&state, "cache", 10, false)
             .await
             .unwrap();
 

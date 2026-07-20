@@ -53,7 +53,7 @@
         let temp = tempfile::tempdir().unwrap();
         let state = test_app_state(format!("http://{addr}"), temp.path());
 
-        let rows = fetch_sessions_from_api_server(&state, "cache", 10)
+        let rows = fetch_sessions_from_api_server(&state, "cache", 10, false)
             .await
             .unwrap();
 
@@ -61,6 +61,54 @@
         assert_eq!(rows[0]["id"], "s1");
         assert_eq!(rows[0]["model"], "minimax/m3");
         assert_eq!(rows[0]["preview"], "token cache math");
+    }
+
+    #[tokio::test]
+    async fn session_source_filter_reaches_upstream_before_the_result_limit() {
+        use std::collections::HashMap;
+
+        async fn api_sessions(
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<serde_json::Value> {
+            assert_eq!(
+                query.get("exclude_sources").map(String::as_str),
+                Some("tool,cron,cli")
+            );
+            let offset = query
+                .get("offset")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or_default();
+            let rows = (0..160)
+                .map(|index| {
+                    let ordinary = index < 10;
+                    serde_json::json!({
+                        "id": format!("{}-{offset}-{index}", if ordinary { "normal" } else { "cron" }),
+                        "source": if ordinary { "telegram" } else { "cron" },
+                        "started_at": 10_000 - offset - index,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Json(serde_json::json!({
+                "object": "list",
+                "data": rows,
+                "total": 1_600,
+                "has_more": offset < 1_400,
+            }))
+        }
+
+        let app = Router::new().route("/api/sessions", get(api_sessions));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let rows = fetch_sessions_from_api_server(&state, "", 80, true)
+            .await
+            .unwrap();
+
+        assert_eq!(rows.len(), 80);
+        assert!(rows.iter().all(|row| row["source"] == "telegram"));
     }
 
     #[test]
@@ -142,7 +190,7 @@
         drop(conn);
         let state = test_app_state(format!("http://{addr}"), temp.path());
 
-        let rows = fetch_sessions_from_api_server(&state, "", 10)
+        let rows = fetch_sessions_from_api_server(&state, "", 10, false)
             .await
             .unwrap();
 
