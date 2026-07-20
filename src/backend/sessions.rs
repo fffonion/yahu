@@ -1849,6 +1849,72 @@ fn sanitized_request_dump_arguments(value: Option<&serde_json::Value>) -> String
     serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string())
 }
 
+fn request_dump_provider_items(dump: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
+    if let Some(items) = dump.pointer("/request/body/input").and_then(|value| value.as_array()) {
+        return Some(items.clone());
+    }
+
+    let provider_messages = dump.pointer("/request/body/messages").and_then(|value| value.as_array())?;
+    let mut items = Vec::new();
+    for provider_message in provider_messages {
+        let Some(role) = provider_message.get("role").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let Some(content) = provider_message.get("content") else {
+            continue;
+        };
+        if let Some(text) = content.as_str() {
+            if !text.trim().is_empty() {
+                items.push(serde_json::json!({"role": role, "content": text}));
+            }
+            continue;
+        }
+        let Some(blocks) = content.as_array() else {
+            continue;
+        };
+        for block in blocks {
+            match block.get("type").and_then(|value| value.as_str()) {
+                Some("thinking") => {
+                    let thinking = block.get("thinking").and_then(|value| value.as_str()).unwrap_or("");
+                    if !thinking.trim().is_empty() {
+                        items.push(serde_json::json!({"type": "reasoning", "summary": thinking}));
+                    }
+                }
+                Some("text") => {
+                    let text = block.get("text").and_then(|value| value.as_str()).unwrap_or("");
+                    if !text.trim().is_empty() {
+                        items.push(serde_json::json!({"role": role, "content": text}));
+                    }
+                }
+                Some("tool_use") => {
+                    let call_id = block.get("id").and_then(|value| value.as_str()).unwrap_or("");
+                    let name = block.get("name").and_then(|value| value.as_str()).unwrap_or("");
+                    if !call_id.is_empty() && !name.is_empty() {
+                        items.push(serde_json::json!({
+                            "type": "function_call",
+                            "call_id": call_id,
+                            "name": name,
+                            "arguments": block.get("input").cloned().unwrap_or_else(|| serde_json::json!({}))
+                        }));
+                    }
+                }
+                Some("tool_result") => {
+                    let call_id = block.get("tool_use_id").and_then(|value| value.as_str()).unwrap_or("");
+                    if !call_id.is_empty() {
+                        items.push(serde_json::json!({
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": block.get("content").cloned().unwrap_or(serde_json::Value::Null)
+                        }));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    (!items.is_empty()).then_some(items)
+}
+
 fn request_dump_messages(
     session_id: &str,
     dump: &serde_json::Value,
@@ -1859,12 +1925,10 @@ fn request_dump_messages(
         return None;
     }
     let dump_timestamp = request_dump_timestamp_seconds(dump)?;
-    let items = dump
-        .pointer("/request/body/input")
-        .and_then(|value| value.as_array())?;
+    let items = request_dump_provider_items(dump)?;
     let mut messages = Vec::new();
     let mut tool_names = HashMap::new();
-    for item in items {
+    for item in &items {
         let item_type = item.get("type").and_then(|value| value.as_str());
         let role = item.get("role").and_then(|value| value.as_str());
         let mut message = serde_json::Map::new();
@@ -1903,7 +1967,7 @@ fn request_dump_messages(
             }
             (Some("reasoning"), _) => {
                 let reasoning = request_dump_item_text(item.get("summary"));
-                if reasoning.is_empty() {
+                if reasoning.trim().is_empty() {
                     continue;
                 }
                 message.insert("role".to_string(), serde_json::json!("assistant"));

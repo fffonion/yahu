@@ -99,6 +99,40 @@
     }
 
     #[test]
+    fn request_dump_messages_convert_anthropic_messages_in_order() {
+        let dump = serde_json::json!({
+            "timestamp": "2026-07-20T16:19:44.784375",
+            "session_id": "s1",
+            "request": {"body": {"messages": [
+                {"role": "user", "content": "older prompt"},
+                {"role": "assistant", "content": [
+                    {"type": "thinking", "thinking": "   ", "signature": "blank-opaque-signature"},
+                    {"type": "thinking", "thinking": "provider thought", "signature": "opaque-signature"},
+                    {"type": "tool_use", "id": "tool-1", "name": "terminal", "input": {"command": "pwd", "password": "secret-value"}}
+                ]},
+                {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "tool-1", "content": [{"type": "text", "text": "tool output"}]}
+                ]},
+                {"role": "assistant", "content": [{"type": "text", "text": "older answer"}]}
+            ]}}
+        });
+
+        let (_, messages) = request_dump_messages("s1", &dump).expect("Anthropic messages should be recoverable");
+        let roles: Vec<_> = messages.iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
+        assert_eq!(roles, vec!["user", "assistant", "assistant", "tool", "assistant"]);
+        assert_eq!(messages[0]["content"], "older prompt");
+        assert_eq!(messages[1]["reasoning"], "provider thought");
+        assert_eq!(messages[2]["tool_calls"][0]["function"]["name"], "terminal");
+        assert_eq!(messages[3]["tool_name"], "terminal");
+        assert_eq!(messages[3]["content"], "tool output");
+        assert_eq!(messages[4]["content"], "older answer");
+        let serialized = serde_json::to_string(&messages).unwrap();
+        assert!(!serialized.contains("opaque-signature"));
+        assert!(!serialized.contains("secret-value"));
+        assert!(serialized.contains("[REDACTED]"));
+    }
+
+    #[test]
     fn session_preview_removes_gateway_sender_prefix() {
         assert_eq!(
             session_preview_from_raw_content(
