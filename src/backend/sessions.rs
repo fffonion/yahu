@@ -348,6 +348,9 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
         warn!(error = %err, "cannot filter stitched predecessor sessions from local metadata");
     }
     rows.truncate(limit);
+    if let Err(err) = enrich_session_previews_from_local_db(state, &mut rows) {
+        warn!(error = %err, "cannot enrich filtered session list previews from local message history");
+    }
     sanitize_session_row_previews(&mut rows);
     Ok(Some(rows))
 }
@@ -609,6 +612,14 @@ fn enrich_session_previews_from_local_db(
         return Ok(());
     }
     let has_active = sqlite_table_has_columns(&conn, "messages", &["active"])?;
+    let has_tool_calls = sqlite_table_has_columns(&conn, "messages", &["tool_calls"])?;
+    let has_finish_reason = sqlite_table_has_columns(&conn, "messages", &["finish_reason"])?;
+    let preview_role_clause = match (has_tool_calls, has_finish_reason) {
+        (true, true) => "(role = 'user' OR (role = 'assistant' AND (tool_calls IS NULL OR trim(tool_calls) IN ('', '[]', '{}', 'null')) AND (finish_reason IS NULL OR lower(trim(finish_reason)) NOT IN ('tool_calls', 'function_call'))))",
+        (true, false) => "(role = 'user' OR (role = 'assistant' AND (tool_calls IS NULL OR trim(tool_calls) IN ('', '[]', '{}', 'null'))))",
+        (false, true) => "(role = 'user' OR (role = 'assistant' AND (finish_reason IS NULL OR lower(trim(finish_reason)) NOT IN ('tool_calls', 'function_call'))))",
+        (false, false) => "role IN ('assistant', 'user')",
+    };
     let mut previews = HashMap::new();
     for id_chunk in missing_ids.chunks(200) {
         let placeholders = std::iter::repeat_n("?", id_chunk.len()).collect::<Vec<_>>().join(",");
@@ -621,7 +632,7 @@ fn enrich_session_previews_from_local_db(
                  FROM messages
                  WHERE {active_clause}
                        session_id IN ({placeholders})
-                   AND role IN ('assistant', 'user')
+                   AND ({preview_role_clause})
                    AND content IS NOT NULL
                    AND trim(content) != ''
              )

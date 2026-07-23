@@ -168,12 +168,19 @@
     }
 
     #[test]
-    fn local_filtered_sidebar_query_excludes_sources_before_the_limit() {
+    fn local_filtered_sidebar_query_excludes_sources_and_enriches_previews() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");
         let mut conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(
-            "CREATE TABLE sessions (
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );
+             CREATE TABLE sessions (
                 id TEXT PRIMARY KEY,
                 source TEXT,
                 model TEXT,
@@ -218,6 +225,8 @@
                 )
                 .unwrap();
         }
+        transaction.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('normal-89','user','latest question',1)", []).unwrap();
+        transaction.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('normal-89','assistant','latest final answer',1)", []).unwrap();
         transaction.commit().unwrap();
         drop(conn);
         let state = test_app_state("http://127.0.0.1:9".to_string(), temp.path());
@@ -230,6 +239,7 @@
         assert!(rows.iter().all(|row| row["source"] == "telegram"));
         assert_eq!(rows[0]["id"], "normal-89");
         assert_eq!(rows[0]["provider"], "chat-provider");
+        assert_eq!(rows[0]["preview"], "latest final answer");
     }
 
     #[test]
@@ -283,7 +293,8 @@
             Json(serde_json::json!({
                 "object": "list",
                 "data": [
-                    {"id":"s1","source":"telegram","title":"Needs preview","started_at":1.0,"message_count":3}
+                    {"id":"s1","source":"telegram","title":"Needs preview","started_at":1.0,"message_count":3},
+                    {"id":"s2","source":"telegram","title":"Incomplete turn","started_at":2.0,"message_count":2}
                 ],
                 "has_more": false
             }))
@@ -302,12 +313,16 @@
                 session_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT,
+                tool_calls TEXT,
+                finish_reason TEXT,
                 active INTEGER NOT NULL DEFAULT 1
              );",
         ).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('s1','user','first prompt',1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('s1','tool','tool output should not be preview',1)", []).unwrap();
-        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('s1','assistant','latest answer from rust',1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,finish_reason,active) VALUES ('s1','assistant','latest answer from rust','stop',1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('s2','user','unfinished question',1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,finish_reason,active) VALUES ('s2','assistant','intermediate commentary','[{\"id\":\"call_1\"}]','tool_calls',1)", []).unwrap();
         drop(conn);
         let state = test_app_state(format!("http://{addr}"), temp.path());
 
@@ -315,8 +330,9 @@
             .await
             .unwrap();
 
-        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["preview"], "latest answer from rust");
+        assert_eq!(rows[1]["preview"], "unfinished question");
     }
 
     #[test]
