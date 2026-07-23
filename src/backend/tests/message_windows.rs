@@ -27,9 +27,11 @@
         conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','do it',1,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,reasoning_content,reasoning_details,codex_reasoning_items,timestamp,active) VALUES ('s1','assistant','I will inspect','[{\"id\":\"call_1\"}]','plan','[{\"type\":\"thinking\",\"thinking\":\"provider thought\",\"signature\":\"opaque-signature\"}]','[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"provider summary\"}],\"encrypted_content\":\"opaque-encrypted-payload\"}]',2,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','{\"ok\":true}','terminal',3,1)", []).unwrap();
-        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','assistant','final answer',4,1)", []).unwrap();
-        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','next prompt',5,1)", []).unwrap();
-        conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','unfinished detail','terminal',6,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,timestamp,active) VALUES ('s1','assistant','I will verify','[{\"id\":\"call_2\"}]',4,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','{\"verified\":true}','browser',5,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','assistant','final answer',6,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','next prompt',7,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','unfinished detail','terminal',8,1)", []).unwrap();
         drop(conn);
         let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
 
@@ -46,16 +48,28 @@
 
         assert_eq!(skeleton_roles, vec!["user", "assistant", "user", "tool"]);
         assert_eq!(skeleton_texts, vec!["do it", "final answer", "next prompt", "unfinished detail"]);
-        assert_eq!(skeleton_data[1]["turn_details"]["count"], 1);
-        assert_eq!(skeleton_data[1]["turn_details"]["tool_count"], 1);
+        assert_eq!(skeleton_data[1]["turn_details"]["count"], 2);
+        assert_eq!(skeleton_data[1]["turn_details"]["tool_count"], 2);
         assert_eq!(skeleton_data[1]["turn_details"]["thinking_count"], 0);
         assert_eq!(skeleton_data[1]["turn_details"]["after_id"], "1");
-        assert_eq!(skeleton_data[1]["turn_details"]["before_id"], "4");
-        assert_eq!(skeleton_data[1]["turn_details"]["commentary"].as_array().unwrap().len(), 1);
+        assert_eq!(skeleton_data[1]["turn_details"]["before_id"], "6");
+        assert_eq!(skeleton_data[1]["turn_details"]["commentary"].as_array().unwrap().len(), 2);
         assert_eq!(skeleton_data[1]["turn_details"]["commentary"][0]["id"], 2);
         assert_eq!(skeleton_data[1]["turn_details"]["commentary"][0]["role"], "assistant");
         assert_eq!(skeleton_data[1]["turn_details"]["commentary"][0]["content"], "I will inspect");
         assert!(skeleton_data[1]["turn_details"]["commentary"][0].get("tool_calls").is_none());
+        assert_eq!(skeleton_data[1]["turn_details"]["commentary"][1]["id"], 4);
+        assert_eq!(skeleton_data[1]["turn_details"]["commentary"][1]["content"], "I will verify");
+        let timeline = skeleton_data[1]["turn_details"]["timeline"].as_array().unwrap();
+        assert_eq!(timeline.iter().map(|item| item["kind"].as_str().unwrap_or("")).collect::<Vec<_>>(), vec!["commentary", "detail", "commentary", "detail"]);
+        assert_eq!(timeline[0]["message"]["id"], 2);
+        assert_eq!(timeline[1]["count"], 1);
+        assert_eq!(timeline[1]["after_id"], "2");
+        assert_eq!(timeline[1]["before_id"], "4");
+        assert_eq!(timeline[2]["message"]["id"], 4);
+        assert_eq!(timeline[3]["count"], 1);
+        assert_eq!(timeline[3]["after_id"], "4");
+        assert_eq!(timeline[3]["before_id"], "6");
         assert_eq!(skeleton_data[1]["reasoning"], "plan\nprovider thought\nprovider summary");
         assert!(!skeleton_data[1].to_string().contains("opaque-signature"));
         assert!(!skeleton_data[1].to_string().contains("opaque-encrypted-payload"));
@@ -69,18 +83,18 @@
         let default_page: serde_json::Value = serde_json::from_slice(&default_body).unwrap();
         let default_roles: Vec<_> = default_page["data"].as_array().unwrap().iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
         assert_eq!(default_roles, skeleton_roles);
-        assert_eq!(default_page["data"].as_array().unwrap()[1]["turn_details"]["count"], 1);
+        assert_eq!(default_page["data"].as_array().unwrap()[1]["turn_details"]["count"], 2);
         assert_eq!(default_page["data"].as_array().unwrap()[1]["turn_details"]["commentary"][0]["content"], "I will inspect");
 
         let details = chat_messages_page(
             State(state),
             AxumPath("s1".to_string()),
-            Query(ChatMessagesQuery { before: Some(4), after: Some(1), around: None, limit: Some(20), view: Some("details".to_string()) }),
+            Query(ChatMessagesQuery { before: Some(6), after: Some(1), around: None, limit: Some(20), view: Some("details".to_string()) }),
         ).await;
         let details_body = axum::body::to_bytes(details.into_body(), usize::MAX).await.unwrap();
         let details_page: serde_json::Value = serde_json::from_slice(&details_body).unwrap();
         let details_texts: Vec<_> = details_page["data"].as_array().unwrap().iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
-        assert_eq!(details_texts, vec!["I will inspect", "{\"ok\":true}"]);
+        assert_eq!(details_texts, vec!["I will inspect", "{\"ok\":true}", "I will verify", "{\"verified\":true}"]);
         assert_eq!(details_page["data"].as_array().unwrap()[0]["reasoning"], "plan\nprovider thought\nprovider summary");
     }
 

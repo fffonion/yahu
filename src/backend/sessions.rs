@@ -812,6 +812,63 @@ fn turn_commentary_message(message: &serde_json::Value) -> serde_json::Value {
     serde_json::Value::Object(commentary)
 }
 
+fn turn_detail_segment(
+    hidden: &[&serde_json::Value],
+    after_id: &str,
+    before_id: &str,
+) -> serde_json::Value {
+    let tool_count = hidden
+        .iter()
+        .filter(|message| message_role(message) == "tool")
+        .count();
+    let thinking_count = hidden
+        .iter()
+        .filter(|message| message_has_reasoning(message))
+        .count();
+    serde_json::json!({
+        "kind": "detail",
+        "count": hidden.len(),
+        "tool_count": tool_count,
+        "thinking_count": thinking_count,
+        "after_id": after_id,
+        "before_id": before_id,
+    })
+}
+
+fn turn_detail_timeline(
+    details: &[serde_json::Value],
+    after_id: &str,
+    before_id: &str,
+) -> Option<Vec<serde_json::Value>> {
+    let mut timeline = Vec::new();
+    let mut hidden = Vec::new();
+    let mut segment_after = after_id.to_string();
+    let mut saw_commentary = false;
+
+    for message in details {
+        if is_visible_tool_commentary(message) {
+            let commentary_id = nav_message_id(message)?;
+            if !hidden.is_empty() {
+                timeline.push(turn_detail_segment(&hidden, &segment_after, &commentary_id));
+                hidden.clear();
+            }
+            timeline.push(serde_json::json!({
+                "kind": "commentary",
+                "message": turn_commentary_message(message),
+            }));
+            segment_after = commentary_id;
+            saw_commentary = true;
+        } else {
+            hidden.push(message);
+        }
+    }
+
+    if !hidden.is_empty() {
+        timeline.push(turn_detail_segment(&hidden, &segment_after, before_id));
+    }
+    saw_commentary.then_some(timeline)
+}
+
 fn annotate_turn_details(final_message: &mut serde_json::Value, details: &[serde_json::Value], after_id: Option<String>) {
     if details.is_empty() {
         return;
@@ -839,6 +896,12 @@ fn annotate_turn_details(final_message: &mut serde_json::Value, details: &[serde
     detail.insert("thinking_count".to_string(), serde_json::json!(thinking_count));
     if !commentary.is_empty() {
         detail.insert("commentary".to_string(), serde_json::Value::Array(commentary));
+    }
+    if let Some(timeline) = after_id
+        .as_deref()
+        .and_then(|after| turn_detail_timeline(details, after, &before_id))
+    {
+        detail.insert("timeline".to_string(), serde_json::Value::Array(timeline));
     }
     if let Some(after_id) = after_id.filter(|id| !id.is_empty()) {
         detail.insert("after_id".to_string(), serde_json::json!(after_id));

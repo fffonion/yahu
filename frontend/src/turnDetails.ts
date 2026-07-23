@@ -16,13 +16,21 @@ export type TurnDetailCommentary = {
   provider?: string;
 };
 
-export type TurnDetailMetadata = {
+export type TurnDetailRange = {
   count: number;
   toolCount?: number;
   thinkingCount?: number;
   afterId?: string;
   beforeId?: string;
+};
+
+export type TurnDetailTimelineItem =
+  | { kind: 'commentary'; message: TurnDetailCommentary }
+  | ({ kind: 'detail' } & TurnDetailRange);
+
+export type TurnDetailMetadata = TurnDetailRange & {
   commentary?: TurnDetailCommentary[];
+  timeline?: TurnDetailTimelineItem[];
 };
 
 export type TurnDetailGroupItem<T> = {
@@ -99,37 +107,63 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
 ): Array<TurnDetailItem<T>> {
   const items: Array<TurnDetailItem<T>> = [];
   let activeAnchorId = '';
+  let activeDetailSegment = 0;
+  let activeSegmentBoundaryId = '';
   let buffer: Array<{ message: T; index: number }> = [];
 
-  const resetBuffer = () => {
+  const clearBuffer = () => {
     buffer = [];
+  };
+
+  const resetTurn = () => {
+    clearBuffer();
     activeAnchorId = '';
+    activeDetailSegment = 0;
+    activeSegmentBoundaryId = '';
   };
 
   const bufferedDetailGroupId = (finalMessage: T, finalIndex: number, detail?: TurnDetailMetadata) => {
     const anchor = activeAnchorId || detail?.afterId || ROOTLESS_ANCHOR_ID;
-    if (anchor !== ROOTLESS_ANCHOR_ID) return `turn-details:${anchor}`;
     const first = buffer[0];
-    return `turn-details:${ROOTLESS_ANCHOR_ID}:${messageId(first?.message || finalMessage, first?.index ?? finalIndex)}`;
+    const firstId = messageId(first?.message || finalMessage, first?.index ?? finalIndex);
+    const base = anchor === ROOTLESS_ANCHOR_ID
+      ? `turn-details:${ROOTLESS_ANCHOR_ID}:${firstId}`
+      : `turn-details:${anchor}`;
+    if (activeDetailSegment === 0) return base;
+    const boundary = detail?.afterId || activeSegmentBoundaryId || firstId;
+    return `${base}:segment:${boundary}`;
   };
 
-  const pushBufferedDetailGroup = (id: string, finalMessage: T, finalIndex: number, detail?: TurnDetailMetadata, options?: { defaultOpen?: boolean }) => {
+  const pushBufferedDetailGroup = (
+    id: string,
+    finalMessage: T,
+    finalIndex: number,
+    detail?: TurnDetailMetadata,
+    options?: { defaultOpen?: boolean; preserveTurn?: boolean },
+  ) => {
+    const savedAnchor = activeAnchorId;
     items.push({
       kind: 'detailGroup',
       id,
       messages: buffer.map((entry) => entry.message),
-      sourceIndexes: buffer.map((entry) => entry.index),
+      sourceIndexes: buffer.length ? buffer.map((entry) => entry.index) : [finalIndex],
       finalMessage,
       finalIndex,
       detail,
       defaultOpen: options?.defaultOpen || undefined,
     });
-    resetBuffer();
+    clearBuffer();
+    if (options?.preserveTurn) {
+      activeAnchorId = savedAnchor;
+      activeDetailSegment += 1;
+    } else {
+      resetTurn();
+    }
   };
 
   const flushBufferAsMessages = () => {
     for (const entry of buffer) items.push({ kind: 'message', message: entry.message, sourceIndexes: [entry.index] });
-    resetBuffer();
+    resetTurn();
   };
 
   const flushTrailingBuffer = () => {
@@ -144,9 +178,40 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
 
   const pushDetailGroup = (finalMessage: T, finalIndex: number) => {
     const detail = turnDetailMetadata(finalMessage);
+    if (detail?.timeline?.length) {
+      if (buffer.length) {
+        pushBufferedDetailGroup(
+          bufferedDetailGroupId(finalMessage, finalIndex),
+          finalMessage,
+          finalIndex,
+          undefined,
+          { preserveTurn: true },
+        );
+      }
+      for (const timelineItem of detail.timeline) {
+        if (timelineItem.kind === 'commentary') {
+          const commentaryMessage = timelineItem.message as T;
+          items.push({ kind: 'message', message: commentaryMessage, sourceIndexes: [finalIndex] });
+          activeSegmentBoundaryId = messageId(commentaryMessage, finalIndex);
+          continue;
+        }
+        const { kind: _kind, ...segmentDetail } = timelineItem;
+        const normalizedDetail: TurnDetailMetadata = segmentDetail;
+        pushBufferedDetailGroup(
+          bufferedDetailGroupId(finalMessage, finalIndex, normalizedDetail),
+          finalMessage,
+          finalIndex,
+          normalizedDetail,
+          { preserveTurn: true },
+        );
+      }
+      items.push({ kind: 'message', message: finalMessage, sourceIndexes: [finalIndex] });
+      resetTurn();
+      return;
+    }
     if (buffer.length || detail) pushBufferedDetailGroup(bufferedDetailGroupId(finalMessage, finalIndex, detail), finalMessage, finalIndex, detail);
     items.push({ kind: 'message', message: finalMessage, sourceIndexes: [finalIndex] });
-    activeAnchorId = '';
+    resetTurn();
   };
 
   const pushSpecialContextGroup = (message: T, index: number, anchor: string) => {
@@ -156,6 +221,15 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
       messages: [message],
       sourceIndexes: [index],
     });
+  };
+
+  const hasCompletedFinalAhead = (fromIndex: number) => {
+    for (let index = fromIndex + 1; index < messages.length; index += 1) {
+      const candidate = messages[index];
+      if (candidate.historyGap || candidate.role === 'user' || isSessionStateMessage(candidate)) return false;
+      if (isCompletedFinalAssistant(candidate)) return true;
+    }
+    return false;
   };
 
   messages.forEach((message, index) => {
@@ -192,7 +266,20 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
     }
 
     if (isAssistantToolPreludeMessage(message)) {
+      if (buffer.length) {
+        const last = buffer[buffer.length - 1];
+        const keepOpen = !hasCompletedFinalAhead(index)
+          && ((!!activeAnchorId && activeAnchorId !== ROOTLESS_ANCHOR_ID) || !!options.openTrailingDetails);
+        pushBufferedDetailGroup(
+          bufferedDetailGroupId(last.message, last.index),
+          message,
+          index,
+          undefined,
+          { defaultOpen: keepOpen, preserveTurn: true },
+        );
+      }
       items.push({ kind: 'message', message, sourceIndexes: [index] });
+      activeSegmentBoundaryId = messageId(message, index);
       return;
     }
 

@@ -7,6 +7,8 @@ type Msg = { id: string; role: string; content?: string; pending?: boolean; reas
 const user: Msg = { id: 'u1', role: 'user', content: 'do it' };
 const prelude: Msg = { id: 'a1', role: 'assistant', content: 'I will inspect', reasoning: 'plan', toolCalls: [{ id: 'call_1' }] };
 const tool: Msg = { id: 't1', role: 'tool', content: '{"ok":true}', toolName: 'terminal' };
+const secondPrelude: Msg = { id: 'a3', role: 'assistant', content: 'I will verify', toolCalls: [{ id: 'call_2' }] };
+const secondTool: Msg = { id: 't2', role: 'tool', content: '{"verified":true}', toolName: 'browser' };
 const final: Msg = { id: 'a2', role: 'assistant', content: 'final answer' };
 
 describe('turn detail grouping', () => {
@@ -30,6 +32,19 @@ describe('turn detail grouping', () => {
     expect(items[2].messages.map((message) => message.id)).toEqual(['t1']);
   });
 
+  test('interleaves visible assistant commentary with each completed tool detail segment', () => {
+    const items = buildTurnDetailItems([user, prelude, tool, secondPrelude, secondTool, final]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup', 'message', 'detailGroup', 'message']);
+    expect(items[1]).toMatchObject({ kind: 'message', message: { id: 'a1' } });
+    expect(items[2]).toMatchObject({ kind: 'detailGroup' });
+    expect(items[3]).toMatchObject({ kind: 'message', message: { id: 'a3' } });
+    expect(items[4]).toMatchObject({ kind: 'detailGroup' });
+    if (items[2].kind !== 'detailGroup' || items[4].kind !== 'detailGroup') throw new Error('expected interleaved detail groups');
+    expect(items[2].messages.map((message) => message.id)).toEqual(['t1']);
+    expect(items[4].messages.map((message) => message.id)).toEqual(['t2']);
+  });
+
   test('normalizes completed tool-call commentary from skeleton metadata', () => {
     const message = normalizeChatMessage({
       id: 'a2',
@@ -47,6 +62,37 @@ describe('turn detail grouping', () => {
     expect(message.turnDetails?.commentary).toEqual([
       { id: 'a1', role: 'assistant', content: 'I will inspect', timestamp: 2, model: 'model-a', provider: 'provider-a' },
     ]);
+  });
+
+  test('reconstructs interleaved lazy detail segments from skeleton timeline metadata', () => {
+    const skeletonFinal = normalizeChatMessage({
+      id: 'a2',
+      role: 'assistant',
+      content: 'final answer',
+      turn_details: {
+        count: 2,
+        tool_count: 2,
+        after_id: 'u1',
+        before_id: 'a2',
+        commentary: [
+          { id: 'a1', role: 'assistant', content: 'I will inspect' },
+          { id: 'a3', role: 'assistant', content: 'I will verify' },
+        ],
+        timeline: [
+          { kind: 'commentary', message: { id: 'a1', role: 'assistant', content: 'I will inspect' } },
+          { kind: 'detail', count: 1, tool_count: 1, after_id: 'a1', before_id: 'a3' },
+          { kind: 'commentary', message: { id: 'a3', role: 'assistant', content: 'I will verify' } },
+          { kind: 'detail', count: 1, tool_count: 1, after_id: 'a3', before_id: 'a2' },
+        ],
+      },
+    }, 'fallback');
+
+    const items = buildTurnDetailItems([user, skeletonFinal]);
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup', 'message', 'detailGroup', 'message']);
+    expect(items[1]).toMatchObject({ kind: 'message', message: { id: 'a1' } });
+    expect(items[2]).toMatchObject({ kind: 'detailGroup', detail: { count: 1, afterId: 'a1', beforeId: 'a3' } });
+    expect(items[3]).toMatchObject({ kind: 'message', message: { id: 'a3' } });
+    expect(items[4]).toMatchObject({ kind: 'detailGroup', detail: { count: 1, afterId: 'a3', beforeId: 'a2' } });
   });
 
   test('creates a lazy detail group from skeleton metadata without preloaded detail messages', () => {

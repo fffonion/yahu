@@ -1,7 +1,7 @@
 import { parsePlatformSenderMessage } from './chatSender';
 import type { ChatMessage, ChatTurnMetrics } from './ChatTranscript';
 import { normalizeMessageParts } from './messageReasoning';
-import type { TurnDetailMetadata } from './turnDetails';
+import type { TurnDetailCommentary, TurnDetailMetadata, TurnDetailRange, TurnDetailTimelineItem } from './turnDetails';
 
 function asRecordish(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -73,26 +73,25 @@ export function mergeTurnMetrics(base?: ChatTurnMetrics, next?: ChatTurnMetrics)
   return Object.keys(merged).length ? merged : undefined;
 }
 
-function readTurnDetails(raw: any): TurnDetailMetadata | undefined {
-  const detail = asRecordish(raw?.turnDetails) || asRecordish(raw?.turn_details);
-  if (!detail) return undefined;
-  const commentary = (Array.isArray(detail.commentary) ? detail.commentary : [])
-    .map((value) => asRecordish(value))
-    .filter((value): value is Record<string, unknown> => !!value)
-    .map((value) => {
-      const id = String(value.id || '').trim();
-      const content = String(value.content || '').trim();
-      if (!id || !content) return null;
-      const message: NonNullable<TurnDetailMetadata['commentary']>[number] = { id, role: 'assistant', content };
-      if (typeof value.timestamp === 'string' || typeof value.timestamp === 'number') message.timestamp = value.timestamp;
-      if (typeof value.model === 'string' && value.model.trim()) message.model = value.model.trim();
-      if (typeof value.provider === 'string' && value.provider.trim()) message.provider = value.provider.trim();
-      return message;
-    })
-    .filter((value): value is NonNullable<TurnDetailMetadata['commentary']>[number] => !!value);
+function readTurnDetailCommentary(raw: unknown): TurnDetailCommentary | null {
+  const value = asRecordish(raw);
+  if (!value) return null;
+  const id = String(value.id || '').trim();
+  const content = String(value.content || '').trim();
+  if (!id || !content) return null;
+  const message: TurnDetailCommentary = { id, role: 'assistant', content };
+  if (typeof value.timestamp === 'string' || typeof value.timestamp === 'number') message.timestamp = value.timestamp;
+  if (typeof value.model === 'string' && value.model.trim()) message.model = value.model.trim();
+  if (typeof value.provider === 'string' && value.provider.trim()) message.provider = value.provider.trim();
+  return message;
+}
+
+function readTurnDetailRange(raw: unknown): TurnDetailRange | null {
+  const detail = asRecordish(raw);
+  if (!detail) return null;
   const count = Number(detail.count || 0);
-  if (!Number.isFinite(count) || count < 0 || (count === 0 && commentary.length === 0)) return undefined;
-  const out: TurnDetailMetadata = { count };
+  if (!Number.isFinite(count) || count < 0) return null;
+  const out: TurnDetailRange = { count };
   const toolCount = Number(detail.toolCount ?? detail.tool_count ?? 0);
   const thinkingCount = Number(detail.thinkingCount ?? detail.thinking_count ?? 0);
   if (Number.isFinite(toolCount) && toolCount > 0) out.toolCount = toolCount;
@@ -101,7 +100,34 @@ function readTurnDetails(raw: any): TurnDetailMetadata | undefined {
   const beforeId = String(detail.beforeId ?? detail.before_id ?? '').trim();
   if (afterId) out.afterId = afterId;
   if (beforeId) out.beforeId = beforeId;
+  return out;
+}
+
+function readTurnDetails(raw: any): TurnDetailMetadata | undefined {
+  const detail = asRecordish(raw?.turnDetails) || asRecordish(raw?.turn_details);
+  if (!detail) return undefined;
+  const commentary = (Array.isArray(detail.commentary) ? detail.commentary : [])
+    .map(readTurnDetailCommentary)
+    .filter((value): value is TurnDetailCommentary => !!value);
+  const range = readTurnDetailRange(detail);
+  if (!range || (range.count === 0 && commentary.length === 0)) return undefined;
+  const timeline = (Array.isArray(detail.timeline) ? detail.timeline : [])
+    .map((rawItem): TurnDetailTimelineItem | null => {
+      const item = asRecordish(rawItem);
+      if (item?.kind === 'commentary') {
+        const message = readTurnDetailCommentary(item.message);
+        return message ? { kind: 'commentary', message } : null;
+      }
+      if (item?.kind === 'detail') {
+        const segment = readTurnDetailRange(item);
+        return segment && segment.count > 0 ? { kind: 'detail', ...segment } : null;
+      }
+      return null;
+    })
+    .filter((value): value is TurnDetailTimelineItem => !!value);
+  const out: TurnDetailMetadata = { ...range };
   if (commentary.length) out.commentary = commentary;
+  if (timeline.length) out.timeline = timeline;
   return out;
 }
 
