@@ -306,6 +306,26 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
   return items;
 }
 
+export function latestExpandableDetailGroupId<T extends MessageVisibilityInput>(
+  items: Array<TurnDetailItem<T>>,
+  messages: T[],
+  streaming: boolean,
+): string {
+  let latestUserIndex = -1;
+  let latestFinalIndex = -1;
+  messages.forEach((message, index) => {
+    if (message.role === 'user') latestUserIndex = index;
+    if (isCompletedFinalAssistant(message)) latestFinalIndex = index;
+  });
+  const boundaryIndex = streaming ? latestUserIndex : Math.max(latestUserIndex, latestFinalIndex);
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind !== 'detailGroup') continue;
+    if (item.sourceIndexes.some((sourceIndex) => sourceIndex > boundaryIndex)) return item.id;
+  }
+  return '';
+}
+
 export function preserveTurnDetailGroupIds<T extends MessageVisibilityInput>(
   previous: Array<TurnDetailItem<T>>,
   next: Array<TurnDetailItem<T>>,

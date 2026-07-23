@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain,
   CalendarClock,
@@ -40,6 +40,7 @@ import { summarizeToolMessage, type ToolSummary } from './toolMessage';
 import {
   buildDesktopTurnBlocks,
   buildTurnDetailItems,
+  latestExpandableDetailGroupId,
   preserveTurnDetailGroupIds,
   type SessionStateMessageItem,
   type SpecialContextGroupItem,
@@ -64,6 +65,7 @@ type ChatTranscriptProps = {
   compact?: boolean;
   newMessageBoundaryId?: string | null;
   loadTurnDetails?: LoadTurnDetails;
+  forceOpenLatestDetailToken?: number;
 };
 
 export function ChatTranscript({
@@ -75,6 +77,7 @@ export function ChatTranscript({
   compact = false,
   newMessageBoundaryId,
   loadTurnDetails,
+  forceOpenLatestDetailToken = 0,
 }: ChatTranscriptProps) {
   const visibleMessages = useMemo(
     () => visibleChatMessages<ChatMessage>(messages, showReasoning, showToolCalls),
@@ -90,6 +93,10 @@ export function ChatTranscript({
     [groupedTurnDetailItems],
   );
   useLayoutEffect(() => { previousTurnDetailItemsRef.current = turnDetailItems; }, [turnDetailItems]);
+  const forceOpenDetailGroupId = useMemo(
+    () => forceOpenLatestDetailToken ? latestExpandableDetailGroupId(turnDetailItems, visibleMessages, streaming) : '',
+    [forceOpenLatestDetailToken, streaming, turnDetailItems, visibleMessages],
+  );
   const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
   const splitIdx = findNewMessageSplitIndex(visibleMessages, newMessageBoundaryId || undefined);
 
@@ -98,7 +105,7 @@ export function ChatTranscript({
       const showSplit = splitIdx >= 0 && block.sourceIndexes.includes(splitIdx);
       return <React.Fragment key={block.id}>
         {showSplit && <NewMessagesSeparator />}
-        <DesktopTurnBlock block={block} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} />
+        <DesktopTurnBlock block={block} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenDetailGroupId={forceOpenDetailGroupId} forceOpenLatestDetailToken={forceOpenLatestDetailToken} />
       </React.Fragment>;
     })}</>;
   }
@@ -108,7 +115,7 @@ export function ChatTranscript({
     const showSplit = splitIdx >= 0 && item.sourceIndexes.includes(splitIdx);
     let rendered: React.ReactNode;
     if (item.kind === 'detailGroup') {
-      rendered = <TurnDetailGroup item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} />;
+      rendered = <TurnDetailGroup item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? forceOpenLatestDetailToken : 0} />;
     } else if (item.kind === 'specialContextGroup') {
       rendered = <SpecialContextGroup item={item} />;
     } else if (item.kind === 'sessionState') {
@@ -321,10 +328,11 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
   </article>;
 }
 
-function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails }) {
+function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, forceOpenToken = 0 }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenToken?: number }) {
   const [open, setOpen] = useState(() => !!item.defaultOpen);
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const loadingRef = useRef(false);
   const [error, setError] = useState('');
   const commentary = item.detail?.commentary || [];
   const commentaryIds = new Set(commentary.map((message) => message.id));
@@ -335,15 +343,21 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails }
   const detailCount = item.detail?.count ?? detailMessages.length;
   const detailSummary = tf('chat.detailEntries', detailCount);
   const detailAnchorId = String(item.messages[0]?.id || item.id);
-  const loadDetails = () => {
-    if (!item.detail || !loadTurnDetails || loading || loadedMessages.length) return;
+  const loadDetails = useCallback(() => {
+    if (!item.detail || !loadTurnDetails || loadingRef.current || loadedMessages.length) return;
+    loadingRef.current = true;
     setLoading(true);
     setError('');
     loadTurnDetails(item.detail)
       .then(setLoadedMessages)
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))
-      .finally(() => setLoading(false));
-  };
+      .finally(() => { loadingRef.current = false; setLoading(false); });
+  }, [item.detail, loadTurnDetails, loadedMessages.length]);
+  useEffect(() => {
+    if (!forceOpenToken) return;
+    setOpen(true);
+    loadDetails();
+  }, [forceOpenToken, loadDetails]);
   return <>
     {commentary.map((message) => <MessageView key={`commentary:${message.id}`} message={message} showReasoning={showReasoning} assistantName={assistantName} />)}
     {detailCount > 0 && <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
@@ -384,12 +398,12 @@ function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessa
   </article>;
 }
 
-function DesktopTurnBlock({ block, showReasoning, assistantName, loadTurnDetails }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails }) {
+function DesktopTurnBlock({ block, showReasoning, assistantName, loadTurnDetails, forceOpenDetailGroupId, forceOpenLatestDetailToken }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenDetailGroupId?: string; forceOpenLatestDetailToken?: number }) {
   const sessionStateOnly = block.items.length === 1 && block.items[0]?.kind === 'sessionState';
   const historyGapOnly = block.items.length === 1 && block.items[0]?.kind === 'message' && !!block.items[0].message.historyGap;
   return <article className={`desktop-turn-block${sessionStateOnly ? ' session-state-turn-block' : ''}${historyGapOnly ? ' history-gap-turn-block' : ''}`} data-turn-block-id={block.id}>
     {block.items.map((item) => {
-      if (item.kind === 'detailGroup') return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} />;
+      if (item.kind === 'detailGroup') return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? forceOpenLatestDetailToken : 0} />;
       if (item.kind === 'specialContextGroup') return <SpecialContextGroup key={item.id} item={item} />;
       if (item.kind === 'sessionState') return <SessionStateMessage key={item.id} item={item} />;
       return <MessageView key={item.message.id || item.sourceIndexes.join('-')} message={item.message} showReasoning={showReasoning} assistantName={assistantName} />;

@@ -25,6 +25,7 @@ import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScr
 import { mergeMessageWindow } from './chatMessageWindow';
 import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, numericHistoryMessageId, type ChatHistoryPageRaw } from './chatHistoryPage';
 import { computeNewMessageMarker } from './chatNewMessages';
+import { chatLatestButtonVisible } from './chatLatest';
 import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMarkdownImage } from './markdown';
 
@@ -2598,6 +2599,38 @@ function ChatMain(props: ChatMainProps) {
     if (activeElement instanceof HTMLElement && props.composerRef.current?.contains(activeElement)) activeElement.blur();
     props.setComposerCompact(true);
   };
+  const [showLatestButton, setShowLatestButton] = useState(() => props.hasNewer);
+  const latestButtonVisible = props.hasNewer || showLatestButton;
+  const [latestDetailExpansion, setLatestDetailExpansion] = useState({ sessionId: '', token: 0 });
+  const forceOpenLatestDetailToken = latestDetailExpansion.sessionId === props.activeSessionId ? latestDetailExpansion.token : 0;
+  const updateLatestButton = useCallback(() => {
+    setShowLatestButton(chatLatestButtonVisible(props.chatScrollRef.current, props.hasNewer));
+  }, [props.chatScrollRef, props.hasNewer]);
+  const scrollLatestViewport = useCallback(() => {
+    const scrollBottom = () => {
+      const scroller = props.chatScrollRef.current;
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    };
+    scrollBottom();
+    window.requestAnimationFrame(scrollBottom);
+    window.setTimeout(scrollBottom, 60);
+    window.setTimeout(scrollBottom, 300);
+    window.setTimeout(scrollBottom, 800);
+  }, [props.chatScrollRef]);
+  const jumpToLatest = useCallback(async () => {
+    if (props.hasNewer) await props.loadMessageWindow(props.activeSessionId, 'latest');
+    props.onClearNewMessages();
+    setLatestDetailExpansion((current) => ({
+      sessionId: props.activeSessionId,
+      token: current.sessionId === props.activeSessionId ? current.token + 1 : 1,
+    }));
+    setShowLatestButton(false);
+    scrollLatestViewport();
+  }, [props.activeSessionId, props.hasNewer, props.loadMessageWindow, props.onClearNewMessages, scrollLatestViewport]);
+  useLayoutEffect(() => {
+    const frame = window.requestAnimationFrame(updateLatestButton);
+    return () => window.cancelAnimationFrame(frame);
+  }, [props.activeSessionId, props.hasNewer, props.messages.length, props.messages.at(-1)?.id, updateLatestButton]);
   const [subagentWindow, setSubagentWindow] = useState<{ sessionId: string; beforeTime: number | null | undefined }>(() => ({ sessionId: props.activeSessionId, beforeTime: null }));
   const updateSubagentWindow = useCallback(() => {
     const beforeTime = subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer);
@@ -2622,6 +2655,7 @@ function ChatMain(props: ChatMainProps) {
     if (isMobile && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (shouldLoadOlderFromScroll(el, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
     if (shouldLoadNewerFromScroll(el, props.hasNewer, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'newer');
+    setShowLatestButton(chatLatestButtonVisible(el, props.hasNewer));
     updateActiveNavigatorIds();
     scheduleSubagentWindowUpdate();
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 120 && props.newMessageCount > 0) props.onClearNewMessages();
@@ -2730,8 +2764,10 @@ function ChatMain(props: ChatMainProps) {
         compact={props.desktopCompactMessages}
         newMessageBoundaryId={props.newMessageBoundaryId}
         loadTurnDetails={loadTranscriptTurnDetails}
+        forceOpenLatestDetailToken={forceOpenLatestDetailToken}
       />
     </section>
+    {latestButtonVisible && <div className="chat-latest-overlay"><button type="button" className="chat-latest-button" aria-label={t('chat.jumpLatest')} title={t('chat.jumpLatest')} onClick={jumpToLatest} disabled={props.loadingMessages}><ChevronDown aria-hidden="true" /></button></div>}
     <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
       {props.newMessageCount > 0 && <button className="new-messages-bubble" onClick={props.onClearNewMessages} aria-label={t('chat.newMessages')}>{props.newMessageCount === 1 ? t('chat.newMessageCount') : t('chat.newMessagesCount').replace('{n}', String(props.newMessageCount))}</button>}

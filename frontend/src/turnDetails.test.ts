@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildDesktopTurnBlocks, buildTurnDetailItems, preserveTurnDetailGroupIds } from './turnDetails';
+import { buildDesktopTurnBlocks, buildTurnDetailItems, latestExpandableDetailGroupId, preserveTurnDetailGroupIds } from './turnDetails';
 import { normalizeChatMessage } from './chatMessage';
 
 type Msg = { id: string; role: string; content?: string; pending?: boolean; reasoning?: string; toolName?: string; toolCalls?: unknown; historyGap?: { after: number; before: number }; turnDetails?: { count: number; toolCount?: number; thinkingCount?: number; afterId?: string; beforeId?: string } };
@@ -308,6 +308,17 @@ describe('turn detail grouping', () => {
     expect(items[4]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:t2' });
     if (items[4].kind !== 'detailGroup') throw new Error('expected trailing detail group');
     expect(items[4].messages.map((message) => message.id)).toEqual(['t2']);
+  });
+
+  test('selects only the latest incomplete or streaming turn detail for forced expansion', () => {
+    const incompleteMessages = [user, prelude, tool];
+    const incompleteItems = buildTurnDetailItems(incompleteMessages);
+    expect(latestExpandableDetailGroupId(incompleteItems, incompleteMessages, false)).toBe('turn-details:u1');
+
+    const completedMessages = [user, prelude, tool, final];
+    const completedItems = buildTurnDetailItems(completedMessages);
+    expect(latestExpandableDetailGroupId(completedItems, completedMessages, false)).toBe('');
+    expect(latestExpandableDetailGroupId(completedItems, completedMessages, true)).toBe('turn-details:u1');
   });
 
   test('desktop turn blocks wrap each user turn including detail groups and final answer', () => {

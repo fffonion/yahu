@@ -430,6 +430,7 @@ const translations: Record<string, Record<string, string>> = {
   'misc.messages': { en: 'messages', 'zh-CN': '条消息', 'zh-TW': '條訊息', ja: 'メッセージ' },
 
   // New messages
+  'chat.jumpLatest': { en: 'Jump to latest', 'zh-CN': '直达最新', 'zh-TW': '前往最新', ja: '最新へ移動' },
   'chat.newMessages': { en: 'New messages', 'zh-CN': '新消息', 'zh-TW': '新訊息', ja: '新しいメッセージ' },
   'chat.newMessagesCount': { en: '{n} new messages', 'zh-CN': '{n} 条新消息', 'zh-TW': '{n} 條新訊息', ja: '{n}件の新しいメッセージ' },
   'chat.newMessageCount': { en: '1 new message', 'zh-CN': '1 条新消息', 'zh-TW': '1 條新訊息', ja: '1件の新しいメッセージ' },
