@@ -2,6 +2,7 @@ const API_SESSION_PAGE_SIZE: usize = 200;
 const API_SESSION_SEARCH_SCAN_LIMIT: usize = 2_000;
 const API_SESSION_SOURCE_FILTER_SCAN_LIMIT: usize = 10_000;
 const API_SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
+const MAX_PINNED_SESSION_IDS: usize = 100;
 
 async fn sessions_search(
     State(state): State<Arc<AppState>>,
@@ -10,6 +11,7 @@ async fn sessions_search(
     let limit = query.limit.unwrap_or(80).clamp(1, 100);
     let q = query.q.unwrap_or_default();
     let hide_cron_cli = query.hide_cron_cli.unwrap_or(false);
+    let pinned_ids = parse_pinned_session_ids(query.pinned_ids.as_deref());
     let data = if hide_cron_cli && q.trim().is_empty() {
         match fetch_filtered_sidebar_sessions_from_local_db(&state, limit) {
             Ok(Some(rows)) => Ok(rows),
@@ -23,18 +25,34 @@ async fn sessions_search(
         fetch_sessions_from_api_server(&state, &q, limit, hide_cron_cli).await
     };
     match data {
-        Ok(data) => Json(serde_json::json!({
-            "object": "list",
-            "data": data,
-            "limit": limit,
-            "q": q,
-        }))
-        .into_response(),
+        Ok(data) => {
+            let data = append_pinned_session_rows(&state, data, &pinned_ids).await;
+            Json(serde_json::json!({
+                "object": "list",
+                "data": data,
+                "limit": limit,
+                "q": q,
+            }))
+            .into_response()
+        }
         Err(err) => json_error(
             StatusCode::BAD_GATEWAY,
             &format!("session search API request failed: {err}"),
         ),
     }
+}
+
+fn parse_pinned_session_ids(value: Option<&str>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    value
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .filter(|id| seen.insert((*id).to_string()))
+        .take(MAX_PINNED_SESSION_IDS)
+        .map(str::to_string)
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -353,6 +371,184 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
     }
     sanitize_session_row_previews(&mut rows);
     Ok(Some(rows))
+}
+
+async fn append_pinned_session_rows(
+    state: &AppState,
+    mut rows: Vec<serde_json::Value>,
+    pinned_ids: &[String],
+) -> Vec<serde_json::Value> {
+    if pinned_ids.is_empty() {
+        return rows;
+    }
+    let existing_ids = rows
+        .iter()
+        .filter_map(|row| row.get("id").and_then(|value| value.as_str()))
+        .collect::<HashSet<_>>();
+    let missing_ids = pinned_ids
+        .iter()
+        .filter(|id| !existing_ids.contains(id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if missing_ids.is_empty() {
+        return rows;
+    }
+
+    let mut pinned_by_id = HashMap::new();
+    match fetch_pinned_session_rows_from_local_db(state, &missing_ids) {
+        Ok(Some(local_rows)) => {
+            for row in local_rows {
+                if let Some(id) = row.get("id").and_then(|value| value.as_str()).map(str::to_string) {
+                    pinned_by_id.insert(id, row);
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(err) => warn!(error = %err, "cannot read pinned sessions from local metadata"),
+    }
+
+    let unresolved_ids = missing_ids
+        .iter()
+        .filter(|id| !pinned_by_id.contains_key(id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let fetched = futures_util::future::join_all(
+        unresolved_ids
+            .iter()
+            .map(|session_id| fetch_api_pinned_session(state, session_id)),
+    )
+    .await;
+    for (session_id, result) in unresolved_ids.iter().zip(fetched) {
+        match result {
+            Ok(Some(row)) => {
+                pinned_by_id.insert(session_id.clone(), row);
+            }
+            Ok(None) => {}
+            Err(err) => warn!(session_id = %session_id, error = %err, "cannot fetch pinned session metadata"),
+        }
+    }
+
+    let mut pinned_rows = missing_ids
+        .iter()
+        .filter_map(|id| pinned_by_id.remove(id))
+        .collect::<Vec<_>>();
+    if let Err(err) = enrich_session_previews_from_local_db(state, &mut pinned_rows) {
+        warn!(error = %err, "cannot enrich pinned session previews from local message history");
+    }
+    sanitize_session_row_previews(&mut pinned_rows);
+    rows.extend(pinned_rows);
+    rows
+}
+
+fn fetch_pinned_session_rows_from_local_db(
+    state: &AppState,
+    pinned_ids: &[String],
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(
+        &conn,
+        "sessions",
+        &[
+            "id",
+            "source",
+            "model",
+            "model_config",
+            "billing_provider",
+            "parent_session_id",
+            "started_at",
+            "ended_at",
+            "message_count",
+            "title",
+            "archived",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let mut statement = conn.prepare(
+        "SELECT id, source, model, model_config, billing_provider,
+                started_at, ended_at, message_count, title
+         FROM sessions
+         WHERE id = ?1
+           AND parent_session_id IS NULL
+           AND COALESCE(archived, 0) = 0
+         LIMIT 1",
+    )?;
+    let mut rows = Vec::new();
+    for session_id in pinned_ids {
+        let row = statement
+            .query_row([session_id], |row| {
+                let model_config: Option<String> = row.get(3)?;
+                let billing_provider: Option<String> = row.get(4)?;
+                let provider = model_config
+                    .as_deref()
+                    .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+                    .and_then(|value| {
+                        value
+                            .pointer("/gateway_runtime/provider")
+                            .and_then(|provider| provider.as_str())
+                            .map(str::to_string)
+                    })
+                    .or_else(|| billing_provider.filter(|value| !value.trim().is_empty()));
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "source": row.get::<_, Option<String>>(1)?,
+                    "model": row.get::<_, Option<String>>(2)?,
+                    "provider": provider,
+                    "started_at": row.get::<_, Option<f64>>(5)?,
+                    "ended_at": row.get::<_, Option<f64>>(6)?,
+                    "message_count": row.get::<_, Option<i64>>(7)?.unwrap_or_default(),
+                    "title": row.get::<_, Option<String>>(8)?,
+                }))
+            })
+            .optional()?;
+        if let Some(row) = row {
+            rows.push(row);
+        }
+    }
+    Ok(Some(rows))
+}
+
+async fn fetch_api_pinned_session(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let url = format!(
+        "{}/api/sessions/{}",
+        state.api_url.trim_end_matches('/'),
+        path_segment(session_id),
+    );
+    let mut req = state.client.get(url);
+    if let Some(key) = &state.api_key
+        && !key.is_empty()
+    {
+        req = req.bearer_auth(key);
+    }
+    let resp = timeout(API_SESSION_REQUEST_TIMEOUT, req.send()).await??;
+    if resp.status() == StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    if !resp.status().is_success() {
+        anyhow::bail!("pinned session detail request failed: {}", resp.status());
+    }
+    let body = resp.json::<serde_json::Value>().await?;
+    let row = body
+        .get("data")
+        .or_else(|| body.get("session"))
+        .cloned()
+        .unwrap_or(body);
+    if row.get("id").and_then(|value| value.as_str()) != Some(session_id)
+        || !is_client_visible_session(&row, false)
+    {
+        return Ok(None);
+    }
+    Ok(Some(row))
 }
 
 struct ApiSessionPage {

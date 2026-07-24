@@ -753,6 +753,7 @@ export default function App() {
       const params = new URLSearchParams({ limit: '80', _: String(Date.now()) });
       if (query.trim()) params.set('q', query.trim());
       if (hideCronSessions) params.set('hide_cron_cli', 'true');
+      if (pinnedIds.size) params.set('pinned_ids', Array.from(pinnedIds).join(','));
       const res = await fetch(`/sessions/search?${params}`, { headers: headers(false), cache: 'no-store' });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const body = await res.json();
@@ -765,7 +766,7 @@ export default function App() {
       if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
     } catch (err) { setStatus(tf('status.sessionsUnavailable', errorMessage(err))); }
-  }, [filter, hideCronSessions, headers, switchActiveSession, applyRenamedSessionTitleOverride]);
+  }, [filter, hideCronSessions, pinnedIds, headers, switchActiveSession, applyRenamedSessionTitleOverride]);
 
   const loadSessionDetail = useCallback(async (sessionId: string) => {
     if (!sessionId) return;

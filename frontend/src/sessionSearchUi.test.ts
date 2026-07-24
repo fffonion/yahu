@@ -22,6 +22,12 @@ describe('session search and composer session model UI', () => {
     expect(app).not.toContain('splitSidebarSessions(sessions, pinnedIds, hideCronSessions)');
   });
 
+  test('pinned session ids are sent to the backend so they survive the recent window', () => {
+    const app = source();
+    expect(app).toContain("if (pinnedIds.size) params.set('pinned_ids', Array.from(pinnedIds).join(','));");
+    expect(app).toContain('[filter, hideCronSessions, pinnedIds, headers');
+  });
+
   test('new conversation and cron filter are icon buttons beside the search field', () => {
     const app = source();
     const css = styles();

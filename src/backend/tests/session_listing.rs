@@ -242,6 +242,82 @@
         assert_eq!(rows[0]["preview"], "latest final answer");
     }
 
+    #[tokio::test]
+    async fn pinned_session_outside_recent_window_is_appended_and_deduplicated() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let mut conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );
+             CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                source TEXT,
+                model TEXT,
+                model_config TEXT,
+                billing_provider TEXT,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                message_count INTEGER,
+                title TEXT,
+                archived INTEGER,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );",
+        )
+        .unwrap();
+        let transaction = conn.transaction().unwrap();
+        transaction.execute(
+            "INSERT INTO sessions
+             (id, source, model, started_at, message_count, title, archived)
+             VALUES ('pinned-old', 'telegram', 'old-model', 1, 2, 'Pinned old', 0)",
+            [],
+        ).unwrap();
+        transaction.execute(
+            "INSERT INTO messages (session_id, role, content, active)
+             VALUES ('pinned-old', 'assistant', 'old final', 1)",
+            [],
+        ).unwrap();
+        let mut recent = Vec::new();
+        for index in 0..80 {
+            let id = format!("recent-{index}");
+            transaction.execute(
+                "INSERT INTO sessions
+                 (id, source, model, started_at, message_count, title, archived)
+                 VALUES (?1, 'telegram', 'new-model', ?2, 1, ?3, 0)",
+                rusqlite::params![id, 100.0 + index as f64, format!("Recent {index}")],
+            ).unwrap();
+            recent.push(serde_json::json!({
+                "id": format!("recent-{index}"),
+                "source": "telegram",
+                "started_at": 100.0 + index as f64,
+            }));
+        }
+        transaction.commit().unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        let rows = append_pinned_session_rows(
+            &state,
+            recent,
+            &["pinned-old".to_string(), "recent-79".to_string()],
+        ).await;
+
+        assert_eq!(rows.len(), 81);
+        assert_eq!(rows.iter().filter(|row| row["id"] == "recent-79").count(), 1);
+        let pinned = rows.iter().find(|row| row["id"] == "pinned-old").unwrap();
+        assert_eq!(pinned["title"], "Pinned old");
+        assert_eq!(pinned["preview"], "old final");
+    }
+
     #[test]
     fn session_list_hides_reset_predecessor_when_successor_is_present() {
         let temp = tempfile::tempdir().unwrap();

@@ -211,6 +211,7 @@ struct SessionSearchQuery {
     q: Option<String>,
     limit: Option<usize>,
     hide_cron_cli: Option<bool>,
+    pinned_ids: Option<String>,
 }
 
 pub async fn run() -> anyhow::Result<()> {
