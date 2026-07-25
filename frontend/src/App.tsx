@@ -32,6 +32,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMar
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
+import { visibleViewportHeight } from './viewport';
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 
@@ -660,6 +661,19 @@ export default function App() {
     };
   }, [applyHashRoute]);
 
+  useLayoutEffect(() => {
+    const syncViewportHeight = () => document.documentElement.style.setProperty('--app-viewport-height', `${visibleViewportHeight(window)}px`);
+    syncViewportHeight();
+    window.addEventListener('resize', syncViewportHeight);
+    window.visualViewport?.addEventListener('resize', syncViewportHeight);
+    window.visualViewport?.addEventListener('scroll', syncViewportHeight);
+    return () => {
+      window.removeEventListener('resize', syncViewportHeight);
+      window.visualViewport?.removeEventListener('resize', syncViewportHeight);
+      window.visualViewport?.removeEventListener('scroll', syncViewportHeight);
+      document.documentElement.style.removeProperty('--app-viewport-height');
+    };
+  }, []);
   useEffect(() => { document.documentElement.dataset.yahuBuild = APP_BUILD_ID; }, []);
   useEffect(() => { document.documentElement.classList.toggle('dark', isDarkTheme(theme)); document.documentElement.dataset.theme = theme; delete document.documentElement.dataset.skin; localStorage.setItem('theme', theme); localStorage.removeItem('skin'); }, [theme]);
   useEffect(() => { fetch('/runtime-config').then((res) => res.ok ? res.json() : null).then((config: RuntimeConfig | null) => { if (config?.api_url) setApiServerUrl(config.api_url); if (config?.api_proxy_base && !localStorage.getItem('apiBase')) setApiBase(config.api_proxy_base); }).catch(() => {}); }, []);
@@ -2576,7 +2590,7 @@ function ChatMain(props: ChatMainProps) {
       return;
     }
     const minHeight = 48;
-    const maxHeight = Math.max(minHeight, Math.floor(window.innerHeight * 0.2));
+    const maxHeight = Math.max(minHeight, Math.floor(visibleViewportHeight(window) * 0.2));
     textarea.style.removeProperty('--composer-textarea-pad-bottom');
     textarea.style.height = 'auto';
     textarea.style.maxHeight = `${maxHeight}px`;

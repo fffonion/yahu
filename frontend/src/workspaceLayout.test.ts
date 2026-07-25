@@ -97,7 +97,7 @@ describe('workspace page file tree layout', () => {
     const styles = css();
     const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));
     expect(browser).toContain("{preview.kind !== 'none' && <div className=\"preview\"");
-    expect(styles).toContain('.workspace{border-left-width:1px;border-top-width:0;border-bottom-width:0;border-right-width:0;height:100vh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}');
+    expect(styles).toContain('.workspace{border-left-width:1px;border-top-width:0;border-bottom-width:0;border-right-width:0;height:var(--app-viewport-height,100dvh);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}');
     expect(styles).toContain('.workspace-tree.file-list{min-height:0}');
   });
 

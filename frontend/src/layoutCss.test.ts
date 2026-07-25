@@ -6,7 +6,7 @@ describe('sidebar session list css', () => {
 
   test('session list is the shrinking scroll container inside the fixed sidebar', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-    expect(css).toContain('.sidebar{position:relative;display:grid;grid-template-columns:72px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;border-width:0;border-right-width:1px;min-width:0;min-height:0;height:100vh;overflow:hidden');
+    expect(css).toContain('.sidebar{position:relative;display:grid;grid-template-columns:72px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;border-width:0;border-right-width:1px;min-width:0;min-height:0;height:var(--app-viewport-height,100dvh);overflow:hidden');
     expect(css).toContain('.sessions{min-height:0;flex:1 1 auto;overflow:auto');
     expect(css).toContain('.left-body{min-height:0;min-width:0;overflow:hidden');
   });
@@ -33,7 +33,7 @@ describe('sidebar session list css', () => {
     const source = app();
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     expect(source).toContain('const resizeComposerTextarea = useCallback(() =>');
-    expect(source).toContain('const maxHeight = Math.max(minHeight, Math.floor(window.innerHeight * 0.2));');
+    expect(source).toContain('const maxHeight = Math.max(minHeight, Math.floor(visibleViewportHeight(window) * 0.2));');
     expect(source).toContain("textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'");
     expect(source).toContain("textarea.style.setProperty('--composer-textarea-pad-bottom'");
     expect(source).toContain("const footer = props.composerRef.current?.querySelector('.composer-footer') as HTMLElement | null;");
@@ -47,5 +47,19 @@ describe('sidebar session list css', () => {
     expect(css).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{box-sizing:border-box;padding-bottom:var(--composer-textarea-pad-bottom)}');
     expect(css).toContain('@media (max-width:760px){.chat-header-actions .context-window-meter{width:116px;min-width:0;max-width:116px;flex:0 1 116px}.chat-header-actions .context-window-track{min-width:30px}');
     expect(css).toContain('.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}.composer-wrap:not(.composer-compact) .composer-footer .stop-stream-btn+.send-btn{margin-left:0}.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:12px}}');
+  });
+
+  test('tablet layout follows the live visual viewport height', () => {
+    const source = app();
+    const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+    expect(source).toContain("import { visibleViewportHeight } from './viewport';");
+    expect(source).toContain("document.documentElement.style.setProperty('--app-viewport-height', `${visibleViewportHeight(window)}px`)");
+    expect(source).toContain("window.visualViewport?.addEventListener('resize', syncViewportHeight)");
+    expect(source).toContain("window.visualViewport?.addEventListener('scroll', syncViewportHeight)");
+    expect(source).toContain('const maxHeight = Math.max(minHeight, Math.floor(visibleViewportHeight(window) * 0.2));');
+    expect(css).toContain('.app-shell{--sidebar-width:360px;display:grid;grid-template-columns:var(--sidebar-width) minmax(520px,1fr) 320px;height:var(--app-viewport-height,100dvh);');
+    expect(css).toContain('.main-panel{min-width:0;height:var(--app-viewport-height,100dvh);');
+    expect(css).toContain('.workspace{border-left-width:1px;border-top-width:0;border-bottom-width:0;border-right-width:0;height:var(--app-viewport-height,100dvh);');
+    expect(css).toContain('.image-browser{grid-column:2 / -1;background:var(--bg);color:var(--text);min-width:0;height:var(--app-viewport-height,100dvh);');
   });
 });
