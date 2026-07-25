@@ -35,7 +35,7 @@ import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFro
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 
-type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous';
+type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous' | 'tokyo-night' | 'rose-pine-moon' | 'gruvbox-material' | 'github-dark-dimmed';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'settings';
 
 type FollowUpBehaviour = 'queue' | 'steer';
@@ -103,9 +103,13 @@ const THEME_OPTIONS: Array<{ id: Theme; label: string }> = [
   { id: 'solarized-dark', label: 'Solarized Dark' },
   { id: 'catppuccin-latte', label: 'Catppuccin Latte' },
   { id: 'catppuccin-mocha', label: 'Catppuccin Mocha' },
+  { id: 'tokyo-night', label: 'Tokyo Night' },
+  { id: 'rose-pine-moon', label: 'Rosé Pine Moon' },
+  { id: 'gruvbox-material', label: 'Gruvbox Material' },
+  { id: 'github-dark-dimmed', label: 'GitHub Dark Dimmed' },
   { id: 'nous', label: 'Nous' },
 ];
-const DARK_THEMES = new Set<Theme>(['hermes-dark', 'vscode-dark-plus', 'monokai', 'nord', 'solarized-dark', 'catppuccin-mocha', 'nous']);
+const DARK_THEMES = new Set<Theme>(['hermes-dark', 'vscode-dark-plus', 'monokai', 'nord', 'solarized-dark', 'catppuccin-mocha', 'nous', 'tokyo-night', 'rose-pine-moon', 'gruvbox-material', 'github-dark-dimmed']);
 const normalizeTheme = (value: string | null): Theme => {
   if (value === 'dark') return 'hermes-dark';
   if (value === 'light') return 'hermes-light';

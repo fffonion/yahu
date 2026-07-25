@@ -226,7 +226,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('function InsightsMain');
     expect(source).toContain('UsageAreaChart');
     expect(source).toContain('linearGradient');
-    expect(styles).toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6');
+    expect(styles).toContain('.insights-main{--insights-plot-left:4.1667%;--insights-plot-right:2.5%;grid-column:2 / -1}');
     expect(styles).toContain('.usage-area{opacity:.78;transform-origin:center bottom;animation:chart-fill .55s ease both}');
     expect(styles).toContain('.usage-total-line{fill:none;stroke:var(--accent);stroke-width:1.06');
     expect(styles).toContain('.usage-line{fill:none;stroke-width:1');

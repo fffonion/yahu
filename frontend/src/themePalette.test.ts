@@ -3,6 +3,17 @@ import { readFileSync } from 'node:fs';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+const themeColor = (styles: string, theme: string, variable: string) => {
+  const block = styles.match(new RegExp(`:root\\[data-theme="${theme}"\\]\\{([^}]+)\\}`))?.[1] || '';
+  return block.match(new RegExp(`${variable}:(#[0-9a-fA-F]{6})`))?.[1] || '';
+};
+const luminance = (color: string) => color.slice(1).match(/../g)!.map((part) => parseInt(part, 16) / 255)
+  .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+  .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+const contrast = (a: string, b: string) => {
+  const [bright, dark] = [luminance(a), luminance(b)].sort((left, right) => right - left);
+  return (bright + 0.05) / (dark + 0.05);
+};
 
 describe('full palette theme control', () => {
   test('theme picker exposes full palettes and no separate light/dark action buttons', () => {
@@ -26,6 +37,55 @@ describe('full palette theme control', () => {
     expect(styles).toContain(':root[data-theme="hermes-dark"]{--bg:#0D0D1A;--sidebar:#141425;--surface:#1A1A2E;');
     expect(styles).toContain(':root[data-theme="hermes-light"]{--bg:#FEFCF7;--sidebar:#FAF7F0;--surface:#F3EEE3;');
     expect(styles).toContain(':root[data-theme="vscode-light-plus"] .send-btn,:root[data-theme="vscode-light-plus"] .save-memory,:root[data-theme="hermes-light"] .send-btn,:root[data-theme="hermes-light"] .save-memory{color:#fff}');
+  });
+
+  test('adds layered GUI palettes with distinct overlays, controls, messages, status, editor, and chart colors', () => {
+    const source = app();
+    const styles = css();
+    for (const [id, label] of [
+      ['tokyo-night', 'Tokyo Night'],
+      ['rose-pine-moon', 'Rosé Pine Moon'],
+      ['gruvbox-material', 'Gruvbox Material'],
+      ['github-dark-dimmed', 'GitHub Dark Dimmed'],
+    ]) {
+      expect(source).toContain(`{ id: '${id}', label: '${label}' }`);
+      expect(styles).toContain(`:root[data-theme="${id}"]{`);
+    }
+    expect(source).toContain("'tokyo-night', 'rose-pine-moon', 'gruvbox-material', 'github-dark-dimmed'");
+    expect(styles).toContain('--panel-raised:var(--surface);--panel-overlay:var(--surface);--control-bg:var(--surface-2);--control-hover:var(--accent-soft);');
+    expect(styles).toContain('--user-bubble:var(--accent-soft);--assistant-bubble:var(--surface);--tool-surface:var(--surface-2);');
+    expect(styles).toContain('--info:var(--accent);--warning:var(--accent-2);--focus-ring:var(--accent-soft);');
+    expect(styles).toContain('--chart-0:var(--accent);--chart-1:var(--accent-2);');
+    expect(styles).toContain(':root[data-theme="tokyo-night"]{--bg:#16161e;--sidebar:#1a1b26;--surface:#24283b;--surface-2:#292e42;--panel-raised:#2f3549;--panel-overlay:#343b58;');
+    expect(styles).toContain(':root[data-theme="rose-pine-moon"]{--bg:#191724;--sidebar:#1f1d2e;--surface:#232136;--surface-2:#2a273f;--panel-raised:#393552;--panel-overlay:#44415a;');
+    expect(styles).toContain(':root[data-theme="gruvbox-material"]{--bg:#1d2021;--sidebar:#202324;--surface:#282828;--surface-2:#32302f;--panel-raised:#3c3836;--panel-overlay:#45403d;');
+    expect(styles).toContain(':root[data-theme="github-dark-dimmed"]{--bg:#1c2128;--sidebar:#22272e;--surface:#2d333b;--surface-2:#373e47;--panel-raised:#444c56;--panel-overlay:#545d68;');
+  });
+
+  test('new theme secondary text keeps readable contrast against the page', () => {
+    const styles = css();
+    for (const theme of ['tokyo-night', 'rose-pine-moon', 'gruvbox-material', 'github-dark-dimmed']) {
+      expect(contrast(themeColor(styles, theme, '--muted'), themeColor(styles, theme, '--bg'))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  test('semantic theme layers drive interactive UI instead of stopping at page foreground and background', () => {
+    const styles = css();
+    expect(styles).toContain('.chat-header,.image-toolbar{background:var(--header-bg)}');
+    expect(styles).toContain('.session-item:hover,.file-row:hover,.skill-row:hover{background:var(--control-hover)}');
+    expect(styles).toContain('.session-item.active,.skill-row.active{background:var(--selection-bg)');
+    expect(styles).toContain('.msg-row.user .msg-content{background:var(--user-bubble)');
+    expect(styles).toContain('.msg-row.assistant .msg-content,.msg-row.system .msg-content{background:var(--assistant-bubble)');
+    expect(styles).toContain('.tool-card,.turn-detail-body{background:var(--tool-surface)}');
+    expect(styles).toContain('.composer-wrap,.composer-box textarea{background:var(--composer-bg)}');
+    expect(styles).toContain('.dialog-card,.session-context-menu,.skill-context-menu,.skill-file-context-menu,.workspace-context-menu,.image-context-menu{background:var(--panel-overlay)}');
+    expect(styles).toContain('.insights-main{--insights-plot-left:4.1667%;--insights-plot-right:2.5%;');
+    expect(styles).not.toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6;');
+    expect(styles).toContain('.settings-content{grid-template-columns:minmax(0,920px);justify-content:start}');
+    expect(styles).toContain('.settings-content label{background:transparent}');
+    expect(styles).toContain('.settings-content input,.settings-content select{background-color:var(--control-bg);border-color:var(--border-strong)}');
+    expect(styles).toContain('.settings-content select{cursor:pointer;padding-right:38px;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);');
+    expect(styles).toContain('.sidebar .rail-btn.active{color:var(--rail-accent,var(--accent));box-shadow:inset 3px 0 0 var(--rail-accent,var(--accent))}');
   });
 
   test('workspace editor and markdown code use theme editor tokens', () => {
