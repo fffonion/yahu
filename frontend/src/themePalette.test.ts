@@ -43,28 +43,27 @@ describe('full palette theme control', () => {
     const source = app();
     const styles = css();
     for (const [id, label] of [
-      ['tokyo-night', 'Tokyo Night'],
-      ['rose-pine-moon', 'Rosé Pine Moon'],
       ['gruvbox-material', 'Gruvbox Material'],
       ['github-dark-dimmed', 'GitHub Dark Dimmed'],
     ]) {
       expect(source).toContain(`{ id: '${id}', label: '${label}' }`);
       expect(styles).toContain(`:root[data-theme="${id}"]{`);
     }
-    expect(source).toContain("'tokyo-night', 'rose-pine-moon', 'gruvbox-material', 'github-dark-dimmed'");
+    expect(source).not.toContain('tokyo-night');
+    expect(source).not.toContain('rose-pine-moon');
+    expect(styles).not.toContain(':root[data-theme="tokyo-night"]');
+    expect(styles).not.toContain(':root[data-theme="rose-pine-moon"]');
     expect(styles).toContain('--panel-raised:var(--surface);--panel-overlay:var(--surface);--control-bg:var(--surface-2);--control-hover:var(--accent-soft);');
     expect(styles).toContain('--user-bubble:var(--accent-soft);--assistant-bubble:var(--surface);--tool-surface:var(--surface-2);');
     expect(styles).toContain('--info:var(--accent);--warning:var(--accent-2);--focus-ring:var(--accent-soft);');
     expect(styles).toContain('--chart-0:var(--accent);--chart-1:var(--accent-2);');
-    expect(styles).toContain(':root[data-theme="tokyo-night"]{--bg:#16161e;--sidebar:#1a1b26;--surface:#24283b;--surface-2:#292e42;--panel-raised:#2f3549;--panel-overlay:#343b58;');
-    expect(styles).toContain(':root[data-theme="rose-pine-moon"]{--bg:#191724;--sidebar:#1f1d2e;--surface:#232136;--surface-2:#2a273f;--panel-raised:#393552;--panel-overlay:#44415a;');
     expect(styles).toContain(':root[data-theme="gruvbox-material"]{--bg:#1d2021;--sidebar:#202324;--surface:#282828;--surface-2:#32302f;--panel-raised:#3c3836;--panel-overlay:#45403d;');
     expect(styles).toContain(':root[data-theme="github-dark-dimmed"]{--bg:#1c2128;--sidebar:#22272e;--surface:#2d333b;--surface-2:#373e47;--panel-raised:#444c56;--panel-overlay:#545d68;');
   });
 
   test('new theme secondary text keeps readable contrast against the page', () => {
     const styles = css();
-    for (const theme of ['tokyo-night', 'rose-pine-moon', 'gruvbox-material', 'github-dark-dimmed']) {
+    for (const theme of ['gruvbox-material', 'github-dark-dimmed']) {
       expect(contrast(themeColor(styles, theme, '--muted'), themeColor(styles, theme, '--bg'))).toBeGreaterThanOrEqual(4.5);
     }
   });
@@ -73,7 +72,7 @@ describe('full palette theme control', () => {
     const styles = css();
     expect(styles).toContain('.chat-header,.image-toolbar{background:var(--header-bg)}');
     expect(styles).toContain('.session-item:hover,.file-row:hover,.skill-row:hover{background:var(--control-hover)}');
-    expect(styles).toContain('.session-item.active,.skill-row.active{background:var(--selection-bg)');
+    expect(styles).toContain('.session-item.active,.skill-row.active{background:var(--selection-bg);border:1px solid var(--selection-border);box-shadow:none}');
     expect(styles).toContain('.msg-row.user .msg-content{background:var(--user-bubble)');
     expect(styles).toContain('.msg-row.assistant .msg-content,.msg-row.system .msg-content{background:var(--assistant-bubble)');
     expect(styles).toContain('.tool-card,.turn-detail-body{background:var(--tool-surface)}');
@@ -85,7 +84,10 @@ describe('full palette theme control', () => {
     expect(styles).toContain('.settings-content label{background:transparent}');
     expect(styles).toContain('.settings-content input,.settings-content select{background-color:var(--control-bg);border-color:var(--border-strong)}');
     expect(styles).toContain('.settings-content select{cursor:pointer;padding-right:38px;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);');
-    expect(styles).toContain('.sidebar .rail-btn.active{color:var(--rail-accent,var(--accent));box-shadow:inset 3px 0 0 var(--rail-accent,var(--accent))}');
+    expect(styles).toContain('.rail-btn{width:42px;height:42px;border:1px solid transparent;');
+    expect(styles).toContain('.sidebar .rail-btn.active{color:var(--rail-accent,var(--accent));border-color:var(--rail-accent,var(--accent));box-shadow:none}');
+    expect(styles).not.toContain('.session-item.active,.skill-row.active{background:var(--selection-bg);box-shadow:inset 3px 0 0 var(--selection-border)}');
+    expect(styles).not.toContain('.sidebar .rail-btn.active{color:var(--rail-accent,var(--accent));box-shadow:inset 3px 0 0 var(--rail-accent,var(--accent))}');
   });
 
   test('workspace editor and markdown code use theme editor tokens', () => {
