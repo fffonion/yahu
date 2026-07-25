@@ -107,6 +107,8 @@ select,input,textarea{border-radius:var(--radius-md)}
 @media(max-width:760px){.subagent-goal-summary{min-height:44px}.subagent-progress-overlay{padding:0}.subagent-progress-card.collapsed .subagent-progress-panel-toggle{min-height:52px;padding:7px 9px}.subagent-progress-card.expanded .subagent-progress-panel-body .subagent-progress-tree{padding-right:0}}
 
 /* Semantic theme layers: components consume functional colors instead of only page-level foreground/background. */
+:root{color-scheme:light}:root.dark{color-scheme:dark}
+select option{background:var(--control-bg);color:var(--text)}
 ::selection{background:var(--editor-selection);color:var(--editor-text)}
 select,input,textarea{background:var(--control-bg)}
 select:focus,input:focus,textarea:focus{box-shadow:0 0 0 3px var(--focus-ring)}

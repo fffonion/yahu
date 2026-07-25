@@ -90,6 +90,12 @@ describe('full palette theme control', () => {
     expect(styles).not.toContain('.sidebar .rail-btn.active{color:var(--rail-accent,var(--accent));box-shadow:inset 3px 0 0 var(--rail-accent,var(--accent))}');
   });
 
+  test('native select menus follow the active light or dark palette', () => {
+    const styles = css();
+    expect(styles).toContain(':root{color-scheme:light}:root.dark{color-scheme:dark}');
+    expect(styles).toContain('select option{background:var(--control-bg);color:var(--text)}');
+  });
+
   test('workspace editor and markdown code use theme editor tokens', () => {
     const styles = css();
     expect(styles).toContain('.workspace-editor{width:100%;height:100%;min-height:0;resize:none;padding:14px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--editor-bg);color:var(--editor-text);');
