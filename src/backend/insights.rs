@@ -4,6 +4,9 @@ const INSIGHTS_HOURS: usize = 24;
 const INSIGHTS_PAGE_SIZE: usize = 200;
 const INSIGHTS_SCAN_LIMIT: usize = 5_000;
 const INSIGHTS_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const INSIGHTS_ACTIVITY_OVERLAP_SECONDS: f64 = 60.0;
+const INSIGHTS_MESSAGE_ID_OVERLAP: i64 = 100;
+const INSIGHTS_BASELINE_CLEANUP_SECONDS: f64 = 7.0 * 86_400.0;
 const MODELS_DEV_API_URL: &str = "https://models.dev/api.json";
 const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const INSIGHTS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
@@ -178,7 +181,21 @@ fn prepare_insights_snapshot_db(conn: &rusqlite::Connection) -> anyhow::Result<(
     Ok(())
 }
 
-fn persist_insights_snapshot(path: &Path, captured_at: f64, rows: &[serde_json::Value]) -> anyhow::Result<()> {
+#[cfg(test)]
+fn persist_insights_snapshot(
+    path: &Path,
+    captured_at: f64,
+    rows: &[serde_json::Value],
+) -> anyhow::Result<()> {
+    persist_insights_snapshot_with_message_cursor(path, captured_at, rows, None)
+}
+
+fn persist_insights_snapshot_with_message_cursor(
+    path: &Path,
+    captured_at: f64,
+    rows: &[serde_json::Value],
+    last_message_id: Option<i64>,
+) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -295,22 +312,91 @@ fn persist_insights_snapshot(path: &Path, captured_at: f64, rows: &[serde_json::
 
     let retention_cutoff = captured_at - INSIGHTS_SNAPSHOT_RETENTION_SECONDS;
     tx.execute("DELETE FROM insights_events WHERE captured_at < ?1", [retention_cutoff])?;
-    tx.execute("DELETE FROM insights_baselines WHERE last_seen < ?1", [retention_cutoff])?;
     tx.execute(
-        "DELETE FROM insights_initial_baselines
-         WHERE session_id NOT IN (SELECT session_id FROM insights_baselines)",
-        [],
+        "INSERT INTO insights_meta(key, value) VALUES('last_captured_at', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [captured_at],
     )?;
+    if let Some(last_message_id) = last_message_id {
+        tx.execute(
+            "INSERT INTO insights_meta(key, value) VALUES('last_message_id', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [last_message_id as f64],
+        )?;
+    }
     tx.commit()?;
     Ok(())
+}
+
+fn cleanup_deleted_insights_baselines(
+    snapshot_path: &Path,
+    state_db_path: &Path,
+    now: f64,
+) -> anyhow::Result<usize> {
+    let mut snapshot_conn = rusqlite::Connection::open(snapshot_path)?;
+    prepare_insights_snapshot_db(&snapshot_conn)?;
+    let last_cleanup_at = snapshot_conn
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'last_baseline_cleanup_at'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    if last_cleanup_at.is_some_and(|last_cleanup_at| {
+        let age = now - last_cleanup_at;
+        (0.0..INSIGHTS_BASELINE_CLEANUP_SECONDS).contains(&age)
+    }) {
+        return Ok(0);
+    }
+
+    let stale_cutoff = now - INSIGHTS_BASELINE_CLEANUP_SECONDS;
+    let stale_session_ids = {
+        let mut statement = snapshot_conn
+            .prepare("SELECT session_id FROM insights_baselines WHERE last_seen < ?1")?;
+        statement
+            .query_map([stale_cutoff], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let state_conn = rusqlite::Connection::open_with_flags(
+        state_db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    state_conn.busy_timeout(Duration::from_secs(5))?;
+    let mut exists_statement =
+        state_conn.prepare("SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)")?;
+    let mut deleted_session_ids = Vec::new();
+    for session_id in stale_session_ids {
+        let exists = exists_statement.query_row([&session_id], |row| row.get::<_, bool>(0))?;
+        if !exists {
+            deleted_session_ids.push(session_id);
+        }
+    }
+    drop(exists_statement);
+    drop(state_conn);
+
+    let tx = snapshot_conn.transaction()?;
+    for session_id in &deleted_session_ids {
+        tx.execute("DELETE FROM insights_baselines WHERE session_id = ?1", [session_id])?;
+        tx.execute(
+            "DELETE FROM insights_initial_baselines WHERE session_id = ?1",
+            [session_id],
+        )?;
+    }
+    tx.execute(
+        "INSERT INTO insights_meta(key, value) VALUES('last_baseline_cleanup_at', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [now],
+    )?;
+    tx.commit()?;
+    Ok(deleted_session_ids.len())
 }
 
 fn load_insights_usage_rows(
     path: &Path,
     min_timestamp: f64,
-) -> anyhow::Result<(Vec<serde_json::Value>, Option<f64>)> {
+) -> anyhow::Result<(Vec<serde_json::Value>, Option<f64>, Option<f64>)> {
     if !path.exists() {
-        return Ok((Vec::new(), None));
+        return Ok((Vec::new(), None, None));
     }
     let conn = rusqlite::Connection::open(path)?;
     prepare_insights_snapshot_db(&conn)?;
@@ -321,6 +407,21 @@ fn load_insights_usage_rows(
             |row| row.get::<_, f64>(0),
         )
         .optional()?;
+    let latest_snapshot_at = match conn
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'last_captured_at'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?
+    {
+        Some(value) => Some(value),
+        None => conn.query_row(
+            "SELECT MAX(captured_at) FROM insights_baselines",
+            [],
+            |row| row.get::<_, Option<f64>>(0),
+        )?,
+    };
     let mut usage_rows = {
         let mut statement = conn.prepare(
             "SELECT row_json FROM insights_events WHERE captured_at >= ?1 ORDER BY captured_at, id",
@@ -342,7 +443,142 @@ fn load_insights_usage_rows(
             .collect::<Vec<_>>()
     };
     usage_rows.extend(fallback_rows);
-    Ok((usage_rows, coverage_started_at))
+    Ok((usage_rows, coverage_started_at, latest_snapshot_at))
+}
+
+#[derive(Default)]
+struct InsightsCaptureCursor {
+    last_captured_at: Option<f64>,
+    last_message_id: Option<i64>,
+}
+
+fn load_insights_capture_cursor(path: &Path) -> anyhow::Result<InsightsCaptureCursor> {
+    if !path.exists() {
+        return Ok(InsightsCaptureCursor::default());
+    }
+    let conn = rusqlite::Connection::open(path)?;
+    prepare_insights_snapshot_db(&conn)?;
+    let last_captured_at = conn
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'last_captured_at'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    let last_message_id = conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM insights_meta WHERE key = 'last_message_id'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    Ok(InsightsCaptureCursor {
+        last_captured_at,
+        last_message_id,
+    })
+}
+
+fn current_insights_message_id(path: &Path) -> anyhow::Result<i64> {
+    let conn = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.busy_timeout(Duration::from_secs(5))?;
+    Ok(conn.query_row("SELECT COALESCE(MAX(id), 0) FROM messages", [], |row| {
+        row.get::<_, i64>(0)
+    })?)
+}
+
+fn fetch_changed_sessions_for_insights(
+    path: &Path,
+    previous_message_id: i64,
+) -> anyhow::Result<(Vec<serde_json::Value>, i64)> {
+    let conn = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.busy_timeout(Duration::from_secs(5))?;
+    let high_water = conn.query_row("SELECT COALESCE(MAX(id), 0) FROM messages", [], |row| {
+        row.get::<_, i64>(0)
+    })?;
+    let lower_bound = previous_message_id
+        .saturating_sub(INSIGHTS_MESSAGE_ID_OVERLAP)
+        .max(0);
+    let mut statement = conn.prepare(
+        "WITH changed(session_id) AS (
+             SELECT DISTINCT session_id
+             FROM messages
+             WHERE id > ?1 AND id <= ?2
+         )
+         SELECT
+             s.id,
+             s.source,
+             COALESCE(s.model, 'unknown'),
+             s.started_at,
+             COALESCE(s.input_tokens, 0),
+             COALESCE(s.output_tokens, 0),
+             COALESCE(s.cache_read_tokens, 0),
+             COALESCE(s.cache_write_tokens, 0),
+             COALESCE(s.reasoning_tokens, 0),
+             COALESCE(s.api_call_count, 0),
+             COALESCE(s.tool_call_count, 0),
+             COALESCE(s.estimated_cost_usd, 0),
+             COALESCE(s.actual_cost_usd, 0)
+         FROM sessions s
+         JOIN changed c ON c.session_id = s.id
+         WHERE s.archived = 0
+           AND s.source != 'tool'
+           AND COALESCE(s.end_reason, '') != 'compression'
+           AND json_extract(
+                 CASE WHEN json_valid(s.model_config) THEN s.model_config ELSE '{}' END,
+                 '$._delegate_from'
+               ) IS NULL
+           AND (
+                 s.parent_session_id IS NULL
+                 OR json_extract(
+                      CASE WHEN json_valid(s.model_config) THEN s.model_config ELSE '{}' END,
+                      '$._branched_from'
+                    ) IS NOT NULL
+                 OR EXISTS (
+                      SELECT 1 FROM sessions parent
+                      WHERE parent.id = s.parent_session_id
+                        AND parent.end_reason = 'branched'
+                        AND s.started_at >= parent.ended_at
+                    )
+                 OR EXISTS (
+                      SELECT 1 FROM sessions parent
+                      WHERE parent.id = s.parent_session_id
+                        AND parent.end_reason = 'compression'
+                    )
+               )",
+    )?;
+    let rows = statement
+        .query_map(rusqlite::params![lower_bound, high_water], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "source": row.get::<_, String>(1)?,
+                "model": row.get::<_, String>(2)?,
+                "started_at": row.get::<_, f64>(3)?,
+                "input_tokens": row.get::<_, i64>(4)?,
+                "output_tokens": row.get::<_, i64>(5)?,
+                "cache_read_tokens": row.get::<_, i64>(6)?,
+                "cache_write_tokens": row.get::<_, i64>(7)?,
+                "reasoning_tokens": row.get::<_, i64>(8)?,
+                "api_call_count": row.get::<_, i64>(9)?,
+                "tool_call_count": row.get::<_, i64>(10)?,
+                "estimated_cost_usd": row.get::<_, f64>(11)?,
+                "actual_cost_usd": row.get::<_, f64>(12)?,
+            }))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((rows, high_water))
+}
+
+fn insights_snapshot_is_fresh(latest_snapshot_at: Option<f64>, now: f64) -> bool {
+    latest_snapshot_at.is_some_and(|captured_at| {
+        let age = now - captured_at;
+        age >= 0.0 && age < INSIGHTS_SNAPSHOT_INTERVAL.as_secs_f64()
+    })
 }
 
 #[derive(Clone, Default)]
@@ -572,6 +808,7 @@ struct InsightsUsageQuery {
     period: Option<usize>,
     days: Option<usize>,
     tz_offset: Option<i32>,
+    refresh: Option<bool>,
 }
 
 fn normalize_insights_period(value: Option<usize>) -> usize {
@@ -594,8 +831,11 @@ async fn insights_usage(
     let now = unix_now_seconds();
     let period_days = normalize_insights_period(query.period.or(query.days));
     let timezone_offset = normalize_insights_timezone_offset(query.tz_offset);
-    if let Err(err) = capture_insights_snapshot(&state, now).await {
-        warn!("insights usage snapshot capture failed: {err}");
+    let force_refresh = query.refresh.unwrap_or(false);
+    if force_refresh
+        && let Err(err) = refresh_insights_snapshot_and_wait(state.clone(), now).await
+    {
+        warn!("explicit insights snapshot refresh failed: {err}");
     }
     let snapshot_path = state.hermes_home.join(INSIGHTS_SNAPSHOT_DB);
     let min_timestamp = now - (INSIGHTS_MAX_DAYS as f64 * 86_400.0);
@@ -603,7 +843,7 @@ async fn insights_usage(
         load_insights_usage_rows(&snapshot_path, min_timestamp)
     })
     .await;
-    let (rows, coverage_started_at) = match snapshot_data {
+    let (rows, coverage_started_at, latest_snapshot_at) = match snapshot_data {
         Ok(Ok(value)) => value,
         Ok(Err(err)) => {
             return json_error(
@@ -618,6 +858,9 @@ async fn insights_usage(
             );
         }
     };
+    if !force_refresh && !insights_snapshot_is_fresh(latest_snapshot_at, now) {
+        start_insights_snapshot_refresh(state.clone(), now);
+    }
     let prices = match fetch_models_dev_price_catalog(&state).await {
         Ok(prices) => prices,
         Err(err) => {
@@ -645,10 +888,82 @@ async fn insights_usage(
 }
 
 async fn capture_insights_snapshot(state: &AppState, captured_at: f64) -> anyhow::Result<()> {
-    let rows = fetch_sessions_for_insights_snapshot(state).await?;
     let path = state.hermes_home.join(INSIGHTS_SNAPSHOT_DB);
-    tokio::task::spawn_blocking(move || persist_insights_snapshot(&path, captured_at, &rows)).await??;
+    let cursor_path = path.clone();
+    let cursor =
+        tokio::task::spawn_blocking(move || load_insights_capture_cursor(&cursor_path)).await??;
+    let state_db_path = state.hermes_home.join("state.db");
+
+    let (rows, last_message_id) = if let Some(previous_message_id) = cursor.last_message_id {
+        let read_path = state_db_path.clone();
+        let (rows, high_water) = tokio::task::spawn_blocking(move || {
+            fetch_changed_sessions_for_insights(&read_path, previous_message_id)
+        })
+        .await??;
+        (rows, Some(high_water))
+    } else {
+        let message_id = if state_db_path.exists() {
+            let read_path = state_db_path.clone();
+            Some(tokio::task::spawn_blocking(move || current_insights_message_id(&read_path)).await??)
+        } else {
+            None
+        };
+        let activity_cutoff = cursor
+            .last_captured_at
+            .map(|value| (value - INSIGHTS_ACTIVITY_OVERLAP_SECONDS).max(0.0));
+        (
+            fetch_sessions_for_insights_snapshot(state, activity_cutoff).await?,
+            message_id,
+        )
+    };
+
+    let persist_path = path.clone();
+    tokio::task::spawn_blocking(move || {
+        persist_insights_snapshot_with_message_cursor(
+            &persist_path,
+            captured_at,
+            &rows,
+            last_message_id,
+        )
+    })
+    .await??;
+    if state_db_path.exists() {
+        tokio::task::spawn_blocking(move || {
+            cleanup_deleted_insights_baselines(&path, &state_db_path, captured_at)
+        })
+        .await??;
+    }
     Ok(())
+}
+
+fn start_insights_snapshot_refresh(state: Arc<AppState>, captured_at: f64) -> bool {
+    let Ok(guard) = state.insights_snapshot_refresh.clone().try_lock_owned() else {
+        return false;
+    };
+    tokio::spawn(async move {
+        let _guard = guard;
+        if let Err(err) = capture_insights_snapshot(&state, captured_at).await {
+            warn!("insights snapshot capture failed: {err}");
+        }
+    });
+    true
+}
+
+async fn refresh_insights_snapshot_and_wait(
+    state: Arc<AppState>,
+    captured_at: f64,
+) -> anyhow::Result<()> {
+    let refresh_lock = state.insights_snapshot_refresh.clone();
+    match refresh_lock.clone().try_lock_owned() {
+        Ok(guard) => {
+            let _guard = guard;
+            capture_insights_snapshot(&state, captured_at).await
+        }
+        Err(_) => {
+            let _guard = refresh_lock.lock_owned().await;
+            Ok(())
+        }
+    }
 }
 
 async fn run_insights_snapshot_collector(state: Arc<AppState>) {
@@ -656,9 +971,7 @@ async fn run_insights_snapshot_collector(state: Arc<AppState>) {
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         ticker.tick().await;
-        if let Err(err) = capture_insights_snapshot(&state, unix_now_seconds()).await {
-            warn!("background insights snapshot capture failed: {err}");
-        }
+        start_insights_snapshot_refresh(state.clone(), unix_now_seconds());
     }
 }
 
@@ -715,7 +1028,10 @@ async fn fetch_models_dev_price_catalog_from_url(
     }
 }
 
-async fn fetch_sessions_for_insights_snapshot(state: &AppState) -> anyhow::Result<Vec<serde_json::Value>> {
+async fn fetch_sessions_for_insights_snapshot(
+    state: &AppState,
+    activity_cutoff: Option<f64>,
+) -> anyhow::Result<Vec<serde_json::Value>> {
     let mut rows = Vec::new();
     let mut offset = 0usize;
     loop {
@@ -742,13 +1058,21 @@ async fn fetch_sessions_for_insights_snapshot(state: &AppState) -> anyhow::Resul
             .cloned()
             .unwrap_or_default();
         let data_len = data.len();
-        rows.extend(data.into_iter().filter(|row| is_client_visible_session(row, false)));
+        let reached_cutoff = activity_cutoff.is_some_and(|cutoff| {
+            data.iter()
+                .any(|row| session_activity_timestamp(row) < cutoff)
+        });
+        rows.extend(data.into_iter().filter(|row| {
+            activity_cutoff
+                .is_none_or(|cutoff| session_activity_timestamp(row) >= cutoff)
+                && is_client_visible_session(row, false)
+        }));
         let has_more = body
             .get("has_more")
             .and_then(|value| value.as_bool())
             .unwrap_or(data_len == INSIGHTS_PAGE_SIZE);
         offset = offset.saturating_add(INSIGHTS_PAGE_SIZE);
-        if !has_more || data_len == 0 || offset >= INSIGHTS_SCAN_LIMIT {
+        if reached_cutoff || !has_more || data_len == 0 || offset >= INSIGHTS_SCAN_LIMIT {
             return Ok(rows);
         }
     }
@@ -761,7 +1085,7 @@ async fn fetch_recent_sessions_for_insights(
     window_days: usize,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
     let min_ts = now - (window_days as f64 * 86_400.0);
-    Ok(fetch_sessions_for_insights_snapshot(state)
+    Ok(fetch_sessions_for_insights_snapshot(state, None)
         .await?
         .into_iter()
         .filter(|row| session_usage_timestamp(row) >= min_ts)
@@ -1032,6 +1356,15 @@ fn session_usage_timestamp(row: &serde_json::Value) -> f64 {
         started_at
     } else {
         json_timestamp(row, "last_active").max(json_timestamp(row, "ended_at"))
+    }
+}
+
+fn session_activity_timestamp(row: &serde_json::Value) -> f64 {
+    let last_active = json_timestamp(row, "last_active");
+    if last_active > 0.0 {
+        last_active
+    } else {
+        json_timestamp(row, "started_at")
     }
 }
 

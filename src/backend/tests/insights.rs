@@ -281,10 +281,11 @@
 
         persist_insights_snapshot(&path, first, &first_rows).unwrap();
         persist_insights_snapshot(&path, second, &second_rows).unwrap();
-        let (usage_rows, coverage_started_at) =
+        let (usage_rows, coverage_started_at, latest_snapshot_at) =
             load_insights_usage_rows(&path, first - (7.0 * 86_400.0)).unwrap();
 
         assert_eq!(coverage_started_at, Some(first));
+        assert_eq!(latest_snapshot_at, Some(second));
         assert_eq!(usage_rows.len(), 2);
         let fallback = usage_rows
             .iter()
@@ -312,6 +313,21 @@
         assert_eq!(fallback_day["totals"]["total_tokens"], 1_120);
         assert_eq!(event_day["totals"]["total_tokens"], 155);
         assert_eq!(body["totals"]["total_tokens"], 1_275);
+    }
+
+    #[test]
+    fn empty_insights_snapshot_records_the_latest_collection_time() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("usage.db");
+        let captured_at = 1_789_000_000.0;
+
+        persist_insights_snapshot(&path, captured_at, &[]).unwrap();
+        let (rows, coverage_started_at, latest_snapshot_at) =
+            load_insights_usage_rows(&path, captured_at - 86_400.0).unwrap();
+
+        assert!(rows.is_empty());
+        assert_eq!(coverage_started_at, Some(captured_at));
+        assert_eq!(latest_snapshot_at, Some(captured_at));
     }
 
     #[tokio::test]
@@ -352,6 +368,312 @@
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["id"], "recent");
+    }
+
+    #[tokio::test]
+    async fn insights_incremental_capture_uses_message_cursor_and_records_resumed_old_session() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        const CURSOR: f64 = 1_780_000_000.0;
+
+        async fn sessions_page(
+            State(calls): State<Arc<AtomicUsize>>,
+            Query(params): Query<std::collections::HashMap<String, String>>,
+        ) -> Json<serde_json::Value> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            let offset = params
+                .get("offset")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            if offset == 0 {
+                Json(serde_json::json!({
+                    "data": [
+                        {
+                            "id": "resumed-old",
+                            "source": "api_server",
+                            "model": "gpt-5.6-sol",
+                            "started_at": CURSOR - (40.0 * 86_400.0),
+                            "last_active": CURSOR + 10.0,
+                            "input_tokens": 150
+                        },
+                        {
+                            "id": "below-overlap",
+                            "source": "api_server",
+                            "model": "gpt-5.6-sol",
+                            "started_at": CURSOR - (20.0 * 86_400.0),
+                            "last_active": CURSOR - 61.0,
+                            "input_tokens": 999
+                        }
+                    ],
+                    "has_more": true
+                }))
+            } else {
+                Json(serde_json::json!({
+                    "data": [{
+                        "id": "should-not-be-fetched",
+                        "source": "api_server",
+                        "started_at": CURSOR - 86_400.0,
+                        "last_active": CURSOR - 120.0,
+                        "input_tokens": 999
+                    }],
+                    "has_more": false
+                }))
+            }
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route("/api/sessions", get(sessions_page))
+            .with_state(calls.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let snapshot_path = temp.path().join(INSIGHTS_SNAPSHOT_DB);
+        persist_insights_snapshot(
+            &snapshot_path,
+            CURSOR,
+            &[
+                serde_json::json!({
+                    "id": "resumed-old",
+                    "source": "api_server",
+                    "model": "gpt-5.6-sol",
+                    "started_at": CURSOR - (40.0 * 86_400.0),
+                    "last_active": CURSOR - 300.0,
+                    "input_tokens": 100
+                }),
+                serde_json::json!({
+                    "id": "deleted-stale",
+                    "source": "api_server",
+                    "model": "gpt-5.6-sol",
+                    "started_at": CURSOR - (40.0 * 86_400.0),
+                    "input_tokens": 77
+                }),
+            ],
+        )
+        .unwrap();
+        let snapshot_conn = rusqlite::Connection::open(&snapshot_path).unwrap();
+        snapshot_conn
+            .execute(
+                "UPDATE insights_baselines SET last_seen = ?1 WHERE session_id = 'deleted-stale'",
+                [CURSOR - (8.0 * 86_400.0)],
+            )
+            .unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_meta(key, value) VALUES('last_message_id', 100)",
+                [],
+            )
+            .unwrap();
+
+        let state_db = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        state_db
+            .execute_batch(
+                "CREATE TABLE sessions (
+                     id TEXT PRIMARY KEY,
+                     source TEXT NOT NULL,
+                     model TEXT,
+                     model_config TEXT,
+                     parent_session_id TEXT,
+                     started_at REAL NOT NULL,
+                     ended_at REAL,
+                     end_reason TEXT,
+                     tool_call_count INTEGER DEFAULT 0,
+                     input_tokens INTEGER DEFAULT 0,
+                     output_tokens INTEGER DEFAULT 0,
+                     cache_read_tokens INTEGER DEFAULT 0,
+                     cache_write_tokens INTEGER DEFAULT 0,
+                     reasoning_tokens INTEGER DEFAULT 0,
+                     estimated_cost_usd REAL DEFAULT 0,
+                     actual_cost_usd REAL DEFAULT 0,
+                     api_call_count INTEGER DEFAULT 0,
+                     archived INTEGER DEFAULT 0
+                 );
+                 CREATE TABLE messages (
+                     id INTEGER PRIMARY KEY,
+                     session_id TEXT NOT NULL,
+                     timestamp REAL NOT NULL
+                 );
+                 INSERT INTO sessions(
+                     id, source, model, started_at, input_tokens
+                 ) VALUES(
+                     'resumed-old', 'api_server', 'gpt-5.6-sol',
+                     1776544000.0, 150
+                 );
+                 INSERT INTO messages(id, session_id, timestamp)
+                 VALUES(101, 'resumed-old', 1780000010.0);",
+            )
+            .unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        capture_insights_snapshot(&state, CURSOR + 300.0)
+            .await
+            .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let (rows, _, latest_snapshot_at) =
+            load_insights_usage_rows(&snapshot_path, CURSOR - (45.0 * 86_400.0)).unwrap();
+        let delta = rows
+            .iter()
+            .find(|row| row["started_at"] == CURSOR + 300.0)
+            .unwrap();
+        assert_eq!(delta["input_tokens"], 50);
+        assert_eq!(latest_snapshot_at, Some(CURSOR + 300.0));
+        assert_eq!(
+            snapshot_conn
+                .query_row(
+                    "SELECT COUNT(*) FROM insights_baselines WHERE session_id = 'deleted-stale'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            snapshot_conn
+                .query_row(
+                    "SELECT value FROM insights_meta WHERE key = 'last_baseline_cleanup_at'",
+                    [],
+                    |row| row.get::<_, f64>(0),
+                )
+                .unwrap(),
+            CURSOR + 300.0
+        );
+    }
+
+    #[test]
+    fn insights_keeps_idle_session_baselines_for_future_incremental_deltas() {
+        const START: f64 = 1_780_000_000.0;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(INSIGHTS_SNAPSHOT_DB);
+        let initial = serde_json::json!({
+            "id": "idle-then-resumed",
+            "source": "api_server",
+            "model": "gpt-5.6-sol",
+            "started_at": START - (90.0 * 86_400.0),
+            "input_tokens": 100
+        });
+        persist_insights_snapshot(&path, START, &[initial]).unwrap();
+        persist_insights_snapshot(&path, START + (36.0 * 86_400.0), &[]).unwrap();
+        let resumed = serde_json::json!({
+            "id": "idle-then-resumed",
+            "source": "api_server",
+            "model": "gpt-5.6-sol",
+            "started_at": START - (90.0 * 86_400.0),
+            "input_tokens": 150
+        });
+        let resumed_at = START + (36.0 * 86_400.0) + 300.0;
+        persist_insights_snapshot(&path, resumed_at, &[resumed]).unwrap();
+
+        let (rows, _, _) = load_insights_usage_rows(&path, START + (35.0 * 86_400.0)).unwrap();
+        let delta = rows
+            .iter()
+            .find(|row| row["started_at"] == resumed_at)
+            .unwrap();
+        assert_eq!(delta["input_tokens"], 50);
+    }
+
+    #[test]
+    fn insights_weekly_cleanup_removes_only_deleted_stale_session_baselines() {
+        const NOW: f64 = 1_800_000_000.0;
+        let temp = tempfile::tempdir().unwrap();
+        let snapshot_path = temp.path().join(INSIGHTS_SNAPSHOT_DB);
+        let state_db_path = temp.path().join("state.db");
+        let rows = [
+            ("existing-stale", 10),
+            ("deleted-stale", 20),
+            ("deleted-recent", 30),
+        ]
+        .into_iter()
+        .map(|(id, input)| {
+            serde_json::json!({
+                "id": id,
+                "source": "api_server",
+                "model": "gpt-5.6-sol",
+                "started_at": NOW - (30.0 * 86_400.0),
+                "input_tokens": input
+            })
+        })
+        .collect::<Vec<_>>();
+        persist_insights_snapshot(&snapshot_path, NOW - (8.0 * 86_400.0), &rows).unwrap();
+        let snapshot_conn = rusqlite::Connection::open(&snapshot_path).unwrap();
+        snapshot_conn
+            .execute(
+                "UPDATE insights_baselines
+                 SET last_seen = CASE session_id
+                     WHEN 'deleted-recent' THEN ?1
+                     ELSE ?2
+                 END",
+                rusqlite::params![NOW - (6.0 * 86_400.0), NOW - (8.0 * 86_400.0)],
+            )
+            .unwrap();
+        let state_conn = rusqlite::Connection::open(&state_db_path).unwrap();
+        state_conn
+            .execute_batch(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY);
+                 INSERT INTO sessions(id) VALUES('existing-stale');",
+            )
+            .unwrap();
+
+        assert_eq!(
+            cleanup_deleted_insights_baselines(&snapshot_path, &state_db_path, NOW).unwrap(),
+            1
+        );
+        let remaining = snapshot_conn
+            .prepare("SELECT session_id FROM insights_baselines ORDER BY session_id")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(remaining, vec!["deleted-recent", "existing-stale"]);
+        let initial_remaining = snapshot_conn
+            .query_row(
+                "SELECT COUNT(*) FROM insights_initial_baselines",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(initial_remaining, 2);
+
+        assert_eq!(
+            cleanup_deleted_insights_baselines(
+                &snapshot_path,
+                &state_db_path,
+                NOW + (6.0 * 86_400.0),
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            snapshot_conn
+                .query_row("SELECT COUNT(*) FROM insights_baselines", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            2
+        );
+
+        assert_eq!(
+            cleanup_deleted_insights_baselines(
+                &snapshot_path,
+                &state_db_path,
+                NOW + (7.0 * 86_400.0),
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            snapshot_conn
+                .query_row(
+                    "SELECT session_id FROM insights_baselines",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "existing-stale"
+        );
     }
 
     #[tokio::test]
@@ -413,6 +735,251 @@
         let price = model_price_for_model(&catalog, "gpt-5.5").unwrap();
 
         assert!((price.estimate(1_000_000, 100_000, 9_000_000, 0) - 12.5).abs() < 0.000001);
+    }
+
+    #[tokio::test]
+    async fn insights_serves_a_persisted_snapshot_without_waiting_for_collection() {
+        async fn slow_sessions() -> Json<serde_json::Value> {
+            sleep(Duration::from_secs(5)).await;
+            Json(serde_json::json!({"data": [], "has_more": false}))
+        }
+
+        let app = Router::new().route("/api/sessions", get(slow_sessions));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let now = unix_now_seconds();
+        let snapshot_path = temp.path().join(INSIGHTS_SNAPSHOT_DB);
+        persist_insights_snapshot(
+            &snapshot_path,
+            now - INSIGHTS_SNAPSHOT_INTERVAL.as_secs_f64() - 1.0,
+            &[serde_json::json!({
+                "id": "persisted-session",
+                "source": "telegram",
+                "model": "gpt-5.6-sol",
+                "started_at": now - 60.0,
+                "input_tokens": 100
+            })],
+        )
+        .unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        {
+            let mut cache = state.model_price_cache.write().await;
+            cache.fetched_at = Some(std::time::Instant::now());
+            cache.body = Some(serde_json::json!({}));
+        }
+
+        let response = timeout(
+            Duration::from_millis(500),
+            insights_usage(
+                State(state),
+                Query(InsightsUsageQuery {
+                    period: Some(7),
+                    days: None,
+                    tz_offset: Some(0),
+                    refresh: None,
+                }),
+            ),
+        )
+        .await
+        .expect("persisted Insights data should return before collection finishes");
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn insights_reuses_a_fresh_snapshot_without_starting_collection() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        async fn counted_sessions(
+            State(calls): State<Arc<AtomicUsize>>,
+        ) -> Json<serde_json::Value> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Json(serde_json::json!({"data": [], "has_more": false}))
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route("/api/sessions", get(counted_sessions))
+            .with_state(calls.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let now = unix_now_seconds();
+        persist_insights_snapshot(
+            &temp.path().join(INSIGHTS_SNAPSHOT_DB),
+            now,
+            &[serde_json::json!({
+                "id": "fresh-session",
+                "source": "telegram",
+                "model": "gpt-5.6-sol",
+                "started_at": now,
+                "input_tokens": 100
+            })],
+        )
+        .unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        {
+            let mut cache = state.model_price_cache.write().await;
+            cache.fetched_at = Some(std::time::Instant::now());
+            cache.body = Some(serde_json::json!({}));
+        }
+
+        let response = insights_usage(
+            State(state),
+            Query(InsightsUsageQuery {
+                period: Some(7),
+                days: None,
+                tz_offset: Some(0),
+                refresh: None,
+            }),
+        )
+        .await;
+        sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn explicit_insights_refresh_collects_even_when_the_snapshot_is_fresh() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        async fn counted_sessions(
+            State(calls): State<Arc<AtomicUsize>>,
+        ) -> Json<serde_json::Value> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Json(serde_json::json!({
+                "data": [{
+                    "id": "fresh-session",
+                    "source": "telegram",
+                    "model": "gpt-5.6-sol",
+                    "started_at": unix_now_seconds(),
+                    "input_tokens": 200
+                }],
+                "has_more": false
+            }))
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route("/api/sessions", get(counted_sessions))
+            .with_state(calls.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let now = unix_now_seconds();
+        persist_insights_snapshot(
+            &temp.path().join(INSIGHTS_SNAPSHOT_DB),
+            now,
+            &[serde_json::json!({
+                "id": "fresh-session",
+                "source": "telegram",
+                "model": "gpt-5.6-sol",
+                "started_at": now,
+                "input_tokens": 100
+            })],
+        )
+        .unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        {
+            let mut cache = state.model_price_cache.write().await;
+            cache.fetched_at = Some(std::time::Instant::now());
+            cache.body = Some(serde_json::json!({}));
+        }
+
+        let response = insights_usage(
+            State(state),
+            Query(InsightsUsageQuery {
+                period: Some(7),
+                days: None,
+                tz_offset: Some(0),
+                refresh: Some(true),
+            }),
+        )
+        .await;
+        sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["totals"]["input"], 200);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_insights_requests_share_one_snapshot_collection() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        async fn counted_slow_sessions(
+            State(calls): State<Arc<AtomicUsize>>,
+        ) -> Json<serde_json::Value> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            sleep(Duration::from_millis(150)).await;
+            Json(serde_json::json!({"data": [], "has_more": false}))
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route("/api/sessions", get(counted_slow_sessions))
+            .with_state(calls.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let now = unix_now_seconds();
+        persist_insights_snapshot(
+            &temp.path().join(INSIGHTS_SNAPSHOT_DB),
+            now - INSIGHTS_SNAPSHOT_INTERVAL.as_secs_f64() - 1.0,
+            &[serde_json::json!({
+                "id": "stale-session",
+                "source": "telegram",
+                "model": "gpt-5.6-sol",
+                "started_at": now,
+                "input_tokens": 100
+            })],
+        )
+        .unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        {
+            let mut cache = state.model_price_cache.write().await;
+            cache.fetched_at = Some(std::time::Instant::now());
+            cache.body = Some(serde_json::json!({}));
+        }
+
+        let first = insights_usage(
+            State(state.clone()),
+            Query(InsightsUsageQuery {
+                period: Some(1),
+                days: None,
+                tz_offset: Some(0),
+                refresh: None,
+            }),
+        );
+        let second = insights_usage(
+            State(state),
+            Query(InsightsUsageQuery {
+                period: Some(30),
+                days: None,
+                tz_offset: Some(0),
+                refresh: None,
+            }),
+        );
+        let (first, second) = tokio::join!(first, second);
+        sleep(Duration::from_millis(250)).await;
+
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::OK);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

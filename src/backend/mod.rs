@@ -49,7 +49,7 @@ use tokio::{
     io::AsyncReadExt,
     net::TcpListener,
     process::Command,
-    sync::{RwLock, broadcast, mpsc, watch},
+    sync::{Mutex, RwLock, broadcast, mpsc, watch},
     time::{Instant, MissedTickBehavior, interval, sleep, sleep_until, timeout},
 };
 use tower_http::trace::TraceLayer;
@@ -136,6 +136,7 @@ struct AppState {
     subagent_feeds: Arc<RwLock<HashMap<String, watch::Sender<String>>>>,
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
+    insights_snapshot_refresh: Arc<Mutex<()>>,
 }
 
 #[derive(Deserialize)]
@@ -261,6 +262,7 @@ pub async fn run() -> anyhow::Result<()> {
         subagent_feeds: Arc::new(RwLock::new(HashMap::new())),
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
+        insights_snapshot_refresh: Arc::new(Mutex::new(())),
     });
     tokio::spawn(run_idle_cache_cleanup(state.clone()));
     tokio::spawn(run_insights_snapshot_collector(state.clone()));

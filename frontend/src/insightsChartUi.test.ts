@@ -53,6 +53,13 @@ describe('insights chart UI', () => {
     expect(css).toContain('.chart-point-hit.tooltip-below:hover .chart-tooltip,.chart-point-hit.tooltip-below:focus .chart-tooltip,.chart-point-hit.tooltip-below:focus-visible .chart-tooltip{transform:translate(-50%,8px)}');
   });
 
+  test('marks explicit refresh requests without changing normal period loads', () => {
+    const app = appSource();
+    expect(app).toContain("const usageParams = new URLSearchParams({ period: String(period), tz_offset: String(timezoneOffset) });");
+    expect(app).toContain("if (force) usageParams.set('refresh', 'true');");
+    expect(app).toContain('fetch(`/insights/usage?${usageParams.toString()}`)');
+  });
+
   test('renders dedicated loading placeholders for cards chart and model rows', () => {
     const app = appSource();
     const css = cssSource();
@@ -206,7 +213,7 @@ describe('insights chart UI', () => {
     const app = appSource();
     expect(app).toContain('const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod');
     expect(app).toContain('const timezoneOffset = new Date().getTimezoneOffset();');
-    expect(app).toContain('const usageRes = await fetch(`/insights/usage?period=${period}&tz_offset=${timezoneOffset}`);');
+    expect(app).toContain('const usageRes = await fetch(`/insights/usage?${usageParams.toString()}`);');
     expect(app).toContain("useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);");
     expect(app).not.toContain("fetch('/insights/usage')");
   });

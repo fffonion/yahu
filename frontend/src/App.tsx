@@ -751,7 +751,9 @@ export default function App() {
     setUsageError('');
     try {
       const timezoneOffset = new Date().getTimezoneOffset();
-      const usageRes = await fetch(`/insights/usage?period=${period}&tz_offset=${timezoneOffset}`);
+      const usageParams = new URLSearchParams({ period: String(period), tz_offset: String(timezoneOffset) });
+      if (force) usageParams.set('refresh', 'true');
+      const usageRes = await fetch(`/insights/usage?${usageParams.toString()}`);
       if (!usageRes.ok) throw new Error(await usageRes.text());
       const nextInsights = await usageRes.json();
       usageInsightsCacheRef.current[period] = nextInsights;

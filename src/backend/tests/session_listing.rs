@@ -19,6 +19,7 @@
             subagent_feeds: Arc::new(RwLock::new(HashMap::new())),
             model_cache: Arc::new(RwLock::new(ModelCache::default())),
             model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
+            insights_snapshot_refresh: Arc::new(Mutex::new(())),
         }
     }
 
