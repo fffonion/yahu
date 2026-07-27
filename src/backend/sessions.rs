@@ -333,7 +333,7 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
          FROM sessions
          WHERE parent_session_id IS NULL
            AND COALESCE(archived, 0) = 0
-           AND (source IS NULL OR source NOT IN ('tool', 'cron', 'cli'))
+           AND (source IS NULL OR source NOT IN ('tool', 'cron', 'cli', 'alp-worker'))
          ORDER BY started_at DESC
          LIMIT ?1",
     )?;
@@ -612,7 +612,10 @@ fn api_sessions_url(
 fn is_client_visible_session(row: &serde_json::Value, hide_cron_cli: bool) -> bool {
     row.get("source")
         .and_then(|value| value.as_str())
-        .map(|source| source != "tool" && (!hide_cron_cli || !matches!(source, "cron" | "cli")))
+        .map(|source| {
+            source != "tool"
+                && (!hide_cron_cli || !matches!(source, "cron" | "cli" | "alp-worker"))
+        })
         .unwrap_or(true)
 }
 

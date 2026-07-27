@@ -82,9 +82,18 @@
             let rows = (0..160)
                 .map(|index| {
                     let ordinary = index < 10;
+                    let source = if ordinary {
+                        "telegram"
+                    } else {
+                        match index % 3 {
+                            0 => "cron",
+                            1 => "cli",
+                            _ => "alp-worker",
+                        }
+                    };
                     serde_json::json!({
                         "id": format!("{}-{offset}-{index}", if ordinary { "normal" } else { "cron" }),
-                        "source": if ordinary { "telegram" } else { "cron" },
+                        "source": source,
                         "started_at": 10_000 - offset - index,
                     })
                 })
@@ -226,6 +235,12 @@
                 )
                 .unwrap();
         }
+        transaction.execute(
+            "INSERT INTO sessions
+             (id, source, model, started_at, message_count, title, archived)
+             VALUES ('alp-worker-newest', 'alp-worker', 'worker-model', 3000.0, 1, 'worker', 0)",
+            [],
+        ).unwrap();
         transaction.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('normal-89','user','latest question',1)", []).unwrap();
         transaction.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('normal-89','assistant','latest final answer',1)", []).unwrap();
         transaction.commit().unwrap();

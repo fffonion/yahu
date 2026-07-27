@@ -44,12 +44,12 @@ describe('session search and composer session model UI', () => {
     expect(css).toContain('.session-filter-btn{width:44px;height:44px');
   });
 
-  test('session source filter copy names both cron and CLI conversations', () => {
+  test('session source filter copy names cron, CLI, and alp-worker conversations', () => {
     const i18n = translations();
-    expect(i18n).toContain("en: 'Hide cron and CLI conversations'");
-    expect(i18n).toContain("'zh-CN': '隐藏定时任务和 CLI 对话'");
-    expect(i18n).toContain("en: 'Show cron and CLI conversations'");
-    expect(i18n).toContain("'zh-CN': '显示定时任务和 CLI 对话'");
+    expect(i18n).toContain("en: 'Hide cron, CLI, and alp-worker conversations'");
+    expect(i18n).toContain("'zh-CN': '隐藏定时任务、CLI 和 alp-worker 对话'");
+    expect(i18n).toContain("en: 'Show cron, CLI, and alp-worker conversations'");
+    expect(i18n).toContain("'zh-CN': '显示定时任务、CLI 和 alp-worker 对话'");
   });
 
   test('composer model comes from selected session details, not a global Hermes fallback', () => {

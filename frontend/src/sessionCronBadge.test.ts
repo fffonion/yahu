@@ -5,7 +5,7 @@ const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 describe('session sidebar source badges', () => {
-  test('session rows show cron and CLI badges but no default circle marker', () => {
+  test('session rows show cron, CLI, and alp-worker badges but no default circle marker', () => {
     const source = app();
 
     expect(source).toContain("source?: string");
@@ -13,6 +13,8 @@ describe('session sidebar source badges', () => {
     expect(source).toContain('<CalendarClock />');
     expect(source).toContain("session.source === 'cli'");
     expect(source).toContain('<Terminal />');
+    expect(source).toContain("session.source === 'alp-worker'");
+    expect(source).toContain('<Bot />');
     expect(source).not.toContain('Circle,');
     expect(source).not.toContain('<Circle />');
   });
