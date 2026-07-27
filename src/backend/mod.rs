@@ -84,6 +84,40 @@ fn path_segment(value: &str) -> String {
         .replace("%7E", "~")
 }
 
+fn websocket_origin_allowed(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+    let Some(host) = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    let Ok(origin_uri) = origin.parse::<Uri>() else {
+        return false;
+    };
+    let Some(origin_authority) = origin_uri.authority() else {
+        return false;
+    };
+    let Ok(host_authority) = host.parse::<axum::http::uri::Authority>() else {
+        return false;
+    };
+    let default_port = match origin_uri.scheme_str() {
+        Some("http") => 80,
+        Some("https") => 443,
+        _ => return false,
+    };
+    origin_authority
+        .host()
+        .eq_ignore_ascii_case(host_authority.host())
+        && origin_authority.port_u16().unwrap_or(default_port)
+            == host_authority.port_u16().unwrap_or(default_port)
+}
+
 #[derive(Parser, Debug)]
 #[command(
     author,
@@ -292,6 +326,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/skills/backups", get(skill_backups))
         .route("/skills/rollback/{id}", post(skill_rollback))
         .route("/memory", get(memory_get).put(memory_put))
+        .route("/terminal/ws", get(web_terminal_websocket))
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
         .route(
@@ -365,6 +400,7 @@ include!("skills.rs");
 include!("memory.rs");
 include!("chat_uploads.rs");
 include!("chat_media.rs");
+include!("terminal.rs");
 include!("subagents.rs");
 include!("update.rs");
 include!("images.rs");

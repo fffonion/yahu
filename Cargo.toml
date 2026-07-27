@@ -39,3 +39,4 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace"] }
 tracing = "0.1"
 zip = "2"
+portable-pty = "0.9"

@@ -33,6 +33,15 @@ describe('workspace collapse and context menu', () => {
     expect(source).toContain("method: 'DELETE'");
   });
 
+  test('workspace folders open a terminal whose cwd survives canonical routing', () => {
+    const source = app();
+    expect(source).toContain('openWorkspaceTerminal');
+    expect(source).toContain("workspaceMenu.entry.kind === 'dir'");
+    expect(source).toContain("t('workspace.openInTerminal')");
+    expect(source).toContain("writeHashRoute({ mode: 'terminal', cwd: entry.path })");
+    expect(source).toContain("<WebTerminal active={mode === 'terminal'} cwd={terminalCwd}");
+  });
+
   test('workspace side panel collapsed layout keeps a narrow expand rail', () => {
     const styles = css();
     expect(styles).toContain('.app-shell.workspace-collapsed');

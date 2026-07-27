@@ -9,4 +9,5 @@ mod tests {
     include!("tests/chat.rs");
     include!("tests/insights.rs");
     include!("tests/subagents.rs");
+    include!("tests/terminal.rs");
 }

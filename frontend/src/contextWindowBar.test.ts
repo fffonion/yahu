@@ -13,10 +13,10 @@ describe('chat context window meter', () => {
     expect(source).toContain('const contextModelOption = exactCurrentOption || (currentModel ? findModelOption(props.models, currentModel) : undefined);');
     expect(source).toContain('const contextWindowTotal = contextModelOption?.contextLength || fallbackContextWindowForModel(currentModel, sessionProvider);');
     expect(source).toContain('const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);');
-    expect(source).toContain('<div className="header-actions chat-header-actions">');
+    expect(source).toContain('<div className="chat-header-actions">');
     expect(source).toContain('<div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>');
     expect(source).toContain('<div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>');
-    expect(source).toContain('<HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings}');
+    expect(source).toContain('<HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} />');
     expect(source).toContain('function estimateContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[]): number');
     expect(source).toContain('function roughTokenCount(text: string): number');
   });

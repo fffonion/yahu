@@ -41,14 +41,16 @@ describe('hash route helpers', () => {
     expect(buildHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: 'src/App.tsx' })).toBe('#/workspace/file/src%2FApp.tsx');
   });
 
-  test('parses memory insights and settings routes', () => {
+  test('parses memory insights terminal and settings routes', () => {
     expect(parseHashRoute('#/memory')).toEqual({ mode: 'memory' });
     expect(parseHashRoute('#/insights')).toEqual({ mode: 'insights' });
-
+    expect(parseHashRoute('#/terminal')).toEqual({ mode: 'terminal', cwd: undefined });
+    expect(parseHashRoute('#/terminal/src%2Fbackend')).toEqual({ mode: 'terminal', cwd: 'src/backend' });
     expect(parseHashRoute('#/settings')).toEqual({ mode: 'settings' });
     expect(buildHashRoute({ mode: 'memory' })).toBe('#/memory');
     expect(buildHashRoute({ mode: 'insights' })).toBe('#/insights');
-
+    expect(buildHashRoute({ mode: 'terminal' })).toBe('#/terminal');
+    expect(buildHashRoute({ mode: 'terminal', cwd: 'src/backend' })).toBe('#/terminal/src%2Fbackend');
     expect(buildHashRoute({ mode: 'settings' })).toBe('#/settings');
   });
 });

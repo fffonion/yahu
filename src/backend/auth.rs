@@ -38,6 +38,7 @@ async fn require_auth(
         || path.starts_with("/chat/stream/")
         || path.starts_with("/chat/subagents")
         || path.starts_with("/chat/attachments")
+        || path.starts_with("/terminal/")
         || path.starts_with("/insights")
         || path.starts_with("/image-api")
         || path.starts_with("/image-files")

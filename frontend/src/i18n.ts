@@ -215,6 +215,7 @@ const translations: Record<string, Record<string, string>> = {
   'workspace.editItem': { en: 'Edit item', 'zh-CN': '编辑', 'zh-TW': '編輯', ja: '編集' },
   'workspace.viewItem': { en: 'View file', 'zh-CN': '查看文件', 'zh-TW': '檢視檔案', ja: 'ファイルを表示' },
   'workspace.editItemPage': { en: 'Edit file', 'zh-CN': '编辑文件', 'zh-TW': '編輯檔案', ja: 'ファイルを編集' },
+  'workspace.openInTerminal': { en: 'Open in Terminal', 'zh-CN': '在终端中打开', 'zh-TW': '在終端機中開啟', ja: 'ターミナルで開く' },
   'workspace.renameItem': { en: 'Rename item', 'zh-CN': '重命名', 'zh-TW': '重新命名', ja: '名前変更' },
   'workspace.deleteItem': { en: 'Delete item', 'zh-CN': '删除', 'zh-TW': '刪除', ja: '削除' },
   'workspace.downloadFile': { en: 'Download file', 'zh-CN': '下载文件', 'zh-TW': '下載檔案', ja: 'ファイルをダウンロード' },
@@ -357,6 +358,7 @@ const translations: Record<string, Record<string, string>> = {
   'nav.images': { en: 'Images', 'zh-CN': '图片', 'zh-TW': '圖片', ja: '画像' },
   'nav.workspace': { en: 'Workspace', 'zh-CN': '工作区', 'zh-TW': '工作區', ja: 'ワークスペース' },
   'nav.skills': { en: 'Skills', 'zh-CN': '技能', 'zh-TW': '技能', ja: 'スキル' },
+  'nav.terminal': { en: 'Terminal', 'zh-CN': '终端', 'zh-TW': '終端機', ja: 'ターミナル' },
   'nav.settings': { en: 'Settings', 'zh-CN': '设置', 'zh-TW': '設定', ja: '設定' },
   'nav.openList': { en: 'Open list', 'zh-CN': '打开列表', 'zh-TW': '開啟列表', ja: 'リストを開く' },
   'nav.collapseSidebar': { en: 'Collapse sidebar', 'zh-CN': '折叠侧栏', 'zh-TW': '摺疊側欄', ja: 'サイドバーを折りたたむ' },
@@ -365,6 +367,20 @@ const translations: Record<string, Record<string, string>> = {
   'nav.mobile': { en: 'Mobile navigation', 'zh-CN': '移动端导航', 'zh-TW': '行動端導覽', ja: 'モバイルナビゲーション' },
   'nav.theme': { en: 'Theme', 'zh-CN': '主题', 'zh-TW': '主題', ja: 'テーマ' },
   'nav.closeList': { en: 'Close list', 'zh-CN': '关闭列表', 'zh-TW': '關閉列表', ja: 'リストを閉じる' },
+
+  // Web Terminal
+  'terminal.title': { en: 'Terminal', 'zh-CN': '终端', 'zh-TW': '終端機', ja: 'ターミナル' },
+  'terminal.loading': { en: 'Loading terminal…', 'zh-CN': '正在加载终端…', 'zh-TW': '正在載入終端機…', ja: 'ターミナルを読み込み中…' },
+  'terminal.keyboard': { en: 'Open keyboard', 'zh-CN': '打开键盘', 'zh-TW': '開啟鍵盤', ja: 'キーボードを開く' },
+  'terminal.clear': { en: 'Clear terminal', 'zh-CN': '清屏', 'zh-TW': '清除畫面', ja: '画面をクリア' },
+  'terminal.reconnect': { en: 'Reconnect terminal', 'zh-CN': '重新连接终端', 'zh-TW': '重新連線終端機', ja: 'ターミナルを再接続' },
+  'terminal.fontSize': { en: 'Terminal font size', 'zh-CN': '终端字号', 'zh-TW': '終端機字級', ja: 'ターミナル文字サイズ' },
+  'terminal.fontDecrease': { en: 'Decrease font size', 'zh-CN': '减小字号', 'zh-TW': '縮小字級', ja: '文字を小さく' },
+  'terminal.fontIncrease': { en: 'Increase font size', 'zh-CN': '增大字号', 'zh-TW': '放大字級', ja: '文字を大きく' },
+  'terminal.status.connecting': { en: 'Connecting to local shell…', 'zh-CN': '正在连接本地 Shell…', 'zh-TW': '正在連線本機 Shell…', ja: 'ローカルシェルに接続中…' },
+  'terminal.status.connected': { en: 'Connected to local shell', 'zh-CN': '已连接本地 Shell', 'zh-TW': '已連線本機 Shell', ja: 'ローカルシェルに接続済み' },
+  'terminal.status.disconnected': { en: 'Terminal disconnected', 'zh-CN': '终端连接已断开', 'zh-TW': '終端機連線已中斷', ja: 'ターミナル切断' },
+  'terminal.status.error': { en: 'Terminal connection error', 'zh-CN': '终端连接错误', 'zh-TW': '終端機連線錯誤', ja: 'ターミナル接続エラー' },
 
   // Tool messages
   'tool.expand': { en: 'Show details', 'zh-CN': '显示详情', 'zh-TW': '顯示詳情', ja: '詳細を表示' },
@@ -392,6 +408,7 @@ const translations: Record<string, Record<string, string>> = {
   'mode.insightsSummary': { en: 'Recent model usage, cache, and cost trends.', 'zh-CN': '近期模型用量、缓存与费用趋势。', 'zh-TW': '近期模型用量、快取與費用趨勢。', ja: '最近のモデル使用量、キャッシュ、費用トレンド。' },
 
   'mode.workspaceSummary': { en: 'Browse and preview local workspace files.', 'zh-CN': '浏览并预览本地工作区文件。', 'zh-TW': '瀏覽並預覽本地工作區檔案。', ja: 'ローカルワークスペースファイルを閲覧・プレビューします。' },
+  'mode.terminalSummary': { en: 'Interactive local shell.', 'zh-CN': '交互式本地 Shell。', 'zh-TW': '互動式本機 Shell。', ja: '対話型ローカルシェル。' },
   'mode.settingsSummary': { en: 'API, connection, and WebUI options.', 'zh-CN': 'API、连接与 WebUI 选项。', 'zh-TW': 'API、連線與 WebUI 選項。', ja: 'API、接続、WebUIオプション。' },
   'mode.imagesSummary': { en: 'Native image gallery.', 'zh-CN': '原生图片图库。', 'zh-TW': '原生圖片圖庫。', ja: 'ネイティブ画像ギャラリー。' },
 

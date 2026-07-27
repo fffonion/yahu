@@ -6,6 +6,7 @@ export type HashRoute =
   | { mode: 'skills'; skillName?: string }
   | { mode: 'insights' }
   | { mode: 'memory' }
+  | { mode: 'terminal'; cwd?: string }
   | { mode: 'settings' };
 
 const decodePart = (value = '') => {
@@ -27,6 +28,7 @@ export function parseHashRoute(hash: string): HashRoute {
   }
   if (mode === 'memory') return { mode: 'memory' };
   if (mode === 'insights') return { mode: 'insights' };
+  if (mode === 'terminal') return { mode: 'terminal', cwd: kind ? decodePart(kind) : undefined };
   if (mode === 'skills') {
     if (kind) return { mode: 'skills', skillName: decodePart(kind) };
     return { mode: 'skills' };
@@ -48,6 +50,7 @@ export function buildHashRoute(route: HashRoute): string {
     return '#/workspace';
   }
   if (route.mode === 'skills') return route.skillName ? `#/skills/${encodePart(route.skillName)}` : '#/skills';
+  if (route.mode === 'terminal') return route.cwd ? `#/terminal/${encodePart(route.cwd)}` : '#/terminal';
   return `#/${route.mode}`;
 }
 

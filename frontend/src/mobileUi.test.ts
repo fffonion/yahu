@@ -239,6 +239,20 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.chat-header-meta .context-window-meter{width:116px;min-width:116px;max-width:116px;flex:0 0 116px}');
   });
 
+  test('mobile page header actions share one connected zero-gap toolstrip', () => {
+    const source = app();
+    const terminal = readFileSync(new URL('./WebTerminal.tsx', import.meta.url), 'utf8');
+    const styles = css();
+    expect(source).toContain('function HeaderToolstrip(');
+    expect(source.match(/<HeaderToolstrip/g)?.length).toBe(9);
+    expect(source).toContain("header-toolstrip-with-leading");
+    expect(terminal).toContain('<div className="terminal-navigation">{headerActions}</div>');
+    expect(styles).toContain('@media (max-width:760px){.header-toolstrip{gap:0}');
+    expect(styles).toContain('.chat-header .header-toolstrip,.image-toolbar .header-toolstrip{gap:0}');
+    expect(styles).toContain('.header-toolstrip>button,.header-toolstrip>.header-theme-control>button{margin-left:-1px;border:1px solid var(--border);border-radius:0;background:var(--surface-2)}');
+    expect(styles).toContain('.header-toolstrip-with-leading>button:first-child,.header-toolstrip:not(.header-toolstrip-with-leading)>.header-theme-control>.mobile-header-terminal-btn{margin-left:0;border-radius:var(--radius-md) 0 0 var(--radius-md)}');
+    expect(styles).toContain('.header-toolstrip>.header-theme-control>.mobile-header-settings-btn{border-radius:0 var(--radius-md) var(--radius-md) 0}');
+  });
 
   test('mobile insights keeps charts readable and avoids horizontal overflow', () => {
     const source = app();
