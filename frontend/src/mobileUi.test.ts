@@ -67,6 +67,12 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('@media (max-width:760px){.app-shell.mobile-sidebar-open .composer-wrap,.app-shell.mobile-sidebar-open .mobile-bottom-nav{visibility:hidden;pointer-events:none}}');
   });
 
+  test('mobile drawer session list reaches the safe-area bottom without a nav-sized blank strip', () => {
+    const styles = css();
+    expect(styles).toContain('.left-body{display:flex;grid-column:1;grid-row:1;padding:16px 12px calc(12px + env(safe-area-inset-bottom,0px));min-height:0}');
+    expect(styles).not.toContain('.left-body{display:flex;grid-column:1;grid-row:1;padding:16px 12px calc(88px + env(safe-area-inset-bottom,0px));min-height:0}');
+  });
+
   test('mobile hides the chat workspace side panel and keeps touch scroll containers usable', () => {
     const styles = css();
     expect(styles).toContain('.app-shell{min-width:0');
@@ -215,10 +221,24 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.image-actions>button{width:30px;height:30px}');
     expect(styles).toContain('.mobile-header-drawer{display:inline-grid;width:30px;height:30px;min-width:30px;border-radius:10px;flex:0 0 30px}');
     expect(styles).toContain('.chat-header .header-theme-control>button,.image-toolbar .header-theme-control>button{height:30px;min-width:30px');
-    expect(styles).toContain('@media (max-width:760px){.chat-header-actions .context-window-meter{width:116px;min-width:0;max-width:116px;flex:0 1 116px}.chat-header-actions .context-window-track{min-width:30px}');
+    expect(styles).toContain('@media (max-width:760px){.mobile-chat-context{display:block;min-width:0;flex:1 1 auto}.desktop-chat-context{display:none}');
     expect(styles).toContain('.chat-header-actions .header-theme-control{margin-left:0}');
     expect(styles).toContain('.chat-header.header-no-drawer>div:first-of-type,.image-toolbar.header-no-drawer>div:first-of-type{margin-left:36px}');
   });
+
+  test('mobile chat moves the context window indicator beside loaded and total metadata', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('<div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div>');
+    expect(source).toContain('<div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>');
+    expect(styles).toContain('.mobile-chat-context{display:none}');
+    expect(styles).toContain('.chat-header-copy{min-width:0;flex:1 1 auto;overflow:hidden}');
+    expect(styles).toContain('.chat-header-meta{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}');
+    expect(styles).toContain('@media (max-width:760px){.mobile-chat-context{display:block;min-width:0;flex:1 1 auto}');
+    expect(styles).toContain('.desktop-chat-context{display:none}');
+    expect(styles).toContain('.chat-header-meta .context-window-meter{width:116px;min-width:116px;max-width:116px;flex:0 0 116px}');
+  });
+
 
   test('mobile insights keeps charts readable and avoids horizontal overflow', () => {
     const source = app();

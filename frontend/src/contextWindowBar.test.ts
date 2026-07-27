@@ -14,8 +14,9 @@ describe('chat context window meter', () => {
     expect(source).toContain('const contextWindowTotal = contextModelOption?.contextLength || fallbackContextWindowForModel(currentModel, sessionProvider);');
     expect(source).toContain('const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);');
     expect(source).toContain('<div className="header-actions chat-header-actions">');
-    expect(source).toContain('<ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />\n        <HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings}');
-    expect(source).not.toContain('<ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} />\n          <button className="send-btn mobile-icon-only"');
+    expect(source).toContain('<div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>');
+    expect(source).toContain('<div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>');
+    expect(source).toContain('<HeaderThemeControl theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings}');
     expect(source).toContain('function estimateContextWindowTokens(messages: ChatMessage[], input: string, attachments: Attachment[]): number');
     expect(source).toContain('function roughTokenCount(text: string): number');
   });
@@ -45,7 +46,8 @@ describe('chat context window meter', () => {
     expect(styles).toContain('.context-window-fill{height:100%;border-radius:999px;background:var(--accent)');
     expect(styles).not.toContain('.composer-wrap.composer-compact .composer-footer .context-window-meter{display:none}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}');
-    expect(styles).toContain('@media (max-width:760px){.chat-header-actions .context-window-meter{width:116px;min-width:0;max-width:116px;flex:0 1 116px}.chat-header-actions .context-window-track{min-width:30px}');
+    expect(styles).toContain('@media (max-width:760px){.mobile-chat-context{display:block;min-width:0;flex:1 1 auto}.desktop-chat-context{display:none}');
+    expect(styles).toContain('.chat-header-meta .context-window-meter{width:116px;min-width:116px;max-width:116px;flex:0 0 116px}');
     expect(styles).toContain('.chat-header-actions .header-theme-control{margin-left:0}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}');
   });
