@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import * as subagentProgressModule from './subagentProgress';
 import {
   buildSubagentTree,
   createSubagentSnapshotGuard,
@@ -28,6 +29,24 @@ describe('subagent progress websocket projection', () => {
       'ws://127.0.0.1:9642/chat/subagents/s1/ws',
     );
     expect(subagentSnapshotUrl('session/with space', 123.5)).toBe('/chat/subagents/session%2Fwith%20space/snapshot?before=123.5');
+  });
+
+  test('requests interruption through the same-origin Hermes proxy with an encoded child session id', async () => {
+    const requestSubagentInterrupt = (subagentProgressModule as Record<string, unknown>).requestSubagentInterrupt;
+    expect(typeof requestSubagentInterrupt).toBe('function');
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    await (requestSubagentInterrupt as (
+      sessionId: string,
+      fetchImpl: (input: string, init?: RequestInit) => Promise<Response>,
+    ) => Promise<void>)('child/with space', async (input, init) => {
+      calls.push({ input: String(input), init });
+      return { ok: true, status: 202 } as Response;
+    });
+
+    expect(calls).toEqual([{
+      input: '/hermes/api/subagents/child%2Fwith%20space/interrupt',
+      init: { method: 'POST' },
+    }]);
   });
 
   test('uses live mode only at the true latest-history bottom', () => {

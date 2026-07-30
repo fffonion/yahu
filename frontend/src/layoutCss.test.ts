@@ -17,16 +17,16 @@ describe('sidebar session list css', () => {
     expect(css).toContain('.insights-content{padding:10px 10px calc(86px + env(safe-area-inset-bottom,0px));gap:10px;grid-template-rows:auto auto auto auto;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;');
   });
 
-  test('desktop composer uses a flat input bar without the old inner card frame', () => {
+  test('desktop composer uses a rounded large card with an inset footer', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-    expect(css).toContain('.composer-wrap{position:relative;z-index:150;padding:0;background:var(--surface);box-shadow:0 -8px 22px rgba(0,0,0,.08)}');
-    expect(css).toContain('.composer-box{position:relative;z-index:150;overflow:visible;width:100%;border:0;border-radius:0;background:transparent;box-shadow:none}');
-    expect(css).toContain('.composer-box textarea{display:block;width:100%;height:48px;min-height:48px;max-height:20dvh;padding:14px 18px;line-height:1.5;border:0;border-radius:0;background:var(--surface);box-shadow:none;resize:none;overflow-y:hidden}');
+    expect(css).toContain('.composer-wrap{position:relative;z-index:150;padding:10px 12px 12px;background:var(--surface);box-shadow:0 -8px 22px rgba(0,0,0,.08)}');
+    expect(css).toContain('.composer-box{position:relative;z-index:150;overflow:visible;width:100%;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow)}');
+    expect(css).toContain('.composer-box textarea{display:block;width:100%;height:48px;min-height:48px;max-height:20dvh;padding:14px 18px;line-height:1.5;border:0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;background:var(--surface);box-shadow:none;resize:none;overflow-y:hidden}');
     expect(css).toContain('.composer-box textarea{padding:5px 18px}');
     expect(css).toContain('.composer-box textarea:focus{border:0;box-shadow:none}');
-    expect(css).toContain('.composer-footer{position:static;display:flex;width:100%;gap:8px;padding:10px 18px;background:transparent;border-top:0}');
-    expect(css).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:12px;width:auto;border-top:0;background:transparent;padding:0}');
-    expect(css).not.toContain('border-radius:16px;background:var(--surface);box-shadow:0 10px 32px');
+    expect(css).toContain('.composer-footer{position:static;display:flex;width:100%;gap:8px;padding:10px 18px;background:transparent;border-top:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)}');
+    expect(css).toContain('.composer-wrap.composer-compact .composer-box{border-radius:var(--radius-md)}');
+    expect(css).toContain('.composer-wrap.composer-compact .composer-box textarea{border-radius:var(--radius-md)}');
   });
 
   test('composer textarea grows to 20 percent of the viewport before scrolling', () => {
@@ -46,7 +46,7 @@ describe('sidebar session list css', () => {
     expect(css).toContain('.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:5px}');
     expect(css).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{box-sizing:border-box;padding-bottom:var(--composer-textarea-pad-bottom)}');
     expect(css).toContain('@media (max-width:760px){.mobile-chat-context{display:block;min-width:0;flex:1 1 auto}.desktop-chat-context{display:none}');
-    expect(css).toContain('.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}.composer-wrap:not(.composer-compact) .composer-footer .stop-stream-btn+.send-btn{margin-left:0}.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:12px}}');
+    expect(css).toContain('.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}.composer-wrap:not(.composer-compact){--composer-textarea-pad-bottom:12px}}');
   });
 
   test('tablet layout follows the live visual viewport height', () => {

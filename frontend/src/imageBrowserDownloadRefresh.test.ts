@@ -28,6 +28,12 @@ describe('image browser download and refresh parity', () => {
     expect(styles).toMatch(/\.image-name\{[^}]*font-size:11px/);
   });
 
+  test('context menu never labels a PNG fallback as a HEIC download', () => {
+    const source = app();
+    expect(source).toContain("{imageMenu.item.heic_status !== 'not_applicable' && <button type=\"button\" role=\"menuitem\" onClick={() => { downloadOne(imageMenu.item); }}><Download /> {t('gallery.downloadHEIC')}</button>}");
+    expect(source).not.toContain('triggerBrowserDownload(imageMenu.item.heic_url || imageMenu.item.png_url');
+  });
+
   test('manual refresh and SSE resync follow standalone incremental refresh behavior', () => {
     const source = app();
     expect(source).toContain('const reloadQueuedRef = useRef(false);');

@@ -48,6 +48,12 @@ describe('turn detail fold UI', () => {
     expect(source).toContain('data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}');
   });
 
+  test('detail group and summary use the compact semantic radius', () => {
+    const styles = css();
+    expect(styles).toContain('.turn-detail-group{display:grid;width:100%;max-width:920px;align-self:flex-start;margin:2px 0;border:0;border-radius:var(--radius-md);background:transparent;overflow:visible}');
+    expect(styles).toContain('.turn-detail-summary{border-radius:var(--radius-md)}');
+  });
+
   test('normal and compact chat paths both render the same turn detail group component', () => {
     const source = app();
     const compactIndex = source.indexOf('if (compact)');

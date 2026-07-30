@@ -1,5 +1,3 @@
-const HEIC_GENERATION_MIN_BYTES: u64 = 2 * 1024 * 1024;
-
 #[derive(Debug, Clone, Serialize)]
 struct ImageEntry {
     filename: String,

@@ -88,6 +88,14 @@ describe('chat reasoning display toggle', () => {
     expect(source).toContain('className="msg-sender-name"');
   });
 
+  test('reasoning frame uses the small interface radius', () => {
+    const styles = css();
+    const originalRadius = styles.lastIndexOf('.msg-reasoning{margin-top:10px;');
+    const reducedRadius = styles.lastIndexOf('.msg-reasoning{border-radius:var(--radius-sm)}');
+    expect(originalRadius).toBeGreaterThan(-1);
+    expect(reducedRadius).toBeGreaterThan(originalRadius);
+  });
+
   test('reasoning block and toggle have compact themed styles', () => {
     const styles = css();
     expect(styles).toContain('.composer-view-toggle{box-sizing:border-box;width:38px;height:38px;min-width:38px;max-width:38px;justify-content:center;padding:0;flex:0 0 38px}');

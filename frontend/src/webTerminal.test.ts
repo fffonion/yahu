@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildTerminalTheme, clampTerminalFontSize, terminalWebSocketUrl } from './terminalSupport';
+import { applyTerminalModifiers, buildTerminalTheme, clampTerminalFontSize, terminalSpecialKeySequence, terminalWebSocketUrl } from './terminalSupport';
 
 describe('web terminal helpers', () => {
   test('builds a same-origin websocket URL with an optional encoded cwd', () => {
@@ -12,6 +12,23 @@ describe('web terminal helpers', () => {
     expect(clampTerminalFontSize(16)).toBe(16);
     expect(clampTerminalFontSize(99)).toBe(24);
     expect(clampTerminalFontSize(Number.NaN)).toBe(15);
+  });
+
+  test('applies one-shot Ctrl and Alt modifiers to mobile terminal input', () => {
+    expect(applyTerminalModifiers('c', { ctrl: true, alt: false })).toBe('\x03');
+    expect(applyTerminalModifiers('cd', { ctrl: true, alt: false })).toBe('\x03d');
+    expect(applyTerminalModifiers('x', { ctrl: false, alt: true })).toBe('\x1bx');
+    expect(applyTerminalModifiers('c', { ctrl: true, alt: true })).toBe('\x1b\x03');
+    expect(applyTerminalModifiers('plain', { ctrl: false, alt: false })).toBe('plain');
+  });
+
+  test('maps mobile terminal special keys to PTY escape sequences', () => {
+    expect(terminalSpecialKeySequence('escape')).toBe('\x1b');
+    expect(terminalSpecialKeySequence('tab')).toBe('\t');
+    expect(terminalSpecialKeySequence('up')).toBe('\x1b[A');
+    expect(terminalSpecialKeySequence('down')).toBe('\x1b[B');
+    expect(terminalSpecialKeySequence('right')).toBe('\x1b[C');
+    expect(terminalSpecialKeySequence('left')).toBe('\x1b[D');
   });
 
   test('maps Yahu surfaces and conventional ANSI colors without a purple-dominant palette', () => {

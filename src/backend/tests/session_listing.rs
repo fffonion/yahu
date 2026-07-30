@@ -14,6 +14,7 @@
             updates,
             deletes,
             chat_streams,
+            session_watch_feeds: Arc::new(RwLock::new(HashMap::new())),
             active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
             active_chat_run_ids: Arc::new(RwLock::new(HashMap::new())),
             subagent_feeds: Arc::new(RwLock::new(HashMap::new())),

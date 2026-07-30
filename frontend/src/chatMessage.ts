@@ -1,4 +1,4 @@
-import { parsePlatformSenderMessage } from './chatSender';
+import { parsePlatformSenderMessage, platformSourceUsesNameOnlySenderPrefix } from './chatSender';
 import type { ChatMessage, ChatTurnMetrics } from './ChatTranscript';
 import { normalizeMessageParts } from './messageReasoning';
 import type { TurnDetailCommentary, TurnDetailMetadata, TurnDetailRange, TurnDetailTimelineItem } from './turnDetails';
@@ -139,9 +139,11 @@ function readHistoryGap(raw: any): { after: number; before: number } | undefined
   return Number.isFinite(after) && Number.isFinite(before) && before > after ? { after, before } : undefined;
 }
 
-export function normalizeChatMessage(raw: any, fallbackId: string): ChatMessage {
+export function normalizeChatMessage(raw: any, fallbackId: string, platformSource?: string): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);
-  const platformSender = raw.role === 'user' ? parsePlatformSenderMessage(parts.content) : { content: parts.content };
+  const platformSender = raw.role === 'user'
+    ? parsePlatformSenderMessage(parts.content, platformSourceUsesNameOnlySenderPrefix(platformSource))
+    : { content: parts.content };
   const msg: ChatMessage = {
     id: String(raw.id || fallbackId),
     role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',

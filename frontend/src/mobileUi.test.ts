@@ -111,11 +111,11 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(navHeight).toBe(railHeight + Number(padding?.[1]) + Number(padding?.[2]) + 1);
   });
 
-  test('mobile composer expanded mode has no inner frame while keeping the previous compact control row', () => {
+  test('mobile composer expanded mode uses a rounded card while keeping the previous compact control row', () => {
     const styles = css();
-    expect(styles).toContain('.composer-wrap:not(.composer-compact){padding:0 0 calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom,0px));background:var(--surface);box-shadow:0 -8px 22px rgba(0,0,0,.08)}');
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box{width:100%;border:0;border-radius:0;box-shadow:none;background:transparent}');
-    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{display:block;width:100%;height:48px;min-height:48px;max-height:20dvh;padding:12px 14px;border:0;border-radius:0;box-shadow:none;background:var(--surface);resize:none;overflow-y:hidden}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact){padding:8px 10px calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom,0px));background:var(--surface);box-shadow:0 -8px 22px rgba(0,0,0,.08)}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box{width:100%;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);background:var(--surface)}');
+    expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea{display:block;width:100%;height:48px;min-height:48px;max-height:20dvh;padding:12px 14px;border:0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:none;background:var(--surface);resize:none;overflow-y:hidden}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-box textarea:focus{border:0;box-shadow:none}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:0;width:100%;padding:24px 10px 8px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control.wide{min-width:64px;margin-left:8px}');
@@ -229,7 +229,7 @@ describe('mobile WebUI layout and touch affordances', () => {
   test('mobile chat moves the context window indicator beside loaded and total metadata', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain('<div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div>');
+    expect(source).toContain('<div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span className={`chat-total-count${props.historyTotal === null ? \' loading\' : \'\'}`} aria-busy={props.historyTotal === null}>{props.messages.length || 0} loaded · <span>{props.historyTotal ?? \'—\'} total</span></span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div>');
     expect(source).toContain('<div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>');
     expect(styles).toContain('.mobile-chat-context{display:none}');
     expect(styles).toContain('.chat-header-copy{min-width:0;flex:1 1 auto;overflow:hidden}');

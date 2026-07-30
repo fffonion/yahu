@@ -329,6 +329,7 @@ async function capturePage(browser, spec) {
     localStorage.setItem('lang', 'en');
     localStorage.setItem('apiBase', '/hermes');
     localStorage.setItem('model', 'openai/gpt-5.5');
+    localStorage.setItem('desktopCompactMessages', '1');
     class DemoEventSource {
       constructor(url) { this.url = url; this.readyState = 1; setTimeout(() => this.onopen && this.onopen({ type: 'open' }), 15); }
       addEventListener() {}
@@ -348,14 +349,16 @@ async function capturePage(browser, spec) {
 }
 
 const waitForChatDemo = async (page) => {
-  await page.waitForSelector('.tool-card');
+  await page.waitForSelector('.turn-detail-group');
+  await page.locator('details.turn-detail-group:not([open]) > summary').evaluateAll((summaries) => summaries.forEach((summary) => summary.click()));
+  await page.waitForSelector('.tool-card', { state: 'visible' });
   await page.waitForFunction(() => document.querySelectorAll('.user-minimap-hit').length >= 10);
   await page.evaluate(() => document.querySelector('.chat-scroll')?.scrollTo(0, document.querySelector('.chat-scroll')?.scrollHeight || 0));
 };
 const specs = [
   { name: 'chat', file: 'chat.png', hash: '#/chat/demo-chat-001', theme: 'vscode-light-plus', viewport: desktop, prepare: waitForChatDemo },
   { name: 'insights', file: 'insights.png', hash: '#/insights', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.usage-chart svg'); await page.getByRole('button', { name: '30d' }).click(); await page.waitForTimeout(250); } },
-  { name: 'skills', file: 'skills.png', hash: '#/skills/demo-gallery-curator', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight'); await page.locator('.section-label', { hasText: 'productivity' }).click().catch(() => {}); } },
+  { name: 'skills', file: 'skills.png', hash: '#/skills/demo-gallery-curator', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-markdown-preview'); await page.locator('.section-label', { hasText: 'productivity' }).click().catch(() => {}); } },
   { name: 'cron', file: 'cron.png', hash: '#/cron/job-demo-weekly', theme: 'vscode-light-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.cron-detail textarea'); } },
   { name: 'workspace', file: 'workspace.png', hash: '#/workspace/file/src%2Fmain.rs', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.workspace-code-highlight .tok-keyword'); } },
   { name: 'gallery', file: 'gallery.png', hash: '#/images', theme: 'vscode-dark-plus', viewport: desktop, prepare: async (page) => { await page.waitForSelector('.image-card img.loaded'); } },

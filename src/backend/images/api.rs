@@ -121,7 +121,7 @@ async fn image_metadata(
     let heic = find_heic_for_png(&state.image_dir, &png_path)
         .await
         .and_then(|name| file_metadata(&state.image_dir, &name, true));
-    let heic_status = heic_status_for_source(&png_path, png.size, heic.is_some()).to_string();
+    let heic_status = heic_status_for_source(&png_path, heic.is_some()).to_string();
     let bytes = tokio::fs::read(&png_path)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -161,18 +161,18 @@ fn file_metadata(dir: &Path, filename: &str, download: bool) -> Option<FileMetad
     })
 }
 
-fn source_can_generate_heic(path: &Path, source_size: u64) -> bool {
+fn source_can_generate_heic(path: &Path) -> bool {
     matches!(
         path.extension().and_then(OsStr::to_str),
         Some(ext) if ext.eq_ignore_ascii_case("png")
-    ) && source_size > HEIC_GENERATION_MIN_BYTES
+    )
 }
 
-fn heic_status_for_source(path: &Path, source_size: u64, has_heic: bool) -> &'static str {
+fn heic_status_for_source(path: &Path, has_heic: bool) -> &'static str {
     if has_heic {
         return "available";
     }
-    if source_can_generate_heic(path, source_size) {
+    if source_can_generate_heic(path) {
         "missing"
     } else {
         "not_applicable"

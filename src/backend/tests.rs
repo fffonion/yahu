@@ -10,4 +10,5 @@ mod tests {
     include!("tests/insights.rs");
     include!("tests/subagents.rs");
     include!("tests/terminal.rs");
+    include!("tests/images.rs");
 }

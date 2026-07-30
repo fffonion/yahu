@@ -43,6 +43,14 @@ describe('desktop compact chat toggle', () => {
     expect(styles).toContain('@media(max-width:760px){.desktop-compact-view-toggle{display:none!important}');
   });
 
+  test('chat message text containers do not paint flush inner bubbles', () => {
+    const styles = css();
+    const themeBubble = styles.lastIndexOf('.msg-row.user .msg-content{background:var(--user-bubble)');
+    const flatBubble = styles.lastIndexOf('.chat-main-panel .msg-row.user .msg-content,.chat-main-panel .msg-row.assistant .msg-content,.chat-main-panel .msg-row.system .msg-content{background:transparent;border-color:transparent}');
+    expect(themeBubble).toBeGreaterThan(-1);
+    expect(flatBubble).toBeGreaterThan(themeBubble);
+  });
+
   test('desktop chat fills the history width with equal minimap and right gutters without changing mobile', () => {
     const styles = css();
     expect(styles).toContain('@media(min-width:761px){.chat-main-panel .chat-scroll{padding-left:78px;padding-right:78px}');

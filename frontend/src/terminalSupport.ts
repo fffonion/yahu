@@ -16,6 +16,41 @@ export function terminalWebSocketUrl(location: Pick<Location, 'protocol' | 'host
   return `${base}?${new URLSearchParams({ cwd }).toString()}`;
 }
 
+export type TerminalModifierState = {
+  ctrl: boolean;
+  alt: boolean;
+};
+
+export type TerminalSpecialKey = 'escape' | 'tab' | 'up' | 'down' | 'right' | 'left';
+
+const TERMINAL_SPECIAL_KEY_SEQUENCES: Record<TerminalSpecialKey, string> = {
+  escape: '\x1b',
+  tab: '\t',
+  up: '\x1b[A',
+  down: '\x1b[B',
+  right: '\x1b[C',
+  left: '\x1b[D',
+};
+
+function controlCharacter(value: string): string {
+  if (value === ' ' || value === '@') return '\x00';
+  if (value === '?') return '\x7f';
+  const code = value.toUpperCase().charCodeAt(0);
+  return code >= 65 && code <= 90 ? String.fromCharCode(code - 64) : value;
+}
+
+export function applyTerminalModifiers(data: string, modifiers: TerminalModifierState): string {
+  if (!data || (!modifiers.ctrl && !modifiers.alt)) return data;
+  const characters = Array.from(data);
+  if (modifiers.ctrl) characters[0] = controlCharacter(characters[0]);
+  const modified = characters.join('');
+  return modifiers.alt ? `\x1b${modified}` : modified;
+}
+
+export function terminalSpecialKeySequence(key: TerminalSpecialKey): string {
+  return TERMINAL_SPECIAL_KEY_SEQUENCES[key];
+}
+
 type TerminalThemeInput = {
   background: string;
   foreground: string;

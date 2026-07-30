@@ -84,6 +84,17 @@ function commandFromInput(toolName: string, input: unknown): string {
   return name === 'terminal' && typeof command === 'string' && command.trim() ? command.trim() : '';
 }
 
+function skillViewFromInput(toolName: string, input: unknown, root: Record<string, unknown> | null): string {
+  if (toolName.replace(/^functions\./, '') !== 'skill_view') return '';
+  const invocation = asRecord(input);
+  const name = invocation?.name ?? root?.name;
+  const filePath = invocation?.file_path ?? root?.file_path ?? root?.file;
+  const fields: string[] = [];
+  if (typeof name === 'string' && name.trim()) fields.push(`name=${name.trim()}`);
+  if (typeof filePath === 'string' && filePath.trim()) fields.push(`file_path=${filePath.trim()}`);
+  return fields.join(' · ');
+}
+
 function fullFilePathFromInput(root: Record<string, unknown> | null, input: unknown): string {
   const invocation = asRecord(input);
   const files = Array.isArray(root?.files_modified) ? root.files_modified : [];
@@ -148,6 +159,7 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
 
   const input = invocationFromRecord(root) ?? parseMaybeJson(fallbackInput);
   const command = commandFromInput(toolName, input);
+  const skillViewSummary = skillViewFromInput(toolName, input, root);
   const errorSubtitle = fields.find((f) => f.key === 'error')?.value;
   const resultSubtitle = fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value;
   const canonicalToolName = toolName.replace(/^functions\./, '');
@@ -156,6 +168,7 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
   const fileSummary = fileSummaryPath ? `${fileSummaryPath}${root ? ` · ${Object.keys(root).length} fields` : ''}` : '';
   const subtitle = command
     || errorSubtitle
+    || skillViewSummary
     || fileSummary
     || resultSubtitle
     || (root ? `${Object.keys(root).length} fields` : content);

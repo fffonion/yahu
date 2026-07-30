@@ -140,7 +140,7 @@ describe('chat message visibility', () => {
 
   test('session changes clear old message data before loading the new window', () => {
     const source = appSource();
-    expect(source).toContain('messageRequestRef.current += 1;\n    messagesRef.current = [];\n    hasOlderRef.current = false;\n    hasNewerRef.current = false;\n    pendingHistoryScrollAnchorRef.current = null;\n    setMessages([]);');
+    expect(source).toContain('messageRequestRef.current += 1;\n    userNavRequestRef.current += 1;\n    contextWindowRequestRef.current += 1;\n    messagesRef.current = [];\n    hasOlderRef.current = false;\n    hasNewerRef.current = false;\n    pendingHistoryScrollAnchorRef.current = null;\n    setMessages([]);');
     expect(source).toContain("loadMessageWindow(activeSessionId, 'latest');");
   });
 

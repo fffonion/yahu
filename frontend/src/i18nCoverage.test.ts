@@ -93,7 +93,6 @@ describe('page i18n coverage', () => {
       'chat.emptyDesc',
       'chat.sessionTimes',
       'chat.stopStreaming',
-      'chat.queueFollowUp',
       'chat.queuedFollowUps',
       'chat.steerNow',
       'chat.editQueuedFollowUp',

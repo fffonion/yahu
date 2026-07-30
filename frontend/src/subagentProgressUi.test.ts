@@ -201,7 +201,7 @@ describe('subagent progress UI', () => {
     const overlayRule = styles.match(/\.subagent-progress-overlay\{([^}]*)\}/)?.[1] || '';
     expect(cardRule).toContain('width:100%');
     expect(cardRule).toContain('max-width:none');
-    expect(cardRule).toContain('border-radius:14px');
+    expect(cardRule).toContain('border-radius:var(--radius-card)');
     expect(overlayRule).toContain('padding:0');
     expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}.subagent-progress-overlay{padding:0}');
     expect(styles).not.toContain('.subagent-progress-card.expanded{height:90%;max-height:90%;border-radius:');
@@ -217,13 +217,12 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.msg-reasoning>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}');
   });
 
-  test('keeps the subagent conversation detail frame square like the shared chat detail frame', () => {
+  test('uses the compact semantic radius for shared and subagent conversation details', () => {
     const styles = css();
     const subagentDetailRule = styles.match(/\.subagent-progress-node>details\{([^}]*)\}/)?.[1] || '';
     const sharedDetailRule = styles.match(/\.turn-detail-group\{([^}]*)\}/)?.[1] || '';
-    expect(sharedDetailRule).toContain('border-radius:0');
-    expect(subagentDetailRule).toContain('border-radius:0');
-    expect(subagentDetailRule).not.toContain('border-radius:12px');
+    expect(sharedDetailRule).toContain('border-radius:var(--radius-md)');
+    expect(subagentDetailRule).toContain('border-radius:var(--radius-md)');
   });
 
   test('keeps a newly opened streaming detail at its latest content through the outer tree container', () => {

@@ -86,6 +86,22 @@ export function subagentSnapshotUrl(sessionId: string, beforeTime: number): stri
   return `/chat/subagents/${encodeURIComponent(sessionId)}/snapshot?before=${encodeURIComponent(String(beforeTime))}`;
 }
 
+type SubagentInterruptFetch = (
+  input: string,
+  init?: RequestInit,
+) => Promise<Pick<Response, 'ok' | 'status'>>;
+
+export async function requestSubagentInterrupt(
+  sessionId: string,
+  fetchImpl: SubagentInterruptFetch = fetch,
+): Promise<void> {
+  const response = await fetchImpl(
+    `/hermes/api/subagents/${encodeURIComponent(sessionId)}/interrupt`,
+    { method: 'POST' },
+  );
+  if (!response.ok) throw new Error(`subagent interrupt failed (${response.status})`);
+}
+
 export function subagentViewportIsLive(viewport: Pick<HTMLElement, 'scrollHeight' | 'scrollTop' | 'clientHeight'>, hasNewer: boolean): boolean {
   return !hasNewer && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1;
 }

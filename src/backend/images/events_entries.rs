@@ -85,8 +85,7 @@ async fn image_entry_for_png(dir: &Path, png_path: &Path) -> Option<ImageEntry> 
         None
     };
     let png_url = format!("/image-files/{}?v={}", path_segment(&filename), png_version);
-    let heic_status =
-        heic_status_for_source(png_path, metadata.len(), heic_url.is_some()).to_string();
+    let heic_status = heic_status_for_source(png_path, heic_url.is_some()).to_string();
     let (download_filename, download_url, download_label) =
         if let (Some(name), Some(url)) = (heic_filename.as_ref(), heic_url.as_ref()) {
             (name.clone(), url.clone(), "Download HEIC".to_string())

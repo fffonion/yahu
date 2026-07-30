@@ -1,5 +1,20 @@
+    #[test]
+    fn api_history_request_timeout_allows_a_full_remote_transcript() {
+        assert!(API_SESSION_REQUEST_TIMEOUT >= std::time::Duration::from_secs(30));
+    }
+
     #[tokio::test]
     async fn chat_messages_skeleton_defers_turn_details_until_requested() {
+        async fn api_messages(
+            State(calls): State<Arc<std::sync::atomic::AtomicUsize>>,
+            AxumPath(session_id): AxumPath<String>,
+        ) -> Json<serde_json::Value> {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Json(serde_json::json!({"object":"list","data":[
+                {"id": 101, "session_id": session_id, "role":"user", "content":"remote prompt"},
+                {"id": 102, "session_id": session_id, "role":"assistant", "content":"remote latest"}
+            ]}))
+        }
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");
         let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -74,6 +89,28 @@
         assert!(!skeleton_data[1].to_string().contains("opaque-signature"));
         assert!(!skeleton_data[1].to_string().contains("opaque-encrypted-payload"));
 
+        let remote_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let app = Router::new()
+            .route("/api/sessions/{session_id}/messages", get(api_messages))
+            .with_state(remote_calls.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let remote_state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        let latest = chat_messages_page(
+            State(remote_state),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("latest".to_string()) }),
+        ).await;
+        let latest_body = axum::body::to_bytes(latest.into_body(), usize::MAX).await.unwrap();
+        let latest_page: serde_json::Value = serde_json::from_slice(&latest_body).unwrap();
+        assert_eq!(latest_page["metadata_pending"], true);
+        assert!(latest_page.get("total").is_none());
+        assert_eq!(latest_page["has_newer"], false);
+        assert_eq!(latest_page["data"].as_array().unwrap().len(), 2);
+        assert_eq!(latest_page["data"][1]["content"], "remote latest");
+        assert_eq!(remote_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
         let default_resp = chat_messages_page(
             State(state.clone()),
             AxumPath("s1".to_string()),
@@ -97,6 +134,7 @@
         assert_eq!(details_texts, vec!["I will inspect", "{\"ok\":true}", "I will verify", "{\"verified\":true}"]);
         assert_eq!(details_page["data"].as_array().unwrap()[0]["reasoning"], "plan\nprovider thought\nprovider summary");
     }
+
 
     #[test]
     fn history_skeleton_preserves_long_trailing_detail_segment_for_pagination() {
@@ -433,4 +471,50 @@
         assert_eq!(state.fingerprints.len(), API_MESSAGE_WATCH_WINDOW);
         assert!(!state.fingerprints.contains_key(&0));
         assert!(state.fingerprints.contains_key(&((API_MESSAGE_WATCH_WINDOW + 24) as i64)));
+    }
+
+    #[tokio::test]
+    async fn session_watch_feed_is_shared_by_session_id() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let first = shared_session_watch_feed(&state, "same-session").await;
+        let second = shared_session_watch_feed(&state, "same-session").await;
+        let other = shared_session_watch_feed(&state, "other-session").await;
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!Arc::ptr_eq(&first, &other));
+    }
+
+    #[tokio::test]
+    async fn shared_session_watch_fetches_once_for_two_subscribers() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_for_api = calls.clone();
+        async fn api_messages(
+            State(calls): State<Arc<std::sync::atomic::AtomicUsize>>,
+            AxumPath(session_id): AxumPath<String>,
+        ) -> Json<serde_json::Value> {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Json(serde_json::json!({"object":"list","data":[{
+                "id": 1, "session_id": session_id, "role":"assistant", "content":"shared update"
+            }]}))
+        }
+        let app = Router::new()
+            .route("/api/sessions/{session_id}/messages", get(api_messages))
+            .with_state(calls_for_api);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+
+        let mut first = subscribe_shared_session_watch(&state, "same-session").await;
+        let mut second = subscribe_shared_session_watch(&state, "same-session").await;
+        let first_update = timeout(Duration::from_secs(1), first.recv()).await.unwrap().unwrap();
+        let second_update = timeout(Duration::from_secs(1), second.recv()).await.unwrap().unwrap();
+
+        assert_eq!(first_update[0]["content"], "shared update");
+        assert_eq!(second_update, first_update);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(CHAT_WATCH_POLL_INTERVAL, Duration::from_secs(5));
     }

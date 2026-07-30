@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CompositionEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Eraser, Keyboard, Minus, Plus, RefreshCw, TerminalSquare } from 'lucide-react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import './webTerminalFont.css';
 import { t } from './i18n';
-import { buildTerminalTheme, clampTerminalFontSize, terminalWebSocketUrl, TERMINAL_FONT_SIZE_DEFAULT } from './terminalSupport';
+import { applyTerminalModifiers, buildTerminalTheme, clampTerminalFontSize, terminalSpecialKeySequence, terminalWebSocketUrl, TERMINAL_FONT_SIZE_DEFAULT, type TerminalModifierState, type TerminalSpecialKey } from './terminalSupport';
 
 const TERMINAL_FONT_SIZE_KEY = 'yahu-terminal-font-size';
 const TERMINAL_FONT_FAMILY = '"SauceCodePro Nerd Font Mono", "SauceCodePro NFM", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -42,14 +42,18 @@ function readStoredFontSize(): number {
 
 export default function WebTerminal({ active = true, cwd = '', theme, headerActions }: WebTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const mobileInputRef = useRef<HTMLTextAreaElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const fitFrameRef = useRef(0);
+  const composingRef = useRef(false);
+  const mobileModifiersRef = useRef<TerminalModifierState>({ ctrl: false, alt: false });
   const fontSizeRef = useRef(readStoredFontSize());
   const [fontSize, setFontSize] = useState(fontSizeRef.current);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [connectionKey, setConnectionKey] = useState(0);
+  const [mobileModifiers, setMobileModifiers] = useState<TerminalModifierState>(mobileModifiersRef.current);
 
   const configureTextarea = useCallback(() => {
     const textarea = hostRef.current?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
@@ -62,13 +66,90 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
     textarea.setAttribute('enterkeyhint', 'enter');
   }, []);
 
+  const focusMobileInput = useCallback((event?: ReactPointerEvent<HTMLElement>) => {
+    if (event?.currentTarget instanceof HTMLButtonElement) event.preventDefault();
+    mobileInputRef.current?.focus({ preventScroll: true });
+  }, []);
+
   const focusTerminal = useCallback(() => {
     const terminal = terminalRef.current;
     if (!terminal) return;
-    terminal.focus();
     configureTextarea();
-    hostRef.current?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')?.focus({ preventScroll: true });
-  }, [configureTextarea]);
+    terminal.focus();
+    if (window.matchMedia('(max-width:760px)').matches) focusMobileInput();
+    else terminal.textarea?.focus({ preventScroll: true });
+  }, [configureTextarea, focusMobileInput]);
+
+  const focusTerminalSurface = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (window.matchMedia('(max-width:760px)').matches) {
+      event.preventDefault();
+      event.stopPropagation();
+      focusMobileInput();
+      return;
+    }
+    focusTerminal();
+  }, [focusMobileInput, focusTerminal]);
+
+  const resetMobileModifiers = useCallback(() => {
+    const reset = { ctrl: false, alt: false };
+    mobileModifiersRef.current = reset;
+    setMobileModifiers(reset);
+  }, []);
+
+  const sendTerminalInput = useCallback((data: string) => {
+    const terminal = terminalRef.current;
+    if (!terminal || !data) return;
+    const modifiers = mobileModifiersRef.current;
+    data = applyTerminalModifiers(data, modifiers);
+    terminal.input(data);
+    if (modifiers.ctrl || modifiers.alt) resetMobileModifiers();
+  }, [resetMobileModifiers]);
+
+  const handleMobileInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => {
+    if (composingRef.current) return;
+    const textarea = event.currentTarget;
+    const inputType = (event.nativeEvent as InputEvent).inputType;
+    const data = inputType === 'insertLineBreak' ? '\r' : textarea.value;
+    textarea.value = '';
+    sendTerminalInput(data);
+  }, [sendTerminalInput]);
+
+  const handleMobileCompositionEnd = useCallback((event: CompositionEvent<HTMLTextAreaElement>) => {
+    composingRef.current = false;
+    const data = event.currentTarget.value;
+    event.currentTarget.value = '';
+    sendTerminalInput(data);
+  }, [sendTerminalInput]);
+
+  const handleMobileKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    const sequences: Partial<Record<string, string>> = {
+      Backspace: '\x7f',
+      Enter: '\r',
+      Escape: terminalSpecialKeySequence('escape'),
+      Tab: terminalSpecialKeySequence('tab'),
+      ArrowUp: terminalSpecialKeySequence('up'),
+      ArrowDown: terminalSpecialKeySequence('down'),
+      ArrowRight: terminalSpecialKeySequence('right'),
+      ArrowLeft: terminalSpecialKeySequence('left'),
+    };
+    const data = sequences[event.key];
+    if (!data) return;
+    event.preventDefault();
+    event.currentTarget.value = '';
+    sendTerminalInput(data);
+  }, [sendTerminalInput]);
+
+  const toggleMobileModifier = useCallback((modifier: keyof TerminalModifierState) => {
+    const next = { ...mobileModifiersRef.current, [modifier]: !mobileModifiersRef.current[modifier] };
+    mobileModifiersRef.current = next;
+    setMobileModifiers(next);
+  }, []);
+
+  const sendSpecialKey = useCallback((key: TerminalSpecialKey) => {
+    sendTerminalInput(terminalSpecialKeySequence(key));
+    focusMobileInput();
+  }, [focusMobileInput, sendTerminalInput]);
 
   const fitAndResize = useCallback(() => {
     cancelAnimationFrame(fitFrameRef.current);
@@ -200,14 +281,40 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
     </header>
     <section className="web-terminal-shell" aria-label={t('terminal.title')}>
       <div className="terminal-toolbar" aria-label={t('terminal.title')}>
-        <button type="button" className="icon-btn mobile-terminal-keyboard" aria-label={t('terminal.keyboard')} title={t('terminal.keyboard')} onClick={focusTerminal}><Keyboard /></button>
+        <button type="button" className="icon-btn mobile-terminal-keyboard" aria-label={t('terminal.keyboard')} title={t('terminal.keyboard')} onPointerDown={focusMobileInput} onClick={() => focusMobileInput()}><Keyboard /></button>
         <button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clear')} onClick={() => terminalRef.current?.clear()}><Eraser /></button>
         <button type="button" className="icon-btn" aria-label={t('terminal.fontDecrease')} title={t('terminal.fontDecrease')} disabled={fontSize <= 11} onClick={() => changeFontSize(-1)}><Minus /></button>
         <output className="terminal-font-size" aria-label={t('terminal.fontSize')}>{fontSize}px</output>
         <button type="button" className="icon-btn" aria-label={t('terminal.fontIncrease')} title={t('terminal.fontIncrease')} disabled={fontSize >= 24} onClick={() => changeFontSize(1)}><Plus /></button>
         <button type="button" className="icon-btn" aria-label={t('terminal.reconnect')} title={t('terminal.reconnect')} onClick={() => setConnectionKey((value) => value + 1)}><RefreshCw /></button>
       </div>
-      <div className="web-terminal-host" ref={hostRef} onPointerDown={focusTerminal} />
+      <div className="mobile-terminal-special-keys" aria-label={t('terminal.specialKeys')}>
+        <button type="button" onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('escape')}>Esc</button>
+        <button type="button" className={mobileModifiers.ctrl ? 'active' : ''} aria-pressed={mobileModifiers.ctrl} onPointerDown={focusMobileInput} onClick={() => toggleMobileModifier('ctrl')}>Ctrl</button>
+        <button type="button" className={mobileModifiers.alt ? 'active' : ''} aria-pressed={mobileModifiers.alt} onPointerDown={focusMobileInput} onClick={() => toggleMobileModifier('alt')}>Alt</button>
+        <button type="button" onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('tab')}>Tab</button>
+        <button type="button" aria-label={t('terminal.keyUp')} onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('up')}>↑</button>
+        <button type="button" aria-label={t('terminal.keyDown')} onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('down')}>↓</button>
+        <button type="button" aria-label={t('terminal.keyLeft')} onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('left')}>←</button>
+        <button type="button" aria-label={t('terminal.keyRight')} onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('right')}>→</button>
+      </div>
+      <div className="web-terminal-host" ref={hostRef} onPointerDownCapture={focusTerminalSurface} />
+      <textarea
+        ref={mobileInputRef}
+        className="mobile-terminal-input"
+        aria-label={t('terminal.input')}
+        inputMode="text"
+        autoCapitalize="off"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="enter"
+        rows={1}
+        onInput={handleMobileInput}
+        onKeyDown={handleMobileKeyDown}
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={handleMobileCompositionEnd}
+      />
     </section>
   </main>;
 }

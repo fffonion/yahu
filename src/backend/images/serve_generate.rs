@@ -45,13 +45,10 @@ async fn generate_heic(
             "source image file not found".to_string(),
         ));
     }
-    if !source_can_generate_heic(&png_path, source_metadata.len()) {
+    if !source_can_generate_heic(&png_path) {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!(
-                "HEIC generation is only supported for PNG sources larger than {} bytes",
-                HEIC_GENERATION_MIN_BYTES
-            ),
+            "HEIC generation is only supported for PNG sources".to_string(),
         ));
     }
 

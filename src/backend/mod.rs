@@ -7,7 +7,10 @@ use std::{
     io::{Read, Write},
     net::IpAddr,
     path::{Component, Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -64,6 +67,7 @@ const MAX_PROXY_BODY: usize = 32 * 1024 * 1024;
 const SESSION_TTL: u64 = 7 * 24 * 60 * 60;
 const SESSION_REFRESH_AFTER: u64 = SESSION_TTL / 2;
 const API_MESSAGE_WATCH_WINDOW: usize = 80;
+const CHAT_WATCH_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const CHAT_STREAM_BROADCAST_CAPACITY: usize = 32;
 const CHAT_STREAM_SNAPSHOT_IDLE_TTL: Duration = Duration::from_secs(10 * 60);
 const IDLE_CACHE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
@@ -73,6 +77,21 @@ const WORKSPACE_BINARY_PREVIEW_LIMIT: usize = 1024 * 1024;
 struct ActiveChatStreamSnapshot {
     updated_at: Instant,
     messages: Vec<serde_json::Value>,
+}
+
+struct SharedSessionWatchFeed {
+    updates: broadcast::Sender<Vec<serde_json::Value>>,
+    worker_started: AtomicBool,
+}
+
+impl SharedSessionWatchFeed {
+    fn new() -> Self {
+        let (updates, _) = broadcast::channel(16);
+        Self {
+            updates,
+            worker_started: AtomicBool::new(false),
+        }
+    }
 }
 
 fn path_segment(value: &str) -> String {
@@ -165,6 +184,7 @@ struct AppState {
     updates: broadcast::Sender<String>,
     deletes: broadcast::Sender<String>,
     chat_streams: broadcast::Sender<String>,
+    session_watch_feeds: Arc<RwLock<HashMap<String, Arc<SharedSessionWatchFeed>>>>,
     active_chat_streams: Arc<RwLock<HashMap<String, ActiveChatStreamSnapshot>>>,
     active_chat_run_ids: Arc<RwLock<HashMap<String, String>>>,
     subagent_feeds: Arc<RwLock<HashMap<String, watch::Sender<String>>>>,
@@ -291,6 +311,7 @@ pub async fn run() -> anyhow::Result<()> {
         updates,
         deletes,
         chat_streams,
+        session_watch_feeds: Arc::new(RwLock::new(HashMap::new())),
         active_chat_streams: Arc::new(RwLock::new(HashMap::new())),
         active_chat_run_ids: Arc::new(RwLock::new(HashMap::new())),
         subagent_feeds: Arc::new(RwLock::new(HashMap::new())),

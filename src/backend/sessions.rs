@@ -1,7 +1,7 @@
 const API_SESSION_PAGE_SIZE: usize = 200;
 const API_SESSION_SEARCH_SCAN_LIMIT: usize = 2_000;
 const API_SESSION_SOURCE_FILTER_SCAN_LIMIT: usize = 10_000;
-const API_SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
+const API_SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_PINNED_SESSION_IDS: usize = 100;
 
 async fn sessions_search(
@@ -1221,6 +1221,33 @@ async fn chat_messages_page(
     Query(query): Query<ChatMessagesQuery>,
 ) -> Response<Body> {
     let limit = query.limit.unwrap_or(24).clamp(1, 80);
+    let requested_view = query.view.as_deref().unwrap_or("skeleton");
+    if requested_view == "latest"
+        && query.before.is_none()
+        && query.after.is_none()
+        && query.around.is_none()
+    {
+        let mut updates = subscribe_shared_session_watch(&state, &session_id).await;
+        match timeout(API_SESSION_REQUEST_TIMEOUT, updates.recv()).await {
+            Ok(Ok(mut latest)) => {
+                inject_turn_durations(&mut latest);
+                let skeleton = history_skeleton_messages(&latest);
+                let (start, end) = page_bounds(&skeleton, &query, limit);
+                return Json(serde_json::json!({
+                    "object": "list",
+                    "data": skeleton[start..end].to_vec(),
+                    "has_older": start > 0,
+                    "has_newer": false,
+                    "metadata_pending": true
+                }))
+                .into_response();
+            }
+            Ok(Err(err)) => warn!(session_id = %session_id, error = %err, "shared remote latest feed closed"),
+            Err(_) => warn!(session_id = %session_id, "shared remote latest feed timed out"),
+        }
+        return json_error(StatusCode::BAD_GATEWAY, "latest message feed unavailable");
+    }
+
     let mut all = match fetch_session_history_messages(&state, &session_id).await {
         Ok(messages) => messages,
         Err(err) => {
@@ -1231,7 +1258,11 @@ async fn chat_messages_page(
         }
     };
     inject_turn_durations(&mut all);
-    let view = query.view.as_deref().unwrap_or("skeleton");
+    let view = if requested_view == "latest" {
+        "skeleton"
+    } else {
+        requested_view
+    };
     let (started_at, last_active) = stitched_message_boundary_times(&all);
     if view == "details" {
         let (page, has_older, has_newer, total) = detail_range_messages(&all, &query, limit);
@@ -3109,6 +3140,90 @@ fn changed_session_messages(
     changed
 }
 
+async fn shared_session_watch_feed(
+    state: &AppState,
+    session_id: &str,
+) -> Arc<SharedSessionWatchFeed> {
+    let mut feeds = state.session_watch_feeds.write().await;
+    feeds
+        .entry(session_id.to_string())
+        .or_insert_with(|| Arc::new(SharedSessionWatchFeed::new()))
+        .clone()
+}
+
+async fn subscribe_shared_session_watch(
+    state: &Arc<AppState>,
+    session_id: &str,
+) -> broadcast::Receiver<Vec<serde_json::Value>> {
+    let feed = shared_session_watch_feed(state, session_id).await;
+    let receiver = feed.updates.subscribe();
+    if feed
+        .worker_started
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        let worker_state = state.clone();
+        let worker_session_id = session_id.to_string();
+        let worker_feed = feed.clone();
+        tokio::spawn(async move {
+            run_shared_session_watch(worker_state, worker_session_id, worker_feed).await;
+        });
+    }
+    receiver
+}
+
+async fn run_shared_session_watch(
+    state: Arc<AppState>,
+    session_id: String,
+    feed: Arc<SharedSessionWatchFeed>,
+) {
+    let mut initialized = false;
+    let mut watch_state = SessionMessageWatchState::default();
+    loop {
+        if feed.updates.receiver_count() == 0 {
+            feed.worker_started.store(false, Ordering::Release);
+            if feed.updates.receiver_count() == 0 {
+                let mut feeds = state.session_watch_feeds.write().await;
+                if feeds
+                    .get(&session_id)
+                    .is_some_and(|current| Arc::ptr_eq(current, &feed))
+                    && feed.updates.receiver_count() == 0
+                {
+                    feeds.remove(&session_id);
+                }
+                return;
+            }
+            if feed
+                .worker_started
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                return;
+            }
+        }
+        if let Ok(items) = fetch_session_messages_for_watch(
+            &state.client,
+            &state.api_url,
+            &state.api_key,
+            &session_id,
+        )
+        .await
+        {
+            let updates = if initialized {
+                changed_session_messages(&items, &mut watch_state)
+            } else {
+                initialized = true;
+                watch_state = session_message_watch_state(&items);
+                items
+            };
+            if !updates.is_empty() {
+                let _ = feed.updates.send(updates);
+            }
+        }
+        tokio::time::sleep(CHAT_WATCH_POLL_INTERVAL).await;
+    }
+}
+
 async fn fetch_session_messages_for_watch(
     client: &reqwest::Client,
     api_url: &str,
@@ -3137,16 +3252,10 @@ async fn chat_watch(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Sse<impl futures_core::Stream<Item = Result<SseEvent, Infallible>>> {
-    let client = state.client.clone();
-    let api_url = state.api_url.clone();
-    let api_key = state.api_key.clone();
     let active_chat_streams = state.active_chat_streams.clone();
+    let mut shared_watch_rx = subscribe_shared_session_watch(&state, &session_id).await;
     let mut chat_stream_rx = state.chat_streams.subscribe();
     let stream = async_stream::stream! {
-        let mut watch_state = match fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
-            Ok(items) => session_message_watch_state(&items),
-            Err(_) => SessionMessageWatchState::default(),
-        };
         if let Some(messages) = active_chat_streams
             .read()
             .await
@@ -3157,24 +3266,29 @@ async fn chat_watch(
                 yield Ok(SseEvent::default().data(msg.to_string()));
             }
         }
-        loop {
+        'stream_loop: loop {
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                    if let Ok(items) = fetch_session_messages_for_watch(&client, &api_url, &api_key, &session_id).await {
-                        for msg in changed_session_messages(&items, &mut watch_state) {
+                update = shared_watch_rx.recv() => match update {
+                    Ok(messages) => {
+                        for msg in messages {
                             yield Ok(SseEvent::default().data(msg.to_string()));
                         }
                     }
-                }
-                Ok(text) = chat_stream_rx.recv() => {
-                    if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&text)
-                        && envelope.get("session_id").and_then(|value| value.as_str()) == Some(session_id.as_str())
-                        && let Some(message) = envelope.get("message")
-                    {
-                        yield Ok(SseEvent::default().data(message.to_string()));
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break 'stream_loop,
+                },
+                event = chat_stream_rx.recv() => match event {
+                    Ok(text) => {
+                        if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&text)
+                            && envelope.get("session_id").and_then(|value| value.as_str()) == Some(session_id.as_str())
+                            && let Some(message) = envelope.get("message")
+                        {
+                            yield Ok(SseEvent::default().data(message.to_string()));
+                        }
                     }
-                }
-                else => break,
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break 'stream_loop,
+                },
             }
         }
     };

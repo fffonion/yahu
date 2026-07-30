@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const i18n = () => readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 const routes = () => readFileSync(new URL('./hashRoute.ts', import.meta.url), 'utf8');
 const server = () => ['mod.rs', 'models.rs', 'skills.rs', 'tests.rs', 'tests/core.rs']
@@ -33,6 +34,15 @@ describe('skills UI', () => {
     expect(source).not.toContain('|| list[0]');
     expect(source).not.toContain('Skill loaded:');
     expect(source).toContain('className="skill-enable-toggle"');
+  });
+
+  test('skills header shows enabled and installed totals', () => {
+    const source = app();
+    const translations = i18n();
+    expect(source).toContain('const enabledCount = skills.filter((skill) => skill.enabled !== false).length;');
+    expect(source).toContain("{enabledCount} {t('skills.enabledCount')} | {skills.length} {t('skills.installed')}");
+    expect(translations).toContain("'skills.enabledCount': { en: 'enabled', 'zh-CN': '已启用', 'zh-TW': '已啟用', ja: '有効' }");
+    expect(translations).toContain("'skills.installed': { en: 'installed', 'zh-CN': '已安装', 'zh-TW': '已安裝', ja: 'インストール済み' }");
   });
 
   test('skill rows expose a right-click delete menu with confirmation', () => {

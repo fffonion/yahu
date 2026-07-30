@@ -45,6 +45,15 @@ describe('summarizeToolMessage', () => {
     expect(summary.toolName).toBe('functions.skill_view');
   });
 
+  test('skill view summary shows name and file_path invocation fields while collapsed', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ success: true, name: 'yahu', file: 'references/chat-rendering.md', content: '# Chat rendering' }),
+      'functions.skill_view',
+      { name: 'yahu', file_path: 'references/chat-rendering.md' },
+    );
+    expect(summary.subtitle).toBe('name=yahu · file_path=references/chat-rendering.md');
+  });
+
   test('falls back to structured output for non-json tool content', () => {
     const summary = summarizeToolMessage('plain output');
     expect(summary.title).toBe('tool');

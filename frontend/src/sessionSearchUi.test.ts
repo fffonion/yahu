@@ -105,14 +105,16 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain("const sessionProvider = String(sessionModelOverride?.provider ?? (props.activeSessionId === DRAFT_SESSION_ID ? props.selectedModelProvider : apiSessionProvider)).trim();");
   });
 
-  test('opened session header uses stitched history totals from message and minimap endpoints', () => {
+  test('opened session header delays stitched totals until the minimap response arrives', () => {
     const app = source();
     expect(app).toContain('const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {');
     expect(app).toContain('sessionWithPreservedMessageCount(detail, old)');
     expect(app).toContain('sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id))');
     expect(app).toContain('updateSessionMessageCount(sessionId, page.total);');
     expect(app).toContain('updateSessionMessageCount(sessionId, body.total);');
-    expect(app).toContain("<span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span>");
+    expect(app).toContain('if (Number.isFinite(total) && total >= 0) setHistoryTotal(Math.trunc(total));');
+    expect(app).toContain("className={`chat-total-count${props.historyTotal === null ? ' loading' : ''}`}");
+    expect(app).not.toContain('{active?.message_count || 0} total');
   });
 
   test('opened session header shows start and latest message times on the right', () => {

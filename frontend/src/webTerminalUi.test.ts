@@ -44,6 +44,32 @@ describe('web terminal UI', () => {
     for (const key of ['terminal.clear', 'terminal.reconnect', 'terminal.fontDecrease', 'terminal.fontIncrease', 'terminal.keyboard']) expect(terminal).toContain(key);
   });
 
+  test('mobile terminal uses a dedicated input bridge for reliable virtual keyboard entry', () => {
+    const terminal = component();
+    const styles = css();
+    expect(terminal).toContain('mobileInputRef');
+    expect(terminal).toContain('className="mobile-terminal-input"');
+    expect(terminal).toContain('onInput={handleMobileInput}');
+    expect(terminal).toContain('terminal.input(data)');
+    expect(terminal).toContain('focusMobileInput');
+    expect(terminal).toContain('onPointerDown={focusMobileInput}');
+    expect(terminal).toContain('onPointerDownCapture={focusTerminalSurface}');
+    expect(terminal).toContain('event.stopPropagation()');
+    expect(styles).toContain('.mobile-terminal-input');
+    expect(styles).toContain('font-size:16px');
+  });
+
+  test('mobile terminal exposes one-shot modifiers and special keys', () => {
+    const terminal = component();
+    const styles = css();
+    expect(terminal).toContain('mobile-terminal-special-keys');
+    for (const label of ['Esc', 'Ctrl', 'Alt', 'Tab', '↑', '↓', '←', '→']) expect(terminal).toContain(`>${label}<`);
+    expect(terminal).toContain('aria-pressed={mobileModifiers.ctrl}');
+    expect(terminal).toContain('aria-pressed={mobileModifiers.alt}');
+    expect(terminal).toContain("terminalSpecialKeySequence('escape')");
+    expect(styles).toContain('.mobile-terminal-special-keys');
+  });
+
   test('keeps the mounted terminal session while other tools are active', () => {
     const source = app();
     const terminal = component();

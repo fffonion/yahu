@@ -28,7 +28,7 @@ describe('chat user message navigator', () => {
     const source = app();
     const styles = css();
     expect(source).toContain('function ChatUserNavigator(');
-    expect(source).toContain('className="chat-user-minimap"');
+    expect(source).toContain("className={`chat-user-minimap${loading ? ' loading' : ''}`}");
     expect(source).toContain('className="user-minimap-popup"');
     expect(source).toContain('const [popup, setPopup] = useState<{ item: UserMessageNavItem; top: number } | null>(null);');
     expect(source).toContain('popup.item.assistant_preview && <span className="user-minimap-assistant-preview">{popup.item.assistant_preview}</span>');
@@ -102,22 +102,11 @@ describe('chat user message navigator', () => {
     expect(styles).not.toContain('.chat-user-minimap{display:none}');
   });
 
-  test('mobile minimap taps open a temporary popup and outside chat taps close it', () => {
+  test('mobile minimap opens a preview, while desktop minimap clicks jump directly', () => {
     const source = app();
-    const styles = css();
-    expect(source).toContain("const isMobileNavigator = useMediaQuery('(max-width: 760px)');");
-    expect(source).toContain('const popupTimerRef = useRef<number | null>(null);');
-    expect(source).toContain('window.setTimeout(() => setPopup(null), 3000);');
-    expect(source).toContain("document.addEventListener('pointerdown', closeMobilePopupOnOutsidePointer);");
-    expect(source).toContain('if (target && navRef.current?.contains(target)) return;');
-    expect(source).toContain('if (isMobileNavigator) {');
-    expect(source).toContain('event.preventDefault();');
-    expect(source).toContain('event.stopPropagation();');
-    expect(source).toContain('showPopup(item, event.currentTarget, true);');
-    expect(source).toContain('onClick={(event) => handleNavigatorClick(item, event)}');
-    expect(source).toContain('onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }}');
-    expect(styles).toContain('@media (max-width:760px){.user-minimap-popup{left:28px;width:min(300px,calc(100vw - 48px));');
-    expect(styles).not.toContain('.user-minimap-popup{display:none}}');
+    expect(source).toContain('onFocus={(event) => showPopup(item, event.currentTarget)}');
+    expect(source).toContain('onClick={(event) => { if (isMobileNavigator) showPopup(item, event.currentTarget); else handleNavigatorClick(item); }}');
+    expect(source).toContain('const handleNavigatorClick = useCallback((item: UserMessageNavItem) => {\n    hidePopup();\n    onJumpToMessage(sessionId, item.id);\n  }, [hidePopup, onJumpToMessage, sessionId]);');
   });
 
   test('mobile minimap popup can be tapped again to jump to its user message', () => {

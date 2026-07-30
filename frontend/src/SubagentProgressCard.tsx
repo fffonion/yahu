@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, Target, XCircle } from 'lucide-react';
+import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, Square, Target, XCircle } from 'lucide-react';
 import { ChatTranscript, type ChatMessage } from './ChatTranscript';
 import { t, tf } from './i18n';
 import {
@@ -14,6 +14,7 @@ import {
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
   previewSubagent,
+  requestSubagentInterrupt,
   subagentElapsedSeconds,
   subagentMessagesUrl,
   subagentSnapshotUrl,
@@ -273,6 +274,18 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
   const loadedMessageCount = cachedDetail?.loadedMessageCount ?? -1;
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState(false);
+  const [interruptPending, setInterruptPending] = useState(false);
+  const [interruptError, setInterruptError] = useState(false);
+  const interrupt = async () => {
+    setInterruptPending(true);
+    setInterruptError(false);
+    try {
+      await requestSubagentInterrupt(node.sessionId);
+    } catch {
+      setInterruptPending(false);
+      setInterruptError(true);
+    }
+  };
   const detailMessages = useMemo(() => {
     const formatted = formatSubagentFinalMessages(messages);
     if (node.status === 'running' || !node.summary) return formatted;
@@ -322,6 +335,8 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
       </summary>
       <div className="subagent-progress-detail">
         {completed && <p className="subagent-progress-detail-meta">{statusLabel(node.status)} · {elapsed}</p>}
+        {node.status === 'running' && <div className="subagent-progress-actions"><button type="button" className="subagent-progress-stop" disabled={interruptPending} onClick={interrupt}><Square aria-hidden="true" />{interruptPending ? t('subagents.stopping') : t('subagents.stop')}</button></div>}
+        {interruptError && <p className="subagent-progress-detail-state error">{t('subagents.stopFailed')}</p>}
         <SubagentTodoList todos={node.todos} />
         {detailsLoading && <p className="subagent-progress-detail-state">{t('subagents.loadingDetails')}</p>}
         {detailsError && <p className="subagent-progress-detail-state error">{t('subagents.detailsUnavailable')}</p>}

@@ -627,7 +627,7 @@
         let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
 
         let resp = chat_messages_page(
-            State(state),
+            State(state.clone()),
             AxumPath("child".to_string()),
             Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("full".to_string()) }),
         )

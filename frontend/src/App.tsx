@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Copy, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Copy, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
@@ -80,7 +80,7 @@ type ImageMetadata = { filename: string; dimensions?: { width: number; height: n
 type ChatLightboxImage = ChatMarkdownImage & { key: string; messageId: string };
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
-type MessagePage = ChatHistoryPageRaw & Required<Pick<ChatHistoryPageRaw, 'data' | 'total' | 'has_older' | 'has_newer'>>;
+type MessagePage = ChatHistoryPageRaw & Required<Pick<ChatHistoryPageRaw, 'data' | 'has_older' | 'has_newer'>>;
 type UserMessageNavItem = { id: string; role: 'user'; content: string; assistant_preview?: string; timestamp?: string | number; position: number; index: number; total: number };
 type ContextWindowSnapshot = { sessionId: string; used: number; approximate?: boolean; compressed?: boolean };
 
@@ -216,8 +216,8 @@ function parseSseBlock(block: string) {
 function normalizeContent(value: unknown) {
   return normalizeMessageParts(value).content;
 }
-function normalizeMessage(raw: any): ChatMessage {
-  return normalizeChatMessage(raw, uid('m'));
+function normalizeMessage(raw: any, platformSource?: string): ChatMessage {
+  return normalizeChatMessage(raw, uid('m'), platformSource);
 }
 function isLocalStreamAssistant(message: ChatMessage) {
   return message.role === 'assistant' && message.id.startsWith('assistant_');
@@ -473,6 +473,9 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || '' : '');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userMessageNav, setUserMessageNav] = useState<UserMessageNavItem[]>([]);
+  const [userNavLoading, setUserNavLoading] = useState(false);
+  const [historyTotal, setHistoryTotal] = useState<number | null>(null);
+  const [latestReadySessionId, setLatestReadySessionId] = useState('');
   const [contextWindowSnapshot, setContextWindowSnapshot] = useState<ContextWindowSnapshot | null>(null);
   const [showReasoning, setShowReasoning] = useState(() => localStorage.getItem(SHOW_REASONING_KEY) === '1');
   const [desktopCompactMessages, setDesktopCompactMessages] = useState(() => localStorage.getItem(DESKTOP_COMPACT_MESSAGES_KEY) === '1');
@@ -540,6 +543,7 @@ export default function App() {
   const messagesRef = useRef<ChatMessage[]>([]);
   const messageRequestRef = useRef(0);
   const contextWindowRequestRef = useRef(0);
+  const userNavRequestRef = useRef(0);
   const loadingMessagesRef = useRef(false);
   const hasOlderRef = useRef(false);
   const hasNewerRef = useRef(false);
@@ -926,6 +930,7 @@ export default function App() {
     setLoadingMessages(true);
     try {
       const params = new URLSearchParams({ limit: String(MESSAGE_PAGE), view: 'skeleton' });
+      if (direction === 'latest') params.set('view', 'latest');
       if (direction === 'older') {
         const before = numericId(messagesRef.current[0]?.id);
         if (!before) { pendingHistoryScrollAnchorRef.current = null; return; }
@@ -941,7 +946,7 @@ export default function App() {
         if (!response.ok) throw new Error(await response.text());
         return response.json();
       };
-      const normalizePageChunk = (items: ChatHistoryPageRaw['data']) => normalizeChatHistoryChunk<ChatMessage>(items, normalizeMessage);
+      const normalizePageChunk = (items: ChatHistoryPageRaw['data']) => normalizeChatHistoryChunk<ChatMessage>(items, (raw) => normalizeMessage(raw, activeSession?.source));
       const page = await fetchMessagePage(params);
       let chunk = normalizePageChunk(page.data || []);
       let pageHasOlder = Boolean(page.has_older);
@@ -973,6 +978,7 @@ export default function App() {
       });
       messagesRef.current = merged.messages;
       setMessages(merged.messages);
+      if (direction === 'latest') setLatestReadySessionId(sessionId);
       hasOlderRef.current = merged.hasOlder;
       hasNewerRef.current = merged.hasNewer;
       setHasOlder(merged.hasOlder);
@@ -985,21 +991,31 @@ export default function App() {
         setLoadingMessages(false);
       }
     }
-  }, [updateSessionBoundaryTimes, updateSessionMessageCount]);
+  }, [activeSession?.source, updateSessionBoundaryTimes, updateSessionMessageCount]);
 
   const loadUserMessageNav = useCallback(async (sessionId: string) => {
-    if (!sessionId || sessionId === DRAFT_SESSION_ID) { setUserMessageNav([]); return; }
+    const req = ++userNavRequestRef.current;
+    if (!sessionId || sessionId === DRAFT_SESSION_ID) {
+      setUserMessageNav([]);
+      setHistoryTotal(null);
+      setUserNavLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`/chat/user-nav/${encodeURIComponent(sessionId)}`);
       if (!res.ok) throw new Error(await res.text());
       const body = await res.json();
-      if (activeSessionIdRef.current !== sessionId) return;
+      if (req !== userNavRequestRef.current || activeSessionIdRef.current !== sessionId) return;
+      const total = Number(body.total);
+      if (Number.isFinite(total) && total >= 0) setHistoryTotal(Math.trunc(total));
       updateSessionMessageCount(sessionId, body.total);
       setUserMessageNav(Array.isArray(body.data) ? body.data : []);
     } catch {
-      if (activeSessionIdRef.current === sessionId) setUserMessageNav([]);
+      if (req === userNavRequestRef.current && activeSessionIdRef.current === sessionId) setUserMessageNav([]);
+    } finally {
+      if (req === userNavRequestRef.current && activeSessionIdRef.current === sessionId) setUserNavLoading(false);
     }
-  }, [updateSessionBoundaryTimes, updateSessionMessageCount]);
+  }, [updateSessionMessageCount]);
 
   const jumpToMessage = useCallback(async (sessionId: string, messageId: string) => {
     if (!sessionId || !messageId || sessionId === DRAFT_SESSION_ID) return;
@@ -1023,7 +1039,7 @@ export default function App() {
       if (req !== messageRequestRef.current || activeSessionIdRef.current !== sessionId) return;
       updateSessionMessageCount(sessionId, page.total);
       updateSessionBoundaryTimes(sessionId, page);
-      const chunk = normalizeChatHistoryChunk<ChatMessage>(page.data || [], normalizeMessage);
+      const chunk = normalizeChatHistoryChunk<ChatMessage>(page.data || [], (raw) => normalizeMessage(raw, activeSession?.source));
       messagesRef.current = chunk;
       pendingJumpMessageIdRef.current = messageId;
       setMessages(chunk);
@@ -1038,7 +1054,7 @@ export default function App() {
         setLoadingMessages(false);
       }
     }
-  }, [updateSessionBoundaryTimes, updateSessionMessageCount]);
+  }, [activeSession?.source, updateSessionBoundaryTimes, updateSessionMessageCount]);
 
   const fetchWorkspaceEntries = useCallback(async (path = '') => {
     const res = await fetch(`/workspace/list?path=${encodeURIComponent(path || '')}`);
@@ -1307,6 +1323,8 @@ export default function App() {
       return;
     }
     messageRequestRef.current += 1;
+    userNavRequestRef.current += 1;
+    contextWindowRequestRef.current += 1;
     messagesRef.current = [];
     hasOlderRef.current = false;
     hasNewerRef.current = false;
@@ -1314,12 +1332,22 @@ export default function App() {
     setMessages([]);
     setUserMessageNav([]);
     setContextWindowSnapshot(null);
+    setHistoryTotal(null);
+    setLatestReadySessionId('');
     setHasOlder(false);
     setHasNewer(false);
+    const isDraft = activeSessionId === DRAFT_SESSION_ID;
+    setUserNavLoading(!isDraft);
+    if (isDraft) return;
     loadMessageWindow(activeSessionId, 'latest');
-    loadUserMessageNav(activeSessionId);
-    loadContextWindowSnapshot(activeSessionId);
-  }, [activeSessionId, loadContextWindowSnapshot, loadUserMessageNav]);
+  }, [activeSessionId]);
+  useEffect(() => {
+    if (!latestReadySessionId || latestReadySessionId !== activeSessionId) return;
+    void Promise.allSettled([
+      loadUserMessageNav(latestReadySessionId),
+      loadContextWindowSnapshot(latestReadySessionId),
+    ]);
+  }, [activeSessionId, latestReadySessionId, loadContextWindowSnapshot, loadUserMessageNav]);
   useEffect(() => {
     if (watchSourceRef.current) { watchSourceRef.current.close(); watchSourceRef.current = null; }
     clearNewMessages();
@@ -1331,7 +1359,7 @@ export default function App() {
       try {
         if (activeSessionIdRef.current !== watchedSessionId) return;
         const raw = JSON.parse(ev.data);
-        const msg = normalizeMessage(raw);
+        const msg = normalizeMessage(raw, activeSession?.source);
         const wasNearBottom = !!chatScrollRef.current && isNearBottom(chatScrollRef.current);
         const prev = messagesRef.current;
         const next = mergeWatchedMessage(prev, msg);
@@ -1354,7 +1382,7 @@ export default function App() {
     };
     es.onerror = () => { watchSourceRef.current = null; };
     return () => { es.close(); watchSourceRef.current = null; };
-  }, [activeSessionId, clearNewMessages, loadContextWindowSnapshot]);
+  }, [activeSession?.source, activeSessionId, clearNewMessages, loadContextWindowSnapshot]);
   useEffect(() => { streamingSessionIdRef.current = streamingSessionId; }, [streamingSessionId]);
   useEffect(() => {
     if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
@@ -1929,7 +1957,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => { setMode('workspace'); setSidebarCollapsed(false); writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path }); setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path }); }} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2457,7 +2485,7 @@ function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: 
   return active;
 }
 
-function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatScrollRef }: { items: UserMessageNavItem[]; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>; chatScrollRef: React.RefObject<HTMLElement | null> }) {
+function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessage, chatScrollRef }: { items: UserMessageNavItem[]; loading: boolean; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>; chatScrollRef: React.RefObject<HTMLElement | null> }) {
   const navRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const popupTimerRef = useRef<number | null>(null);
@@ -2530,21 +2558,18 @@ function ChatUserNavigator({ items, sessionId, activeIds, onJumpToMessage, chatS
     hidePopup();
     onJumpToMessage(sessionId, item.id);
   }, [hidePopup, onJumpToMessage, sessionId]);
-  const handleNavigatorClick = useCallback((item: UserMessageNavItem, event: React.MouseEvent<HTMLButtonElement>) => {
-    if (isMobileNavigator) {
-      event.preventDefault();
-      event.stopPropagation();
-      showPopup(item, event.currentTarget, true);
-      return;
-    }
+  const handleNavigatorClick = useCallback((item: UserMessageNavItem) => {
+    hidePopup();
     onJumpToMessage(sessionId, item.id);
-  }, [isMobileNavigator, onJumpToMessage, sessionId, showPopup]);
-  if (!items.length || !sessionId || sessionId === DRAFT_SESSION_ID) return null;
-  return <nav ref={navRef} className="chat-user-minimap" aria-label={t('chat.userNavigator')} onMouseLeave={() => { if (!isMobileNavigator) hidePopup(); }}>
+  }, [hidePopup, onJumpToMessage, sessionId]);
+  if (!sessionId || sessionId === DRAFT_SESSION_ID) return null;
+  return <nav ref={navRef} className={`chat-user-minimap${loading ? ' loading' : ''}`} aria-label={t('chat.userNavigator')} aria-busy={loading} onMouseLeave={() => { if (!isMobileNavigator) hidePopup(); }}>
     <div ref={trackRef} className={`user-minimap-track${scrollFade.before ? ' can-scroll-before' : ''}${scrollFade.after ? ' can-scroll-after' : ''}`} onScroll={updateNavigatorMetrics}>
-      {items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }} onFocus={(event) => showPopup(item, event.currentTarget)} onBlur={() => { if (!isMobileNavigator) hidePopup(); }} onClick={(event) => handleNavigatorClick(item, event)}>
-        <span className="user-minimap-bar" />
-      </button>)}
+      {loading
+        ? <div className="user-minimap-placeholder" aria-hidden="true">{Array.from({ length: 9 }, (_, index) => <span key={index} />)}</div>
+        : items.map((item) => <button type="button" className={`user-minimap-hit${activeIds.has(item.id) ? ' active' : ''}`} key={item.id} aria-label={item.content} data-nav-index={item.index} data-nav-total={item.total} onPointerEnter={(event) => { if (!isMobileNavigator) showPopup(item, event.currentTarget); }} onFocus={(event) => showPopup(item, event.currentTarget)} onBlur={() => { if (!isMobileNavigator) hidePopup(); }} onClick={(event) => { if (isMobileNavigator) showPopup(item, event.currentTarget); else handleNavigatorClick(item); }}>
+          <span className="user-minimap-bar" />
+        </button>)}
     </div>
     {popup && <button type="button" className="user-minimap-popup" style={{ top: `${popup.top}px` }} onClick={() => handlePopupClick(popup.item)}><strong>{popup.item.content || 'User message'}</strong>{popup.item.assistant_preview && <span className="user-minimap-assistant-preview">{popup.item.assistant_preview}</span>}{formatNavigatorTime(popup.item.timestamp) && <time>{formatNavigatorTime(popup.item.timestamp)}</time>}</button>}
   </nav>;
@@ -2557,6 +2582,8 @@ type ChatMainProps = {
   activeSessionId: string;
   messages: ChatMessage[];
   userMessageNav: UserMessageNavItem[];
+  userNavLoading: boolean;
+  historyTotal: number | null;
   onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>;
   contextWindowSnapshot: ContextWindowSnapshot | null;
   showReasoning: boolean;
@@ -2733,6 +2760,7 @@ function ChatMain(props: ChatMainProps) {
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
   const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = useMemo(() => visibleChatMessages<ChatMessage>(props.messages, props.showReasoning, props.showToolCalls), [props.messages, props.showReasoning, props.showToolCalls]);
+  const primaryActionIsStop = props.streaming && !props.input.trim();
   const loadTranscriptTurnDetails = useCallback(async (detail: TurnDetailMetadata): Promise<ChatMessage[]> => {
     if (!props.activeSessionId || !detail.beforeId) return [];
     const detailParams = new URLSearchParams({ limit: String(MESSAGE_PAGE * 4) });
@@ -2742,8 +2770,8 @@ function ChatMain(props: ChatMainProps) {
     const response = await fetch(`/chat/messages/${encodeURIComponent(props.activeSessionId)}?${detailParams}`);
     if (!response.ok) throw new Error(await response.text());
     const page: MessagePage = await response.json();
-    return normalizeChatHistoryChunk<ChatMessage>(page.data || [], normalizeMessage);
-  }, [props.activeSessionId]);
+    return normalizeChatHistoryChunk<ChatMessage>(page.data || [], (raw) => normalizeMessage(raw, active?.source));
+  }, [active?.source, props.activeSessionId]);
   const [chatImageModal, setChatImageModal] = useState<ChatLightboxImage | null>(null);
   const chatLightboxImages = useMemo(() => visibleMessages.flatMap((message: ChatMessage) => chatMediaImagesFromMarkdown(message.content || '').map((image, index) => ({ ...image, key: `${message.id}:${index}:${image.path}`, messageId: message.id }))), [visibleMessages]);
   const onChatMediaClick = (event: React.MouseEvent<HTMLElement>) => {
@@ -2798,9 +2826,9 @@ function ChatMain(props: ChatMainProps) {
     return () => observer.disconnect();
   }, [visibleMessages.length, props.activeSessionId, props.chatScrollRef, props.messages[0]?.id, props.messages.at(-1)?.id, scheduleSubagentWindowUpdate]);
   return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}`}>
-    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span>{props.messages.length || 0} loaded · {active?.message_count || 0} total</span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div><div className="chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>
+    <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span className={`chat-total-count${props.historyTotal === null ? ' loading' : ''}`} aria-busy={props.historyTotal === null}>{props.messages.length || 0} loaded · <span>{props.historyTotal ?? '—'} total</span></span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div><div className="chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>
         <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
-    <ChatUserNavigator items={props.userMessageNav || []} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
+    <ChatUserNavigator items={props.userMessageNav || []} loading={props.userNavLoading} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
     <div className="subagent-progress-overlay"><SubagentProgressCard sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} /></div>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatMediaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">{t('chat.loadingHistory')}</div>}
@@ -2832,8 +2860,7 @@ function ChatMain(props: ChatMainProps) {
           <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
           <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={t('chat.compactMode')} title={t('chat.compactMode')} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>
-          {props.streaming && <button type="button" className="send-btn stop-stream-btn mobile-icon-only" aria-label={t('chat.stopStreaming')} title={t('chat.stopStreaming')} onClick={props.stopStreaming}><Square /></button>}
-          <button className="send-btn mobile-icon-only" onClick={props.sendMessage} aria-label={props.streaming ? t('chat.queueFollowUp') : t('chat.send')}><Send /> <span className="btn-label">{props.streaming ? t('chat.queue') : t('chat.send')}</span></button>
+          <button type="button" className={`send-btn composer-primary-btn ${primaryActionIsStop ? 'is-stop' : 'is-send'}`} onClick={primaryActionIsStop ? props.stopStreaming : props.sendMessage} aria-label={primaryActionIsStop ? t('chat.stopStreaming') : t('chat.send')} title={primaryActionIsStop ? t('chat.stopStreaming') : t('chat.send')}>{primaryActionIsStop ? <Square /> : <ArrowUp />}</button>
         </div>
       </div>
     </footer>
@@ -2951,13 +2978,14 @@ function MarqueeText({ children }: { children: React.ReactNode }) {
 }
 
 function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, openSkillMenu, filter, setFilter, expandedCats, setExpandedCats, closeMobileSidebar }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; openSkillMenu: (skill: Skill, event: React.MouseEvent) => void; filter: string; setFilter: (v: string) => void; expandedCats: Set<string>; setExpandedCats: (v: Set<string>) => void; closeMobileSidebar: () => void }) {
+  const enabledCount = skills.filter((skill) => skill.enabled !== false).length;
   const grouped = skills.reduce<Record<string, Skill[]>>((acc, skill) => { const cat = skill.category || 'uncategorized'; if (cat === '.archive') return acc; (acc[cat] ||= []).push(skill); return acc; }, {});
   const cats = Object.keys(grouped).sort();
   const query = filter.trim().toLowerCase();
   const filteredCats = query ? cats.filter((cat) => grouped[cat].some((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query))) : cats;
   const filteredSkills = (cat: string) => query ? grouped[cat].filter((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query)) : grouped[cat];
   const toggleCat = (cat: string) => setExpandedCats(new Set(expandedCats.has(cat) ? [...expandedCats].filter((c) => c !== cat) : [...expandedCats, cat]));
-  return <><div className="cron-sidebar-head"><div><h2>{t('skills.title')}</h2><p>{skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}{skill.version ? <span className="skill-version">{skill.version}</span> : null}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
+  return <><div className="cron-sidebar-head"><div><h2>{t('skills.title')}</h2><p>{enabledCount} {t('skills.enabledCount')} | {skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}{skill.version ? <span className="skill-version">{skill.version}</span> : null}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
 type SkillBackup = { id?: string | number; version?: string | number; reason?: string };
 
@@ -3732,7 +3760,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       <div ref={sentinelRef} className="image-sentinel">{loading ? t('gallery.loading') : hasMore ? t('gallery.scrollMore') : t('gallery.end')}</div>
     </section>
     {imageMenu && <div className="image-context-menu" role="menu" style={{ left: imageMenu.x, top: imageMenu.y }} onContextMenu={(event) => event.preventDefault()} onClick={() => setImageMenu(null)}>
-      <button type="button" role="menuitem" onClick={() => { triggerBrowserDownload(imageMenu.item.heic_url || imageMenu.item.png_url, imageMenu.item.heic_filename || imageMenu.item.filename); }}><Download /> {t('gallery.downloadHEIC')}</button>
+      {imageMenu.item.heic_status !== 'not_applicable' && <button type="button" role="menuitem" onClick={() => { downloadOne(imageMenu.item); }}><Download /> {t('gallery.downloadHEIC')}</button>}
       <button type="button" role="menuitem" onClick={() => { triggerBrowserDownload(imageMenu.item.png_url || imageMenu.item.image_url, imageMenu.item.filename); }}><Download /> {t('gallery.downloadPNG')}</button>
       <button type="button" role="menuitem" className="danger" onClick={() => { deleteNames([imageMenu.item.filename]); }}><Trash2 /> {t('gallery.delete')}</button>
     </div>}
