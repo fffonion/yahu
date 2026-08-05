@@ -64,11 +64,26 @@ describe('insights chart UI', () => {
     const app = appSource();
     const css = cssSource();
     expect(app).toContain('.slice(0, 10), [props.insights, props.period]);');
-    expect(app).toContain("models.slice(0, 10).map((model, index) => <ModelUsageRow");
+    expect(app).toContain('filteredModels.map((model, index) => <ModelUsageRow');
     expect(app).toContain('<small className="model-provider">{model.provider || \'unknown\'}</small>{model.model}');
     expect(app).toContain('const series = models.slice(0, 4)');
     expect(css).toContain('.model-name{display:grid;');
     expect(css).toContain('.model-provider{display:block;');
+  });
+
+  test('model list filters stay local to the bottom panel while charts keep the full model set', () => {
+    const app = appSource();
+    const css = cssSource();
+    expect(app).toContain("const [modelQuery, setModelQuery] = useState('');");
+    expect(app).toContain("const [selectedModel, setSelectedModel] = useState('');");
+    expect(app).toContain('label.toLocaleLowerCase().includes(query)');
+    expect(app).toContain('className="model-filter-input"');
+    expect(app).toContain('className="model-filter-select"');
+    expect(app).toContain('filteredModels.map((model, index)');
+    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
+    expect(app).toContain('<UsageShareBar models={models} metric={props.metric} />');
+    expect(css).toContain('.insights-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}');
+    expect(css).toContain('.model-list-filters{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0}');
   });
 
   test('renders dedicated loading placeholders for cards chart and model rows', () => {

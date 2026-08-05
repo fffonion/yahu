@@ -2087,6 +2087,8 @@ function ModeSidebar({ mode }: { mode: Mode }) {
 
 function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void }) {
   const [chartStacked, setChartStacked] = useState(false);
+  const [modelQuery, setModelQuery] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
   const periodData = props.insights?.periods?.find((item) => item.days === props.period);
   const totals = periodData?.totals || emptyTotals();
   const models = useMemo(() => (props.insights?.models || [])
@@ -2094,6 +2096,16 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
     .filter((model) => model.periodTotals.total_tokens > 0)
     .sort((a, b) => b.periodTotals.total_tokens - a.periodTotals.total_tokens)
     .slice(0, 10), [props.insights, props.period]);
+  useEffect(() => {
+    if (selectedModel && !models.some((model) => usageModelLabel(model) === selectedModel)) setSelectedModel('');
+  }, [models, selectedModel]);
+  const filteredModels = useMemo(() => {
+    const query = modelQuery.trim().toLocaleLowerCase();
+    return models.filter((model) => {
+      const label = usageModelLabel(model);
+      return (!query || label.toLocaleLowerCase().includes(query)) && (!selectedModel || label === selectedModel);
+    });
+  }, [modelQuery, models, selectedModel]);
   const topModel = models[0];
   const activeDays = periodSlice(props.insights?.daily || [], props.period);
   const activeHours = props.insights?.hourly || [];
@@ -2134,7 +2146,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         {showSkeleton ? <UsageChartSkeleton /> : <><UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} /><UsageShareBar models={models} metric={props.metric} /></>}
       </section>
       <div className="insights-grid">
-        <section className="insights-panel"><h2>{t('insights.models')}</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.slice(0, 10).map((model, index) => <ModelUsageRow key={`${model.model}:${model.provider || 'unknown'}`} model={model} rank={index + 1} />) : <p className="insights-empty">{t('insights.noWindowUsage')}</p>}</section>
+        <section className="insights-panel"><div className="insights-panel-head"><h2>{t('insights.models')}</h2><div className="model-list-filters"><input type="search" className="model-filter-input" aria-label={t('insights.filterModels')} placeholder={t('insights.filterModels')} value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} disabled={showSkeleton || !models.length} /><select className="model-filter-select" aria-label={t('insights.selectModel')} value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} disabled={showSkeleton || !models.length}><option value="">{t('insights.allModels')}</option>{models.map((model) => { const label = usageModelLabel(model); return <option key={label} value={label}>{label}</option>; })}</select></div></div>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? filteredModels.length ? filteredModels.map((model, index) => <ModelUsageRow key={`${model.model}:${model.provider || 'unknown'}`} model={model} rank={index + 1} />) : <p className="insights-empty">{t('insights.noMatchingModels')}</p> : <p className="insights-empty">{t('insights.noWindowUsage')}</p>}</section>
         <section className="insights-panel"><h2>{t('insights.otherSignals')}</h2>{showSkeleton ? <SignalSkeletonList /> : <><SignalRow name={t('insights.reasoning')} value={fmtTokens(totals.reasoning)} /><SignalRow name={t('insights.tools')} value={`${totals.tool_calls || 0}`} /><SignalRow name={t('insights.avgSession')} value={fmtTokens(totals.avg_tokens_per_session)} /><SourceSignalList sources={activeSources.slice(0, 6)} /></>}</section>
       </div>
     </section>
