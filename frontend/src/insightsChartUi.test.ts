@@ -63,6 +63,7 @@ describe('insights chart UI', () => {
   test('model list shows ten provider-labeled rows while charts keep their own series cap', () => {
     const app = appSource();
     const css = cssSource();
+    expect(app).toContain('.slice(0, 10), [props.insights, props.period]);');
     expect(app).toContain("models.slice(0, 10).map((model, index) => <ModelUsageRow");
     expect(app).toContain('<small className="model-provider">{model.provider || \'unknown\'}</small>{model.model}');
     expect(app).toContain('const series = models.slice(0, 4)');

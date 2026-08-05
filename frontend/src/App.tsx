@@ -2093,7 +2093,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
     .map((model) => ({ ...model, periodTotals: finalizeTotals(modelPeriodTotals(model, props.period)) }))
     .filter((model) => model.periodTotals.total_tokens > 0)
     .sort((a, b) => b.periodTotals.total_tokens - a.periodTotals.total_tokens)
-    .slice(0, 6), [props.insights, props.period]);
+    .slice(0, 10), [props.insights, props.period]);
   const topModel = models[0];
   const activeDays = periodSlice(props.insights?.daily || [], props.period);
   const activeHours = props.insights?.hourly || [];
