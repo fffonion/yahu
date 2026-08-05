@@ -173,6 +173,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('@media (max-width:760px){.composer-wrap.composer-compact .composer-box textarea{height:38px;min-height:38px;max-height:38px;overflow:hidden;padding:7px 56px 7px 14px}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box{min-height:46px}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{right:4px;bottom:4px;height:38px}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-primary-btn{border-radius:50%}');
     expect(styles).toContain('.send-btn,.files-chip,.image-actions button,.modalbar button,.settings-content button:not(.btn-wide){width:38px;height:38px;padding:0;justify-content:center}');
   });
 
