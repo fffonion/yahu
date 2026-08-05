@@ -22,6 +22,7 @@
 
         assert_eq!(projected.session_id, "child-1");
         assert_eq!(projected.task, "Review the backend");
+        assert_eq!(projected.model.as_deref(), Some("gpt-5.6-sol"));
         assert_eq!(projected.status, "running");
         assert_eq!(projected.current_tool.as_deref(), Some("terminal"));
         assert_eq!(projected.todos.len(), 2);

@@ -43,7 +43,7 @@ describe('subagent progress UI', () => {
     expect(card()).toContain("node.ancestryOmitted && <span className=\"subagent-progress-omitted-ancestry\" title={t('subagents.parentOmitted')}");
   });
 
-  test('keeps todos and shared conversation detail while removing counters, model, and recent activity chrome', () => {
+  test('keeps todos and shared conversation detail while showing model identity', () => {
     const source = card();
     expect(source).toContain('className="subagent-progress-tree"');
     expect(source).toContain('subagent-progress-todos${className');
@@ -54,7 +54,8 @@ describe('subagent progress UI', () => {
     expect(source).toContain('<SubagentProgressNode key={child.sessionId}');
     expect(source).not.toContain('className="subagent-progress-stats"');
     expect(source).not.toContain('className="subagent-progress-activity"');
-    expect(source).not.toContain('assistantName={node.model');
+    expect(source).toContain('className="subagent-progress-model"');
+    expect(source).toContain('assistantName={node.model}');
   });
 
   test('lazy-loads full conversation detail while keeping only one child expanded across snapshot replacements', () => {
@@ -87,7 +88,7 @@ describe('subagent progress UI', () => {
     const styles = css();
     expect(source).toContain("const completed = node.status === 'completed';");
     expect(source).toContain("className={completed ? 'completed' : undefined}");
-    expect(source).toContain("{!completed && <small>{statusLabel(node.status)} · {elapsed}{node.currentTool ? ` · ${node.currentTool}` : ''}</small>}");
+    expect(source).toContain('className="subagent-progress-model"');
     expect(source).toContain('{completed && <p className="subagent-progress-detail-meta">{statusLabel(node.status)} · {elapsed}</p>}');
     expect(source).toContain("${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}");
     expect(source).toContain("<strong>{completed ? node.task : t('subagents.title')}</strong>");
@@ -124,6 +125,7 @@ describe('subagent progress UI', () => {
     expect(app()).not.toContain('function MessageView');
     expect(css()).not.toContain('.subagent-progress-message{');
     expect(css()).not.toContain('.subagent-progress-tool-calls{');
+    expect(css()).toContain('.subagent-progress-messages .msg-row.assistant .msg-body{font-size:12px;line-height:1.45}');
   });
 
   test('shows a persisted goal separately while keeping the running subagent card visible', () => {
