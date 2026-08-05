@@ -92,7 +92,6 @@ const FOLLOW_UP_BEHAVIOUR_KEY = 'followUpBehaviour';
 const FOLLOW_UP_QUEUES_KEY = 'followUpQueues';
 const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const CODE_WRAP_KEY = 'codeWrap';
-const SHOW_REASONING_KEY = 'showReasoning';
 const DESKTOP_COMPACT_MESSAGES_KEY = 'desktopCompactMessages';
 const HIDE_CRON_SESSIONS_KEY = 'hideCronSessions';
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
@@ -477,7 +476,7 @@ export default function App() {
   const [historyTotal, setHistoryTotal] = useState<number | null>(null);
   const [latestReadySessionId, setLatestReadySessionId] = useState('');
   const [contextWindowSnapshot, setContextWindowSnapshot] = useState<ContextWindowSnapshot | null>(null);
-  const [showReasoning, setShowReasoning] = useState(() => localStorage.getItem(SHOW_REASONING_KEY) === '1');
+  const [showReasoning, setShowReasoning] = useState(true);
   const [desktopCompactMessages, setDesktopCompactMessages] = useState(() => localStorage.getItem(DESKTOP_COMPACT_MESSAGES_KEY) === '1');
   const [showToolCalls, setShowToolCalls] = useState(true);
   const [hasOlder, setHasOlder] = useState(false);
@@ -691,7 +690,6 @@ export default function App() {
   useEffect(() => localStorage.setItem(COMPOSER_ENTER_MODE_KEY, composerEnterMode), [composerEnterMode]);
   useEffect(() => localStorage.setItem(CODE_WRAP_KEY, codeWrap ? '1' : '0'), [codeWrap]);
   useEffect(() => localStorage.setItem('effort', effort), [effort]);
-  useEffect(() => localStorage.setItem(SHOW_REASONING_KEY, showReasoning ? '1' : '0'), [showReasoning]);
   useEffect(() => localStorage.setItem(DESKTOP_COMPACT_MESSAGES_KEY, desktopCompactMessages ? '1' : '0'), [desktopCompactMessages]);
   useEffect(() => localStorage.setItem(HIDE_CRON_SESSIONS_KEY, hideCronSessions ? '1' : '0'), [hideCronSessions]);
   useEffect(() => localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds))), [pinnedIds]);

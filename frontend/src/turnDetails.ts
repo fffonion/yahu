@@ -139,10 +139,10 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
     finalMessage: T,
     finalIndex: number,
     detail?: TurnDetailMetadata,
-    options?: { defaultOpen?: boolean; preserveTurn?: boolean },
+    options?: { defaultOpen?: boolean; preserveTurn?: boolean; beforeLastFinal?: boolean },
   ) => {
     const savedAnchor = activeAnchorId;
-    items.push({
+    const group: TurnDetailGroupItem<T> = {
       kind: 'detailGroup',
       id,
       messages: buffer.map((entry) => entry.message),
@@ -151,7 +151,17 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
       finalIndex,
       detail,
       defaultOpen: options?.defaultOpen || undefined,
-    });
+    };
+    if (options?.beforeLastFinal) {
+      let lastFinalIndex = -1;
+      items.forEach((item, index) => {
+        if (item.kind === 'message' && isCompletedFinalAssistant(item.message)) lastFinalIndex = index;
+      });
+      if (lastFinalIndex >= 0) items.splice(lastFinalIndex, 0, group);
+      else items.push(group);
+    } else {
+      items.push(group);
+    }
     clearBuffer();
     if (options?.preserveTurn) {
       activeAnchorId = savedAnchor;
@@ -169,8 +179,11 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
   const flushTrailingBuffer = () => {
     if (buffer.length) {
       const last = buffer[buffer.length - 1];
-      const isUnfinishedUserTurn = (!!activeAnchorId && activeAnchorId !== ROOTLESS_ANCHOR_ID) || !!options.openTrailingDetails;
-      pushBufferedDetailGroup(bufferedDetailGroupId(last.message, last.index), last.message, last.index, undefined, { defaultOpen: isUnfinishedUserTurn });
+      const isUnfinishedUserTurn = !!options.openTrailingDetails;
+      pushBufferedDetailGroup(bufferedDetailGroupId(last.message, last.index), last.message, last.index, undefined, {
+        defaultOpen: isUnfinishedUserTurn,
+        beforeLastFinal: activeAnchorId === ROOTLESS_ANCHOR_ID && items.some((item) => item.kind === 'message' && isCompletedFinalAssistant(item.message)),
+      });
       return;
     }
     flushBufferAsMessages();
@@ -223,15 +236,6 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
     });
   };
 
-  const hasCompletedFinalAhead = (fromIndex: number) => {
-    for (let index = fromIndex + 1; index < messages.length; index += 1) {
-      const candidate = messages[index];
-      if (candidate.historyGap || candidate.role === 'user' || isSessionStateMessage(candidate)) return false;
-      if (isCompletedFinalAssistant(candidate)) return true;
-    }
-    return false;
-  };
-
   messages.forEach((message, index) => {
     if (message.historyGap) {
       flushBufferAsMessages();
@@ -268,8 +272,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
     if (isAssistantToolPreludeMessage(message)) {
       if (buffer.length) {
         const last = buffer[buffer.length - 1];
-        const keepOpen = !hasCompletedFinalAhead(index)
-          && ((!!activeAnchorId && activeAnchorId !== ROOTLESS_ANCHOR_ID) || !!options.openTrailingDetails);
+        const keepOpen = !!options.openTrailingDetails;
         pushBufferedDetailGroup(
           bufferedDetailGroupId(last.message, last.index),
           message,

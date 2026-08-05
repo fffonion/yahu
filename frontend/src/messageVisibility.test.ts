@@ -38,6 +38,15 @@ describe('chat message visibility', () => {
     expect(prepared.find((message) => message.id === 'tool-result')?.toolInput).toEqual({ command: 'date +%F', timeout: 15 });
   });
 
+  test('copies assistant tool-call arguments for web search query summaries', () => {
+    const messages = [
+      { id: 'web-call', role: 'assistant', content: '', pending: false, toolCalls: [{ id: 'call_web', call_id: 'call_web', function: { name: 'web_search', arguments: '{"query":"Hermes Agent documentation","limit":5}' } }] },
+      { id: 'web-result', role: 'tool', content: '{"web":[{"title":"result"}]}', pending: false, toolName: 'web_search', toolCallId: 'call_web' },
+    ];
+    const prepared = withToolCallInputs(messages);
+    expect(prepared.find((message) => message.id === 'web-result')?.toolInput).toEqual({ query: 'Hermes Agent documentation', limit: 5 });
+  });
+
   test('tool-like patch and terminal messages hide even when their role is not tool', () => {
     const patchMessage = { role: 'assistant', content: '<untrusted_tool_result source="patch">diff</untrusted_tool_result>', pending: false };
     const terminalMessage = { role: 'system', content: JSON.stringify({ tool_name: 'terminal', output: 'done' }), pending: false };

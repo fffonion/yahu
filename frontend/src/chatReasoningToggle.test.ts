@@ -11,6 +11,13 @@ function cssRule(styles: string, selector: string) {
 }
 
 describe('chat reasoning display toggle', () => {
+  test('history shows reasoning by default and the toggle remains session-only', () => {
+    const source = app();
+    expect(source).toContain('const [showReasoning, setShowReasoning] = useState(true);');
+    expect(source).not.toContain('SHOW_REASONING_KEY');
+    expect(source).not.toContain('localStorage.setItem(SHOW_REASONING_KEY');
+  });
+
   test('composer has an icon-only quick toggle for reasoning/thinking visibility', () => {
     const source = app();
     expect(source).toContain("showReasoning={showReasoning}");

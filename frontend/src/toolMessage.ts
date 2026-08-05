@@ -67,8 +67,14 @@ function invocationFromRecord(root: Record<string, unknown> | null): unknown {
   return firstDefined(fn || {}, ['arguments', 'args', 'params', 'parameters']);
 }
 
-function resultFromRecord(root: Record<string, unknown> | null, parsed: unknown): unknown {
+function resultFromRecord(root: Record<string, unknown> | null, parsed: unknown, toolName = ''): unknown {
   if (!root) return parsed;
+  if (toolName.replace(/^functions\./, '') === 'skill_view') {
+    const result: Record<string, unknown> = {};
+    if (typeof root.description === 'string' && root.description.trim()) result.description = root.description;
+    if (typeof root.content === 'string' && root.content.trim()) result.content = root.content;
+    if (Object.keys(result).length) return result;
+  }
   const primary = firstDefined(root, ['result', 'output', 'message', 'content', 'data', 'error']);
   if (primary !== undefined) return primary;
   const entries = Object.entries(root).filter(([key]) => !META_KEYS.has(key));
@@ -84,14 +90,75 @@ function commandFromInput(toolName: string, input: unknown): string {
   return name === 'terminal' && typeof command === 'string' && command.trim() ? command.trim() : '';
 }
 
+const INPUT_SUMMARY_KEYS: Record<string, string[]> = {
+  web_search: ['query'],
+  x_search: ['query'],
+  web_extract: ['urls', 'url'],
+  search_files: ['pattern', 'path'],
+  browser_navigate: ['url'],
+  browser_click: ['ref'],
+  browser_type: ['text', 'ref'],
+  browser_press: ['key'],
+  browser_scroll: ['direction'],
+  browser_vision: ['question'],
+  browser_console: ['expression'],
+  execute_code: ['code'],
+  read_file: ['path'],
+  write_file: ['path'],
+  patch: ['path'],
+  image_generate: ['prompt'],
+  video_generate: ['prompt'],
+  vision_analyze: ['question', 'image_url'],
+  text_to_speech: ['text'],
+  ha_call_service: ['domain', 'service', 'entity_id'],
+  ha_get_state: ['entity_id'],
+  ha_list_entities: ['domain', 'area'],
+  ha_list_services: ['domain'],
+  skill_view: ['name', 'file_path'],
+  skill_manage: ['action', 'name'],
+  delegate_task: ['goal'],
+  cronjob: ['action', 'name', 'schedule'],
+  session_search: ['query', 'session_id'],
+  memory: ['action', 'target'],
+  send_message: ['message'],
+  todo: ['todos'],
+};
+
+function compactInputValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(compactInputValue).filter(Boolean).join(' · ');
+  if (value && typeof value === 'object') {
+    try { return JSON.stringify(value); } catch { return ''; }
+  }
+  return '';
+}
+
+function inputSummaryFromInput(toolName: string, input: unknown): string {
+  const record = asRecord(input);
+  if (!record) return compactInputValue(input);
+  const name = toolName.replace(/^functions\./, '');
+  const preferredKeys = INPUT_SUMMARY_KEYS[name] || [];
+  for (const key of preferredKeys) {
+    const value = compactInputValue(record[key]);
+    if (value) return value;
+  }
+  return Object.entries(record)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .slice(0, 2)
+    .map(([key, value]) => `${key}=${compactInputValue(value)}`)
+    .filter((value) => !value.endsWith('='))
+    .join(' · ');
+}
+
 function skillViewFromInput(toolName: string, input: unknown, root: Record<string, unknown> | null): string {
   if (toolName.replace(/^functions\./, '') !== 'skill_view') return '';
   const invocation = asRecord(input);
   const name = invocation?.name ?? root?.name;
   const filePath = invocation?.file_path ?? root?.file_path ?? root?.file;
   const fields: string[] = [];
-  if (typeof name === 'string' && name.trim()) fields.push(`name=${name.trim()}`);
-  if (typeof filePath === 'string' && filePath.trim()) fields.push(`file_path=${filePath.trim()}`);
+  if (typeof name === 'string' && name.trim()) fields.push(name.trim());
+  if (typeof filePath === 'string' && filePath.trim()) fields.push(filePath.trim());
   return fields.join(' · ');
 }
 
@@ -166,12 +233,14 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
   const filePath = ['patch', 'read_file'].includes(canonicalToolName) ? fullFilePathFromInput(root, input) : '';
   const fileSummaryPath = compactFilePath(filePath);
   const fileSummary = fileSummaryPath ? `${fileSummaryPath}${root ? ` · ${Object.keys(root).length} fields` : ''}` : '';
+  const inputSubtitle = inputSummaryFromInput(toolName, input);
   const subtitle = command
     || errorSubtitle
     || skillViewSummary
     || fileSummary
+    || inputSubtitle
     || resultSubtitle
     || (root ? `${Object.keys(root).length} fields` : content);
 
-  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed), status, filePath };
+  return { title: fullTitle, toolName, subtitle: subtitle.replace(/\s+/g, ' ').slice(0, 180), fields, raw: parsed, input, result: resultFromRecord(root, parsed, toolName), status, filePath };
 }

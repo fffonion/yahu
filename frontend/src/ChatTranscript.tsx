@@ -37,6 +37,7 @@ import { parseSearchFilesResult } from './searchFilesResult';
 import { highlightSourceText } from './syntaxHighlight';
 import { highlightedDiffLines, highlightedReadFileLines, type HighlightedToolCodeLine } from './toolCodeHighlight';
 import { summarizeToolMessage, type ToolSummary } from './toolMessage';
+import { streamGraphemes } from './streamGraphemes';
 import {
   buildDesktopTurnBlocks,
   buildTurnDetailItems,
@@ -93,10 +94,12 @@ export function ChatTranscript({
     [groupedTurnDetailItems],
   );
   useLayoutEffect(() => { previousTurnDetailItemsRef.current = turnDetailItems; }, [turnDetailItems]);
+  const shouldForceOpenLatestDetail = streaming || forceOpenLatestDetailToken > 0;
   const forceOpenDetailGroupId = useMemo(
-    () => forceOpenLatestDetailToken ? latestExpandableDetailGroupId(turnDetailItems, visibleMessages, streaming) : '',
-    [forceOpenLatestDetailToken, streaming, turnDetailItems, visibleMessages],
+    () => shouldForceOpenLatestDetail ? latestExpandableDetailGroupId(turnDetailItems, visibleMessages, streaming) : '',
+    [forceOpenLatestDetailToken, shouldForceOpenLatestDetail, streaming, turnDetailItems, visibleMessages],
   );
+  const detailForceOpenToken = streaming ? 1 : forceOpenLatestDetailToken;
   const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
   const splitIdx = findNewMessageSplitIndex(visibleMessages, newMessageBoundaryId || undefined);
 
@@ -105,7 +108,7 @@ export function ChatTranscript({
       const showSplit = splitIdx >= 0 && block.sourceIndexes.includes(splitIdx);
       return <React.Fragment key={block.id}>
         {showSplit && <NewMessagesSeparator />}
-        <DesktopTurnBlock block={block} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenDetailGroupId={forceOpenDetailGroupId} forceOpenLatestDetailToken={forceOpenLatestDetailToken} />
+        <DesktopTurnBlock block={block} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenDetailGroupId={forceOpenDetailGroupId} forceOpenLatestDetailToken={forceOpenLatestDetailToken} detailForceOpenToken={detailForceOpenToken} />
       </React.Fragment>;
     })}</>;
   }
@@ -115,7 +118,7 @@ export function ChatTranscript({
     const showSplit = splitIdx >= 0 && item.sourceIndexes.includes(splitIdx);
     let rendered: React.ReactNode;
     if (item.kind === 'detailGroup') {
-      rendered = <TurnDetailGroup item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? forceOpenLatestDetailToken : 0} />;
+      rendered = <TurnDetailGroup item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? detailForceOpenToken : 0} />;
     } else if (item.kind === 'specialContextGroup') {
       rendered = <SpecialContextGroup item={item} />;
     } else if (item.kind === 'sessionState') {
@@ -302,6 +305,27 @@ function HistoryCoverageGap({ message }: { message: ChatMessage }) {
   </article>;
 }
 
+function StreamingFadeText({ text }: { text: string }) {
+  const html = useMemo(() => markdownText(text), [text]);
+  const content = useMemo(() => {
+    if (typeof document === 'undefined') return text;
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    let characterIndex = 0;
+    let elementIndex = 0;
+    const renderNode = (node: Node): React.ReactNode => {
+      if (node.nodeType === Node.TEXT_NODE) return streamGraphemes(node.textContent || '').map((grapheme) => <span className="stream-fade-char" key={`character:${characterIndex++}`}>{grapheme}</span>);
+      if (node.nodeType !== Node.ELEMENT_NODE) return null;
+      const element = node as HTMLElement;
+      const props: Record<string, string> = {};
+      for (const attribute of Array.from(element.attributes)) props[attribute.name === 'class' ? 'className' : attribute.name === 'for' ? 'htmlFor' : attribute.name] = attribute.value;
+      return React.createElement(element.tagName.toLowerCase(), { ...props, key: `element:${elementIndex++}` }, Array.from(element.childNodes).map(renderNode));
+    };
+    return Array.from(template.content.childNodes).map(renderNode);
+  }, [html, text]);
+  return <div className="md-content stream-fade-text">{content}</div>;
+}
+
 function MessageView({ message, showReasoning = false, assistantName, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; suppressMessageAnchor?: boolean }) {
   if (message.historyGap) return <HistoryCoverageGap message={message} />;
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} suppressMessageAnchor={suppressMessageAnchor} />;
@@ -316,12 +340,11 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
       <div className="msg-meta">
         <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>
         <time>{formatChatMessageTime(message.timestamp)}</time>
-        {isPending && <span className="stream-state" aria-label={t('chat.streaming')}><span className="stream-dots"><i /><i /><i /></span><span className="stream-label">{t('chat.streaming')}</span></span>}
+        {isPending && <span className="stream-state" aria-label={t('chat.streaming')}><span className="stream-dots"><i /><i /><i /></span></span>}
       </div>
       {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>}
       <div className="msg-body">
-        {message.structuredContent ? <StructuredDataView value={message.structuredContent.value} /> : <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(message.content || (isPending ? '…' : '')) }} />}
-        {isPending && <span className="stream-caret" aria-hidden="true" />}
+        {message.structuredContent ? <StructuredDataView value={message.structuredContent.value} /> : isPending && message.role === 'assistant' && message.content ? <StreamingFadeText text={message.content} /> : <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(message.content || (isPending ? '…' : '')) }} />}
       </div>
       {showTurnMetadata && <div className="msg-turn-metadata" aria-label={t('chat.details')}>{turnMetadata}</div>}
     </div>
@@ -398,12 +421,12 @@ function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessa
   </article>;
 }
 
-function DesktopTurnBlock({ block, showReasoning, assistantName, loadTurnDetails, forceOpenDetailGroupId, forceOpenLatestDetailToken }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenDetailGroupId?: string; forceOpenLatestDetailToken?: number }) {
+function DesktopTurnBlock({ block, showReasoning, assistantName, loadTurnDetails, forceOpenDetailGroupId, forceOpenLatestDetailToken, detailForceOpenToken }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenDetailGroupId?: string; forceOpenLatestDetailToken?: number; detailForceOpenToken?: number }) {
   const sessionStateOnly = block.items.length === 1 && block.items[0]?.kind === 'sessionState';
   const historyGapOnly = block.items.length === 1 && block.items[0]?.kind === 'message' && !!block.items[0].message.historyGap;
   return <article className={`desktop-turn-block${sessionStateOnly ? ' session-state-turn-block' : ''}${historyGapOnly ? ' history-gap-turn-block' : ''}`} data-turn-block-id={block.id}>
     {block.items.map((item) => {
-      if (item.kind === 'detailGroup') return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? forceOpenLatestDetailToken : 0} />;
+      if (item.kind === 'detailGroup') return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? detailForceOpenToken : 0} />;
       if (item.kind === 'specialContextGroup') return <SpecialContextGroup key={item.id} item={item} />;
       if (item.kind === 'sessionState') return <SessionStateMessage key={item.id} item={item} />;
       return <MessageView key={item.message.id || item.sourceIndexes.join('-')} message={item.message} showReasoning={showReasoning} assistantName={assistantName} />;

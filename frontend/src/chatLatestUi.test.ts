@@ -21,7 +21,9 @@ describe('chat latest navigation UI', () => {
   test('forces only the selected latest detail group open and lazy-loads it', () => {
     const source = transcript();
     expect(source).toContain('latestExpandableDetailGroupId(turnDetailItems, visibleMessages, streaming)');
-    expect(source).toContain('forceOpenToken={item.id === forceOpenDetailGroupId ? forceOpenLatestDetailToken : 0}');
+    expect(source).toContain('const shouldForceOpenLatestDetail = streaming || forceOpenLatestDetailToken > 0;');
+    expect(source).toContain('const detailForceOpenToken = streaming ? 1 : forceOpenLatestDetailToken;');
+    expect(source).toContain('forceOpenToken={item.id === forceOpenDetailGroupId ? detailForceOpenToken : 0}');
     expect(source).toContain('if (!forceOpenToken) return;');
     expect(source).toContain('setOpen(true);');
     expect(source).toContain('loadDetails();');

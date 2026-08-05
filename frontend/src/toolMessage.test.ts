@@ -43,15 +43,16 @@ describe('summarizeToolMessage', () => {
     );
     expect(summary.title).toBe('skill view');
     expect(summary.toolName).toBe('functions.skill_view');
+    expect(summary.result).toEqual({ description: 'Use when developing yahu', content: '# Yahu' });
   });
 
-  test('skill view summary shows name and file_path invocation fields while collapsed', () => {
+  test('skill view summary shows skill and linked-file values while collapsed', () => {
     const summary = summarizeToolMessage(
       JSON.stringify({ success: true, name: 'yahu', file: 'references/chat-rendering.md', content: '# Chat rendering' }),
       'functions.skill_view',
       { name: 'yahu', file_path: 'references/chat-rendering.md' },
     );
-    expect(summary.subtitle).toBe('name=yahu · file_path=references/chat-rendering.md');
+    expect(summary.subtitle).toBe('yahu · references/chat-rendering.md');
   });
 
   test('falls back to structured output for non-json tool content', () => {
@@ -77,6 +78,18 @@ describe('summarizeToolMessage', () => {
     expect(summary.subtitle).toBe('python3 validate.py --strict');
     expect(summary.result).toBe('validation=ok');
     expect(summary.input).toEqual({ command: 'python3 validate.py --strict', timeout: 15 });
+  });
+
+  test('collapsed subtitles prefer primary invocation input for search, extraction, navigation, and file search', () => {
+    const webSearch = summarizeToolMessage(JSON.stringify({ web: [{ title: 'result title' }] }), 'functions.web_search', { query: 'Hermes Agent documentation', limit: 5 });
+    const webExtract = summarizeToolMessage(JSON.stringify({ results: [{ url: 'https://example.com/docs', content: 'result body' }] }), 'functions.web_extract', { urls: ['https://example.com/docs'], char_limit: 12000 });
+    const browserNavigate = summarizeToolMessage('navigated', 'functions.browser_navigate', { url: 'https://example.com/docs' });
+    const fileSearch = summarizeToolMessage(JSON.stringify({ matches: [{ path: 'src/App.tsx', line: 10 }] }), 'functions.search_files', { pattern: 'session-item', path: 'frontend/src' });
+
+    expect(webSearch.subtitle).toBe('Hermes Agent documentation');
+    expect(webExtract.subtitle).toBe('https://example.com/docs');
+    expect(browserNavigate.subtitle).toBe('https://example.com/docs');
+    expect(fileSearch.subtitle).toBe('session-item');
   });
 
   test('patch summary shows the source-relative path before the field count', () => {

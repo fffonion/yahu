@@ -108,28 +108,29 @@ describe('turn detail grouping', () => {
 
   test('keeps active streaming detail rows inside the expanded turn frame', () => {
     const streamingFinal: Msg = { id: 'a2', role: 'assistant', content: 'partial answer', pending: true, turnDetails: { count: 2, afterId: 'u1', beforeId: 'a2' } };
-    const items = buildTurnDetailItems([user, prelude, tool, streamingFinal]);
+    const items = buildTurnDetailItems([user, prelude, tool, streamingFinal], { openTrailingDetails: true });
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup']);
     expect(items[2]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
     if (items[2].kind !== 'detailGroup') throw new Error('expected streaming detail group');
     expect(items[2].messages.map((message) => message.id)).toEqual(['t1', 'a2']);
+    expect(latestExpandableDetailGroupId(items, [user, prelude, tool, streamingFinal], true)).toBe('turn-details:u1');
   });
 
   test('keeps streaming intermediate messages visible in an open frame until the final assistant answer arrives', () => {
     const streamingFinal: Msg = { id: 'a2', role: 'assistant', content: 'partial answer', pending: true };
-    const items = buildTurnDetailItems([user, prelude, tool, streamingFinal]);
+    const items = buildTurnDetailItems([user, prelude, tool, streamingFinal], { openTrailingDetails: true });
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup']);
     expect(items[2]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
   });
 
-  test('defaults unfinished user-turn details open when no final assistant answer exists', () => {
+  test('keeps unfinished history details collapsed when no stream is active', () => {
     const items = buildTurnDetailItems([user, prelude, tool]);
-
     expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup']);
     if (items[2].kind !== 'detailGroup') throw new Error('expected unfinished detail group');
-    expect(items[2]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
+    expect(items[2]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1' });
+    expect(items[2].defaultOpen).toBeUndefined();
     expect(items[2].messages.map((message) => message.id)).toEqual(['t1']);
   });
 
@@ -143,7 +144,7 @@ describe('turn detail grouping', () => {
 
   test('keeps the same detail-group identity when a streaming turn completes', () => {
     const streamingFinal: Msg = { id: 'a2', role: 'assistant', content: 'partial answer', pending: true };
-    const streamingItems = buildTurnDetailItems([user, prelude, tool, streamingFinal]);
+    const streamingItems = buildTurnDetailItems([user, prelude, tool, streamingFinal], { openTrailingDetails: true });
     const completedItems = buildTurnDetailItems([user, prelude, tool, final]);
 
     expect(streamingItems[2]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:u1', defaultOpen: true });
@@ -214,7 +215,7 @@ describe('turn detail grouping', () => {
       role: 'user',
       content: '[Your active task list was preserved across context compression]\n- [>] verify. Build and deploy (in_progress)',
     };
-    const blocks = buildDesktopTurnBlocks(buildTurnDetailItems([state, prelude, tool]));
+    const blocks = buildDesktopTurnBlocks(buildTurnDetailItems([state, prelude, tool], { openTrailingDetails: true }));
 
     expect(blocks).toHaveLength(1);
     expect(blocks[0].items.map((item) => item.kind)).toEqual(['sessionState', 'message', 'detailGroup']);
@@ -244,7 +245,7 @@ describe('turn detail grouping', () => {
       role: 'user',
       content: '[Your active task list was preserved across context compression]\n- [>] verify. Build and deploy (in_progress)',
     };
-    const blocks = buildDesktopTurnBlocks(buildTurnDetailItems([state, user, prelude, tool]));
+    const blocks = buildDesktopTurnBlocks(buildTurnDetailItems([state, user, prelude, tool], { openTrailingDetails: true }));
 
     expect(blocks).toHaveLength(2);
     expect(blocks[0].items.map((item) => item.kind)).toEqual(['sessionState']);
@@ -304,10 +305,10 @@ describe('turn detail grouping', () => {
     const trailingTool: Msg = { id: 't2', role: 'tool', content: '{"ok":2}', toolName: 'terminal' };
     const items = buildTurnDetailItems([user, prelude, tool, final, trailingTool]);
 
-    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup', 'message', 'detailGroup']);
-    expect(items[4]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:t2' });
-    if (items[4].kind !== 'detailGroup') throw new Error('expected trailing detail group');
-    expect(items[4].messages.map((message) => message.id)).toEqual(['t2']);
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup', 'detailGroup', 'message']);
+    expect(items[3]).toMatchObject({ kind: 'detailGroup', id: 'turn-details:rootless:t2' });
+    if (items[3].kind !== 'detailGroup') throw new Error('expected trailing detail group');
+    expect(items[3].messages.map((message) => message.id)).toEqual(['t2']);
   });
 
   test('selects only the latest incomplete or streaming turn detail for forced expansion', () => {
@@ -325,7 +326,7 @@ describe('turn detail grouping', () => {
     const first = buildTurnDetailItems([user, prelude, tool, final]);
     const secondUser: Msg = { id: 'u2', role: 'user', content: 'next' };
     const pending: Msg = { id: 'a3', role: 'assistant', content: 'working', pending: true, reasoning: 'live' };
-    const second = buildTurnDetailItems([secondUser, pending]);
+    const second = buildTurnDetailItems([secondUser, pending], { openTrailingDetails: true });
 
     const blocks = buildDesktopTurnBlocks([...first, ...second]);
 
