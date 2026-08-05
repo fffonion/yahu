@@ -12,13 +12,107 @@ const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const INSIGHTS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const INSIGHTS_SNAPSHOT_RETENTION_SECONDS: f64 = 35.0 * 86_400.0;
 const INSIGHTS_SNAPSHOT_DB: &str = "state/yahu-insights-usage.db";
+const INSIGHTS_PROVIDER_BACKFILL_VERSION: f64 = 2.0;
 
 type ModelPriceCatalog = HashMap<String, ModelPrice>;
+
+fn default_provider() -> String {
+    "unknown".to_string()
+}
+
+fn custom_provider_aliases(hermes_home: &Path) -> HashMap<String, String> {
+    let config_path = hermes_home.join("config.yaml");
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return HashMap::new();
+    };
+    let Ok(config) = serde_yaml::from_str::<serde_yaml::Value>(&raw) else {
+        return HashMap::new();
+    };
+    let Some(providers) = config.get("custom_providers").and_then(|value| value.as_sequence()) else {
+        return HashMap::new();
+    };
+    let mut aliases = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    for provider in providers {
+        let Some(name) = provider.get("name").and_then(|value| value.as_str()).map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let Some(base_url) = provider.get("base_url").and_then(|value| value.as_str()).map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let key = base_url.trim_end_matches('/').to_ascii_lowercase();
+        if ambiguous.contains(&key) {
+            continue;
+        }
+        if aliases.get(&key).is_some_and(|existing| existing != name) {
+            aliases.remove(&key);
+            ambiguous.insert(key);
+        } else {
+            aliases.insert(key, name.to_string());
+        }
+    }
+    aliases
+}
+
+fn resolve_provider_name(
+    provider: &str,
+    base_url: Option<&str>,
+    aliases: &HashMap<String, String>,
+) -> String {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        return "unknown".to_string();
+    }
+    if let Some(name) = provider.strip_prefix("custom:").map(str::trim).filter(|value| !value.is_empty()) {
+        return name.to_string();
+    }
+    if provider == "custom" {
+        if let Some(name) = base_url
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|value| aliases.get(&value.trim_end_matches('/').to_ascii_lowercase()))
+        {
+            return name.clone();
+        }
+    }
+    provider.to_string()
+}
+
+fn session_provider_labels(state_db_path: &Path, aliases: &HashMap<String, String>) -> HashMap<String, String> {
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        state_db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return HashMap::new();
+    };
+    let Ok(mut statement) = conn.prepare("SELECT id, billing_provider, billing_base_url FROM sessions") else {
+        return HashMap::new();
+    };
+    let Ok(rows) = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    }) else {
+        return HashMap::new();
+    };
+    rows.filter_map(Result::ok)
+        .map(|(id, provider, base_url)| {
+            (
+                id,
+                resolve_provider_name(provider.as_deref().unwrap_or("unknown"), base_url.as_deref(), aliases),
+            )
+        })
+        .collect()
+}
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 struct UsageCounter {
     session_id: String,
     model: String,
+    #[serde(default = "default_provider")]
+    provider: String,
     source: String,
     #[serde(default)]
     started_at: f64,
@@ -46,6 +140,13 @@ impl UsageCounter {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown")
                 .trim()
+                .to_string(),
+            provider: row
+                .get("provider")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unknown")
                 .to_string(),
             source: row
                 .get("source")
@@ -77,6 +178,7 @@ impl UsageCounter {
         Self {
             session_id: self.session_id.clone(),
             model: self.model.clone(),
+            provider: self.provider.clone(),
             source: self.source.clone(),
             started_at: self.started_at,
             input_tokens: delta_i64(self.input_tokens, previous.input_tokens),
@@ -95,6 +197,7 @@ impl UsageCounter {
         Self {
             session_id: self.session_id.clone(),
             model: self.model.clone(),
+            provider: self.provider.clone(),
             source: self.source.clone(),
             started_at: self.started_at,
             input_tokens: (self.input_tokens - used.input_tokens).max(0),
@@ -138,6 +241,7 @@ impl UsageCounter {
             "id": self.session_id,
             "source": self.source,
             "model": self.model,
+            "provider": self.provider,
             "started_at": captured_at,
             "last_active": captured_at,
             "input_tokens": self.input_tokens,
@@ -179,6 +283,112 @@ fn prepare_insights_snapshot_db(conn: &rusqlite::Connection) -> anyhow::Result<(
              ON insights_events(captured_at);",
     )?;
     Ok(())
+}
+
+fn backfill_snapshot_providers(snapshot_path: &Path, state_db_path: &Path) -> anyhow::Result<usize> {
+    if !snapshot_path.exists() || !state_db_path.exists() {
+        return Ok(0);
+    }
+
+    let state_conn = rusqlite::Connection::open_with_flags(
+        state_db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    state_conn.busy_timeout(Duration::from_secs(5))?;
+    let aliases = custom_provider_aliases(state_db_path.parent().unwrap_or_else(|| Path::new(".")));
+    let mut session_providers = HashMap::new();
+    let mut model_providers: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut statement = state_conn.prepare(
+        "SELECT id, COALESCE(model, 'unknown'), billing_provider, billing_base_url
+         FROM sessions
+         WHERE billing_provider IS NOT NULL AND TRIM(billing_provider) != ''",
+    )?;
+    let state_rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
+    })?;
+    for row in state_rows {
+        let (session_id, model, provider, base_url) = row?;
+        let provider = resolve_provider_name(&provider, base_url.as_deref(), &aliases);
+        if provider == "unknown" {
+            continue;
+        }
+        session_providers.insert(session_id, provider.clone());
+        model_providers.entry(model).or_default().insert(provider);
+    }
+    drop(statement);
+    drop(state_conn);
+
+    let conn = rusqlite::Connection::open(snapshot_path)?;
+    prepare_insights_snapshot_db(&conn)?;
+    let already_backfilled = conn
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'provider_backfill_version'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    if already_backfilled.is_some_and(|version| version >= INSIGHTS_PROVIDER_BACKFILL_VERSION) {
+        return Ok(0);
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    let mut changed = 0usize;
+    for (table, column) in [
+        ("insights_events", "row_json"),
+        ("insights_baselines", "counters_json"),
+        ("insights_initial_baselines", "counters_json"),
+    ] {
+        let query = format!("SELECT rowid, {column} FROM {table}");
+        let mut rows = tx.prepare(&query)?;
+        let values = rows
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(rows);
+        let update = format!("UPDATE {table} SET {column} = ?1 WHERE rowid = ?2");
+        for (rowid, raw_json) in values {
+            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw_json) else {
+                continue;
+            };
+            let Some(session_id) = value
+                .get("id")
+                .or_else(|| value.get("session_id"))
+                .and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            let model = value
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let provider = session_providers
+                .get(session_id)
+                .cloned()
+                .or_else(|| {
+                    model_providers
+                        .get(model)
+                        .filter(|providers| providers.len() == 1)
+                        .and_then(|providers| providers.iter().next().cloned())
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+            if value.get("provider").and_then(serde_json::Value::as_str) == Some(provider.as_str()) {
+                continue;
+            }
+            value["provider"] = serde_json::Value::String(provider);
+            tx.execute(&update, rusqlite::params![serde_json::to_string(&value)?, rowid])?;
+            changed += 1;
+        }
+    }
+    tx.execute(
+        "INSERT INTO insights_meta(key, value) VALUES('provider_backfill_version', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [INSIGHTS_PROVIDER_BACKFILL_VERSION],
+    )?;
+    tx.commit()?;
+    Ok(changed)
 }
 
 #[cfg(test)]
@@ -270,6 +480,7 @@ fn persist_insights_snapshot_with_message_cursor(
                     let mut baseline = value.subtract(&recorded);
                     baseline.started_at = current.started_at;
                     baseline.model.clone_from(&current.model);
+                    baseline.provider.clone_from(&current.provider);
                     baseline.source.clone_from(&current.source);
                     baseline
                 })
@@ -277,6 +488,7 @@ fn persist_insights_snapshot_with_message_cursor(
                 Some(UsageCounter {
                     session_id: current.session_id.clone(),
                     model: current.model.clone(),
+                    provider: current.provider.clone(),
                     source: current.source.clone(),
                     started_at: current.started_at,
                     ..UsageCounter::default()
@@ -504,6 +716,7 @@ fn fetch_changed_sessions_for_insights(
     let lower_bound = previous_message_id
         .saturating_sub(INSIGHTS_MESSAGE_ID_OVERLAP)
         .max(0);
+    let aliases = custom_provider_aliases(path.parent().unwrap_or_else(|| Path::new(".")));
     let mut statement = conn.prepare(
         "WITH changed(session_id) AS (
              SELECT DISTINCT session_id
@@ -514,6 +727,8 @@ fn fetch_changed_sessions_for_insights(
              s.id,
              s.source,
              COALESCE(s.model, 'unknown'),
+             COALESCE(NULLIF(TRIM(s.billing_provider), ''), 'unknown'),
+             s.billing_base_url,
              s.started_at,
              COALESCE(s.input_tokens, 0),
              COALESCE(s.output_tokens, 0),
@@ -554,20 +769,24 @@ fn fetch_changed_sessions_for_insights(
     )?;
     let rows = statement
         .query_map(rusqlite::params![lower_bound, high_water], |row| {
+            let provider = row.get::<_, String>(3)?;
+            let base_url = row.get::<_, Option<String>>(4)?;
+            let provider = resolve_provider_name(&provider, base_url.as_deref(), &aliases);
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "source": row.get::<_, String>(1)?,
                 "model": row.get::<_, String>(2)?,
-                "started_at": row.get::<_, f64>(3)?,
-                "input_tokens": row.get::<_, i64>(4)?,
-                "output_tokens": row.get::<_, i64>(5)?,
-                "cache_read_tokens": row.get::<_, i64>(6)?,
-                "cache_write_tokens": row.get::<_, i64>(7)?,
-                "reasoning_tokens": row.get::<_, i64>(8)?,
-                "api_call_count": row.get::<_, i64>(9)?,
-                "tool_call_count": row.get::<_, i64>(10)?,
-                "estimated_cost_usd": row.get::<_, f64>(11)?,
-                "actual_cost_usd": row.get::<_, f64>(12)?,
+                "provider": provider,
+                "started_at": row.get::<_, f64>(5)?,
+                "input_tokens": row.get::<_, i64>(6)?,
+                "output_tokens": row.get::<_, i64>(7)?,
+                "cache_read_tokens": row.get::<_, i64>(8)?,
+                "cache_write_tokens": row.get::<_, i64>(9)?,
+                "reasoning_tokens": row.get::<_, i64>(10)?,
+                "api_call_count": row.get::<_, i64>(11)?,
+                "tool_call_count": row.get::<_, i64>(12)?,
+                "estimated_cost_usd": row.get::<_, f64>(13)?,
+                "actual_cost_usd": row.get::<_, f64>(14)?,
             }))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -798,6 +1017,7 @@ struct HourlyUsage {
 #[derive(Clone)]
 struct ModelUsage {
     model: String,
+    provider: String,
     totals: UsageTotals,
     daily: BTreeMap<String, UsageTotals>,
     hourly: BTreeMap<String, UsageTotals>,
@@ -838,6 +1058,16 @@ async fn insights_usage(
         warn!("explicit insights snapshot refresh failed: {err}");
     }
     let snapshot_path = state.hermes_home.join(INSIGHTS_SNAPSHOT_DB);
+    let backfill_snapshot_path = snapshot_path.clone();
+    let backfill_state_path = state.hermes_home.join("state.db");
+    match tokio::task::spawn_blocking(move || {
+        backfill_snapshot_providers(&backfill_snapshot_path, &backfill_state_path)
+    })
+    .await
+    {
+        Ok(Ok(changed)) if changed > 0 => info!("backfilled providers in {changed} yahu Insights rows"),
+        Ok(Ok(_)) | Ok(Err(_)) | Err(_) => {}
+    }
     let min_timestamp = now - (INSIGHTS_MAX_DAYS as f64 * 86_400.0);
     let snapshot_data = tokio::task::spawn_blocking(move || {
         load_insights_usage_rows(&snapshot_path, min_timestamp)
@@ -1032,6 +1262,10 @@ async fn fetch_sessions_for_insights_snapshot(
     state: &AppState,
     activity_cutoff: Option<f64>,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
+    let provider_labels = session_provider_labels(
+        &state.hermes_home.join("state.db"),
+        &custom_provider_aliases(&state.hermes_home),
+    );
     let mut rows = Vec::new();
     let mut offset = 0usize;
     loop {
@@ -1052,11 +1286,25 @@ async fn fetch_sessions_for_insights_snapshot(
             anyhow::bail!("session list request failed: {}", resp.status());
         }
         let body = resp.json::<serde_json::Value>().await?;
-        let data = body
+        let mut data = body
             .get("data")
             .and_then(|value| value.as_array())
             .cloned()
             .unwrap_or_default();
+        for row in &mut data {
+            let Some(session_id) = row.get("id").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            let is_custom = row
+                .get("provider")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|provider| provider == "custom" || provider.starts_with("custom:"));
+            if is_custom {
+                if let Some(provider) = provider_labels.get(session_id) {
+                    row["provider"] = serde_json::Value::String(provider.clone());
+                }
+            }
+        }
         let data_len = data.len();
         let reached_cutoff = activity_cutoff.is_some_and(|cutoff| {
             data.iter()
@@ -1113,7 +1361,7 @@ fn aggregate_usage_insights_with_prices_at_offset(
     let hours = insight_hours_at_offset(now, timezone_offset_minutes);
     let hour_keys: HashSet<String> = hours.iter().map(|item| item.hour.clone()).collect();
     let mut totals = UsageTotals::default();
-    let mut models: HashMap<String, ModelUsage> = HashMap::new();
+    let mut models: HashMap<(String, String), ModelUsage> = HashMap::new();
     let mut sources: HashMap<String, UsageTotals> = HashMap::new();
 
     for row in rows {
@@ -1140,6 +1388,13 @@ fn aggregate_usage_insights_with_prices_at_offset(
             .filter(|value| !value.is_empty())
             .unwrap_or("unknown")
             .to_string();
+        let provider_name = row
+            .get("provider")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("unknown")
+            .to_string();
         let source_name = row
             .get("source")
             .and_then(|value| value.as_str())
@@ -1147,8 +1402,9 @@ fn aggregate_usage_insights_with_prices_at_offset(
             .filter(|value| !value.is_empty())
             .unwrap_or("unknown")
             .to_string();
-        let model = models.entry(model_name.clone()).or_insert_with(|| ModelUsage {
+        let model = models.entry((model_name.clone(), provider_name.clone())).or_insert_with(|| ModelUsage {
             model: model_name.clone(),
+            provider: provider_name,
             totals: UsageTotals::default(),
             daily: days
                 .iter()
@@ -1168,7 +1424,13 @@ fn aggregate_usage_insights_with_prices_at_offset(
     }
 
     let mut model_rows: Vec<_> = models.into_values().collect();
-    model_rows.sort_by(|a, b| b.totals.total_tokens().cmp(&a.totals.total_tokens()).then(a.model.cmp(&b.model)));
+    model_rows.sort_by(|a, b| {
+        b.totals
+            .total_tokens()
+            .cmp(&a.totals.total_tokens())
+            .then(a.model.cmp(&b.model))
+            .then(a.provider.cmp(&b.provider))
+    });
 
     let mut daily_totals: Vec<serde_json::Value> = Vec::new();
     for item in &days {
@@ -1220,7 +1482,7 @@ fn aggregate_usage_insights_with_prices_at_offset(
                         }
                     }
                     period_total.add_totals(&value);
-                    serde_json::json!({"model": model.model, "totals": value.to_json()})
+                    serde_json::json!({"model": model.model, "provider": model.provider, "totals": value.to_json()})
                 })
                 .filter(|value| value["totals"]["total_tokens"].as_i64().unwrap_or(0) > 0)
                 .collect();
@@ -1279,6 +1541,7 @@ fn aggregate_usage_insights_with_prices_at_offset(
         "hourly": hourly_totals,
         "models": model_rows.into_iter().map(|model| serde_json::json!({
             "model": model.model,
+            "provider": model.provider,
             "totals": model.totals.to_json(),
             "daily": days.iter().map(|item| {
                 let empty = UsageTotals::default();

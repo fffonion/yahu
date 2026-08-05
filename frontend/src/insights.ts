@@ -18,7 +18,7 @@ export type UsageTotals = {
 
 export type UsageDay = { date: string; label: string; totals: UsageTotals };
 export type UsageHour = { hour: string; label: string; totals: UsageTotals };
-export type UsageModel = { model: string; totals: UsageTotals; daily: UsageDay[]; hourly?: UsageHour[] };
+export type UsageModel = { model: string; provider?: string; totals: UsageTotals; daily: UsageDay[]; hourly?: UsageHour[] };
 export type UsageSource = { source: string; totals: UsageTotals };
 export type UsagePeriod = { days: number; totals: UsageTotals; models: UsageModel[]; sources?: UsageSource[] };
 export type UsageInsights = {
@@ -36,6 +36,10 @@ export type UsageInsights = {
 };
 
 export type UsageMetric = 'total_tokens' | 'input' | 'output' | 'cache_read' | 'reasoning' | 'cost_usd';
+
+export function usageModelLabel(model: Pick<UsageModel, 'model' | 'provider'>): string {
+  return `${model.provider || 'unknown'} · ${model.model}`;
+}
 
 export const metricLabels: Record<UsageMetric, string> = {
   total_tokens: 'Total',

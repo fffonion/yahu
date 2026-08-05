@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Copy, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Copy, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
@@ -15,7 +15,7 @@ import { compactSessionPreview, latestSessionPreviewFromMessages } from './sessi
 import { highlightSourceText } from './syntaxHighlight';
 import { buildHashRoute, getCurrentHashRoute, pushHashRoute, type HashRoute } from './hashRoute';
 import { formatHexDump } from './hexViewer';
-import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
+import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, usageModelLabel, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { mergeTurnMetrics, normalizeChatMessage, readTurnMetrics } from './chatMessage';
 import { normalizeMessageParts } from './messageReasoning';
 import { visibleChatMessages } from './messageVisibility';
@@ -2105,7 +2105,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
           <InsightCard label={t('insights.tokens')} value={fmtTokens(totals.total_tokens)} detail={tf('insights.inputOutputDetail', fmtTokens(totals.input), fmtTokens(totals.output))} />
           <InsightCard label={t('insights.cacheHit')} value={fmtPercent(totals.cache_hit_rate)} detail={tf('insights.cacheDetail', fmtTokens(totals.cache_read), fmtTokens(totals.cache_write))} />
           <InsightCard label={costMetricLabel} value={fmtCost(totals.cost_usd)} detail={totals.unpriced_tokens ? tf('insights.unpricedApiCalls', fmtTokens(totals.unpriced_tokens), totals.api_calls || 0) : tf('insights.sessionsApiCalls', totals.sessions || 0, totals.api_calls || 0)} />
-          <InsightCard label={t('insights.topModel')} value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel?.model || t('insights.noUsage')} />
+          <InsightCard label={t('insights.topModel')} value={topModel ? fmtTokens(topModel.periodTotals.total_tokens) : '—'} detail={topModel ? usageModelLabel(topModel) : t('insights.noUsage')} />
         </>}
       </div>
       <section className="insights-chart-card">
@@ -2113,7 +2113,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         {showSkeleton ? <UsageChartSkeleton /> : <><UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} /><UsageShareBar models={models} metric={props.metric} /></>}
       </section>
       <div className="insights-grid">
-        <section className="insights-panel"><h2>{t('insights.models')}</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.map((model, index) => <ModelUsageRow key={model.model} model={model} rank={index + 1} />) : <p className="insights-empty">{t('insights.noWindowUsage')}</p>}</section>
+        <section className="insights-panel"><h2>{t('insights.models')}</h2>{showSkeleton ? <ModelUsageSkeletonList /> : models.length ? models.slice(0, 10).map((model, index) => <ModelUsageRow key={`${model.model}:${model.provider || 'unknown'}`} model={model} rank={index + 1} />) : <p className="insights-empty">{t('insights.noWindowUsage')}</p>}</section>
         <section className="insights-panel"><h2>{t('insights.otherSignals')}</h2>{showSkeleton ? <SignalSkeletonList /> : <><SignalRow name={t('insights.reasoning')} value={fmtTokens(totals.reasoning)} /><SignalRow name={t('insights.tools')} value={`${totals.tool_calls || 0}`} /><SignalRow name={t('insights.avgSession')} value={fmtTokens(totals.avg_tokens_per_session)} /><SourceSignalList sources={activeSources.slice(0, 6)} /></>}</section>
       </div>
     </section>
@@ -2143,10 +2143,10 @@ function SourceSignalList({ sources }: { sources: UsageSource[] }) {
 function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: UsageTotals }; rank: number }) {
   const max = Math.max(1, model.periodTotals.total_tokens);
   const cache = Math.min(100, Math.round((model.periodTotals.cache_read / max) * 100));
-  return <article className="model-usage-row"><div><b>#{rank}</b><span title={model.model}>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{tf('insights.modelRowDetail', fmtTokens(model.periodTotals.input), fmtTokens(model.periodTotals.output), fmtTokens(model.periodTotals.cache_read), fmtPercent(model.periodTotals.cache_hit_rate))}</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
+  return <article className="model-usage-row"><div><b>#{rank}</b><span className="model-name" title={usageModelLabel(model)}><small className="model-provider">{model.provider || 'unknown'}</small>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{tf('insights.modelRowDetail', fmtTokens(model.periodTotals.input), fmtTokens(model.periodTotals.output), fmtTokens(model.periodTotals.cache_read), fmtPercent(model.periodTotals.cache_hit_rate))}</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
 }
 function UsageShareBar({ models, metric }: { models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
-  const rawSlices = models.slice(0, 6).map((model, index) => ({ model: model.model, index, value: Number(model.periodTotals[metric] || 0) })).filter((item) => item.value > 0);
+  const rawSlices = models.slice(0, 6).map((model, index) => ({ model: usageModelLabel(model), index, value: Number(model.periodTotals[metric] || 0) })).filter((item) => item.value > 0);
   const total = rawSlices.reduce((sum, item) => sum + item.value, 0);
   if (!rawSlices.length || total <= 0) return <div className="usage-share-chart"><p className="insights-empty">{t('insights.noMetricUsage')}</p></div>;
   let cursor = 0;
@@ -2164,7 +2164,7 @@ function UsageAreaChart({ buckets, models, metric, stacked }: { buckets: Array<U
   const pad = { top: 14, right: 18, bottom: 28, left: 30 };
   const compactAxisLabels = useMediaQuery('(max-width: 760px)');
   const isHourly = isHourlyBucket(buckets[0]);
-  const series = models.slice(0, 4).map((model, index) => ({ model: model.model, index, values: isHourlyBucket(buckets[0]) ? modelHourlyMetricValues(model, buckets as UsageHour[], metric) : modelDailyMetricValues(model, buckets as UsageDay[], metric) }));
+  const series = models.slice(0, 4).map((model, index) => ({ model: usageModelLabel(model), index, values: isHourlyBucket(buckets[0]) ? modelHourlyMetricValues(model, buckets as UsageHour[], metric) : modelDailyMetricValues(model, buckets as UsageDay[], metric) }));
   const totalValues = buckets.map((bucket) => metricValue(bucket, metric));
   const stackedSeries = series.reduce<Array<{ model: string; index: number; values: number[]; lower: number[]; upper: number[] }>>((acc, item) => {
     const lower = acc.length ? acc[acc.length - 1].upper : item.values.map(() => 0);

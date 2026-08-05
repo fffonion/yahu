@@ -37,6 +37,133 @@
     }
 
     #[test]
+    fn insights_keeps_same_model_separate_per_provider() {
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![
+            serde_json::json!({"id":"provider-a","source":"telegram","model":"shared-model","provider":"provider-a","started_at":ts,"input_tokens":100}),
+            serde_json::json!({"id":"provider-b","source":"telegram","model":"shared-model","provider":"provider-b","started_at":ts,"input_tokens":200}),
+        ];
+
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &ModelPriceCatalog::new(), 1);
+        let models = body["models"].as_array().unwrap();
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0]["model"], "shared-model");
+        assert_eq!(models[0]["provider"], "provider-b");
+        assert_eq!(models[1]["provider"], "provider-a");
+    }
+
+    #[test]
+    fn named_custom_provider_uses_config_name_and_falls_back_to_custom_on_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("config.yaml"),
+            "custom_providers:\n  - name: ark\n    base_url: https://ark.example/v1/\n",
+        )
+        .unwrap();
+        let aliases = custom_provider_aliases(temp.path());
+        assert_eq!(resolve_provider_name("custom", Some("https://ark.example/v1"), &aliases), "ark");
+        assert_eq!(resolve_provider_name("custom", Some("https://other.example/v1"), &aliases), "custom");
+
+        std::fs::write(temp.path().join("config.yaml"), "custom_providers: [broken").unwrap();
+        let aliases = custom_provider_aliases(temp.path());
+        assert_eq!(resolve_provider_name("custom", Some("https://ark.example/v1"), &aliases), "custom");
+        assert_eq!(resolve_provider_name("custom:ark", None, &aliases), "ark");
+    }
+
+    #[test]
+    fn insights_backfills_snapshot_provider_from_session_or_unique_model_route() {
+        let temp = tempfile::tempdir().unwrap();
+        let state_path = temp.path().join("state.db");
+        let snapshot_path = temp.path().join("yahu-insights-usage.db");
+        let state_conn = rusqlite::Connection::open(&state_path).unwrap();
+        state_conn
+            .execute_batch(
+                "CREATE TABLE sessions (
+                     id TEXT PRIMARY KEY,
+                     model TEXT,
+                     billing_provider TEXT,
+                     billing_base_url TEXT
+                 );
+                 INSERT INTO sessions(id, model, billing_provider) VALUES
+                     ('known-session', 'unique-model', 'provider-a'),
+                     ('ambiguous-a', 'ambiguous-model', 'provider-a'),
+                     ('ambiguous-b', 'ambiguous-model', 'provider-b');",
+            )
+            .unwrap();
+        drop(state_conn);
+
+        let snapshot_conn = rusqlite::Connection::open(&snapshot_path).unwrap();
+        prepare_insights_snapshot_db(&snapshot_conn).unwrap();
+        let json = |id: &str, model: &str| serde_json::json!({"id": id, "model": model});
+        let unique = serde_json::to_string(&json("legacy-unique", "unique-model")).unwrap();
+        let ambiguous = serde_json::to_string(&json("legacy-ambiguous", "ambiguous-model")).unwrap();
+        let unique_counter = serde_json::to_string(&serde_json::json!({"session_id":"legacy-unique","model":"unique-model"})).unwrap();
+        let ambiguous_counter = serde_json::to_string(&serde_json::json!({"session_id":"legacy-ambiguous","model":"ambiguous-model"})).unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_events(captured_at, row_json) VALUES(0, ?1)",
+                [&unique],
+            )
+            .unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_events(captured_at, row_json) VALUES(0, ?1)",
+                [&ambiguous],
+            )
+            .unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_baselines(session_id, captured_at, last_seen, counters_json) VALUES(?1, 0, 0, ?2)",
+                rusqlite::params!["legacy-unique", &unique_counter],
+            )
+            .unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_baselines(session_id, captured_at, last_seen, counters_json) VALUES(?1, 0, 0, ?2)",
+                rusqlite::params!["legacy-ambiguous", &ambiguous_counter],
+            )
+            .unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_initial_baselines(session_id, counters_json) VALUES(?1, ?2)",
+                rusqlite::params!["legacy-unique", &unique_counter],
+            )
+            .unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_initial_baselines(session_id, counters_json) VALUES(?1, ?2)",
+                rusqlite::params!["legacy-ambiguous", &ambiguous_counter],
+            )
+            .unwrap();
+        drop(snapshot_conn);
+
+        let changed = backfill_snapshot_providers(&snapshot_path, &state_path).unwrap();
+        assert_eq!(changed, 6);
+        let conn = rusqlite::Connection::open(&snapshot_path).unwrap();
+        for (table, column) in [
+            ("insights_events", "row_json"),
+            ("insights_baselines", "counters_json"),
+            ("insights_initial_baselines", "counters_json"),
+        ] {
+            let rows = conn
+                .prepare(&format!("SELECT {column} FROM {table} ORDER BY rowid"))
+                .unwrap()
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .map(|row| serde_json::from_str::<serde_json::Value>(&row.unwrap()).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(rows[0]["provider"], "provider-a");
+            assert_eq!(rows[1]["provider"], "unknown");
+        }
+    }
+
+    #[test]
     fn insights_attributes_session_totals_to_the_started_day() {
         let now = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()
@@ -474,6 +601,8 @@
                      id TEXT PRIMARY KEY,
                      source TEXT NOT NULL,
                      model TEXT,
+                     billing_provider TEXT,
+                     billing_base_url TEXT,
                      model_config TEXT,
                      parent_session_id TEXT,
                      started_at REAL NOT NULL,

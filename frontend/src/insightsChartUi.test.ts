@@ -60,6 +60,16 @@ describe('insights chart UI', () => {
     expect(app).toContain('fetch(`/insights/usage?${usageParams.toString()}`)');
   });
 
+  test('model list shows ten provider-labeled rows while charts keep their own series cap', () => {
+    const app = appSource();
+    const css = cssSource();
+    expect(app).toContain("models.slice(0, 10).map((model, index) => <ModelUsageRow");
+    expect(app).toContain('<small className="model-provider">{model.provider || \'unknown\'}</small>{model.model}');
+    expect(app).toContain('const series = models.slice(0, 4)');
+    expect(css).toContain('.model-name{display:grid;');
+    expect(css).toContain('.model-provider{display:block;');
+  });
+
   test('renders dedicated loading placeholders for cards chart and model rows', () => {
     const app = appSource();
     const css = cssSource();
