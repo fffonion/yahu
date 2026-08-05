@@ -274,8 +274,6 @@ const translations: Record<string, Record<string, string>> = {
   'insights.showUnstackedChart': { en: 'Show unstacked chart', 'zh-CN': '显示非堆叠图表', 'zh-TW': '顯示非堆疊圖表', ja: '非積み上げチャートを表示' },
   'insights.models': { en: 'Models', 'zh-CN': '模型', 'zh-TW': '模型', ja: 'モデル' },
   'insights.filterModels': { en: 'Filter models', 'zh-CN': '筛选模型', 'zh-TW': '篩選模型', ja: 'モデルを絞り込む' },
-  'insights.selectModel': { en: 'Select model', 'zh-CN': '选择模型', 'zh-TW': '選擇模型', ja: 'モデルを選択' },
-  'insights.allModels': { en: 'All models', 'zh-CN': '全部模型', 'zh-TW': '全部模型', ja: 'すべてのモデル' },
   'insights.noMatchingModels': { en: 'No matching models.', 'zh-CN': '没有匹配的模型。', 'zh-TW': '沒有符合的模型。', ja: '一致するモデルはありません。' },
   'insights.noWindowUsage': { en: 'No model usage in this window.', 'zh-CN': '此时间窗内没有模型用量。', 'zh-TW': '此時間窗內沒有模型用量。', ja: 'この期間のモデル使用量はありません。' },
   'insights.otherSignals': { en: 'Other signals', 'zh-CN': '其他信号', 'zh-TW': '其他訊號', ja: 'その他のシグナル' },

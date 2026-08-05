@@ -63,7 +63,7 @@ describe('insights chart UI', () => {
   test('model list shows ten provider-labeled rows while charts keep their own series cap', () => {
     const app = appSource();
     const css = cssSource();
-    expect(app).toContain('.slice(0, 10), [props.insights, props.period]);');
+    expect(app).toContain('const models = useMemo(() => allModels.slice(0, 10), [allModels]);');
     expect(app).toContain('filteredModels.map((model, index) => <ModelUsageRow');
     expect(app).toContain('<small className="model-provider">{model.provider || \'unknown\'}</small>{model.model}');
     expect(app).toContain('const series = models.slice(0, 4)');
@@ -75,10 +75,11 @@ describe('insights chart UI', () => {
     const app = appSource();
     const css = cssSource();
     expect(app).toContain("const [modelQuery, setModelQuery] = useState('');");
-    expect(app).toContain("const [selectedModel, setSelectedModel] = useState('');");
     expect(app).toContain('label.toLocaleLowerCase().includes(query)');
     expect(app).toContain('className="model-filter-input"');
-    expect(app).toContain('className="model-filter-select"');
+    expect(app).toContain('list="insights-model-filter-options"');
+    expect(app).toContain('id="insights-model-filter-options"');
+    expect(app).toContain('allModels.map((model)');
     expect(app).toContain('filteredModels.map((model, index)');
     expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
     expect(app).toContain('<UsageShareBar models={models} metric={props.metric} />');
