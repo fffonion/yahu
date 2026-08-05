@@ -1215,6 +1215,37 @@ fn detail_range_messages(messages: &[serde_json::Value], query: &ChatMessagesQue
     (messages[start..page_end].to_vec(), false, page_end < end, total)
 }
 
+fn fetch_local_active_message_tail(
+    state: &AppState,
+    session_id: &str,
+    limit: usize,
+) -> anyhow::Result<Option<(Vec<serde_json::Value>, bool)>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let sql = format!(
+        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} \
+         FROM messages WHERE session_id = ?1 AND active = 1 ORDER BY id DESC LIMIT ?2"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut messages = stmt
+        .query_map(rusqlite::params![session_id, i64::try_from(limit.saturating_add(1))?], row_to_session_message)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if messages.is_empty() {
+        return Ok(None);
+    }
+    let has_older_active = messages.len() > limit;
+    messages.truncate(limit);
+    messages.reverse();
+    Ok(Some((messages, has_older_active)))
+}
+
 async fn chat_messages_page(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
@@ -1227,6 +1258,22 @@ async fn chat_messages_page(
         && query.after.is_none()
         && query.around.is_none()
     {
+        match fetch_local_active_message_tail(&state, &session_id, limit) {
+            Ok(Some((mut latest, has_older))) => {
+                inject_turn_durations(&mut latest);
+                let skeleton = history_skeleton_messages(&latest);
+                return Json(serde_json::json!({
+                    "object": "list",
+                    "data": skeleton,
+                    "has_older": has_older,
+                    "has_newer": false,
+                    "metadata_pending": true
+                }))
+                .into_response();
+            }
+            Ok(None) => {}
+            Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local active message tail"),
+        }
         let mut updates = subscribe_shared_session_watch(&state, &session_id).await;
         match timeout(API_SESSION_REQUEST_TIMEOUT, updates.recv()).await {
             Ok(Ok(mut latest)) => {
@@ -1425,22 +1472,73 @@ fn build_user_message_nav(messages: &[serde_json::Value]) -> Vec<UserMessageNavI
         .collect()
 }
 
+fn fetch_local_user_nav_messages(
+    state: &AppState,
+    session_id: &str,
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let entries = local_session_history_entries(&conn, session_id)?;
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
+    let context = messages_with_context_boundary_from_entries(
+        &entries,
+        SessionMessageJoinMode::VisibleHistory,
+        |entry_id| {
+            // The navigator needs ordering, user text, and assistant previews.  Keep
+            // tool rows as tiny structural placeholders so minimap positions and the
+            // total remain exact without deserializing tool output or reasoning blobs.
+            let sql = format!(
+                "SELECT id, session_id, role, \
+                 CASE WHEN role IN ('user', 'assistant') THEN content END, timestamp \
+                 FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY timestamp, id"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([entry_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, i64>(0)?,
+                    "session_id": row.get::<_, String>(1)?,
+                    "role": row.get::<_, String>(2)?,
+                    "content": row.get::<_, Option<String>>(3)?,
+                    "timestamp": row.get::<_, f64>(4)?,
+                }))
+            })?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        },
+    )?;
+    Ok(Some(context.messages))
+}
+
 async fn chat_user_nav(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Response<Body> {
-    match fetch_session_history_messages(&state, &session_id).await {
-        Ok(messages) => Json(serde_json::json!({
-            "object": "list",
-            "data": build_user_message_nav(&messages),
-            "total": messages.len(),
-        }))
-        .into_response(),
-        Err(err) => json_error(
-            StatusCode::BAD_GATEWAY,
-            &format!("user message navigator request failed: {err}"),
-        ),
-    }
+    let messages = match fetch_local_user_nav_messages(&state, &session_id) {
+        Ok(Some(messages)) => messages,
+        Ok(None) | Err(_) => match fetch_session_history_messages(&state, &session_id).await {
+            Ok(messages) => messages,
+            Err(err) => {
+                return json_error(
+                    StatusCode::BAD_GATEWAY,
+                    &format!("user message navigator request failed: {err}"),
+                );
+            }
+        },
+    };
+    Json(serde_json::json!({
+        "object": "list",
+        "data": build_user_message_nav(&messages),
+        "total": messages.len(),
+    }))
+    .into_response()
 }
 
 fn watch_message_window(mut items: Vec<serde_json::Value>) -> Vec<serde_json::Value> {

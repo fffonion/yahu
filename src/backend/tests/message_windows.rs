@@ -96,7 +96,18 @@
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let remote_state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        let local_latest = chat_messages_page(
+            State(state.clone()),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery { before: None, after: None, around: None, limit: Some(20), view: Some("latest".to_string()) }),
+        ).await;
+        let local_latest_body = axum::body::to_bytes(local_latest.into_body(), usize::MAX).await.unwrap();
+        let local_latest_page: serde_json::Value = serde_json::from_slice(&local_latest_body).unwrap();
+        assert_eq!(local_latest_page["metadata_pending"], true);
+        assert_eq!(local_latest_page["data"].as_array().unwrap().last().unwrap()["content"], "unfinished detail");
+
+        let remote_temp = tempfile::tempdir().unwrap();
+        let remote_state = Arc::new(test_app_state(format!("http://{addr}"), remote_temp.path()));
         let latest = chat_messages_page(
             State(remote_state),
             AxumPath("s1".to_string()),
@@ -471,6 +482,44 @@
         assert_eq!(state.fingerprints.len(), API_MESSAGE_WATCH_WINDOW);
         assert!(!state.fingerprints.contains_key(&0));
         assert!(state.fingerprints.contains_key(&((API_MESSAGE_WATCH_WINDOW + 24) as i64)));
+    }
+
+    #[tokio::test]
+    async fn user_navigator_reads_local_projection_without_calling_the_api_server() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                timestamp REAL NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                compacted INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE INDEX idx_messages_session_active ON messages(session_id, active, timestamp);",
+        )
+        .unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('s1',NULL,1,NULL,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','first prompt',1,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','assistant','first answer',2,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','tool',?1,3,1)", ["x".repeat(1_000_000)]).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','second prompt',4,1)", []).unwrap();
+        drop(conn);
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let response = chat_user_nav(State(state), AxumPath("s1".to_string())).await;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["total"], 4);
+        assert_eq!(payload["data"].as_array().unwrap().len(), 2);
+        assert_eq!(payload["data"][0]["content"], "first prompt");
+        assert_eq!(payload["data"][0]["assistant_preview"], "first answer");
+        assert_eq!(payload["data"][1]["position"], 1.0);
     }
 
     #[tokio::test]
