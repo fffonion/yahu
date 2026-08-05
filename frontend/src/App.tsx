@@ -2656,6 +2656,23 @@ type ChatMainProps = {
 function ChatMain(props: ChatMainProps) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
   const isMobile = useMediaQuery('(max-width: 760px)');
+  const isCompactViewport = useMediaQuery('(max-width: 760px), (min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
+  const isSmallLandscape = useMediaQuery('(min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const syncFullscreenState = () => setIsFullscreen(!!document.fullscreenElement);
+    syncFullscreenState();
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
+  }, []);
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    } catch {
+      // Fullscreen can be denied by the browser or platform; keep the control state unchanged.
+    }
+  }, []);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const resizeComposerTextarea = useCallback(() => {
     const textarea = textareaRef.current;
@@ -2691,7 +2708,7 @@ function ChatMain(props: ChatMainProps) {
     return () => window.removeEventListener('resize', resizeComposerTextarea);
   }, [resizeComposerTextarea]);
   const collapseComposerForHistory = () => {
-    if (!isMobile) return;
+    if (!isCompactViewport) return;
     const activeElement = document.activeElement;
     if (activeElement instanceof HTMLElement && props.composerRef.current?.contains(activeElement)) activeElement.blur();
     props.setComposerCompact(true);
@@ -2749,7 +2766,7 @@ function ChatMain(props: ChatMainProps) {
   const subagentBeforeTime = subagentWindow.sessionId === props.activeSessionId ? subagentWindow.beforeTime : null;
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
-    if (isMobile && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
+    if (isCompactViewport && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (shouldLoadOlderFromScroll(el, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
     if (shouldLoadNewerFromScroll(el, props.hasNewer, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'newer');
     setShowLatestButton(chatLatestButtonVisible(el, props.hasNewer));
@@ -2865,7 +2882,10 @@ function ChatMain(props: ChatMainProps) {
         forceOpenLatestDetailToken={forceOpenLatestDetailToken}
       />
     </section>
-    {latestButtonVisible && <div className="chat-latest-overlay"><button type="button" className="chat-latest-button" aria-label={t('chat.jumpLatest')} title={t('chat.jumpLatest')} onClick={jumpToLatest} disabled={props.loadingMessages}><ChevronDown aria-hidden="true" /></button></div>}
+    {(latestButtonVisible || isSmallLandscape || isFullscreen) && <div className="chat-latest-overlay chat-floating-controls">
+      {latestButtonVisible && <button type="button" className="chat-latest-button" aria-label={t('chat.jumpLatest')} title={t('chat.jumpLatest')} onClick={jumpToLatest} disabled={props.loadingMessages}><ChevronDown aria-hidden="true" /></button>}
+      {(isSmallLandscape || isFullscreen) && <button type="button" className="small-landscape-fullscreen-button" aria-label={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} title={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} onClick={toggleFullscreen}>{isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}</button>}
+    </div>}
     <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
       {props.newMessageCount > 0 && <button className="new-messages-bubble" onClick={props.onClearNewMessages} aria-label={t('chat.newMessages')}>{props.newMessageCount === 1 ? t('chat.newMessageCount') : t('chat.newMessagesCount').replace('{n}', String(props.newMessageCount))}</button>}

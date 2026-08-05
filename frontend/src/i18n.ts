@@ -458,6 +458,8 @@ const translations: Record<string, Record<string, string>> = {
 
   // New messages
   'chat.jumpLatest': { en: 'Jump to latest', 'zh-CN': '直达最新', 'zh-TW': '前往最新', ja: '最新へ移動' },
+  'chat.enterFullscreen': { en: 'Enter fullscreen', 'zh-CN': '进入全屏', 'zh-TW': '進入全螢幕', ja: '全画面表示にする' },
+  'chat.exitFullscreen': { en: 'Exit fullscreen', 'zh-CN': '退出全屏', 'zh-TW': '退出全螢幕', ja: '全画面表示を終了' },
   'chat.newMessages': { en: 'New messages', 'zh-CN': '新消息', 'zh-TW': '新訊息', ja: '新しいメッセージ' },
   'chat.newMessagesCount': { en: '{n} new messages', 'zh-CN': '{n} 条新消息', 'zh-TW': '{n} 條新訊息', ja: '{n}件の新しいメッセージ' },
   'chat.newMessageCount': { en: '1 new message', 'zh-CN': '1 条新消息', 'zh-TW': '1 條新訊息', ja: '1件の新しいメッセージ' },

@@ -155,15 +155,15 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.composer-wrap.composer-compact .attachments{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn,.composer-wrap.composer-compact .composer-footer .dropdown-control,.composer-wrap.composer-compact .composer-footer .reasoning-view-toggle,.composer-wrap.composer-compact .composer-footer .tool-call-view-toggle{display:none}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{height:48px;min-height:48px;max-height:48px;overflow:hidden;padding:10px 56px 10px 14px}');
-    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:12px;width:auto;border-top:0;background:transparent;padding:0}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:4px;bottom:4px;width:auto;height:38px;border-top:0;background:transparent;padding:0;box-sizing:border-box;display:flex;align-items:center;overflow:hidden}');
     expect(styles).toContain('.composer-wrap.composer-compact{padding:8px 18px}');
-    expect(styles).toContain('.composer-wrap.composer-compact .composer-box{min-height:64px}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-box{min-height:64px;overflow:hidden}');
   });
 
   test('compact composer send button keeps the same right inset as expanded composer', () => {
     const styles = css();
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:0;width:100%;padding:24px 10px 8px;border-top:0;background:transparent');
-    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:12px;');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:4px;bottom:4px;');
     expect(styles).toContain('.chat-header-actions .context-window-meter{margin-left:0');
     expect(styles).toContain('.composer-footer .send-btn{margin-left:0;flex:0 0 auto}');
   });
@@ -172,7 +172,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     const styles = css();
     expect(styles).toContain('@media (max-width:760px){.composer-wrap.composer-compact .composer-box textarea{height:38px;min-height:38px;max-height:38px;overflow:hidden;padding:7px 56px 7px 14px}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box{min-height:46px}');
-    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:0;bottom:8px;width:auto;border-top:0;background:transparent;padding:0}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{right:4px;bottom:4px;height:38px}');
     expect(styles).toContain('.send-btn,.files-chip,.image-actions button,.modalbar button,.settings-content button:not(.btn-wide){width:38px;height:38px;padding:0;justify-content:center}');
   });
 
@@ -226,6 +226,36 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.chat-header.header-no-drawer>div:first-of-type,.image-toolbar.header-no-drawer>div:first-of-type{margin-left:36px}');
   });
 
+  test('small landscape tablets reuse compact composer behavior and a shorter title bar', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("const isCompactViewport = useMediaQuery('(max-width: 760px), (min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');");
+    expect(source).toContain('if (!isCompactViewport) return;');
+    expect(source).toContain('if (isCompactViewport && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);');
+    expect(styles).toContain('@media (min-width:761px) and (max-width:1180px) and (orientation:landscape) and (max-height:820px)');
+    expect(styles).toContain('.chat-header,.image-toolbar{height:52px;min-height:52px;padding:6px 12px;gap:10px}');
+    expect(styles).toContain('.chat-header h1,.image-toolbar h1{font-size:18px;line-height:1.1}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{height:38px;min-height:38px;max-height:38px;overflow:hidden;padding:7px 56px 7px 14px}');
+    expect(styles).toContain('.composer-wrap.composer-compact{padding:6px 12px}');
+    expect(styles).toContain('@media (max-width:760px), (min-width:761px) and (max-width:1180px) and (orientation:landscape) and (max-height:820px){.desktop-compact-view-toggle{display:none!important}}');
+    expect(styles).toContain('.session-searchbar{grid-template-columns:38px minmax(0,1fr) 38px;gap:6px;margin-bottom:6px}');
+    expect(styles).toContain('.new-chat-btn,.session-filter-btn{width:38px;height:38px}');
+    expect(styles).toContain('.filter{height:38px;min-height:38px;padding:0 10px;font-size:12px}');
+    expect(styles).toContain('.session-item{min-height:54px;padding:7px 8px;gap:6px;align-items:center}');
+    expect(styles).toContain('.session-text{gap:2px}.session-preview{font-size:11px}');
+  });
+
+  test('small landscape shows a bottom-right fullscreen toggle that tracks browser fullscreen state', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("const isSmallLandscape = useMediaQuery('(min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');");
+    expect(source).toContain('document.documentElement.requestFullscreen');
+    expect(source).toContain('document.exitFullscreen');
+    expect(source).toContain('document.addEventListener(\'fullscreenchange\', syncFullscreenState)');
+    expect(source).toContain('className="small-landscape-fullscreen-button"');
+    expect(source).toContain('{isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}');
+    expect(styles).toContain('.small-landscape-fullscreen-button{width:40px;height:40px;');
+  });
   test('mobile chat moves the context window indicator beside loaded and total metadata', () => {
     const source = app();
     const styles = css();

@@ -27,6 +27,12 @@ describe('desktop compact chat toggle', () => {
     expect(messages).toContain("'chat.compactMode': { en: 'Compact mode', 'zh-CN': '紧凑模式', 'zh-TW': '緊湊模式', ja: 'コンパクトモード' }");
   });
 
+  test('mobile collapsed composer keeps its footer inside the composer box', () => {
+    const styles = css();
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-box{min-height:64px;overflow:hidden}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:4px;bottom:4px;width:auto;height:38px;');
+  });
+
   test('desktop compact mode uses flat left-aligned user turns separated without an outer card', () => {
     const source = app();
     const styles = css();

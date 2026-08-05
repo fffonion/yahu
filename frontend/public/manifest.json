@@ -3,7 +3,8 @@
   "short_name": "yahu!",
   "description": "Web UI for Hermes Agent",
   "start_url": "/",
-  "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
+  "display": "fullscreen",
   "background_color": "#232529",
   "theme_color": "#4f8cff",
   "icons": [
