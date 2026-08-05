@@ -28,6 +28,24 @@ describe('image browser download and refresh parity', () => {
     expect(styles).toMatch(/\.image-name\{[^}]*font-size:11px/);
   });
 
+  test('gallery toolbar actions are icon-only and selection state uses icons', () => {
+    const source = app();
+    expect(source).toContain('<Download aria-hidden="true" />');
+    expect(source).toContain('<CalendarClock aria-hidden="true" />');
+    expect(source).toContain('<Trash2 aria-hidden="true" />');
+    expect(source).toContain("{selecting ? <X aria-hidden=\"true\" /> : <CheckSquare aria-hidden=\"true\" />}");
+    expect(source).not.toContain('downloadSelected}</span>');
+    expect(source).not.toContain('organize}</span>');
+    expect(source).not.toContain('deleteSelected}</span>');
+    expect(source).not.toContain('selecting ? t(\'gallery.cancel\') : t(\'gallery.select\')');
+  });
+  test('selected gallery batch actions use the shared icon button styling', () => {
+    const source = app();
+    expect(source).toContain('<button className="icon-btn mobile-icon-only" aria-label={t(\'gallery.downloadSelected\')}');
+    expect(source).toContain('<button className="icon-btn mobile-icon-only" aria-label={t(\'gallery.organize\')}');
+    expect(source).toContain('<button className="icon-btn danger mobile-icon-only" aria-label={t(\'gallery.deleteSelected\')}');
+  });
+
   test('context menu never labels a PNG fallback as a HEIC download', () => {
     const source = app();
     expect(source).toContain("{imageMenu.item.heic_status !== 'not_applicable' && <button type=\"button\" role=\"menuitem\" onClick={() => { downloadOne(imageMenu.item); }}><Download /> {t('gallery.downloadHEIC')}</button>}");
