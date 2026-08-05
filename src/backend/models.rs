@@ -6,6 +6,10 @@ async fn models_cached(State(state): State<Arc<AppState>>) -> Response<Body> {
             return Json(body).into_response();
         }
     }
+    let disk_cache_path = state.hermes_home.join("cache/yahu/model-inventory.json");
+    if let Some(body) = fresh_persisted_model_cache_body(&disk_cache_path, MODEL_CACHE_TTL, std::time::SystemTime::now()) {
+        return Json(body).into_response();
+    }
 
     let mut errors = Vec::new();
     let body = match fetch_non_empty_model_payload(&state, fetch_api_server_models(&state), "api_server").await {
@@ -28,6 +32,9 @@ async fn models_cached(State(state): State<Arc<AppState>>) -> Response<Body> {
     let mut cache = state.model_cache.write().await;
     cache.fetched_at = Some(std::time::Instant::now());
     cache.body = Some(body.clone());
+    if let Err(err) = persist_model_cache_body(&disk_cache_path, &body, std::time::SystemTime::now()) {
+        warn!("failed to persist model inventory cache: {err}");
+    }
     Json(body).into_response()
 }
 

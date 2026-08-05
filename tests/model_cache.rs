@@ -1,5 +1,5 @@
 use serde_json::json;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 #[test]
 fn model_inventory_payload_flattens_hermes_picker_providers_without_api_server_placeholder() {
@@ -109,4 +109,29 @@ fn model_cache_returns_fresh_cached_body() {
     let cached = yet_another_hermes_ui::fresh_model_cache_body(&cache, Duration::from_secs(300));
 
     assert_eq!(cached.unwrap()["data"][0]["id"], "MiniMax-M3");
+}
+
+#[test]
+fn persisted_model_cache_survives_a_process_restart_without_extending_its_ttl() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("model-inventory.json");
+    let body = json!({"object": "list", "data": [{"id": "MiniMax-M3", "provider": "minimax-cn"}]});
+    let saved_at = UNIX_EPOCH + Duration::from_secs(1_000);
+
+    yet_another_hermes_ui::persist_model_cache_body(&path, &body, saved_at).unwrap();
+
+    let after_restart = yet_another_hermes_ui::fresh_persisted_model_cache_body(
+        &path,
+        Duration::from_secs(300),
+        UNIX_EPOCH + Duration::from_secs(1_299),
+    );
+    assert_eq!(after_restart.unwrap()["data"][0]["id"], "MiniMax-M3");
+    assert!(
+        yet_another_hermes_ui::fresh_persisted_model_cache_body(
+            &path,
+            Duration::from_secs(300),
+            UNIX_EPOCH + Duration::from_secs(1_301),
+        )
+        .is_none()
+    );
 }

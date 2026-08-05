@@ -57,7 +57,10 @@ use tokio::{
 };
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
-use yet_another_hermes_ui::{ModelCache, fresh_model_cache_body, model_cache_payload_from_source};
+use yet_another_hermes_ui::{
+    ModelCache, fresh_model_cache_body, fresh_persisted_model_cache_body,
+    model_cache_payload_from_source, persist_model_cache_body,
+};
 
 type HmacSha256 = Hmac<Sha256>;
 

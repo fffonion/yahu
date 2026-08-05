@@ -1,5 +1,11 @@
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
+use std::{
+    fs,
+    io::{self, ErrorKind},
+    path::Path,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Default)]
 pub struct ModelCache {
@@ -7,11 +13,62 @@ pub struct ModelCache {
     pub body: Option<Value>,
 }
 
+#[derive(Deserialize, Serialize)]
+struct PersistedModelCache {
+    saved_at_unix_seconds: u64,
+    body: Value,
+}
+
 pub fn fresh_model_cache_body(cache: &ModelCache, ttl: Duration) -> Option<Value> {
     match (cache.fetched_at, cache.body.as_ref()) {
         (Some(fetched_at), Some(body)) if fetched_at.elapsed() < ttl => Some(body.clone()),
         _ => None,
     }
+}
+
+pub fn fresh_persisted_model_cache_body(
+    path: &Path,
+    ttl: Duration,
+    now: SystemTime,
+) -> Option<Value> {
+    let bytes = fs::read(path).ok()?;
+    let cache: PersistedModelCache = serde_json::from_slice(&bytes).ok()?;
+    let saved_at = UNIX_EPOCH.checked_add(Duration::from_secs(cache.saved_at_unix_seconds))?;
+    let age = now.duration_since(saved_at).ok()?;
+    (age < ttl && model_cache_payload_has_models(&cache.body)).then_some(cache.body)
+}
+
+pub fn persist_model_cache_body(path: &Path, body: &Value, now: SystemTime) -> io::Result<()> {
+    if !model_cache_payload_has_models(body) {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "model cache has no usable models",
+        ));
+    }
+    let saved_at_unix_seconds = now
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| {
+            io::Error::new(
+                ErrorKind::InvalidInput,
+                "model cache timestamp predates Unix epoch",
+            )
+        })?
+        .as_secs();
+    let payload = serde_json::to_vec(&PersistedModelCache {
+        saved_at_unix_seconds,
+        body: body.clone(),
+    })
+    .map_err(io::Error::other)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "model cache path has no parent"))?;
+    fs::create_dir_all(parent)?;
+    let mut temporary_file = tempfile::NamedTempFile::new_in(parent)?;
+    io::Write::write_all(&mut temporary_file, &payload)?;
+    temporary_file
+        .persist(path)
+        .map(|_| ())
+        .map_err(|err| err.error)
 }
 
 pub fn model_cache_payload_from_source(body: &Value, source: &str) -> Value {
