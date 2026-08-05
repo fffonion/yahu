@@ -3201,7 +3201,14 @@ function MemoryPanel({ setStatus, showToast }: { setStatus: (v: string) => void;
   const [doc, setDoc] = useState<MemoryDoc>({ memory: '', user: '' });
   const load = useCallback(async () => { try { const res = await fetch('/memory'); if (!res.ok) throw new Error(await res.text()); setDoc(await res.json()); } catch (err) { setStatus(tf('status.memoryUnavailable', errorMessage(err))); } }, [setStatus]);
   useEffect(() => { load(); }, [load]);
-  const save = async () => { const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }); if (res.ok) { setStatus(t('memory.saved')); showToast(t('memory.saved')); } else setStatus(await res.text()); };
+  const save = async () => {
+    const res = await fetch('/memory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) });
+    if (res.ok) {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      setStatus(t('memory.saved'));
+      showToast(t('memory.saved'));
+    } else setStatus(await res.text());
+  };
   return <section className="admin-content memory-grid"><label><span>MEMORY.md</span><textarea value={doc.memory} onChange={(e) => setDoc({ ...doc, memory: e.target.value })}/></label><label><span>USER.md</span><textarea value={doc.user} onChange={(e) => setDoc({ ...doc, user: e.target.value })}/></label><button className="save-memory" onClick={save}>{t('memory.save')}</button></section>;
 }
 function GitHubIcon() {

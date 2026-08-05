@@ -25,6 +25,7 @@ describe('ephemeral status UI', () => {
     expect(app).toContain('const showToast = useCallback((message: string) => {');
     expect(app).toContain('toastTimerRef.current = window.setTimeout(() => setToastMessage(\'\'), 2600);');
     expect(app).toContain('showToast(t(\'memory.saved\'))');
+    expect(app).toContain("if (document.activeElement instanceof HTMLElement) document.activeElement.blur();");
     expect(app).toContain('showToast(t(\'cron.saved\'))');
     expect(app).toContain('showToast(t(\'cron.ran\'))');
     expect(app).toContain('showToast(t(\'settings.saved\'))');
