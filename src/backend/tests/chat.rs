@@ -1,31 +1,15 @@
     #[test]
-    fn chat_stream_model_switch_request_builds_provider_command() {
-        let body = serde_json::json!({
-            "input": "hello",
-            "model": "gpt-5.5",
-            "provider": "openai-codex",
-            "reasoning_effort": "medium"
-        });
-        let request = chat_stream_model_switch_request_for_body("session-1".to_string(), body).unwrap();
-
-        assert_eq!(request.session_id, "session-1");
-        assert_eq!(request.command, "/model gpt-5.5 --provider openai-codex --session");
-        assert_eq!(request.body["input"], "/model gpt-5.5 --provider openai-codex --session");
-        assert_eq!(request.body["reasoning_effort"], "medium");
-    }
-
-    #[test]
-    fn chat_stream_run_body_removes_model_switch_fields() {
+    fn chat_stream_run_body_preserves_selected_model_fields() {
         let body = serde_json::json!({"input":"hello","model":"gpt-5.5","provider":"openai-codex"});
-        let sanitized = chat_stream_actual_body(&body).unwrap();
+        let forwarded = chat_stream_actual_body(&body).unwrap();
 
-        assert_eq!(sanitized["input"], "hello");
-        assert!(sanitized.get("model").is_none(), "run body must not carry model: {sanitized:?}");
-        assert!(sanitized.get("provider").is_none(), "run body must not carry provider: {sanitized:?}");
+        assert_eq!(forwarded["input"], "hello");
+        assert_eq!(forwarded["model"], "gpt-5.5");
+        assert_eq!(forwarded["provider"], "openai-codex");
     }
 
     #[tokio::test]
-    async fn yahu_chat_stream_sends_internal_model_switch_before_actual_stream() {
+    async fn yahu_chat_stream_forwards_selected_model_to_run_without_slash_command() {
         use std::sync::Mutex;
 
         #[derive(Clone)]
@@ -121,15 +105,13 @@
         assert!(duration_ms.unwrap() > 0.0, "duration_ms must be > 0, got {:?}", duration_ms);
 
         let calls = calls.lock().unwrap().clone();
-        assert_eq!(calls.len(), 2, "calls: {calls:?}");
-        assert_eq!(calls[0]["kind"], "model");
-        assert_eq!(calls[0]["body"]["input"], "/model gpt-5.5 --provider openai-codex --session");
-        assert_eq!(calls[1]["kind"], "stream");
-        assert_eq!(calls[1]["content_type_count"], 1);
-        assert_eq!(calls[1]["body"]["input"], "hello");
-        assert_eq!(calls[1]["body"]["reasoning_effort"], "medium");
-        assert!(calls[1]["body"].get("model").is_none(), "stream body must not carry model: {calls:?}");
-        assert!(calls[1]["body"].get("provider").is_none(), "stream body must not carry provider: {calls:?}");
+        assert_eq!(calls.len(), 1, "calls: {calls:?}");
+        assert_eq!(calls[0]["kind"], "stream");
+        assert_eq!(calls[0]["content_type_count"], 1);
+        assert_eq!(calls[0]["body"]["input"], "hello");
+        assert_eq!(calls[0]["body"]["model"], "gpt-5.5");
+        assert_eq!(calls[0]["body"]["provider"], "openai-codex");
+        assert_eq!(calls[0]["body"]["reasoning_effort"], "medium");
     }
 
     #[tokio::test]
@@ -165,6 +147,26 @@
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn yahu_chat_stream_stop_marks_an_admitted_start_for_cancellation() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+        state
+            .active_chat_run_ids
+            .write()
+            .await
+            .insert("session-1".to_string(), STARTING_CHAT_RUN_ID.to_string());
+
+        let resp = stop_chat_stream(State(state.clone()), AxumPath("session-1".to_string())).await;
+        let body = json_body(resp).await;
+
+        assert_eq!(body["status"], "stop_pending");
+        assert_eq!(
+            state.active_chat_run_ids.read().await.get("session-1"),
+            Some(&STOP_REQUESTED_CHAT_RUN_ID.to_string())
+        );
     }
 
     #[tokio::test]

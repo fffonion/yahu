@@ -1493,9 +1493,32 @@ export default function App() {
   const buildPayload = (text: string, items: Attachment[]) => buildChatInputWithAttachments(text, items);
   const followUpQueue = followUpQueues[followUpQueueKey(activeSessionId)] || [];
   const currentSessionStreaming = !!activeSessionId && streamingSessionId === activeSessionId;
-  const stopStreaming = () => {
-    if (activeSessionId) fetch(`/chat/stream/${encodeURIComponent(activeSessionId)}/stop`, { method: 'POST', headers: headers() }).catch(() => {});
-    chatAbortRef.current?.abort();
+  const stopStreaming = async () => {
+    if (!activeSessionId) {
+      chatAbortRef.current?.abort();
+      return;
+    }
+    const requestStop = async () => {
+      const res = await fetch(`/chat/stream/${encodeURIComponent(activeSessionId)}/stop`, { method: 'POST', headers: headers() });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<{ status?: string }>;
+    };
+    try {
+      let result = await requestStop();
+      // A click can arrive while the stream request is still being admitted.
+      // Retry once after the request has reached the backend; the backend then
+      // records the pending stop and forwards it as soon as a run id exists.
+      if (result.status === 'not_running' && chatAbortRef.current) {
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+        result = await requestStop();
+      }
+      if (result.status === 'stopping' || result.status === 'stop_pending') {
+        chatAbortRef.current?.abort();
+        setStatus(t('status.stopped'));
+      }
+    } catch (err) {
+      setStatus(tf('status.error', errorMessage(err)));
+    }
   };
   const persistFollowUpQueues = (queues: Record<string, FollowUpQueueItem[]>) => {
     const next = Object.fromEntries(Object.entries(queues).filter(([, items]) => items.length > 0));

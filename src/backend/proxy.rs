@@ -1,3 +1,6 @@
+const STARTING_CHAT_RUN_ID: &str = "__yahu_starting__";
+const STOP_REQUESTED_CHAT_RUN_ID: &str = "__yahu_stop_requested__";
+
 async fn proxy_hermes(
     State(state): State<Arc<AppState>>,
     AxumPath(path): AxumPath<String>,
@@ -74,15 +77,6 @@ async fn chat_stream(
         }
     };
 
-    if let Some(model_request) = chat_stream_model_switch_request_for_body(session_id.clone(), body_value.clone())
-        && let Err(err) = send_model_switch_instruction(&state, &model_request).await
-    {
-        return json_error(
-            StatusCode::BAD_GATEWAY,
-            &format!("Hermes API model switch failed: {err}"),
-        );
-    }
-
     begin_chat_stream_snapshot(&state, &session_id).await;
     if let Some(input) = chat_stream_input_text(body_value.get("input").unwrap_or(&serde_json::Value::Null))
         .filter(|text| !text.is_empty())
@@ -100,9 +94,17 @@ async fn chat_stream(
         .await;
     }
 
+    state
+        .active_chat_run_ids
+        .write()
+        .await
+        .insert(session_id.clone(), STARTING_CHAT_RUN_ID.to_string());
     let run_body = match chat_stream_run_body(&state, &session_id, &body_value).await {
         Ok(value) => value,
-        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err),
+        Err(err) => {
+            state.active_chat_run_ids.write().await.remove(&session_id);
+            return json_error(StatusCode::BAD_REQUEST, &err);
+        }
     };
     let run_url = format!("{}/v1/runs", state.api_url);
     let mut run_builder = state.client.post(run_url).json(&run_body);
@@ -121,6 +123,7 @@ async fn chat_stream(
     let mut run_request = match run_builder.build() {
         Ok(request) => request,
         Err(err) => {
+            state.active_chat_run_ids.write().await.remove(&session_id);
             return json_error(
                 StatusCode::BAD_GATEWAY,
                 &format!("Hermes API run request build failed: {err}"),
@@ -131,6 +134,7 @@ async fn chat_stream(
     let run_resp = match state.client.execute(run_request).await {
         Ok(resp) => resp,
         Err(err) => {
+            state.active_chat_run_ids.write().await.remove(&session_id);
             return json_error(
                 StatusCode::BAD_GATEWAY,
                 &format!("Hermes API run start failed: {err}"),
@@ -140,20 +144,34 @@ async fn chat_stream(
     if !run_resp.status().is_success() {
         let status = run_resp.status();
         let text = run_resp.text().await.unwrap_or_default();
+        state.active_chat_run_ids.write().await.remove(&session_id);
         return json_error(StatusCode::BAD_GATEWAY, &format!("Hermes API run start failed: {status}: {text}"));
     }
     let run_json = match run_resp.json::<serde_json::Value>().await {
         Ok(value) => value,
-        Err(err) => return json_error(StatusCode::BAD_GATEWAY, &format!("cannot parse run start response: {err}")),
+        Err(err) => {
+            state.active_chat_run_ids.write().await.remove(&session_id);
+            return json_error(StatusCode::BAD_GATEWAY, &format!("cannot parse run start response: {err}"));
+        }
     };
     let Some(run_id) = run_json.get("run_id").and_then(|value| value.as_str()).map(str::to_string) else {
+        state.active_chat_run_ids.write().await.remove(&session_id);
         return json_error(StatusCode::BAD_GATEWAY, "Hermes API run start response missing run_id");
     };
-    state
-        .active_chat_run_ids
-        .write()
-        .await
-        .insert(session_id.clone(), run_id.clone());
+    let stop_requested_while_starting = {
+        let mut active_runs = state.active_chat_run_ids.write().await;
+        let requested = active_runs
+            .get(&session_id)
+            .is_some_and(|id| id == STOP_REQUESTED_CHAT_RUN_ID);
+        active_runs.insert(session_id.clone(), run_id.clone());
+        requested
+    };
+    if stop_requested_while_starting
+        && let Err(err) = request_chat_run_stop(&state, &run_id).await
+    {
+        state.active_chat_run_ids.write().await.remove(&session_id);
+        return json_error(StatusCode::BAD_GATEWAY, &err);
+    }
 
     let events_url = format!("{}/v1/runs/{}/events", state.api_url, path_segment(&run_id));
     let mut events_builder = state.client.get(events_url);
@@ -247,14 +265,8 @@ async fn upstream_session_appears_running(state: &Arc<AppState>, session_id: &st
         .unwrap_or(false)
 }
 
-async fn stop_chat_stream(
-    State(state): State<Arc<AppState>>,
-    AxumPath(session_id): AxumPath<String>,
-) -> Response<Body> {
-    let Some(run_id) = state.active_chat_run_ids.read().await.get(&session_id).cloned() else {
-        return Json(serde_json::json!({"ok": true, "status": "not_running"})).into_response();
-    };
-    let url = format!("{}/v1/runs/{}/stop", state.api_url, path_segment(&run_id));
+async fn request_chat_run_stop(state: &AppState, run_id: &str) -> Result<(), String> {
+    let url = format!("{}/v1/runs/{}/stop", state.api_url, path_segment(run_id));
     let mut req = state.client.post(url);
     if let Some(key) = &state.api_key
         && !key.is_empty()
@@ -262,16 +274,41 @@ async fn stop_chat_stream(
         req = req.bearer_auth(key);
     }
     match req.send().await {
-        Ok(resp) if resp.status().is_success() || resp.status() == reqwest::StatusCode::NOT_FOUND => {
-            state.active_chat_run_ids.write().await.remove(&session_id);
-            Json(serde_json::json!({"ok": true, "run_id": run_id, "status": "stopping"})).into_response()
-        }
+        Ok(resp) if resp.status().is_success() || resp.status() == reqwest::StatusCode::NOT_FOUND => Ok(()),
         Ok(resp) => {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            json_error(StatusCode::BAD_GATEWAY, &format!("Hermes API run stop failed: {status}: {text}"))
+            Err(format!("Hermes API run stop failed: {status}: {text}"))
         }
-        Err(err) => json_error(StatusCode::BAD_GATEWAY, &format!("Hermes API run stop failed: {err}")),
+        Err(err) => Err(format!("Hermes API run stop failed: {err}")),
+    }
+}
+
+async fn stop_chat_stream(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response<Body> {
+    let run_id = state.active_chat_run_ids.read().await.get(&session_id).cloned();
+    let Some(run_id) = run_id else {
+        return Json(serde_json::json!({"ok": true, "status": "not_running"})).into_response();
+    };
+    if run_id == STARTING_CHAT_RUN_ID {
+        state
+            .active_chat_run_ids
+            .write()
+            .await
+            .insert(session_id, STOP_REQUESTED_CHAT_RUN_ID.to_string());
+        return Json(serde_json::json!({"ok": true, "status": "stop_pending"})).into_response();
+    }
+    if run_id == STOP_REQUESTED_CHAT_RUN_ID {
+        return Json(serde_json::json!({"ok": true, "status": "stop_pending"})).into_response();
+    }
+    match request_chat_run_stop(&state, &run_id).await {
+        Ok(()) => {
+            state.active_chat_run_ids.write().await.remove(&session_id);
+            Json(serde_json::json!({"ok": true, "run_id": run_id, "status": "stopping"})).into_response()
+        }
+        Err(err) => json_error(StatusCode::BAD_GATEWAY, &err),
     }
 }
 
@@ -317,72 +354,10 @@ fn chat_stream_conversation_history(messages: &[serde_json::Value]) -> Vec<serde
         .collect()
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ChatStreamModelSwitchRequest {
-    session_id: String,
-    command: String,
-    body: serde_json::Value,
-}
-
-fn chat_stream_model_switch_request_for_body(
-    session_id: String,
-    body: serde_json::Value,
-) -> Option<ChatStreamModelSwitchRequest> {
-    let model = body
-        .get("model")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && *value != "hermes-agent")?;
-    let provider = body
-        .get("provider")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let command = if let Some(provider) = provider {
-        format!("/model {model} --provider {provider} --session")
-    } else {
-        format!("/model {model} --session")
-    };
-    let mut switch_body = serde_json::json!({"input": command});
-    if let Some(reasoning_effort) = body.get("reasoning_effort") {
-        switch_body["reasoning_effort"] = reasoning_effort.clone();
-    }
-    Some(ChatStreamModelSwitchRequest { session_id, command, body: switch_body })
-}
-
 fn chat_stream_actual_body(source_body: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let mut body = source_body.clone();
-    if let Some(map) = body.as_object_mut() {
-        map.remove("model");
-        map.remove("provider");
-    }
+    let body = source_body.clone();
     serde_json::to_vec(&body).map_err(|err| format!("cannot serialize chat body: {err}"))?;
     Ok(body)
-}
-
-async fn send_model_switch_instruction(
-    state: &Arc<AppState>,
-    request: &ChatStreamModelSwitchRequest,
-) -> Result<(), String> {
-    let url = format!(
-        "{}/api/sessions/{}/chat",
-        state.api_url,
-        path_segment(&request.session_id)
-    );
-    let mut builder = state.client.post(url).json(&request.body);
-    if let Some(key) = &state.api_key
-        && !key.is_empty()
-    {
-        builder = builder.bearer_auth(key);
-    }
-    let resp = builder.send().await.map_err(|err| err.to_string())?;
-    if resp.status().is_success() {
-        Ok(())
-    } else {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        Err(format!("{status}: {text}"))
-    }
 }
 
 fn normalize_chat_run_content_type(headers: &mut HeaderMap) {

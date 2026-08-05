@@ -5,13 +5,15 @@ const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 describe('stream-aware composer primary button', () => {
-  test('tracks the running chat session and aborts the active stream', () => {
+  test('tracks the running chat session and only aborts after stop acknowledgement', () => {
     const source = app();
     expect(source).toContain("const [streamingSessionId, setStreamingSessionId] = useState('');");
     expect(source).toContain('const chatAbortRef = useRef<AbortController | null>(null);');
     expect(source).toContain('const currentSessionStreaming = !!activeSessionId && streamingSessionId === activeSessionId;');
-    expect(source).toContain('const stopStreaming = () => {');
-    expect(source).toContain("fetch(`/chat/stream/${encodeURIComponent(activeSessionId)}/stop`, { method: 'POST', headers: headers() }).catch(() => {});");
+    expect(source).toContain('const stopStreaming = async () => {');
+    expect(source).toContain('const requestStop = async () => {');
+    expect(source).toContain("if (result.status === 'not_running' && chatAbortRef.current)");
+    expect(source).toContain("if (result.status === 'stopping' || result.status === 'stop_pending')");
     expect(source).toContain('chatAbortRef.current?.abort();');
     expect(source).toContain('chatAbortRef.current = controller;');
     expect(source).toContain('signal: controller.signal');
