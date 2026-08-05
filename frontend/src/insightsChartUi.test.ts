@@ -64,7 +64,7 @@ describe('insights chart UI', () => {
     const app = appSource();
     const css = cssSource();
     expect(app).toContain('const models = useMemo(() => allModels.slice(0, 10), [allModels]);');
-    expect(app).toContain('filteredModels.map((model, index) => <ModelUsageRow');
+    expect(app).toContain('filteredModels.slice(0, 10).map((model, index) => <ModelUsageRow');
     expect(app).toContain('<small className="model-provider">{model.provider || \'unknown\'}</small>{model.model}');
     expect(app).toContain('const series = models.slice(0, 4)');
     expect(css).toContain('.model-name{display:grid;');
@@ -80,7 +80,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('list="insights-model-filter-options"');
     expect(app).toContain('id="insights-model-filter-options"');
     expect(app).toContain('allModels.map((model)');
-    expect(app).toContain('filteredModels.map((model, index)');
+    expect(app).toContain('filteredModels.slice(0, 10).map((model, index)');
     expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
     expect(app).toContain('<UsageShareBar models={models} metric={props.metric} />');
     expect(css).toContain('.insights-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}');

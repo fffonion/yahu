@@ -77,6 +77,15 @@
     }
 
     #[test]
+    fn insights_prefers_gateway_runtime_provider_over_stale_billing_provider() {
+        let config = r#"{"gateway_runtime":{"provider":"opencode-go","base_url":"https://opencode.ai/zen/go/v1"}}"#;
+        assert_eq!(
+            resolve_session_provider("deepseek", Some("https://api.deepseek.com/v1"), Some(config), &HashMap::new()),
+            "opencode-go"
+        );
+    }
+
+    #[test]
     fn insights_backfills_snapshot_provider_from_session_or_unique_model_route() {
         let temp = tempfile::tempdir().unwrap();
         let state_path = temp.path().join("state.db");
@@ -88,7 +97,8 @@
                      id TEXT PRIMARY KEY,
                      model TEXT,
                      billing_provider TEXT,
-                     billing_base_url TEXT
+                     billing_base_url TEXT,
+                     model_config TEXT
                  );
                  INSERT INTO sessions(id, model, billing_provider) VALUES
                      ('known-session', 'unique-model', 'provider-a'),

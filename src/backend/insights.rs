@@ -12,7 +12,7 @@ const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const INSIGHTS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const INSIGHTS_SNAPSHOT_RETENTION_SECONDS: f64 = 35.0 * 86_400.0;
 const INSIGHTS_SNAPSHOT_DB: &str = "state/yahu-insights-usage.db";
-const INSIGHTS_PROVIDER_BACKFILL_VERSION: f64 = 2.0;
+const INSIGHTS_PROVIDER_BACKFILL_VERSION: f64 = 3.0;
 
 type ModelPriceCatalog = HashMap<String, ModelPrice>;
 
@@ -78,6 +78,31 @@ fn resolve_provider_name(
     provider.to_string()
 }
 
+fn resolve_session_provider(
+    billing_provider: &str,
+    billing_base_url: Option<&str>,
+    model_config: Option<&str>,
+    aliases: &HashMap<String, String>,
+) -> String {
+    if let Some(config) = model_config.and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok()) {
+        let runtime = config.get("gateway_runtime");
+        let provider = runtime
+            .and_then(|value| value.get("provider"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let base_url = runtime
+            .and_then(|value| value.get("base_url"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let Some(provider) = provider {
+            return resolve_provider_name(provider, base_url, aliases);
+        }
+    }
+    resolve_provider_name(billing_provider, billing_base_url, aliases)
+}
+
 fn session_provider_labels(state_db_path: &Path, aliases: &HashMap<String, String>) -> HashMap<String, String> {
     let Ok(conn) = rusqlite::Connection::open_with_flags(
         state_db_path,
@@ -85,7 +110,7 @@ fn session_provider_labels(state_db_path: &Path, aliases: &HashMap<String, Strin
     ) else {
         return HashMap::new();
     };
-    let Ok(mut statement) = conn.prepare("SELECT id, billing_provider, billing_base_url FROM sessions") else {
+    let Ok(mut statement) = conn.prepare("SELECT id, billing_provider, billing_base_url, model_config FROM sessions") else {
         return HashMap::new();
     };
     let Ok(rows) = statement.query_map([], |row| {
@@ -93,15 +118,16 @@ fn session_provider_labels(state_db_path: &Path, aliases: &HashMap<String, Strin
             row.get::<_, String>(0)?,
             row.get::<_, Option<String>>(1)?,
             row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
         ))
     }) else {
         return HashMap::new();
     };
     rows.filter_map(Result::ok)
-        .map(|(id, provider, base_url)| {
+        .map(|(id, provider, base_url, model_config)| {
             (
                 id,
-                resolve_provider_name(provider.as_deref().unwrap_or("unknown"), base_url.as_deref(), aliases),
+                resolve_session_provider(provider.as_deref().unwrap_or("unknown"), base_url.as_deref(), model_config.as_deref(), aliases),
             )
         })
         .collect()
@@ -299,9 +325,9 @@ fn backfill_snapshot_providers(snapshot_path: &Path, state_db_path: &Path) -> an
     let mut session_providers = HashMap::new();
     let mut model_providers: HashMap<String, HashSet<String>> = HashMap::new();
     let mut statement = state_conn.prepare(
-        "SELECT id, COALESCE(model, 'unknown'), billing_provider, billing_base_url
+        "SELECT id, COALESCE(model, 'unknown'), billing_provider, billing_base_url, model_config
          FROM sessions
-         WHERE billing_provider IS NOT NULL AND TRIM(billing_provider) != ''",
+         WHERE (billing_provider IS NOT NULL AND TRIM(billing_provider) != '') OR model_config IS NOT NULL",
     )?;
     let state_rows = statement.query_map([], |row| {
         Ok((
@@ -309,11 +335,12 @@ fn backfill_snapshot_providers(snapshot_path: &Path, state_db_path: &Path) -> an
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
         ))
     })?;
     for row in state_rows {
-        let (session_id, model, provider, base_url) = row?;
-        let provider = resolve_provider_name(&provider, base_url.as_deref(), &aliases);
+        let (session_id, model, provider, base_url, model_config) = row?;
+        let provider = resolve_session_provider(&provider, base_url.as_deref(), model_config.as_deref(), &aliases);
         if provider == "unknown" {
             continue;
         }
@@ -690,17 +717,6 @@ fn load_insights_capture_cursor(path: &Path) -> anyhow::Result<InsightsCaptureCu
     })
 }
 
-fn current_insights_message_id(path: &Path) -> anyhow::Result<i64> {
-    let conn = rusqlite::Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    conn.busy_timeout(Duration::from_secs(5))?;
-    Ok(conn.query_row("SELECT COALESCE(MAX(id), 0) FROM messages", [], |row| {
-        row.get::<_, i64>(0)
-    })?)
-}
-
 fn fetch_changed_sessions_for_insights(
     path: &Path,
     previous_message_id: i64,
@@ -729,6 +745,7 @@ fn fetch_changed_sessions_for_insights(
              COALESCE(s.model, 'unknown'),
              COALESCE(NULLIF(TRIM(s.billing_provider), ''), 'unknown'),
              s.billing_base_url,
+             s.model_config,
              s.started_at,
              COALESCE(s.input_tokens, 0),
              COALESCE(s.output_tokens, 0),
@@ -744,49 +761,29 @@ fn fetch_changed_sessions_for_insights(
          WHERE s.archived = 0
            AND s.source != 'tool'
            AND COALESCE(s.end_reason, '') != 'compression'
-           AND json_extract(
-                 CASE WHEN json_valid(s.model_config) THEN s.model_config ELSE '{}' END,
-                 '$._delegate_from'
-               ) IS NULL
-           AND (
-                 s.parent_session_id IS NULL
-                 OR json_extract(
-                      CASE WHEN json_valid(s.model_config) THEN s.model_config ELSE '{}' END,
-                      '$._branched_from'
-                    ) IS NOT NULL
-                 OR EXISTS (
-                      SELECT 1 FROM sessions parent
-                      WHERE parent.id = s.parent_session_id
-                        AND parent.end_reason = 'branched'
-                        AND s.started_at >= parent.ended_at
-                    )
-                 OR EXISTS (
-                      SELECT 1 FROM sessions parent
-                      WHERE parent.id = s.parent_session_id
-                        AND parent.end_reason = 'compression'
-                    )
-               )",
+           "
     )?;
     let rows = statement
         .query_map(rusqlite::params![lower_bound, high_water], |row| {
             let provider = row.get::<_, String>(3)?;
             let base_url = row.get::<_, Option<String>>(4)?;
-            let provider = resolve_provider_name(&provider, base_url.as_deref(), &aliases);
+            let model_config = row.get::<_, Option<String>>(5)?;
+            let provider = resolve_session_provider(&provider, base_url.as_deref(), model_config.as_deref(), &aliases);
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "source": row.get::<_, String>(1)?,
                 "model": row.get::<_, String>(2)?,
                 "provider": provider,
-                "started_at": row.get::<_, f64>(5)?,
-                "input_tokens": row.get::<_, i64>(6)?,
-                "output_tokens": row.get::<_, i64>(7)?,
-                "cache_read_tokens": row.get::<_, i64>(8)?,
-                "cache_write_tokens": row.get::<_, i64>(9)?,
-                "reasoning_tokens": row.get::<_, i64>(10)?,
-                "api_call_count": row.get::<_, i64>(11)?,
-                "tool_call_count": row.get::<_, i64>(12)?,
-                "estimated_cost_usd": row.get::<_, f64>(13)?,
-                "actual_cost_usd": row.get::<_, f64>(14)?,
+                "started_at": row.get::<_, f64>(6)?,
+                "input_tokens": row.get::<_, i64>(7)?,
+                "output_tokens": row.get::<_, i64>(8)?,
+                "cache_read_tokens": row.get::<_, i64>(9)?,
+                "cache_write_tokens": row.get::<_, i64>(10)?,
+                "reasoning_tokens": row.get::<_, i64>(11)?,
+                "api_call_count": row.get::<_, i64>(12)?,
+                "tool_call_count": row.get::<_, i64>(13)?,
+                "estimated_cost_usd": row.get::<_, f64>(14)?,
+                "actual_cost_usd": row.get::<_, f64>(15)?,
             }))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -1066,7 +1063,9 @@ async fn insights_usage(
     .await
     {
         Ok(Ok(changed)) if changed > 0 => info!("backfilled providers in {changed} yahu Insights rows"),
-        Ok(Ok(_)) | Ok(Err(_)) | Err(_) => {}
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) => warn!("Insights provider backfill failed: {err}"),
+        Err(err) => warn!("Insights provider backfill task failed: {err}"),
     }
     let min_timestamp = now - (INSIGHTS_MAX_DAYS as f64 * 86_400.0);
     let snapshot_data = tokio::task::spawn_blocking(move || {
@@ -1132,19 +1131,22 @@ async fn capture_insights_snapshot(state: &AppState, captured_at: f64) -> anyhow
         .await??;
         (rows, Some(high_water))
     } else {
-        let message_id = if state_db_path.exists() {
+        if state_db_path.exists() {
             let read_path = state_db_path.clone();
-            Some(tokio::task::spawn_blocking(move || current_insights_message_id(&read_path)).await??)
+            let (rows, high_water) = tokio::task::spawn_blocking(move || {
+                fetch_changed_sessions_for_insights(&read_path, 0)
+            })
+            .await??;
+            (rows, Some(high_water))
         } else {
-            None
-        };
-        let activity_cutoff = cursor
-            .last_captured_at
-            .map(|value| (value - INSIGHTS_ACTIVITY_OVERLAP_SECONDS).max(0.0));
-        (
-            fetch_sessions_for_insights_snapshot(state, activity_cutoff).await?,
-            message_id,
-        )
+            let activity_cutoff = cursor
+                .last_captured_at
+                .map(|value| (value - INSIGHTS_ACTIVITY_OVERLAP_SECONDS).max(0.0));
+            (
+                fetch_sessions_for_insights_snapshot(state, activity_cutoff).await?,
+                None,
+            )
+        }
     };
 
     let persist_path = path.clone();
