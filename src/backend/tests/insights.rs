@@ -1191,3 +1191,63 @@
         assert_eq!(data[2]["id"], 9);   // user3 — no duration
         assert!(data[2].get("duration_ms").is_none(), "user must not have duration_ms");
     }
+
+    #[test]
+    fn insights_reads_per_model_usage_rows_instead_of_session_totals() {
+        let temp = tempfile::tempdir().unwrap();
+        let state_db = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&state_db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                 id TEXT PRIMARY KEY,
+                 source TEXT NOT NULL,
+                 model TEXT,
+                 billing_provider TEXT,
+                 billing_base_url TEXT,
+                 model_config TEXT,
+                 started_at REAL NOT NULL,
+                 end_reason TEXT,
+                 archived INTEGER DEFAULT 0
+             );
+             CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL);
+             CREATE TABLE session_model_usage (
+                 session_id TEXT NOT NULL,
+                 model TEXT NOT NULL,
+                 billing_provider TEXT NOT NULL DEFAULT '',
+                 billing_base_url TEXT NOT NULL DEFAULT '',
+                 billing_mode TEXT NOT NULL DEFAULT '',
+                 task TEXT NOT NULL DEFAULT '',
+                 api_call_count INTEGER NOT NULL DEFAULT 0,
+                 input_tokens INTEGER NOT NULL DEFAULT 0,
+                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                 reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+                 estimated_cost_usd REAL NOT NULL DEFAULT 0,
+                 actual_cost_usd REAL NOT NULL DEFAULT 0,
+                 PRIMARY KEY(session_id, model, billing_provider, billing_base_url, billing_mode, task)
+             );
+             INSERT INTO sessions(id, source, model, billing_provider, started_at)
+             VALUES('s1', 'telegram', 'grok-4.5', 'deepseek', 1785900000);
+             INSERT INTO messages(id, session_id) VALUES(1, 's1');
+             INSERT INTO session_model_usage(
+                 session_id, model, billing_provider, billing_base_url, input_tokens, output_tokens, cache_read_tokens
+             ) VALUES
+                 ('s1', 'grok-4.5', 'xai-oauth', 'https://api.x.ai/v1', 1000, 100, 9000),
+                 ('s1', 'grok-4.5', 'opencode-go', 'https://opencode.ai/zen/go/v1', 2000, 200, 8000);",
+        )
+        .unwrap();
+
+        let (rows, high_water) = fetch_changed_sessions_for_insights(&state_db, 0).unwrap();
+        assert_eq!(high_water, 1);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows.iter().find(|row| row["provider"] == "xai-oauth").unwrap()["input_tokens"],
+            1000
+        );
+        assert_eq!(
+            rows.iter().find(|row| row["provider"] == "opencode-go").unwrap()["input_tokens"],
+            2000
+        );
+        assert!(rows.iter().all(|row| row["root_session_id"] == "s1"));
+    }

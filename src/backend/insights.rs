@@ -13,6 +13,7 @@ const INSIGHTS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const INSIGHTS_SNAPSHOT_RETENTION_SECONDS: f64 = 35.0 * 86_400.0;
 const INSIGHTS_SNAPSHOT_DB: &str = "state/yahu-insights-usage.db";
 const INSIGHTS_PROVIDER_BACKFILL_VERSION: f64 = 3.0;
+const INSIGHTS_USAGE_SCHEMA_VERSION: f64 = 3.0;
 
 type ModelPriceCatalog = HashMap<String, ModelPrice>;
 
@@ -66,14 +67,13 @@ fn resolve_provider_name(
     if let Some(name) = provider.strip_prefix("custom:").map(str::trim).filter(|value| !value.is_empty()) {
         return name.to_string();
     }
-    if provider == "custom" {
-        if let Some(name) = base_url
+    if provider == "custom"
+        && let Some(name) = base_url
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .and_then(|value| aliases.get(&value.trim_end_matches('/').to_ascii_lowercase()))
-        {
-            return name.clone();
-        }
+    {
+        return name.clone();
     }
     provider.to_string()
 }
@@ -136,6 +136,8 @@ fn session_provider_labels(state_db_path: &Path, aliases: &HashMap<String, Strin
 #[derive(Clone, Default, Deserialize, Serialize)]
 struct UsageCounter {
     session_id: String,
+    #[serde(default)]
+    root_session_id: String,
     model: String,
     #[serde(default = "default_provider")]
     provider: String,
@@ -160,7 +162,14 @@ impl UsageCounter {
             return None;
         }
         Some(Self {
-            session_id,
+            session_id: session_id.clone(),
+            root_session_id: row
+                .get("root_session_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(&session_id)
+                .to_string(),
             model: row
                 .get("model")
                 .and_then(serde_json::Value::as_str)
@@ -203,6 +212,7 @@ impl UsageCounter {
         let previous = previous.cloned().unwrap_or_default();
         Self {
             session_id: self.session_id.clone(),
+            root_session_id: self.root_session_id.clone(),
             model: self.model.clone(),
             provider: self.provider.clone(),
             source: self.source.clone(),
@@ -222,6 +232,7 @@ impl UsageCounter {
     fn subtract(&self, used: &Self) -> Self {
         Self {
             session_id: self.session_id.clone(),
+            root_session_id: self.root_session_id.clone(),
             model: self.model.clone(),
             provider: self.provider.clone(),
             source: self.source.clone(),
@@ -265,6 +276,7 @@ impl UsageCounter {
     fn to_event_json(&self, captured_at: f64) -> serde_json::Value {
         serde_json::json!({
             "id": self.session_id,
+            "root_session_id": self.root_session_id,
             "source": self.source,
             "model": self.model,
             "provider": self.provider,
@@ -387,6 +399,9 @@ fn backfill_snapshot_providers(snapshot_path: &Path, state_db_path: &Path) -> an
                 .and_then(serde_json::Value::as_str) else {
                 continue;
             };
+            if value.get("root_session_id").is_some() {
+                continue;
+            }
             let model = value
                 .get("model")
                 .and_then(serde_json::Value::as_str)
@@ -452,6 +467,11 @@ fn persist_insights_snapshot_with_message_cursor(
             [captured_at],
         )?;
     }
+    tx.execute(
+        "INSERT INTO insights_meta(key, value) VALUES('usage_schema_version', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [INSIGHTS_USAGE_SCHEMA_VERSION],
+    )?;
 
     let needs_initial_backfill = coverage_started_at.is_some()
         && tx.query_row(
@@ -591,9 +611,11 @@ fn cleanup_deleted_insights_baselines(
     let stale_cutoff = now - INSIGHTS_BASELINE_CLEANUP_SECONDS;
     let stale_session_ids = {
         let mut statement = snapshot_conn
-            .prepare("SELECT session_id FROM insights_baselines WHERE last_seen < ?1")?;
+            .prepare("SELECT session_id, counters_json FROM insights_baselines WHERE last_seen < ?1")?;
         statement
-            .query_map([stale_cutoff], |row| row.get::<_, String>(0))?
+            .query_map([stale_cutoff], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?
     };
     let state_conn = rusqlite::Connection::open_with_flags(
@@ -604,10 +626,15 @@ fn cleanup_deleted_insights_baselines(
     let mut exists_statement =
         state_conn.prepare("SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)")?;
     let mut deleted_session_ids = Vec::new();
-    for session_id in stale_session_ids {
-        let exists = exists_statement.query_row([&session_id], |row| row.get::<_, bool>(0))?;
+    for (storage_id, counters_json) in stale_session_ids {
+        let root_session_id = serde_json::from_str::<UsageCounter>(&counters_json)
+            .map(|counter| counter.root_session_id)
+            .ok()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| storage_id.clone());
+        let exists = exists_statement.query_row([&root_session_id], |row| row.get::<_, bool>(0))?;
         if !exists {
-            deleted_session_ids.push(session_id);
+            deleted_session_ids.push(storage_id);
         }
     }
     drop(exists_statement);
@@ -639,6 +666,16 @@ fn load_insights_usage_rows(
     }
     let conn = rusqlite::Connection::open(path)?;
     prepare_insights_snapshot_db(&conn)?;
+    let schema_version = conn
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'usage_schema_version'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    if !schema_version.is_some_and(|value| value >= INSIGHTS_USAGE_SCHEMA_VERSION) {
+        return Ok((Vec::new(), None, None));
+    }
     let coverage_started_at = conn
         .query_row(
             "SELECT value FROM insights_meta WHERE key = 'coverage_started_at'",
@@ -697,6 +734,26 @@ fn load_insights_capture_cursor(path: &Path) -> anyhow::Result<InsightsCaptureCu
     }
     let conn = rusqlite::Connection::open(path)?;
     prepare_insights_snapshot_db(&conn)?;
+    let schema_version = conn
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'usage_schema_version'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    if !schema_version.is_some_and(|value| value >= INSIGHTS_USAGE_SCHEMA_VERSION) {
+        conn.execute_batch(
+            "DELETE FROM insights_events;
+             DELETE FROM insights_baselines;
+             DELETE FROM insights_initial_baselines;
+             DELETE FROM insights_meta;",
+        )?;
+        conn.execute(
+            "INSERT INTO insights_meta(key, value) VALUES('usage_schema_version', ?1)",
+            [INSIGHTS_USAGE_SCHEMA_VERSION],
+        )?;
+        return Ok(InsightsCaptureCursor::default());
+    }
     let last_captured_at = conn
         .query_row(
             "SELECT value FROM insights_meta WHERE key = 'last_captured_at'",
@@ -717,6 +774,10 @@ fn load_insights_capture_cursor(path: &Path) -> anyhow::Result<InsightsCaptureCu
     })
 }
 
+fn usage_counter_id(session_id: &str, model: &str, provider: &str, base_url: &str, billing_mode: &str, task: &str) -> String {
+    format!("usage:{session_id}\u{1f}{model}\u{1f}{provider}\u{1f}{base_url}\u{1f}{billing_mode}\u{1f}{task}")
+}
+
 fn fetch_changed_sessions_for_insights(
     path: &Path,
     previous_message_id: i64,
@@ -733,57 +794,79 @@ fn fetch_changed_sessions_for_insights(
         .saturating_sub(INSIGHTS_MESSAGE_ID_OVERLAP)
         .max(0);
     let aliases = custom_provider_aliases(path.parent().unwrap_or_else(|| Path::new(".")));
-    let mut statement = conn.prepare(
+    let has_model_usage = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_model_usage')",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
+    let query = if has_model_usage {
         "WITH changed(session_id) AS (
-             SELECT DISTINCT session_id
-             FROM messages
-             WHERE id > ?1 AND id <= ?2
+             SELECT DISTINCT session_id FROM messages WHERE id > ?1 AND id <= ?2
          )
-         SELECT
-             s.id,
-             s.source,
-             COALESCE(s.model, 'unknown'),
-             COALESCE(NULLIF(TRIM(s.billing_provider), ''), 'unknown'),
-             s.billing_base_url,
-             s.model_config,
-             s.started_at,
-             COALESCE(s.input_tokens, 0),
-             COALESCE(s.output_tokens, 0),
-             COALESCE(s.cache_read_tokens, 0),
-             COALESCE(s.cache_write_tokens, 0),
-             COALESCE(s.reasoning_tokens, 0),
-             COALESCE(s.api_call_count, 0),
-             COALESCE(s.tool_call_count, 0),
-             COALESCE(s.estimated_cost_usd, 0),
-             COALESCE(s.actual_cost_usd, 0)
+         SELECT s.id, s.source, s.started_at,
+                COALESCE(u.model, 'unknown'), COALESCE(u.billing_provider, ''),
+                u.billing_base_url, COALESCE(u.billing_mode, ''), NULL, COALESCE(u.task, ''),
+                COALESCE(u.input_tokens, 0), COALESCE(u.output_tokens, 0),
+                COALESCE(u.cache_read_tokens, 0), COALESCE(u.cache_write_tokens, 0),
+                COALESCE(u.reasoning_tokens, 0), COALESCE(u.api_call_count, 0),
+                COALESCE(u.estimated_cost_usd, 0), COALESCE(u.actual_cost_usd, 0)
          FROM sessions s
          JOIN changed c ON c.session_id = s.id
-         WHERE s.archived = 0
-           AND s.source != 'tool'
-           AND COALESCE(s.end_reason, '') != 'compression'
-           "
-    )?;
+         JOIN session_model_usage u ON u.session_id = s.id
+         WHERE s.archived = 0 AND s.source != 'tool'
+           AND COALESCE(s.end_reason, '') != 'compression'"
+    } else {
+        "WITH changed(session_id) AS (
+             SELECT DISTINCT session_id FROM messages WHERE id > ?1 AND id <= ?2
+         )
+         SELECT s.id, s.source, s.started_at,
+                COALESCE(s.model, 'unknown'), COALESCE(s.billing_provider, ''),
+                s.billing_base_url, '', s.model_config, '',
+                COALESCE(s.input_tokens, 0), COALESCE(s.output_tokens, 0),
+                COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_write_tokens, 0),
+                COALESCE(s.reasoning_tokens, 0), COALESCE(s.api_call_count, 0),
+                COALESCE(s.estimated_cost_usd, 0), COALESCE(s.actual_cost_usd, 0)
+         FROM sessions s
+         JOIN changed c ON c.session_id = s.id
+         WHERE s.archived = 0 AND s.source != 'tool'
+           AND COALESCE(s.end_reason, '') != 'compression'"
+    };
+    let mut statement = conn.prepare(query)?;
     let rows = statement
         .query_map(rusqlite::params![lower_bound, high_water], |row| {
-            let provider = row.get::<_, String>(3)?;
-            let base_url = row.get::<_, Option<String>>(4)?;
-            let model_config = row.get::<_, Option<String>>(5)?;
-            let provider = resolve_session_provider(&provider, base_url.as_deref(), model_config.as_deref(), &aliases);
+            let session_id = row.get::<_, String>(0)?;
+            let model = row.get::<_, String>(3)?;
+            let provider_raw = row.get::<_, String>(4)?;
+            let base_url = row.get::<_, Option<String>>(5)?;
+            let billing_mode = row.get::<_, String>(6)?;
+            let model_config = row.get::<_, Option<String>>(7)?;
+            let task = row.get::<_, String>(8)?;
+            let provider = if has_model_usage {
+                resolve_provider_name(&provider_raw, base_url.as_deref(), &aliases)
+            } else {
+                resolve_session_provider(&provider_raw, base_url.as_deref(), model_config.as_deref(), &aliases)
+            };
+            let id = if has_model_usage {
+                usage_counter_id(&session_id, &model, &provider, base_url.as_deref().unwrap_or(""), &billing_mode, &task)
+            } else {
+                session_id.clone()
+            };
             Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
+                "id": id,
+                "root_session_id": session_id,
                 "source": row.get::<_, String>(1)?,
-                "model": row.get::<_, String>(2)?,
+                "model": model,
                 "provider": provider,
-                "started_at": row.get::<_, f64>(6)?,
-                "input_tokens": row.get::<_, i64>(7)?,
-                "output_tokens": row.get::<_, i64>(8)?,
-                "cache_read_tokens": row.get::<_, i64>(9)?,
-                "cache_write_tokens": row.get::<_, i64>(10)?,
-                "reasoning_tokens": row.get::<_, i64>(11)?,
-                "api_call_count": row.get::<_, i64>(12)?,
-                "tool_call_count": row.get::<_, i64>(13)?,
-                "estimated_cost_usd": row.get::<_, f64>(14)?,
-                "actual_cost_usd": row.get::<_, f64>(15)?,
+                "started_at": row.get::<_, f64>(2)?,
+                "input_tokens": row.get::<_, i64>(9)?,
+                "output_tokens": row.get::<_, i64>(10)?,
+                "cache_read_tokens": row.get::<_, i64>(11)?,
+                "cache_write_tokens": row.get::<_, i64>(12)?,
+                "reasoning_tokens": row.get::<_, i64>(13)?,
+                "api_call_count": row.get::<_, i64>(14)?,
+                "tool_call_count": 0,
+                "estimated_cost_usd": row.get::<_, f64>(15)?,
+                "actual_cost_usd": row.get::<_, f64>(16)?,
             }))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -1301,10 +1384,10 @@ async fn fetch_sessions_for_insights_snapshot(
                 .get("provider")
                 .and_then(serde_json::Value::as_str)
                 .is_some_and(|provider| provider == "custom" || provider.starts_with("custom:"));
-            if is_custom {
-                if let Some(provider) = provider_labels.get(session_id) {
-                    row["provider"] = serde_json::Value::String(provider.clone());
-                }
+            if is_custom
+                && let Some(provider) = provider_labels.get(session_id)
+            {
+                row["provider"] = serde_json::Value::String(provider.clone());
             }
         }
         let data_len = data.len();
