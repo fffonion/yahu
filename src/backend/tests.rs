@@ -3,6 +3,7 @@ mod tests {
     use super::*;
 
     include!("tests/core.rs");
+    include!("tests/models.rs");
     include!("tests/session_listing.rs");
     include!("tests/session_history.rs");
     include!("tests/message_windows.rs");
