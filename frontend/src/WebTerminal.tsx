@@ -46,6 +46,7 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const pendingInputRef = useRef('');
   const fitFrameRef = useRef(0);
   const composingRef = useRef(false);
   const mobileModifiersRef = useRef<TerminalModifierState>({ ctrl: false, alt: false });
@@ -66,10 +67,18 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
     textarea.setAttribute('enterkeyhint', 'enter');
   }, []);
 
-  const focusMobileInput = useCallback((event?: ReactPointerEvent<HTMLElement>) => {
-    if (event?.currentTarget instanceof HTMLButtonElement) event.preventDefault();
-    mobileInputRef.current?.focus({ preventScroll: true });
+  const focusMobileInput = useCallback(() => {
+    const input = mobileInputRef.current;
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
   }, []);
+
+  const openMobileKeyboard = useCallback((event?: { preventDefault: () => void; stopPropagation: () => void }) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    focusMobileInput();
+  }, [focusMobileInput]);
 
   const focusTerminal = useCallback(() => {
     const terminal = terminalRef.current;
@@ -82,13 +91,11 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
 
   const focusTerminalSurface = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (window.matchMedia('(max-width:760px)').matches) {
-      event.preventDefault();
-      event.stopPropagation();
-      focusMobileInput();
+      openMobileKeyboard(event);
       return;
     }
     focusTerminal();
-  }, [focusMobileInput, focusTerminal]);
+  }, [focusTerminal, openMobileKeyboard]);
 
   const resetMobileModifiers = useCallback(() => {
     const reset = { ctrl: false, alt: false };
@@ -96,30 +103,70 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
     setMobileModifiers(reset);
   }, []);
 
+  const sendSocketInput = useCallback((data: string) => {
+    if (!data) return;
+    const socket = socketRef.current;
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'input', data }));
+      return;
+    }
+    pendingInputRef.current += data;
+  }, []);
+
+  const mobileTerminalInput = useCallback((data: string) => {
+    sendSocketInput(data);
+  }, [sendSocketInput]);
+
   const sendTerminalInput = useCallback((data: string) => {
-    const terminal = terminalRef.current;
-    if (!terminal || !data) return;
+    if (!data) return;
     const modifiers = mobileModifiersRef.current;
     data = applyTerminalModifiers(data, modifiers);
-    terminal.input(data);
+    if (window.matchMedia('(max-width:760px)').matches) mobileTerminalInput(data);
+    else {
+      const terminal = terminalRef.current;
+      if (!terminal) pendingInputRef.current += data;
+      else terminal.input(data);
+    }
     if (modifiers.ctrl || modifiers.alt) resetMobileModifiers();
-  }, [resetMobileModifiers]);
+  }, [mobileTerminalInput, resetMobileModifiers]);
+
+  const finishMobileInput = useCallback((textarea: HTMLTextAreaElement, data: string) => {
+    textarea.value = '';
+    sendTerminalInput(data);
+    requestAnimationFrame(() => {
+      if (document.activeElement !== mobileInputRef.current) focusMobileInput();
+    });
+  }, [focusMobileInput, sendTerminalInput]);
+
+  const mobileInputData = useCallback((textarea: HTMLTextAreaElement, nativeEvent: InputEvent) => {
+    if (nativeEvent.inputType === 'insertLineBreak') return '\r';
+    if (nativeEvent.inputType === 'deleteContentBackward') return '\x7f';
+    if (nativeEvent.inputType === 'deleteContentForward') return '\x1b[3~';
+    return nativeEvent.data || textarea.value;
+  }, []);
+
+  const handleMobileBeforeInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => {
+    if (composingRef.current) return;
+    const nativeEvent = event.nativeEvent as InputEvent;
+    if (!nativeEvent.cancelable || nativeEvent.inputType === 'insertCompositionText') return;
+    const textarea = event.currentTarget;
+    const data = mobileInputData(textarea, nativeEvent);
+    if (!data) return;
+    event.preventDefault();
+    finishMobileInput(textarea, data);
+  }, [finishMobileInput, mobileInputData]);
 
   const handleMobileInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => {
     if (composingRef.current) return;
     const textarea = event.currentTarget;
-    const inputType = (event.nativeEvent as InputEvent).inputType;
-    const data = inputType === 'insertLineBreak' ? '\r' : textarea.value;
-    textarea.value = '';
-    sendTerminalInput(data);
-  }, [sendTerminalInput]);
+    const data = mobileInputData(textarea, event.nativeEvent as InputEvent);
+    finishMobileInput(textarea, data);
+  }, [finishMobileInput, mobileInputData]);
 
   const handleMobileCompositionEnd = useCallback((event: CompositionEvent<HTMLTextAreaElement>) => {
     composingRef.current = false;
-    const data = event.currentTarget.value;
-    event.currentTarget.value = '';
-    sendTerminalInput(data);
-  }, [sendTerminalInput]);
+    finishMobileInput(event.currentTarget, event.currentTarget.value);
+  }, [finishMobileInput]);
 
   const handleMobileKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -184,6 +231,7 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
         convertEol: false,
         cursorBlink: true,
         cursorStyle: 'bar',
+        disableStdin: window.matchMedia('(max-width:760px)').matches,
         fontFamily: TERMINAL_FONT_FAMILY,
         fontSize: fontSizeRef.current,
         lineHeight: 1.18,
@@ -204,6 +252,10 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
       socket.onopen = () => {
         if (disposed) return;
         setConnectionState('connected');
+        if (pendingInputRef.current) {
+          socket.send(JSON.stringify({ type: 'input', data: pendingInputRef.current }));
+          pendingInputRef.current = '';
+        }
         fitAndResize();
         focusTerminal();
       };
@@ -216,9 +268,7 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
       socket.onerror = () => { if (!disposed) setConnectionState('error'); };
       socket.onclose = () => { if (!disposed) setConnectionState('disconnected'); };
 
-      const inputDisposable = terminal.onData((data) => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }));
-      });
+      const inputDisposable = terminal.onData((data) => sendSocketInput(data));
       const resizeObserver = new ResizeObserver(() => fitAndResize());
       resizeObserver.observe(host);
       fitAndResize();
@@ -240,7 +290,7 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
       disposed = true;
       teardown?.();
     };
-  }, [configureTextarea, connectionKey, cwd, fitAndResize, focusTerminal]);
+  }, [configureTextarea, connectionKey, cwd, fitAndResize, focusTerminal, sendSocketInput]);
 
   useEffect(() => {
     if (!active) return;
@@ -281,7 +331,7 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
     </header>
     <section className="web-terminal-shell" aria-label={t('terminal.title')}>
       <div className="terminal-toolbar" aria-label={t('terminal.title')}>
-        <button type="button" className="icon-btn mobile-terminal-keyboard" aria-label={t('terminal.keyboard')} title={t('terminal.keyboard')} onPointerDown={focusMobileInput} onClick={() => focusMobileInput()}><Keyboard /></button>
+        <button type="button" className="icon-btn mobile-terminal-keyboard" aria-label={t('terminal.keyboard')} title={t('terminal.keyboard')} onPointerDown={openMobileKeyboard} onTouchStart={openMobileKeyboard} onClick={focusMobileInput}><Keyboard /></button>
         <button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clear')} onClick={() => terminalRef.current?.clear()}><Eraser /></button>
         <button type="button" className="icon-btn" aria-label={t('terminal.fontDecrease')} title={t('terminal.fontDecrease')} disabled={fontSize <= 11} onClick={() => changeFontSize(-1)}><Minus /></button>
         <output className="terminal-font-size" aria-label={t('terminal.fontSize')}>{fontSize}px</output>
@@ -310,6 +360,7 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
         spellCheck={false}
         enterKeyHint="enter"
         rows={1}
+        onBeforeInput={handleMobileBeforeInput}
         onInput={handleMobileInput}
         onKeyDown={handleMobileKeyDown}
         onCompositionStart={() => { composingRef.current = true; }}
