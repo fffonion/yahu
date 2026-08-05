@@ -1936,7 +1936,7 @@ export default function App() {
 
   const activeSessionModelOverride = activeSessionId ? sessionModelOverrides[activeSessionId] : undefined;
   return (
-    <div className={`app-shell ${codeWrap ? 'code-wrap' : 'code-nowrap'} ${wideMode ? 'wide-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''} ${sidebarResizing ? 'sidebar-resizing' : ''}`} style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}>
+    <div className={`app-shell ${codeWrap ? 'code-wrap' : 'code-nowrap'} ${wideMode ? 'wide-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${mode === 'memory' ? 'memory-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''} ${sidebarResizing ? 'sidebar-resizing' : ''}`} style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}>
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="rail">
           <button className="rail-btn muted" onClick={() => setSidebarCollapsed((v) => !v)} title={sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>{sidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}</button>

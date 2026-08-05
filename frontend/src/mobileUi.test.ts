@@ -87,9 +87,13 @@ describe('mobile WebUI layout and touch affordances', () => {
 
   test('mobile memory editor keeps both textareas internally scrollable', () => {
     const styles = css();
-    expect(styles).toContain('.memory-main .admin-content{min-height:0;overflow:auto;padding:12px 12px calc(96px + env(safe-area-inset-bottom,0px));touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}');
+    expect(styles).toContain('.app-shell.memory-mode{height:100svh;min-height:100svh}');
+    expect(styles).toContain('.app-shell.memory-mode .memory-main{height:100svh;min-height:100svh}');
+    expect(styles).toContain('.app-shell.memory-mode:has(.memory-grid textarea:focus) .mobile-bottom-nav{display:none}');
+    expect(styles).toContain('.memory-main .admin-content{min-height:0;overflow:auto;padding:12px 12px calc(96px + env(safe-area-inset-bottom,0px));scroll-padding:12px 0;touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}');
+    expect(styles).toContain('.memory-main .admin-content:focus-within{padding-bottom:12px}');
     expect(styles).toContain('.memory-grid{min-height:0;height:100%;grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr) auto;overflow:visible}');
-    expect(styles).toContain('.memory-grid textarea{min-height:0;overflow:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}');
+    expect(styles).toContain('.memory-grid textarea{min-height:0;overflow:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scroll-margin:12px}');
   });
 
   test('mobile settings uses the content panel as the scroll container', () => {
