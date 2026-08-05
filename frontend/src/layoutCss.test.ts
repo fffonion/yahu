@@ -52,10 +52,12 @@ describe('sidebar session list css', () => {
   test('tablet layout follows the live visual viewport height', () => {
     const source = app();
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-    expect(source).toContain("import { visibleViewportHeight } from './viewport';");
-    expect(source).toContain("document.documentElement.style.setProperty('--app-viewport-height', `${visibleViewportHeight(window)}px`)");
+    expect(source).toContain("import { isTextEntryElement, visibleViewportHeight } from './viewport';");
+    expect(source).toContain("document.documentElement.style.setProperty('--app-viewport-height', `${nextHeight}px`)");
     expect(source).toContain("window.visualViewport?.addEventListener('resize', syncViewportHeight)");
     expect(source).toContain("window.visualViewport?.addEventListener('scroll', syncViewportHeight)");
+    expect(source).toContain('if (isTextEntryElement(document.activeElement) && nextHeight < stableHeight.current) return;');
+    expect(source).toContain("document.addEventListener('focusout', syncAfterFocusChange)");
     expect(source).toContain('const maxHeight = Math.max(minHeight, Math.floor(visibleViewportHeight(window) * 0.2));');
     expect(css).toContain('.app-shell{--sidebar-width:360px;display:grid;grid-template-columns:var(--sidebar-width) minmax(520px,1fr) 320px;height:var(--app-viewport-height,100dvh);');
     expect(css).toContain('.main-panel{min-width:0;height:var(--app-viewport-height,100dvh);');

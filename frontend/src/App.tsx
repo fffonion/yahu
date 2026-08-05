@@ -32,7 +32,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMar
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
-import { visibleViewportHeight } from './viewport';
+import { isTextEntryElement, visibleViewportHeight } from './viewport';
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 
@@ -668,15 +668,24 @@ export default function App() {
   }, [applyHashRoute]);
 
   useLayoutEffect(() => {
-    const syncViewportHeight = () => document.documentElement.style.setProperty('--app-viewport-height', `${visibleViewportHeight(window)}px`);
+    const stableHeight = { current: visibleViewportHeight(window) };
+    const syncViewportHeight = () => {
+      const nextHeight = visibleViewportHeight(window);
+      if (isTextEntryElement(document.activeElement) && nextHeight < stableHeight.current) return;
+      stableHeight.current = nextHeight;
+      document.documentElement.style.setProperty('--app-viewport-height', `${nextHeight}px`);
+    };
+    const syncAfterFocusChange = () => window.requestAnimationFrame(syncViewportHeight);
     syncViewportHeight();
     window.addEventListener('resize', syncViewportHeight);
     window.visualViewport?.addEventListener('resize', syncViewportHeight);
     window.visualViewport?.addEventListener('scroll', syncViewportHeight);
+    document.addEventListener('focusout', syncAfterFocusChange);
     return () => {
       window.removeEventListener('resize', syncViewportHeight);
       window.visualViewport?.removeEventListener('resize', syncViewportHeight);
       window.visualViewport?.removeEventListener('scroll', syncViewportHeight);
+      document.removeEventListener('focusout', syncAfterFocusChange);
       document.documentElement.style.removeProperty('--app-viewport-height');
     };
   }, []);
