@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo
 import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Copy, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
+import { normalizeReasoningEffort, REASONING_EFFORTS, sessionReasoningEffort, type ReasoningEffort } from './reasoningEffort';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
 import { waitForCronRunOutput } from './cronRunOutput';
 import { errorMessage, isAbortError } from './errorMessage';
@@ -43,7 +44,7 @@ const WebTerminal = lazy(() => import('./WebTerminal'));
 
 type FollowUpBehaviour = 'queue' | 'steer';
 type ComposerEnterMode = 'enter-send' | 'enter-newline';
-type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string };
+type Session = { id: string; source?: string; title?: string; preview?: string; started_at?: number | string; ended_at?: number | string; last_active?: number | string; message_count?: number; input_tokens?: number; output_tokens?: number; model?: string; provider?: string; reasoning_effort?: unknown; model_config?: unknown };
 function sessionWithPreservedMessageCount(next: Session, current?: Session | null): Session {
   if (!current || current.id !== next.id) return next;
   const merged: Session = { ...next };
@@ -127,7 +128,6 @@ const readFollowUpQueues = (): Record<string, FollowUpQueueItem[]> => {
   } catch { return {}; }
 };
 const followUpQueueKey = (sessionId: string) => sessionId || DRAFT_SESSION_ID;
-const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';
 const MESSAGE_PAGE = 24;
 const MESSAGE_WINDOW = 120;
@@ -467,7 +467,7 @@ export default function App() {
   const [composerEnterMode, setComposerEnterMode] = useState<ComposerEnterMode>(() => normalizeComposerEnterMode(localStorage.getItem(COMPOSER_ENTER_MODE_KEY)));
   const [codeWrap, setCodeWrap] = useState(readCodeWrap);
   const [followUpQueues, setFollowUpQueues] = useState<Record<string, FollowUpQueueItem[]>>(readFollowUpQueues);
-  const [effort, setEffort] = useState<(typeof EFFORTS)[number]>(() => (localStorage.getItem('effort') as (typeof EFFORTS)[number]) || 'medium');
+  const [effort, setEffort] = useState<ReasoningEffort>(() => normalizeReasoningEffort(localStorage.getItem('effort')) || 'medium');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || '' : '');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -806,10 +806,21 @@ export default function App() {
     if (!sessionId) return;
     if (sessionId === DRAFT_SESSION_ID) return;
     try {
-      const res = await fetch(apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(sessionId)}`), { headers: headers(false) });
+      const [res, reasoningRes] = await Promise.all([
+        fetch(`/hermes/api/sessions/${encodeURIComponent(sessionId)}`),
+        fetch(`/sessions/${encodeURIComponent(sessionId)}/reasoning`),
+      ]);
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const body = await res.json();
       const detail = applyRenamedSessionTitleOverride((body.data || body.session || body) as Session);
+      if (reasoningRes.ok) {
+        const reasoningBody = await reasoningRes.json() as { reasoning_effort?: unknown };
+        const sessionEffort = normalizeReasoningEffort(reasoningBody.reasoning_effort);
+        if (sessionEffort) setEffort(sessionEffort);
+      } else {
+        const sessionEffort = sessionReasoningEffort(detail);
+        if (sessionEffort) setEffort(sessionEffort);
+      }
       setActiveSessionDetail((old) => sessionWithPreservedMessageCount(detail, old));
       setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(detail, s) } : s) : [detail, ...old]);
     } catch (err) { setStatus(tf('status.sessionDetailUnavailable', errorMessage(err))); }
@@ -2647,8 +2658,8 @@ type ChatMainProps = {
   selectedModelProvider: string;
   setModel: (model: string, option?: ModelOption) => void;
   models: ModelOption[];
-  effort: (typeof EFFORTS)[number];
-  setEffort: React.Dispatch<React.SetStateAction<(typeof EFFORTS)[number]>>;
+  effort: ReasoningEffort;
+  setEffort: React.Dispatch<React.SetStateAction<ReasoningEffort>>;
   busy: boolean;
   streaming: boolean;
   followUpQueue: FollowUpQueueItem[];
@@ -2813,7 +2824,7 @@ function ChatMain(props: ChatMainProps) {
   const currentModelOption = exactCurrentOption || currentOption;
   const contextModelOption = exactCurrentOption || (currentModel ? findModelOption(props.models, currentModel) : undefined);
   const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
-  const effortOptions = EFFORTS.map((x) => ({ id: x, label: x }));
+  const effortOptions = REASONING_EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = useMemo(() => visibleChatMessages<ChatMessage>(props.messages, props.showReasoning, props.showToolCalls), [props.messages, props.showReasoning, props.showToolCalls]);
   const primaryActionIsStop = props.streaming && !props.input.trim();
   const loadTranscriptTurnDetails = useCallback(async (detail: TurnDetailMetadata): Promise<ChatMessage[]> => {
@@ -2914,7 +2925,7 @@ function ChatMain(props: ChatMainProps) {
           <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
           <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
           <DropdownControl icon={<Bot />} ariaLabel={t('chat.model')} value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
-          <DropdownControl icon={<Brain />} ariaLabel={t('chat.reasoning')} value={props.effort} options={effortOptions} onChange={(value) => props.setEffort(value as (typeof EFFORTS)[number])} hideLabel />
+          <DropdownControl icon={<Brain />} ariaLabel={t('chat.reasoning')} value={props.effort} options={effortOptions} onChange={(value) => props.setEffort(normalizeReasoningEffort(value) || 'medium')} hideLabel />
           <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
           <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
           <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={t('chat.compactMode')} title={t('chat.compactMode')} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>

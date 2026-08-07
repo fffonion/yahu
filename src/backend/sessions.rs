@@ -42,6 +42,52 @@ async fn sessions_search(
     }
 }
 
+async fn session_reasoning_effort(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response<Body> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Json(serde_json::json!({ "reasoning_effort": null })).into_response();
+    }
+    let conn = match rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) {
+        Ok(conn) => conn,
+        Err(err) => {
+            warn!(session_id = %session_id, error = %err, "cannot read session reasoning metadata");
+            return Json(serde_json::json!({ "reasoning_effort": null })).into_response();
+        }
+    };
+    let model_config = match conn
+        .query_row(
+            "SELECT model_config FROM sessions WHERE id = ?1",
+            [&session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+    {
+        Ok(value) => value,
+        Err(err) => {
+            warn!(session_id = %session_id, error = %err, "cannot query session reasoning metadata");
+            None
+        }
+    };
+    let effort = model_config
+        .flatten()
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+        .and_then(|value| {
+            value
+                .pointer("/reasoning_config/effort")
+                .or_else(|| value.get("reasoning_effort"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        });
+    Json(serde_json::json!({ "reasoning_effort": effort })).into_response()
+}
+
 fn parse_pinned_session_ids(value: Option<&str>) -> Vec<String> {
     let mut seen = HashSet::new();
     value

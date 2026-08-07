@@ -354,6 +354,10 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
         .route(
+            "/sessions/{session_id}/reasoning",
+            get(session_reasoning_effort),
+        )
+        .route(
             "/sessions/{session_id}/title",
             patch(rename_session_lineage),
         )
