@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { isMarkdownPath, markdownText } from './markdown';
+import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown } from './markdown';
 
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
@@ -102,6 +102,19 @@ After`);
     const html = markdownText('FILE:/tmp/demo.html');
     expect(html).toContain('class="md-media-file"');
     expect(html).not.toContain('md-media-html-open');
+  });
+
+  test('renders MEDIA wrapped in bold markdown as an image and extracts it for the lightbox', () => {
+    const text = '**MEDIA:/tmp/demo.png**';
+    const html = markdownText(text);
+    expect(html).toContain('class="md-media md-media-image"');
+    expect(html).toContain('data-chat-image-path="/tmp/demo.png"');
+    expect(chatMediaImagesFromMarkdown(text)).toEqual([{
+      path: '/tmp/demo.png',
+      name: 'demo.png',
+      src: '/chat/media?path=%2Ftmp%2Fdemo.png',
+      downloadUrl: '/chat/media?path=%2Ftmp%2Fdemo.png&download=1',
+    }]);
   });
 
   test('styles markdown tables and media without widening the chat viewport', () => {

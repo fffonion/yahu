@@ -42,7 +42,10 @@ function chatMediaUrlRaw(path: string, download = false) {
 }
 
 function parseMediaDirectiveLine(line: string): { directive: 'MEDIA' | 'FILE'; path: string } | null {
-  const match = line.trim().match(/^(MEDIA|FILE)\s*[:：]\s*(.+)$/i);
+  let candidate = line.trim();
+  const wrapped = candidate.match(/^(\*\*|__|`)\s*(.*?)\s*\1$/);
+  if (wrapped) candidate = wrapped[2].trim();
+  const match = candidate.match(/^(MEDIA|FILE)\s*[:：]\s*(.+)$/i);
   if (!match) return null;
   let path = match[2].trim();
   if (path.length >= 2 && path[0] === path[path.length - 1] && '`"\''.includes(path[0])) {
