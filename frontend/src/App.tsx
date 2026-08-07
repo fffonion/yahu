@@ -28,7 +28,7 @@ import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, numericHis
 import { computeNewMessageMarker } from './chatNewMessages';
 import { chatLatestButtonVisible } from './chatLatest';
 import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNavigation';
-import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMarkdownImage } from './markdown';
+import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { splitSidebarSessions } from './sessionListFilter';
@@ -79,6 +79,7 @@ type ImageStats = { total_images: number; total_bytes: number };
 type ImageFileMetadata = { size: number; [key: string]: unknown };
 type ImageMetadata = { filename: string; dimensions?: { width: number; height: number } | null; png: ImageFileMetadata & { filename: string; url: string; modified_at: number }; webp?: ImageFileMetadata | null; heic?: ImageFileMetadata | null; heic_status: string; png_text: Array<{ keyword: string; value: string }> };
 type ChatLightboxImage = ChatMarkdownImage & { key: string; messageId: string };
+type ChatHtmlPreviewItem = ChatMarkdownHtml & { key: string; messageId: string };
 type RuntimeConfig = { api_url?: string; api_proxy_base?: string };
 
 type MessagePage = ChatHistoryPageRaw & Required<Pick<ChatHistoryPageRaw, 'data' | 'has_older' | 'has_newer'>>;
@@ -2427,6 +2428,24 @@ function ChatImageLightbox({ items, current, onSelect, onClose }: { items: ChatL
     </div>
   </div>;
 }
+
+function ChatHtmlPreview({ current, onClose }: { current: ChatHtmlPreviewItem | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!current) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [current?.key, onClose]);
+  if (!current) return null;
+  return <div className="html-media-modal" role="dialog" aria-modal="true" aria-label={current.name} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="html-media-preview" onClick={(event) => event.stopPropagation()}>
+      <header className="html-media-preview-head"><strong>{current.name}</strong><div><a className="mobile-icon-only" aria-label={t('gallery.download')} href={current.downloadUrl} target="_blank" rel="noreferrer"><Download /></a><button type="button" className="mobile-icon-only" aria-label={t('gallery.close')} onClick={onClose}><X /></button></div></header>
+      <iframe className="html-media-preview-frame" title={current.name} src={current.src} sandbox="allow-scripts" />
+    </section>
+  </div>;
+}
 function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', options, onChange, wide = false, hideLabel = false, searchable = false, placement = 'up', iconOnly = false, className = '', emptyLabel = t('chat.noModels') }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; options: Array<{ id: string; label: string; provider?: string; description?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string; description?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean; placement?: 'up' | 'down'; iconOnly?: boolean; className?: string; emptyLabel?: string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -2839,9 +2858,20 @@ function ChatMain(props: ChatMainProps) {
     return normalizeChatHistoryChunk<ChatMessage>(page.data || [], (raw) => normalizeMessage(raw, active?.source));
   }, [active?.source, props.activeSessionId]);
   const [chatImageModal, setChatImageModal] = useState<ChatLightboxImage | null>(null);
+  const [chatHtmlPreview, setChatHtmlPreview] = useState<ChatHtmlPreviewItem | null>(null);
   const chatLightboxImages = useMemo(() => visibleMessages.flatMap((message: ChatMessage) => chatMediaImagesFromMarkdown(message.content || '').map((image, index) => ({ ...image, key: `${message.id}:${index}:${image.path}`, messageId: message.id }))), [visibleMessages]);
+  const chatHtmlPreviews = useMemo(() => visibleMessages.flatMap((message: ChatMessage) => chatMediaHtmlsFromMarkdown(message.content || '').map((html, index) => ({ ...html, key: `${message.id}:html:${index}:${html.path}`, messageId: message.id }))), [visibleMessages]);
   const onChatMediaClick = (event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
+    const htmlLink = target.closest('a.md-media-html-open') as HTMLAnchorElement | null;
+    if (htmlLink) {
+      event.preventDefault();
+      const path = htmlLink.dataset.chatHtmlPath || '';
+      const src = htmlLink.dataset.chatHtmlSrc || htmlLink.getAttribute('href') || '';
+      const found = chatHtmlPreviews.find((item) => item.path === path || item.src === src);
+      setChatHtmlPreview(found || { key: `adhoc-html:${path || src}`, messageId: '', path, name: htmlLink.dataset.chatHtmlName || basename(path || src), src, downloadUrl: `${src}${src.includes('?') ? '&' : '?'}download=1` });
+      return;
+    }
     const link = target.closest('a.md-media-open') as HTMLAnchorElement | null;
     if (!link) return;
     event.preventDefault();
@@ -2915,6 +2945,7 @@ function ChatMain(props: ChatMainProps) {
       {(isSmallLandscape || isFullscreen) && <button type="button" className="small-landscape-fullscreen-button" aria-label={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} title={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} onClick={toggleFullscreen}>{isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}</button>}
     </div>}
     <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />
+    <ChatHtmlPreview current={chatHtmlPreview} onClose={() => setChatHtmlPreview(null)} />
     <footer className={`composer-wrap ${props.composerCompact ? 'composer-compact' : ''}`} ref={props.composerRef}>
       {props.newMessageCount > 0 && <button className="new-messages-bubble" onClick={props.onClearNewMessages} aria-label={t('chat.newMessages')}>{props.newMessageCount === 1 ? t('chat.newMessageCount') : t('chat.newMessagesCount').replace('{n}', String(props.newMessageCount))}</button>}
       <FollowUpQueueView items={props.followUpQueue || []} onSteer={props.onSteerQueuedItem} onEdit={props.onEditQueuedItem} onReorder={props.onReorderQueuedItem} />
@@ -3181,10 +3212,21 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
   const pinnedModel = cronPinnedModel(props.currentJob);
   const paused = !!props.currentJob && jobState(props.currentJob) === 'paused';
   const [cronImageModal, setCronImageModal] = useState<ChatLightboxImage | null>(null);
+  const [cronHtmlPreview, setCronHtmlPreview] = useState<ChatHtmlPreviewItem | null>(null);
   const cronOutputText = cronOutputDisplayText(props.cronOutput, props.cronOutputLoading);
   const cronLightboxImages = useMemo(() => chatMediaImagesFromMarkdown(cronOutputText).map((image, index) => ({ ...image, key: `cron:${props.editingId}:${index}:${image.path}`, messageId: props.editingId })), [cronOutputText, props.editingId]);
+  const cronHtmlPreviews = useMemo(() => chatMediaHtmlsFromMarkdown(cronOutputText).map((html, index) => ({ ...html, key: `cron:${props.editingId}:html:${index}:${html.path}`, messageId: props.editingId })), [cronOutputText, props.editingId]);
   const onCronOutputMediaClick = (event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
+    const htmlLink = target.closest('a.md-media-html-open') as HTMLAnchorElement | null;
+    if (htmlLink) {
+      event.preventDefault();
+      const path = htmlLink.dataset.chatHtmlPath || '';
+      const src = htmlLink.dataset.chatHtmlSrc || htmlLink.getAttribute('href') || '';
+      const found = cronHtmlPreviews.find((item) => item.path === path || item.src === src);
+      setCronHtmlPreview(found || { key: `cron-adhoc-html:${path || src}`, messageId: props.editingId, path, name: htmlLink.dataset.chatHtmlName || basename(path || src), src, downloadUrl: `${src}${src.includes('?') ? '&' : '?'}download=1` });
+      return;
+    }
     const link = target.closest('a.md-media-open') as HTMLAnchorElement | null;
     if (!link) return;
     event.preventDefault();
@@ -3205,6 +3247,7 @@ function CronMain(props: { name: string; setName: (v: string) => void; schedule:
       {props.editingId && <section className="cron-tools-field cron-fullwidth"><span>{t('cron.enabledTools')}</span><div className="cron-tool-list">{cronEnabledToolsets(props.currentJob).map((toolset) => <span className="cron-tool-chip" key={toolset}>{toolset}</span>)}{!cronEnabledToolsets(props.currentJob).length && <span className="cron-tool-chip muted">{t('cron.allDefaultTools')}</span>}</div></section>}
       {props.editingId && <section className="cron-output-panel cron-fullwidth" onClick={onCronOutputMediaClick}><div className="cron-output-head"><div className="cron-output-title">{props.cronOutput?.timestamp && <time className="cron-output-timestamp" dateTime={props.cronOutput.timestamp}>{props.cronOutput.timestamp}</time>}<span>{t('cron.lastOutput')}</span></div><button type="button" className="mobile-icon-only" onClick={props.refreshCronOutput} disabled={props.cronOutputLoading}><RefreshCw /> <span className="btn-label">{t('cron.refreshOutput')}</span></button></div><div className="cron-output-content md-content" dangerouslySetInnerHTML={{ __html: markdownText(cronOutputText) }} /></section>}
       <ChatImageLightbox items={cronLightboxImages} current={cronImageModal} onSelect={setCronImageModal} onClose={() => setCronImageModal(null)} />
+      <ChatHtmlPreview current={cronHtmlPreview} onClose={() => setCronHtmlPreview(null)} />
     </div></section>
   </main>;
 }

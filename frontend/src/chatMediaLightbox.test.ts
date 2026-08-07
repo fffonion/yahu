@@ -29,6 +29,21 @@ describe('chat media image lightbox', () => {
     expect(source).not.toContain('aria-label="Delete chat image"');
   });
 
+  test('chat page opens HTML media in an isolated full-screen iframe preview', () => {
+    const source = app();
+    expect(source).toContain('chatMediaHtmlsFromMarkdown');
+    expect(source).toContain('a.md-media-html-open');
+    expect(source).toContain('function ChatHtmlPreview(');
+    expect(source).toContain('className="html-media-modal"');
+    expect(source).toContain('className="html-media-preview-frame"');
+    expect(source).toContain('sandbox="allow-scripts"');
+    expect(source).toContain('aria-modal="true"');
+    expect(source).toContain('if (event.key === \'Escape\') onClose()');
+    const styles = css();
+    expect(styles).toContain('.html-media-modal{position:fixed;inset:0;z-index:260');
+    expect(styles).toContain('.html-media-preview-frame{width:100%;height:100%;min-height:0;border:0');
+  });
+
   test('chat lightbox reuses image modal styling and marks chat-specific scope', () => {
     const styles = css();
     expect(styles).toContain('.chat-image-modal{z-index:220}.chat-image-modal .modal-meta{z-index:238}.chat-image-modal .modalbar{z-index:240}.chat-image-modal .modalbar button.danger{display:none!important}');

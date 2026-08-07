@@ -100,6 +100,16 @@ describe('cron manager split editor layout', () => {
     expect(styles).toContain('.cron-output-panel .md-media img,.cron-output-panel .md-media video{width:100%;height:auto;max-width:100%;border-radius:12px;border:1px solid var(--border);background:var(--surface);display:block}');
   });
 
+  test('latest cron output supports isolated HTML media preview without inline rendering', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('const cronHtmlPreviews = useMemo(() => chatMediaHtmlsFromMarkdown(cronOutputText)');
+    expect(source).toContain('a.md-media-html-open');
+    expect(source).toContain('setCronHtmlPreview');
+    expect(source).toContain('<ChatHtmlPreview current={cronHtmlPreview}');
+    expect(styles).toContain('.cron-output-panel .md-media-html-open{display:flex;cursor:zoom-in}');
+  });
+
   test('selected cron detail shows the enabled toolsets from the API job row', () => {
     const source = app();
     const styles = css();

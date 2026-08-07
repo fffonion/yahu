@@ -87,6 +87,23 @@ After`);
     expect(html).toContain('<p>After</p>');
   });
 
+  test('renders MEDIA html as a preview card without injecting the document inline', () => {
+    const html = markdownText('Before\nMEDIA:/tmp/demo.html\nAfter');
+    expect(html).toContain('<figure class="md-media md-media-html">');
+    expect(html).toContain('class="md-media-html-open"');
+    expect(html).toContain('data-chat-html-path="/tmp/demo.html"');
+    expect(html).toContain('data-chat-html-src="/chat/media?path=%2Ftmp%2Fdemo.html"');
+    expect(html).not.toContain('<iframe');
+    expect(html).toContain('<p>Before</p>');
+    expect(html).toContain('<p>After</p>');
+  });
+
+  test('keeps FILE html as a downloadable file instead of a rendered preview', () => {
+    const html = markdownText('FILE:/tmp/demo.html');
+    expect(html).toContain('class="md-media-file"');
+    expect(html).not.toContain('md-media-html-open');
+  });
+
   test('styles markdown tables and media without widening the chat viewport', () => {
     const styles = css();
     expect(styles).toContain('.msg-body .md-table-wrap{max-width:100%;overflow-x:auto;margin:8px 0 10px;border:1px solid var(--border);border-radius:12px}');

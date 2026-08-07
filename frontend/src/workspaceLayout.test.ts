@@ -63,7 +63,7 @@ describe('workspace page file tree layout', () => {
     const styles = css();
     const component = source.slice(source.indexOf('function WorkspaceEditorPreview'), source.indexOf('function WorkspaceBrowser'));
     const browser = source.slice(source.indexOf('function WorkspaceBrowser'), source.indexOf('function AdminMain'));
-    expect(source).toContain("import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, type ChatMarkdownImage } from './markdown';");
+    expect(source).toContain("import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';");
     expect(component).toContain('isMarkdownPath(preview.path)');
     expect(component).toContain('className="workspace-markdown-preview md-content"');
     expect(component).toContain('markdownText(preview.content || \'\')');

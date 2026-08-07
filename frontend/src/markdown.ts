@@ -18,6 +18,7 @@ function escapeAttr(text: string) {
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'svg']);
 const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm']);
 const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'opus', 'm4a', 'flac']);
+const HTML_EXTS = new Set(['html', 'htm']);
 
 function basename(path: string) {
   const cleaned = path.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -58,6 +59,9 @@ function renderMediaDirective(line: string) {
   const name = escapeAttr(basename(parsed.path));
   const src = chatMediaUrl(parsed.path);
   const ext = mediaExt(parsed.path);
+  if (parsed.directive === 'MEDIA' && HTML_EXTS.has(ext)) {
+    return `<figure class="md-media md-media-html"><a class="md-media-html-open" href="${src}" data-chat-html-path="${escapeAttr(parsed.path)}" data-chat-html-src="${src}" data-chat-html-name="${name}" target="_blank" rel="noreferrer"><span class="md-media-html-icon">HTML</span><span class="md-media-html-copy"><strong>${name}</strong><span>Open rendered preview</span></span></a></figure>`;
+  }
   if (parsed.directive === 'FILE' || (!IMAGE_EXTS.has(ext) && !VIDEO_EXTS.has(ext) && !AUDIO_EXTS.has(ext))) {
     const href = chatMediaUrl(parsed.path, true);
     return `<p><a class="md-media-file" href="${href}" target="_blank" rel="noreferrer">${name}</a></p>`;
@@ -72,11 +76,19 @@ function renderMediaDirective(line: string) {
 }
 
 export type ChatMarkdownImage = { path: string; name: string; src: string; downloadUrl: string };
+export type ChatMarkdownHtml = { path: string; name: string; src: string; downloadUrl: string };
 
 export function chatMediaImagesFromMarkdown(text: string): ChatMarkdownImage[] {
   return String(text || '').replace(/\r\n?/g, '\n').split('\n')
     .map((line) => parseMediaDirectiveLine(line))
     .filter((item): item is { directive: 'MEDIA' | 'FILE'; path: string } => !!item && item.directive === 'MEDIA' && IMAGE_EXTS.has(mediaExt(item.path)))
+    .map((item) => ({ path: item.path, name: basename(item.path), src: chatMediaUrlRaw(item.path), downloadUrl: chatMediaUrlRaw(item.path, true) }));
+}
+
+export function chatMediaHtmlsFromMarkdown(text: string): ChatMarkdownHtml[] {
+  return String(text || '').replace(/\r\n?/g, '\n').split('\n')
+    .map((line) => parseMediaDirectiveLine(line))
+    .filter((item): item is { directive: 'MEDIA' | 'FILE'; path: string } => !!item && item.directive === 'MEDIA' && HTML_EXTS.has(mediaExt(item.path)))
     .map((item) => ({ path: item.path, name: basename(item.path), src: chatMediaUrlRaw(item.path), downloadUrl: chatMediaUrlRaw(item.path, true) }));
 }
 
