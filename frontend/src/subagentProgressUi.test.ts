@@ -125,7 +125,7 @@ describe('subagent progress UI', () => {
     expect(app()).not.toContain('function MessageView');
     expect(css()).not.toContain('.subagent-progress-message{');
     expect(css()).not.toContain('.subagent-progress-tool-calls{');
-    expect(css()).toContain('.subagent-progress-messages .msg-row.assistant .msg-body{font-size:12px;line-height:1.45}');
+    expect(css()).toContain('.subagent-progress-messages .msg-row.assistant .msg-body,.subagent-progress-messages .msg-row.user .msg-body{font-size:12px;line-height:1.45}');
   });
 
   test('shows a persisted goal separately while keeping the running subagent card visible', () => {
