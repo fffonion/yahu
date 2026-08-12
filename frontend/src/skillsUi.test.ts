@@ -196,10 +196,11 @@ describe('skills UI', () => {
 
   test('skill category controls remain clickable while list panning is enabled', () => {
     const source = app();
-    expect(source).toContain('const handleSkillPointerDown = (event: React.PointerEvent<HTMLDivElement>) =>');
-    expect(source).toContain("event.target.closest('button, input, [role=\"switch\"]')");
-    expect(source).toContain('<button type="button" className="section-label" aria-expanded={expandedCats.has(cat)}');
-    expect(source).not.toContain('<div className="section-label" role="button"');
+    const skillsSidebar = source.slice(source.indexOf('function SkillsSidebar'), source.indexOf('type SkillBackup'));
+    expect(skillsSidebar).toContain('const handleSkillPointerDown = (event: React.PointerEvent<HTMLDivElement>) =>');
+    expect(skillsSidebar).toContain("event.target.closest('button, input, [role=\"switch\"], .section-label')");
+    expect(skillsSidebar).toContain('<div className="section-label" role="button" tabIndex={0} aria-expanded={expandedCats.has(cat)}');
+    expect(skillsSidebar).not.toContain('<button type="button" className="section-label"');
   });
 });
 
