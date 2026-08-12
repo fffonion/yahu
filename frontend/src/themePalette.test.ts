@@ -45,10 +45,16 @@ describe('full palette theme control', () => {
     for (const [id, label] of [
       ['gruvbox-material', 'Gruvbox Material'],
       ['github-dark-dimmed', 'GitHub Dark Dimmed'],
+      ['codex-light', 'Codex Light'],
+      ['codex-dark', 'Codex Dark'],
+      ['claude-code-light', 'Claude Code Light'],
+      ['claude-code-dark', 'Claude Code Dark'],
     ]) {
       expect(source).toContain(`{ id: '${id}', label: '${label}' }`);
       expect(styles).toContain(`:root[data-theme="${id}"]{`);
     }
+    expect(source).not.toContain("solarized-dark");
+    expect(styles).not.toContain(':root[data-theme="solarized-dark"]');
     expect(source).not.toContain('tokyo-night');
     expect(source).not.toContain('rose-pine-moon');
     expect(styles).not.toContain(':root[data-theme="tokyo-night"]');
@@ -59,11 +65,33 @@ describe('full palette theme control', () => {
     expect(styles).toContain('--chart-0:var(--accent);--chart-1:var(--accent-2);');
     expect(styles).toContain(':root[data-theme="gruvbox-material"]{--bg:#1d2021;--sidebar:#202324;--surface:#282828;--surface-2:#32302f;--panel-raised:#3c3836;--panel-overlay:#45403d;');
     expect(styles).toContain(':root[data-theme="github-dark-dimmed"]{--bg:#1c2128;--sidebar:#22272e;--surface:#2d333b;--surface-2:#373e47;--panel-raised:#444c56;--panel-overlay:#545d68;');
+    expect(styles).toContain(':root[data-theme="codex-light"]{--bg:#ffffff;--sidebar:#f5f5f5;--surface:#ffffff;--surface-2:#f7f8fa;');
+    expect(styles).toContain(':root[data-theme="codex-dark"]{--bg:#171717;--sidebar:#202020;--surface:#242424;--surface-2:#2b2b2b;');
+    expect(styles).toContain(':root[data-theme="claude-code-light"]{--bg:#faf9f5;--sidebar:#f5f4ed;--surface:#ffffff;--surface-2:#f5f4ed;');
+    expect(styles).toContain(':root[data-theme="claude-code-dark"]{--bg:#30302e;--sidebar:#262624;--surface:#30302e;--surface-2:#262624;');
+    expect(styles).toContain(':root[data-theme="codex-light"]{--bg:#ffffff;--sidebar:#f5f5f5;--surface:#ffffff;--surface-2:#f7f8fa;--panel-raised:#ffffff;--panel-overlay:#ffffff;--text:#1a1c1f;--muted:#68727c;--border:#d9dde3;--border-strong:#b8c0ca;--accent:#339cff;');
+    expect(styles).toContain('--accent:#d4d4d4;--accent-2:#0ea5e9;--accent-soft:rgba(212,212,212,.12);--danger:#f47067;--green:#6ccf88;--info:#339cff;--warning:#e2b93b;');
+    expect(styles).toContain('--accent:#d97757;--accent-2:#cc785c;');
+    expect(styles).toContain(':root[data-theme="codex-light"] .sidebar .rail-btn.active,:root[data-theme="codex-dark"] .sidebar .rail-btn.active');
+    expect(styles).toContain(':root[data-theme="codex-light"] .send-btn,:root[data-theme="codex-dark"] .send-btn');
+    expect(styles).toContain(':root[data-theme="codex-light"] .send-btn,:root[data-theme="codex-dark"] .send-btn,:root[data-theme="codex-light"] .composer-primary-btn.is-stop,:root[data-theme="codex-dark"] .composer-primary-btn.is-stop{background:var(--text);border-color:var(--text);color:var(--bg);box-shadow:none}');
+    expect(styles).toContain(':root[data-theme="codex-light"] .reasoning-view-toggle.active,:root[data-theme="codex-dark"] .reasoning-view-toggle.active');
+  });
+
+  test('tool icon semantic colors are shared by every theme while the surrounding UI remains theme-specific', () => {
+    const styles = css();
+    expect(styles).toContain('--tool-terminal:#e2b93b;--tool-file:#0ea5e9;--tool-search:#339cff;--tool-browser:#60a5fa;--tool-media:#ec4899;');
+    expect(styles).toContain('--tool-knowledge:#a78bfa;--tool-automation:#8b5cf6;--tool-planning:#e2b93b;--tool-home:#22c55e;--tool-communication:#ec4899;--tool-audio:#f59e0b;');
+    for (const tone of ['terminal', 'file', 'search', 'browser', 'media', 'knowledge', 'automation', 'planning', 'home', 'communication', 'audio']) {
+      expect(styles).toContain(`.tool-inline-icon.tool-icon-${tone}{color:var(--tool-${tone})}`);
+    }
+    expect(styles).not.toContain(':root[data-theme="codex-dark"] .tool-inline-icon.tool-icon-terminal');
+    expect(styles).not.toContain(':root[data-theme="vscode-dark-plus"] .tool-inline-icon.tool-icon-terminal');
   });
 
   test('new theme secondary text keeps readable contrast against the page', () => {
     const styles = css();
-    for (const theme of ['gruvbox-material', 'github-dark-dimmed']) {
+    for (const theme of ['gruvbox-material', 'github-dark-dimmed', 'codex-light', 'codex-dark', 'claude-code-light', 'claude-code-dark']) {
       expect(contrast(themeColor(styles, theme, '--muted'), themeColor(styles, theme, '--bg'))).toBeGreaterThanOrEqual(4.5);
     }
   });

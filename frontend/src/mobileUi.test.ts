@@ -124,6 +124,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer{position:relative;display:flex;gap:0;width:100%;padding:24px 10px 8px;border-top:0;background:transparent;overflow:visible;flex-wrap:nowrap}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control.wide{min-width:64px;margin-left:8px}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control.wide+.dropdown-control{margin-left:4px}');
+    expect(styles).toContain('@media (max-width:760px){.composer-wrap:not(.composer-compact) .composer-footer{gap:0;padding-left:4px;padding-right:4px}.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control.wide{flex:1 1 121px;min-width:121px;margin-left:4px}.composer-wrap:not(.composer-compact) .composer-footer .dropdown-control.wide+.dropdown-control{flex:0 1 68px;min-width:68px;margin-left:2px}.composer-wrap:not(.composer-compact) .composer-footer .dropdown-icon,.composer-wrap:not(.composer-compact) .composer-footer .dropdown-caret{display:none}.composer-wrap:not(.composer-compact) .composer-footer .dropdown-copy{display:grid}.composer-wrap:not(.composer-compact) .composer-footer .desktop-compact-view-toggle{display:none}.composer-wrap:not(.composer-compact) .composer-footer .attach-btn,.composer-wrap:not(.composer-compact) .composer-footer .reasoning-view-toggle,.composer-wrap:not(.composer-compact) .composer-footer .tool-call-view-toggle{flex:0 0 34px;width:34px;min-width:34px;height:34px}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .reasoning-view-toggle{margin-left:8px}');
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .tool-call-view-toggle{margin-left:4px}');
     expect(styles).toContain('.composer-footer .dropdown-trigger{border-radius:var(--radius-md)}');
@@ -134,7 +135,7 @@ describe('mobile WebUI layout and touch affordances', () => {
   test('expanded chat composer textarea uses one row so single-line input does not grow', () => {
     const source = app();
     expect(source).toContain('<textarea ref={textareaRef} rows={1}');
-    expect(source).toContain('const minHeight = 48;');
+    expect(source).toContain('const minHeight = 64;');
     expect(source).toContain('const contentHeight = textarea.value.trim() ? textarea.scrollHeight : minHeight;');
   });
 
@@ -332,7 +333,7 @@ describe('mobile WebUI layout and touch affordances', () => {
   test('mobile agent replies use compact text layout without chat cards', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain('<span className="tool-inline-icon">{getToolIcon(toolName)}</span>');
+    expect(source).toContain('<span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>');
     expect(source).not.toContain('<div className="avatar">{getToolIcon(toolName)}</div>');
     expect(styles).toContain('.msg-row{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;width:100%;max-width:920px}');
     expect(styles).toContain('.msg-row.assistant,.msg-row.system{width:100%;max-width:920px}');
@@ -341,7 +342,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.msg-row.assistant,.msg-row.system{grid-template-columns:minmax(0,1fr);width:100%;max-width:none}');
     expect(styles).toContain('.msg-row.assistant .avatar,.msg-row.system .avatar{display:none}');
     expect(styles).toContain('.msg-row.assistant .msg-content,.msg-row.system .msg-content{grid-column:1;min-width:0;max-width:100%}');
-    expect(styles).toContain('.tool-inline-icon{display:grid;color:var(--accent);place-items:center}');
+    expect(styles).toContain('.tool-inline-icon{display:grid;color:var(--accent);place-items:center;border-radius:5px;padding:2px;background:color-mix(in srgb,currentColor 13%,transparent)}');
     expect(styles).toContain('.msg-row.tool{grid-template-columns:minmax(0,1fr);width:100%;max-width:100%;align-items:start}');
     expect(styles).not.toContain('.msg-row.tool .avatar{display:none}');
     expect(styles).toContain('.msg-row.tool .msg-content{grid-column:1;min-width:0;max-width:100%}');
@@ -374,6 +375,17 @@ describe('mobile WebUI layout and touch affordances', () => {
     const source = app();
     expect(source).not.toContain('if (sessionId === DRAFT_SESSION_ID || loadingMessages) return;');
     expect(source).toContain("if (loadingMessagesRef.current && direction !== 'latest') return;");
+  });
+
+  test('collapsed mobile composer keeps the attach button visible and clickable', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('className={`icon-btn attach-btn${skillPickerOpen ? \' active\' : \'\'}`');
+    expect(source).toContain('onClick={() => { if (!skillPickerOpen) props.setInput(\'\'); setSelectedComposerSkill(null); setSkillPickerOpen((current) => !current); }}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-tools{display:flex;pointer-events:auto}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .attach-btn{display:inline-flex;pointer-events:auto}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{left:4px;right:4px;width:auto;justify-content:space-between;pointer-events:none;overflow:visible}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-box textarea{padding-left:52px}');
   });
 
   test('tapping the active mobile history row closes the drawer without resetting the current chat', () => {

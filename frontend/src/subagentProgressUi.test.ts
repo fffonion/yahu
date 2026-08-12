@@ -178,7 +178,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
     expect(source).toContain("aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}");
     expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));
-    expect(source).toContain('<span className="subagent-progress-heading"><strong>{t(\'subagents.title\')}</strong>');
+    expect(source).toContain("<span className=\"subagent-progress-heading\"><strong>{selectedNode?.task || t('subagents.title')}</strong>");
     expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:6px;pointer-events:none;');
     expect(styles).toContain('.subagent-goal-panel{--subagent-goal-accent:var(--accent-2);width:100%;flex:0 0 auto;pointer-events:auto;');
     expect(styles).toContain('color:var(--subagent-goal-accent)');
@@ -234,9 +234,9 @@ describe('subagent progress UI', () => {
     expect(source).toContain('const followLatestDetailRef = useRef(true);');
     expect(source).toContain('tree.scrollTop = tree.scrollHeight;');
     expect(source).toContain('followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget);');
-    expect(source).toContain('onDetailOpen={startFollowingLatestDetail}');
+    expect(source).toContain('onDetailOpen={(runningNode) => { if (runningNode) startFollowingLatestDetail(); }}');
     expect(source).toContain('onDetailContentChange={followLatestDetail}');
-    expect(source).toContain('if (open && detailMessages.length > 0) onDetailContentChange();');
+    expect(source).toContain("if (open && node.status === 'running' && detailMessages.length > 0) onDetailContentChange();");
     expect(source).not.toContain('const detailRef = useRef<HTMLDivElement>(null);');
     expect(source).not.toContain('className="subagent-progress-detail" ref={detailRef}');
     expect(styles).toContain('.subagent-progress-panel-body .subagent-progress-tree{min-height:0;flex:1 1 auto;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;');

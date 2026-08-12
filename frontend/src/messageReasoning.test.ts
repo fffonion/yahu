@@ -42,6 +42,15 @@ describe('message reasoning normalization', () => {
     expect(parts.reasoning).toBe('same trace');
   });
 
+  test('extracts Codex reasoning summary aliases even when the assistant body is empty', () => {
+    const parts = normalizeMessageParts('', {
+      reasoning_summary: [{ type: 'summary_text', text: 'Codex summary' }],
+    });
+
+    expect(parts.content).toBe('');
+    expect(parts.reasoning).toBe('Codex summary');
+  });
+
   test('extracts readable provider details without exposing signatures or encrypted payloads', () => {
     const parts = normalizeMessageParts('answer', {
       reasoning_details: [{ type: 'thinking', thinking: 'provider thought', signature: 'opaque-signature' }],

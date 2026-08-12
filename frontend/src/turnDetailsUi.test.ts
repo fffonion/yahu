@@ -3,6 +3,12 @@ import { readFileSync } from 'fs';
 
 const app = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+const turnDetailGroup = () => {
+  const source = app();
+  const start = source.indexOf('function TurnDetailGroup');
+  const end = source.indexOf('function SpecialContextGroup', start);
+  return source.slice(start, end);
+};
 
 describe('turn detail fold UI', () => {
   test('chat history renders final-turn intermediate tool and thinking rows inside a second-level collapsed details group', () => {
@@ -32,14 +38,14 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("<summary className=\"turn-detail-summary\"><span className=\"turn-detail-copy\">{detailSummary}</span><ChevronRight className=\"tool-chevron turn-detail-arrow\" aria-hidden=\"true\" /></summary>");
     expect(source).not.toContain('turn-detail-toggle');
     expect(source).not.toContain('turn-detail-toggle-label');
-    expect(source).not.toContain("t('chat.expandDetails')");
-    expect(source).not.toContain("t('chat.collapseDetails')");
+    expect(turnDetailGroup()).not.toContain("t('chat.expandDetails')");
+    expect(turnDetailGroup()).not.toContain("t('chat.collapseDetails')");
     expect(styles).toContain('.turn-detail-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;');
     expect(styles).toContain('.turn-detail-summary::-webkit-details-marker{display:none}');
     expect(styles).toContain('.turn-detail-arrow{justify-self:end}');
     expect(styles).toContain('.tool-chevron{width:15px;height:15px;color:var(--muted);transition:transform .15s ease}');
     expect(styles).toContain('.turn-detail-group[open] .turn-detail-arrow{transform:rotate(90deg)}');
-    expect(source).toContain("open={open} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
+    expect(source).toContain("open={open || forceOpenToken > 0} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
     expect(source).not.toContain("node.open = true;");
     expect(source).not.toContain("defaultOpen=");
     expect(source).toContain("const detailAnchorId = String(item.messages[0]?.id || item.id);");

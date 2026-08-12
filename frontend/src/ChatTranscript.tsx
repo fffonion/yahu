@@ -94,12 +94,11 @@ export function ChatTranscript({
     [groupedTurnDetailItems],
   );
   useLayoutEffect(() => { previousTurnDetailItemsRef.current = turnDetailItems; }, [turnDetailItems]);
-  const shouldForceOpenLatestDetail = streaming || forceOpenLatestDetailToken > 0;
   const forceOpenDetailGroupId = useMemo(
-    () => shouldForceOpenLatestDetail ? latestExpandableDetailGroupId(turnDetailItems, visibleMessages, streaming) : '',
-    [forceOpenLatestDetailToken, shouldForceOpenLatestDetail, streaming, turnDetailItems, visibleMessages],
+    () => !streaming && forceOpenLatestDetailToken > 0 ? latestExpandableDetailGroupId(turnDetailItems, visibleMessages, false) : '',
+    [forceOpenLatestDetailToken, streaming, turnDetailItems, visibleMessages],
   );
-  const detailForceOpenToken = streaming ? 1 : forceOpenLatestDetailToken;
+  const detailForceOpenToken = forceOpenLatestDetailToken;
   const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
   const splitIdx = findNewMessageSplitIndex(visibleMessages, newMessageBoundaryId || undefined);
 
@@ -229,6 +228,22 @@ function getToolIcon(toolName: string): React.ReactNode {
   return <Settings />;
 }
 
+function toolIconTone(toolName: string): string {
+  const name = (toolName || '').toLowerCase().replace(/^functions\./, '');
+  if (name === 'terminal' || name === 'process' || name === 'execute_code') return 'terminal';
+  if (name === 'read_file' || name === 'write_file' || name === 'patch' || name.startsWith('feishu_')) return 'file';
+  if (name === 'search_files' || name === 'web_search' || name === 'x_search') return 'search';
+  if (name.startsWith('browser_') || name === 'web_extract' || name === 'computer_use') return 'browser';
+  if (name === 'vision_analyze' || name === 'image_generate' || name === 'video_generate' || name === 'video_analyze') return 'media';
+  if (name.startsWith('skill') || name === 'memory' || name === 'session_search') return 'knowledge';
+  if (name === 'delegate_task' || name === 'mixture_of_agents' || name === 'workflow_run') return 'automation';
+  if (name === 'cronjob' || name === 'todo' || name.startsWith('kanban_')) return 'planning';
+  if (name.startsWith('ha_')) return 'home';
+  if (name === 'discord' || name === 'discord_admin' || name.startsWith('yb_') || name === 'send_message') return 'communication';
+  if (name === 'text_to_speech') return 'audio';
+  return 'default';
+}
+
 function ToolMessageView({ message, suppressMessageAnchor = false }: { message: ChatMessage; suppressMessageAnchor?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const summary = useMemo(
@@ -240,7 +255,7 @@ function ToolMessageView({ message, suppressMessageAnchor = false }: { message: 
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
       <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-        <span className="tool-inline-icon">{getToolIcon(toolName)}</span>
+        <span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>
         <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>
         <span className="tool-subtitle">{summary.subtitle}</span>
         <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
@@ -356,6 +371,8 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, 
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const loadingRef = useRef(false);
+  const detailGroupRef = useRef<HTMLDetailsElement>(null);
+  const followLatestRef = useRef(!!item.defaultOpen || forceOpenToken > 0);
   const [error, setError] = useState('');
   const commentary = item.detail?.commentary || [];
   const commentaryIds = new Set(commentary.map((message) => message.id));
@@ -381,9 +398,40 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, 
     setOpen(true);
     loadDetails();
   }, [forceOpenToken, loadDetails]);
+  useEffect(() => {
+    if (!open) return;
+    loadDetails();
+  }, [loadDetails, open]);
+  useEffect(() => {
+    if (item.defaultOpen || forceOpenToken > 0) followLatestRef.current = true;
+  }, [forceOpenToken, item.defaultOpen]);
+  useLayoutEffect(() => {
+    const group = detailGroupRef.current;
+    const scroller = group?.closest<HTMLElement>('.chat-scroll');
+    if (!scroller) return;
+    const previousOverflowAnchor = scroller.style.overflowAnchor;
+    scroller.style.overflowAnchor = 'none';
+    const onScroll = () => {
+      const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      followLatestRef.current = distanceFromBottom <= 32;
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      scroller.style.overflowAnchor = previousOverflowAnchor;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    if (!open || (!item.defaultOpen && !forceOpenToken) || !detailMessages.length || !followLatestRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const scroller = detailGroupRef.current?.closest<HTMLElement>('.chat-scroll');
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [detailMessages, forceOpenToken, open]);
   return <>
     {commentary.map((message) => <MessageView key={`commentary:${message.id}`} message={message} showReasoning={showReasoning} assistantName={assistantName} />)}
-    {detailCount > 0 && <details className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
+    {detailCount > 0 && <details ref={detailGroupRef} className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open || forceOpenToken > 0} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
       <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><ChevronRight className="tool-chevron turn-detail-arrow" aria-hidden="true" /></summary>
       <div className="turn-detail-body">
         {loading ? t('status.loading') : null}

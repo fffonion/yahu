@@ -20,6 +20,21 @@ describe('streaming subagent detail identity', () => {
     expect(card).not.toContain('setMessages(items);');
   });
 
+  test('keeps the floating panel title pinned to the selected node and hides sibling entries', () => {
+    const card = readFileSync(new URL('./SubagentProgressCard.tsx', import.meta.url), 'utf8');
+    expect(card).toContain('const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);');
+    expect(card).toContain('const visibleTree = selectedNode ? [selectedNode] : tree;');
+    expect(card).toContain("{selectedNode?.task || t('subagents.title')}");
+    expect(card).toContain('setSelectedNodeId(null);');
+  });
+
+  test('only running detail expansion starts bottom-following and completed details do not auto-scroll', () => {
+    const card = readFileSync(new URL('./SubagentProgressCard.tsx', import.meta.url), 'utf8');
+    expect(card).toContain('onDetailOpen={(runningNode) => { if (runningNode) startFollowingLatestDetail(); }}');
+    expect(card).toContain("if (open && node.status === 'running' && detailMessages.length > 0) onDetailContentChange();");
+    expect(card).toContain("onDetailOpen(node.status === 'running')");
+  });
+
   test('incrementally reuses unchanged messages and the complete array when nothing changed', () => {
     const previous = normalizeSubagentMessages(snapshot());
     const unchanged = mergeSubagentMessages(previous, normalizeSubagentMessages(snapshot()));

@@ -21,15 +21,35 @@ export type TerminalModifierState = {
   alt: boolean;
 };
 
-export type TerminalSpecialKey = 'escape' | 'tab' | 'up' | 'down' | 'right' | 'left';
+export type TerminalSpecialKey = 'escape' | 'tab' | 'enter' | 'backspace' | 'delete' | 'insert' | 'home' | 'end' | 'pageUp' | 'pageDown' | 'up' | 'down' | 'right' | 'left' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6' | 'f7' | 'f8' | 'f9' | 'f10' | 'f11' | 'f12';
 
 const TERMINAL_SPECIAL_KEY_SEQUENCES: Record<TerminalSpecialKey, string> = {
   escape: '\x1b',
   tab: '\t',
+  enter: '\r',
+  backspace: '\x7f',
+  delete: '\x1b[3~',
+  insert: '\x1b[2~',
+  home: '\x1b[H',
+  end: '\x1b[F',
+  pageUp: '\x1b[5~',
+  pageDown: '\x1b[6~',
   up: '\x1b[A',
   down: '\x1b[B',
   right: '\x1b[C',
   left: '\x1b[D',
+  f1: '\x1bOP',
+  f2: '\x1bOQ',
+  f3: '\x1bOR',
+  f4: '\x1bOS',
+  f5: '\x1b[15~',
+  f6: '\x1b[17~',
+  f7: '\x1b[18~',
+  f8: '\x1b[19~',
+  f9: '\x1b[20~',
+  f10: '\x1b[21~',
+  f11: '\x1b[23~',
+  f12: '\x1b[24~',
 };
 
 function controlCharacter(value: string): string {

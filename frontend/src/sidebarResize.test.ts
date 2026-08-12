@@ -22,6 +22,14 @@ describe('resizable shared left sidebar', () => {
     expect(sidebarWidthFromKey(360, 'Enter')).toBe(360);
   });
 
+  test('persists sidebar collapsed state and restores it before route defaults', () => {
+    const source = app();
+    expect(source).toContain("const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';");
+    expect(source).toContain('function readSidebarCollapsed(defaultValue: boolean)');
+    expect(source).toContain('readSidebarCollapsed(');
+    expect(source).toContain("useEffect(() => localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0'), [sidebarCollapsed]);");
+  });
+
   test('uses one shared persisted width and resize separator across sidebar pages', () => {
     const source = app();
     expect(source).toContain("const SIDEBAR_WIDTH_KEY = 'sidebarWidth';");

@@ -56,8 +56,8 @@ describe('insights chart UI', () => {
   test('marks explicit refresh requests without changing normal period loads', () => {
     const app = appSource();
     expect(app).toContain("const usageParams = new URLSearchParams({ period: String(period), tz_offset: String(timezoneOffset) });");
-    expect(app).toContain("if (force) usageParams.set('refresh', 'true');");
-    expect(app).toContain('fetch(`/insights/usage?${usageParams.toString()}`)');
+    expect(app).toContain("if (refresh) usageParams.set('refresh', 'true');");
+    expect(app).toContain('fetch(buildUsageUrl(force), { cache: \'no-store\' })');
   });
 
   test('model list shows ten provider-labeled rows while charts keep their own series cap', () => {
@@ -240,7 +240,8 @@ describe('insights chart UI', () => {
     const app = appSource();
     expect(app).toContain('const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod');
     expect(app).toContain('const timezoneOffset = new Date().getTimezoneOffset();');
-    expect(app).toContain('const usageRes = await fetch(`/insights/usage?${usageParams.toString()}`);');
+    expect(app).toContain('const buildUsageUrl = (refresh: boolean) => {');
+    expect(app).toContain('let usageRes = await fetch(buildUsageUrl(force), { cache: \'no-store\' });');
     expect(app).toContain("useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);");
     expect(app).not.toContain("fetch('/insights/usage')");
   });
@@ -250,8 +251,8 @@ describe('insights chart UI', () => {
     expect(app).toContain('const usageInsightsCacheRef = useRef<Partial<Record<1 | 7 | 30, UsageInsights>>>({});');
     expect(app).toContain('force = false');
     expect(app).toContain('const cached = usageInsightsCacheRef.current[period];');
-    expect(app).toContain('if (cached && !force) { setUsageInsights(cached); setUsageError(\'\'); return; }');
-    expect(app).toContain('const nextInsights = await usageRes.json();');
+    expect(app).toContain('if (cached && !force && Number(cached?.totals?.unpriced_tokens || 0) <= 0) { setUsageInsights(cached); setUsageError(\'\'); return; }');
+    expect(app).toContain('let nextInsights = await usageRes.json();');
     expect(app).toContain('usageInsightsCacheRef.current[period] = nextInsights;');
     expect(app).toContain('refresh={() => loadUsageInsights(usagePeriod, true)}');
   });

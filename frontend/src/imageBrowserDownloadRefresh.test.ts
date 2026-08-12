@@ -5,17 +5,23 @@ const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 describe('image browser download and refresh parity', () => {
-  test('selected downloads use browser multi-file downloads instead of zip batch API', () => {
+  test('selected downloads generate missing HEIC first, then trigger browser downloads in original mtime order with progress', () => {
     const source = app();
+    const styles = css();
     expect(source).toContain('const downloadSelectedFiles = async (names: string[]) =>');
-    expect(source).toContain('for (const item of selectedItems)');
-    expect(source).toContain('triggerBrowserDownload(item.download_url || item.png_url, item.download_filename || item.filename)');
-    expect(source).toContain('await new Promise((resolve) => window.setTimeout(resolve, 120));');
-    expect(source).not.toContain("fetch('/image-api/batch-download'");
-    expect(source).not.toContain('hermes-images.zip');
-    expect(source).not.toContain('batch-download');
+    expect(source).toContain(".sort((a, b) => b.modified_at - a.modified_at || b.filename.localeCompare(a.filename))");
+    expect(source).toContain('await Promise.all(selectedItems.map(async (item, index) => {');
+    expect(source).toContain('const preparedItems = new Array<ImageEntry | null>(selectedItems.length);');
+    expect(source).toContain('const readyItems = preparedItems as ImageEntry[];');
+    expect(source).toContain("for (let index = 0; index < readyItems.length; index += 1)");
+    expect(source).toContain('generateHeic(item, false)');
+    expect(source).toContain('const prepared = item.heic_status === \'missing\' ? await generateHeic(item, false) : item;');
+    expect(source).toContain('triggerBrowserDownload(downloadItem.download_url || downloadItem.png_url');
+    expect(source).toContain("setDownloadProgress({ current: preparedCount, total: selectedItems.length, filename: item.filename, phase: 'preparing' });");
+    expect(source).toContain('className="gallery-download-progress"');
+    expect(source).toContain('gallery-download-progress-track');
+    expect(styles).toContain('.gallery-download-progress{position:fixed;right:20px;bottom:20px;');
   });
-
   test('HEIC download labels are generic download labels and image browser button text is smaller', () => {
     const source = app();
     const styles = css();

@@ -18,14 +18,16 @@ describe('chat reasoning display toggle', () => {
     expect(source).not.toContain('localStorage.setItem(SHOW_REASONING_KEY');
   });
 
-  test('composer has an icon-only quick toggle for reasoning/thinking visibility', () => {
+  test('composer has one details control for reasoning, tool calls, and compact mode', () => {
     const source = app();
     expect(source).toContain("showReasoning={showReasoning}");
-    expect(source).toContain("setShowReasoning={setShowReasoning}");
-    expect(source).toContain("className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`}");
-    expect(source).toContain("aria-pressed={props.showReasoning}");
-    expect(source).toContain('<Lightbulb /></button>');
-    expect(source).not.toContain('reasoning-view-toggle ${props.showReasoning ? \'active\' : \'\'}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t(\'chat.hideThinking\') : t(\'chat.showThinking\')} title={props.showReasoning ? t(\'chat.hideThinking\') : t(\'chat.showThinking\')} onClick={() => props.setShowReasoning(!props.showReasoning)}><Eye /></button>');
+    expect(source).toContain("showToolCalls={showToolCalls}");
+    expect(source).toContain('function ComposerDetailsControl');
+    expect(source).toContain('onToggleReasoning={toggleReasoningVisibility}');
+    expect(source).toContain('onToggleToolCalls={toggleToolCallVisibility}');
+    expect(source).toContain('onToggleCompact={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}');
+    expect(source).toContain('className="composer-details-options"');
+    expect(source).toContain('role="menuitemcheckbox"');
   });
 
   test('assistant messages render reasoning only when the toggle is enabled', () => {
@@ -78,9 +80,10 @@ describe('chat reasoning display toggle', () => {
     expect(source).not.toContain('localStorage.setItem(SHOW_TOOL_CALLS_KEY');
     expect(source).toContain("showToolCalls={showToolCalls}");
     expect(source).toContain("setShowToolCalls={setShowToolCalls}");
-    expect(source).toContain("className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`}");
-    expect(source).toContain("aria-pressed={props.showToolCalls}");
-    expect(source).toContain('<Terminal /></button>');
+    expect(source).toContain('function ComposerDetailsControl');
+    expect(source).toContain('onToggleToolCalls={toggleToolCallVisibility}');
+    expect(source).toContain('role="menuitemcheckbox"');
+    expect(source).toContain('className="composer-details-options"');
     expect(i18n).toContain("'chat.showToolCalls'");
     expect(i18n).toContain("'chat.hideToolCalls'");
   });

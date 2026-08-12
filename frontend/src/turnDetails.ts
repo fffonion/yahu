@@ -176,6 +176,18 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
     resetTurn();
   };
 
+  const flushBufferAsDetailGroup = () => {
+    if (!buffer.length) return;
+    const last = buffer[buffer.length - 1];
+    pushBufferedDetailGroup(
+      bufferedDetailGroupId(last.message, last.index),
+      last.message,
+      last.index,
+      undefined,
+      { defaultOpen: !!options.openTrailingDetails, preserveTurn: true },
+    );
+  };
+
   const flushTrailingBuffer = () => {
     if (buffer.length) {
       const last = buffer[buffer.length - 1];
@@ -244,7 +256,7 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
     }
 
     if (isSessionStateMessage(message)) {
-      flushBufferAsMessages();
+      flushBufferAsDetailGroup();
       activeAnchorId = messageId(message, index);
       items.push({
         kind: 'sessionState',
@@ -355,7 +367,7 @@ export function buildDesktopTurnBlocks<T extends MessageVisibilityInput>(items: 
   let splitAfterHistoryGap = false;
   const append = (item: TurnDetailItem<T>) => {
     const sourceIndexes = item.sourceIndexes || [];
-    if (!current || splitAfterHistoryGap || item.kind === 'sessionState' || (item.kind === 'message' && (item.message.role === 'user' || !!item.message.historyGap))) {
+    if (!current || splitAfterHistoryGap || (item.kind === 'message' && (item.message.role === 'user' || !!item.message.historyGap))) {
       const firstId = item.kind === 'message' ? messageId(item.message, sourceIndexes[0] ?? blocks.length) : item.id;
       current = { id: `desktop-turn:${firstId}:${blocks.length}`, items: [], sourceIndexes: [] };
       blocks.push(current);

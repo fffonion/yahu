@@ -35,6 +35,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [projectionPending, setProjectionPending] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [goalExpanded, setGoalExpanded] = useState(false);
   const [openNodeIds, setOpenNodeIds] = useState<Set<string>>(() => new Set());
   const [detailCache, setDetailCache] = useState<SubagentDetailCache>({});
@@ -60,6 +61,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       next.delete(nodeSessionId);
       return next;
     });
+    setSelectedNodeId((current) => open || current !== nodeSessionId ? (open ? nodeSessionId : current) : null);
   }, []);
   const cacheNodeMessages = useCallback((nodeSessionId: string, messageCount: number, items: ChatMessage[]) => {
     setDetailCache((current) => {
@@ -74,6 +76,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     setSnapshot(null);
     setProjectionPending(false);
     setExpanded(false);
+    setSelectedNodeId(null);
     setGoalExpanded(false);
     setOpenNodeIds(new Set());
     setDetailCache({});
@@ -174,6 +177,8 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   }, [liveGoal, running]);
 
   const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
+  const selectedNode = useMemo(() => findSubagentTreeNode(tree, selectedNodeId), [selectedNodeId, tree]);
+  const visibleTree = selectedNode ? [selectedNode] : tree;
   if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;
 
   const goal = snapshot.goal;
@@ -212,22 +217,39 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       <footer className="subagent-goal-footer">{goalMetadata}</footer>
     </details>}
     {(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
-    <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+    <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => {
+      if (selectedNodeId) {
+        setSelectedNodeId(null);
+        setOpenNodeIds(new Set());
+        return;
+      }
+      setExpanded((value) => !value);
+    }}>
       {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
       {(expanded || !preview) && <>
         <span className="subagent-progress-mark"><Bot aria-hidden="true" /></span>
-        <span className="subagent-progress-heading"><strong>{t('subagents.title')}</strong><small>{projectionPending ? t('subagents.refreshing') : running ? t('subagents.running') : t('subagents.finished')}</small></span>
-        {!projectionPending && <span className="subagent-progress-count">{finished}/{total}</span>}
+        <span className="subagent-progress-heading"><strong>{selectedNode?.task || t('subagents.title')}</strong><small>{selectedNode ? `${statusLabel(selectedNode.status)} · ${formatSubagentElapsed(subagentElapsedSeconds(selectedNode, nowSeconds))}` : projectionPending ? t('subagents.refreshing') : running ? t('subagents.running') : t('subagents.finished')}</small></span>
+        {!selectedNode && !projectionPending && <span className="subagent-progress-count">{finished}/{total}</span>}
         <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />
       </>}
     </button>
     {expanded && <div className="subagent-progress-panel-body">
       <div className="subagent-progress-track" aria-hidden="true"><span style={{ width: `${completion}%` }} /></div>
       {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
-      <div className="subagent-progress-tree" ref={detailTreeRef} onScroll={(event) => { followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget); }}>{tree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} openNodeIds={openNodeIds} onOpenChange={setNodeOpen} detailCache={detailCache} onMessagesLoaded={cacheNodeMessages} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={startFollowingLatestDetail} onDetailContentChange={followLatestDetail} />)}</div>
+      <div className="subagent-progress-tree" ref={detailTreeRef} onScroll={(event) => { followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget); }}>{visibleTree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} openNodeIds={openNodeIds} onOpenChange={setNodeOpen} detailCache={detailCache} onMessagesLoaded={cacheNodeMessages} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={(runningNode) => { if (runningNode) startFollowingLatestDetail(); }} onDetailContentChange={followLatestDetail} />)}</div>
     </div>}
     </section>}
   </div>;
+}
+
+export function findSubagentTreeNode(nodes: SubagentTreeNode[], sessionId: string | null): SubagentTreeNode | null {
+  if (!sessionId) return null;
+  for (const node of nodes) {
+    if (node.sessionId === sessionId) return node;
+    const child = findSubagentTreeNode(node.children, sessionId);
+    if (child) return child;
+  }
+  return null;
 }
 
 export function GoalMilestones({ goal }: { goal: PersistentGoal }) {
@@ -265,7 +287,7 @@ function SubagentProgressPreview({ node, runningCount, nowSeconds }: { node: Sub
   </>;
 }
 
-export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCache, onMessagesLoaded, nowSeconds, depth, showReasoning, showToolCalls, compact, onDetailOpen, onDetailContentChange }: { node: SubagentTreeNode; openNodeIds: ReadonlySet<string>; onOpenChange: (sessionId: string, open: boolean) => void; detailCache: Readonly<SubagentDetailCache>; onMessagesLoaded: (sessionId: string, messageCount: number, messages: ChatMessage[]) => void; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean; onDetailOpen: () => void; onDetailContentChange: () => void }) {
+export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCache, onMessagesLoaded, nowSeconds, depth, showReasoning, showToolCalls, compact, onDetailOpen, onDetailContentChange }: { node: SubagentTreeNode; openNodeIds: ReadonlySet<string>; onOpenChange: (sessionId: string, open: boolean) => void; detailCache: Readonly<SubagentDetailCache>; onMessagesLoaded: (sessionId: string, messageCount: number, messages: ChatMessage[]) => void; nowSeconds: number; depth: number; showReasoning: boolean; showToolCalls: boolean; compact: boolean; onDetailOpen: (running: boolean) => void; onDetailContentChange: () => void }) {
   const elapsed = formatSubagentElapsed(subagentElapsedSeconds(node, nowSeconds));
   const completed = node.status === 'completed';
   const open = openNodeIds.has(node.sessionId);
@@ -323,12 +345,12 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
   }, [loadedMessageCount, node.messageCount, node.sessionId, onMessagesLoaded, open]);
 
   useLayoutEffect(() => {
-    if (open && detailMessages.length > 0) onDetailContentChange();
-  }, [detailMessages, onDetailContentChange, open]);
+    if (open && node.status === 'running' && detailMessages.length > 0) onDetailContentChange();
+  }, [detailMessages, node.status, onDetailContentChange, open]);
 
   return <div className={`subagent-progress-node depth-${Math.min(depth, 3)}`}>
     <details open={open}>
-      <summary className={completed ? 'completed' : undefined} onClick={(event) => { event.preventDefault(); const nextOpen = !open; onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(); }}>
+      <summary className={completed ? 'completed' : undefined} onClick={(event) => { event.preventDefault(); const nextOpen = !open; onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(node.status === 'running'); }}>
         <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
         <span className="subagent-progress-goal"><strong>{node.task}{node.ancestryOmitted && <span className="subagent-progress-omitted-ancestry" title={t('subagents.parentOmitted')}> · {t('subagents.parentOmitted')}</span>}</strong>{(!completed || node.model) && <small className="subagent-progress-model" title={node.model || undefined}>{!completed ? `${statusLabel(node.status)} · ${elapsed}${node.currentTool ? ` · ${node.currentTool}` : ''}${node.model ? ' · ' : ''}` : ''}{node.model || ''}</small>}</span>
         {!completed && <ChevronRight className="subagent-progress-chevron" aria-hidden="true" />}

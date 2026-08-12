@@ -171,21 +171,50 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
   const handleMobileKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
     const sequences: Partial<Record<string, string>> = {
-      Backspace: '\x7f',
-      Enter: '\r',
+      Backspace: terminalSpecialKeySequence('backspace'),
+      Delete: terminalSpecialKeySequence('delete'),
+      Enter: terminalSpecialKeySequence('enter'),
+      NumpadEnter: terminalSpecialKeySequence('enter'),
       Escape: terminalSpecialKeySequence('escape'),
       Tab: terminalSpecialKeySequence('tab'),
+      Insert: terminalSpecialKeySequence('insert'),
+      Home: terminalSpecialKeySequence('home'),
+      End: terminalSpecialKeySequence('end'),
+      PageUp: terminalSpecialKeySequence('pageUp'),
+      PageDown: terminalSpecialKeySequence('pageDown'),
       ArrowUp: terminalSpecialKeySequence('up'),
       ArrowDown: terminalSpecialKeySequence('down'),
       ArrowRight: terminalSpecialKeySequence('right'),
       ArrowLeft: terminalSpecialKeySequence('left'),
+      F1: terminalSpecialKeySequence('f1'),
+      F2: terminalSpecialKeySequence('f2'),
+      F3: terminalSpecialKeySequence('f3'),
+      F4: terminalSpecialKeySequence('f4'),
+      F5: terminalSpecialKeySequence('f5'),
+      F6: terminalSpecialKeySequence('f6'),
+      F7: terminalSpecialKeySequence('f7'),
+      F8: terminalSpecialKeySequence('f8'),
+      F9: terminalSpecialKeySequence('f9'),
+      F10: terminalSpecialKeySequence('f10'),
+      F11: terminalSpecialKeySequence('f11'),
+      F12: terminalSpecialKeySequence('f12'),
     };
-    const data = sequences[event.key];
+    let data = sequences[event.key];
+    if (!data && event.key.length === 1 && (event.ctrlKey || event.altKey)) {
+      data = applyTerminalModifiers(event.key, { ctrl: event.ctrlKey, alt: event.altKey });
+    }
     if (!data) return;
     event.preventDefault();
     event.currentTarget.value = '';
     sendTerminalInput(data);
   }, [sendTerminalInput]);
+
+  const handleDesktopTerminalKeyDownCapture = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!active || window.matchMedia('(max-width:760px)').matches || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    sendSocketInput(terminalSpecialKeySequence('escape'));
+  }, [active, sendSocketInput]);
 
   const toggleMobileModifier = useCallback((modifier: keyof TerminalModifierState) => {
     const next = { ...mobileModifiersRef.current, [modifier]: !mobileModifiersRef.current[modifier] };
@@ -348,7 +377,7 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
         <button type="button" aria-label={t('terminal.keyLeft')} onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('left')}>←</button>
         <button type="button" aria-label={t('terminal.keyRight')} onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('right')}>→</button>
       </div>
-      <div className="web-terminal-host" ref={hostRef} onPointerDownCapture={focusTerminalSurface} />
+      <div className="web-terminal-host" ref={hostRef} onKeyDownCapture={handleDesktopTerminalKeyDownCapture} onPointerDownCapture={focusTerminalSurface} />
       <textarea
         ref={mobileInputRef}
         className="mobile-terminal-input"

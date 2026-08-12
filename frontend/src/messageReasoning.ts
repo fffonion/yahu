@@ -2,7 +2,7 @@ type MessageParts = { content: string; reasoning: string };
 
 const REASONING_PART_TYPES = new Set(['reasoning', 'thinking', 'thought', 'thoughts', 'analysis', 'reasoning_text', 'thinking_text']);
 const VISIBLE_TEXT_PART_TYPES = new Set(['text', 'output_text', 'input_text', 'message', 'content', 'assistant']);
-const REASONING_FIELD_NAMES = ['reasoning', 'reasoning_content', 'thinking', 'thinking_content', 'thought', 'thoughts', 'analysis'];
+const REASONING_FIELD_NAMES = ['reasoning', 'reasoning_content', 'thinking', 'thinking_content', 'thought', 'thoughts', 'analysis', 'reasoning_summary', 'reasoningSummary'];
 
 function pushUniqueText(target: string[], text: string) {
   const normalized = text.trim();

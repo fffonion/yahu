@@ -64,11 +64,24 @@ describe('tool message structured layout css', () => {
     const source = app();
     const styles = css();
     expect(source).not.toContain('<div className="avatar">{getToolIcon(toolName)}</div>');
-    expect(source).toContain('<span className="tool-inline-icon">{getToolIcon(toolName)}</span>');
+    expect(source).toContain('<span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>');
     expect(styles).toContain('.msg-row.tool{grid-template-columns:minmax(0,1fr);max-width:920px;align-items:start}');
     expect(styles).toContain('.tool-summary{width:100%;border:0;background:transparent;color:var(--text);display:grid;grid-template-columns:18px max-content minmax(0,1fr) 20px;gap:1ch;');
-    expect(styles).toContain('.tool-inline-icon{display:grid;color:var(--accent);place-items:center}');
+    expect(styles).toContain('.tool-inline-icon{display:grid;color:var(--accent);place-items:center;border-radius:5px;padding:2px;background:color-mix(in srgb,currentColor 13%,transparent)}');
+    expect(styles).toContain('.tool-inline-icon.tool-icon-terminal{color:var(--tool-terminal)}');
+    expect(styles).toContain('.tool-inline-icon.tool-icon-file{color:var(--tool-file)}');
+    expect(styles).toContain('.tool-inline-icon.tool-icon-search{color:var(--tool-search)}');
     expect(styles).toContain('.tool-title{font-size:12px;font-weight:500;color:var(--accent);white-space:nowrap}');
     expect(styles).toContain('.tool-subtitle{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}');
+  });
+
+  test('mobile tool text keeps the desktop semantic colors', () => {
+    const styles = css();
+    expect(styles).toContain('.mobile-compact-chat .tool-summary{color:var(--text)}');
+    expect(styles).toContain('.mobile-compact-chat .tool-title{color:var(--accent)}');
+    expect(styles).toContain('.mobile-compact-chat .tool-subtitle{color:var(--muted)}');
+    expect(styles).toContain('.mobile-compact-chat .tool-key,.mobile-compact-chat .tool-detail-section h4{color:var(--muted)}');
+    expect(styles).toContain('.mobile-compact-chat .tool-scalar.string{color:var(--text)}');
+    expect(styles).toContain('.mobile-compact-chat .tool-scalar.number,.mobile-compact-chat .tool-scalar.boolean{color:var(--accent-2)}');
   });
 });

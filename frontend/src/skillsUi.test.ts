@@ -179,6 +179,20 @@ describe('skills UI', () => {
     expect(source).toContain("return { mode: 'skills', skillName: decodePart(kind) }");
     expect(source).toContain("return route.skillName ? `#/skills/${encodePart(route.skillName)}` : '#/skills'");
   });
+  test('skill list uses a local cache with lazy refresh and supports wheel and pan scrolling', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("const SKILL_LIST_CACHE_KEY = 'hermes.skills.list.v1';");
+    expect(source).toContain('function readSkillListCache()');
+    expect(source).toContain('SKILL_LIST_CACHE_TTL_MS');
+    expect(source).toContain("useEffect(() => { if (mode === 'skills') loadSkills(); }, [mode, loadSkills]);");
+    expect(source).toContain("ref={skillsListRef} className=\"skills-list sessions\"");
+    expect(source).toContain('onWheel={handleSkillWheel}');
+    expect(source).toContain('onPointerDown={handleSkillPointerDown}');
+    expect(source).toContain('onPointerMove={handleSkillPointerMove}');
+    expect(source).toContain('onPointerUp={finishSkillPan}');
+    expect(styles).toContain('.skills-list{min-height:0;overflow:auto;touch-action:pan-y;overscroll-behavior:contain;cursor:grab}');
+  });
 });
 
 describe('skills backend API', () => {

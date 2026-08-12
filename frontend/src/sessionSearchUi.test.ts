@@ -12,6 +12,7 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain("const params = new URLSearchParams({ limit: '80', _: String(Date.now()) });");
     expect(app).toContain("cache: 'no-store'");
     expect(app).toContain('searchVersionRef');
+    expect(app).not.toContain("window.setInterval(() => { void loadSessions(filter); }, 5000)");
     expect(app).not.toContain("`${s.title || ''} ${s.preview || ''}`");
   });
 

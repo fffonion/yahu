@@ -25,7 +25,7 @@ describe('stream-aware composer primary button', () => {
     expect(source).toContain("const primaryActionIsStop = props.streaming && !props.input.trim();");
     expect(source).toContain('onClick={primaryActionIsStop ? props.stopStreaming : props.sendMessage}');
     expect(source).toContain("aria-label={primaryActionIsStop ? t('chat.stopStreaming') : t('chat.send')}");
-    expect(source).toContain('{primaryActionIsStop ? <Square /> : <ArrowUp />}');
+    expect(source).toContain('{primaryActionIsStop ? <Square fill="currentColor" /> : <ArrowUp />}');
     expect(source).not.toContain('{props.streaming && <button type="button" className="send-btn stop-stream-btn');
     expect(source).not.toContain('<Send /> <span className="btn-label">');
   });

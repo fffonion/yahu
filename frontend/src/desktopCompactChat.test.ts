@@ -6,24 +6,21 @@ const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 const i18n = () => readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
 
 describe('desktop compact chat toggle', () => {
-  test('composer renders compact toggle immediately after tool toggle', () => {
+  test('composer renders details control instead of separate compact toggle ordering', () => {
     const source = app();
     expect(source).toContain("desktopCompactMessages={desktopCompactMessages}");
     expect(source).toContain("setDesktopCompactMessages={setDesktopCompactMessages}");
-    expect(source).toContain("reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`}");
-    expect(source).toContain("tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`}");
-    expect(source).toContain("desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`}");
-    expect(source.indexOf('reasoning-view-toggle')).toBeLessThan(source.indexOf('tool-call-view-toggle'));
-    expect(source.indexOf('tool-call-view-toggle')).toBeLessThan(source.indexOf('desktop-compact-view-toggle'));
+    expect(source).toContain('function ComposerDetailsControl');
+    expect(source).toContain('onToggleReasoning={toggleReasoningVisibility}');
+    expect(source).toContain('onToggleToolCalls={toggleToolCallVisibility}');
+    expect(source).toContain('onToggleCompact={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}');
+    expect(source).toContain('className="composer-details-option"');
   });
 
   test('desktop compact toggle uses localized compact mode copy', () => {
     const source = app();
     const messages = i18n();
-    expect(source).toContain("aria-label={t('chat.compactMode')}");
-    expect(source).toContain("title={t('chat.compactMode')}");
-    expect(source).not.toContain('Use card chat layout');
-    expect(source).not.toContain('Use compact chat layout');
+    expect(source).toContain("t('chat.collapseDetails')");
     expect(messages).toContain("'chat.compactMode': { en: 'Compact mode', 'zh-CN': '紧凑模式', 'zh-TW': '緊湊模式', ja: 'コンパクトモード' }");
   });
 
@@ -31,6 +28,14 @@ describe('desktop compact chat toggle', () => {
     const styles = css();
     expect(styles).toContain('.composer-wrap.composer-compact .composer-box{min-height:64px;overflow:hidden}');
     expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{position:absolute;right:4px;bottom:4px;width:auto;height:38px;');
+  });
+
+  test('mobile collapsed composer has equal outer spacing and a centered send control', () => {
+    const styles = css();
+    expect(styles).toContain('.composer-wrap.composer-compact{padding:8px 10px calc(var(--mobile-bottom-nav-height) + 10px + env(safe-area-inset-bottom,0px))}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-box{width:calc(100% - 12px);min-height:46px;margin:0 6px;border-radius:18px}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer{right:5px;bottom:5px;width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;overflow:visible}');
+    expect(styles).toContain('.composer-wrap.composer-compact .composer-footer .composer-primary-btn{width:34px;height:34px;flex:0 0 34px}');
   });
 
   test('desktop compact mode uses flat left-aligned user turns separated without an outer card', () => {

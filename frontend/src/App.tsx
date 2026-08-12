@@ -8,7 +8,7 @@ import { waitForCronRunOutput } from './cronRunOutput';
 import { errorMessage, isAbortError } from './errorMessage';
 import { formatFileSize } from './formatFileSize';
 import { createStreamAnimator } from './streamAnimator';
-import { currentModelDisplayOption, providerDisplayName } from './modelDisplay';
+import { currentModelDisplayOption, modelMenuLabel, modelTriggerLabel, orderedModelOptions, providerDisplayName } from './modelDisplay';
 import { fallbackContextWindowForModel, latestMessageProviderForModel, resolvePreferredModelProvider as resolveModelProvider, selectModelOption } from './modelContext';
 import { ChatTranscript, type ChatMessage, type ChatTurnMetrics } from './ChatTranscript';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
@@ -37,7 +37,7 @@ import { isTextEntryElement, visibleViewportHeight } from './viewport';
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 
-type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'solarized-dark' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous' | 'gruvbox-material' | 'github-dark-dimmed';
+type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous' | 'gruvbox-material' | 'github-dark-dimmed' | 'codex-light' | 'codex-dark' | 'claude-code-light' | 'claude-code-dark';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'terminal' | 'settings';
 
 const WebTerminal = lazy(() => import('./WebTerminal'));
@@ -96,7 +96,11 @@ const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const CODE_WRAP_KEY = 'codeWrap';
 const DESKTOP_COMPACT_MESSAGES_KEY = 'desktopCompactMessages';
 const HIDE_CRON_SESSIONS_KEY = 'hideCronSessions';
+const SKILL_LIST_CACHE_KEY = 'hermes.skills.list.v1';
+const SKILL_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+const CHAT_VIEW_STATE_KEY = 'yahu.chat.view.v1';
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
+const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
 const THEME_OPTIONS: Array<{ id: Theme; label: string }> = [
   { id: 'hermes-light', label: 'Hermes Light' },
   { id: 'hermes-dark', label: 'Hermes Dark' },
@@ -104,14 +108,18 @@ const THEME_OPTIONS: Array<{ id: Theme; label: string }> = [
   { id: 'vscode-dark-plus', label: 'VS Code Dark+' },
   { id: 'monokai', label: 'Monokai' },
   { id: 'nord', label: 'Nord' },
-  { id: 'solarized-dark', label: 'Solarized Dark' },
+
   { id: 'catppuccin-latte', label: 'Catppuccin Latte' },
   { id: 'catppuccin-mocha', label: 'Catppuccin Mocha' },
   { id: 'gruvbox-material', label: 'Gruvbox Material' },
   { id: 'github-dark-dimmed', label: 'GitHub Dark Dimmed' },
   { id: 'nous', label: 'Nous' },
+  { id: 'codex-light', label: 'Codex Light' },
+  { id: 'codex-dark', label: 'Codex Dark' },
+  { id: 'claude-code-light', label: 'Claude Code Light' },
+  { id: 'claude-code-dark', label: 'Claude Code Dark' },
 ];
-const DARK_THEMES = new Set<Theme>(['hermes-dark', 'vscode-dark-plus', 'monokai', 'nord', 'solarized-dark', 'catppuccin-mocha', 'nous', 'gruvbox-material', 'github-dark-dimmed']);
+const DARK_THEMES = new Set<Theme>(['hermes-dark', 'vscode-dark-plus', 'monokai', 'nord', 'catppuccin-mocha', 'nous', 'gruvbox-material', 'github-dark-dimmed', 'codex-dark', 'claude-code-dark']);
 const normalizeTheme = (value: string | null): Theme => {
   if (value === 'dark') return 'hermes-dark';
   if (value === 'light') return 'hermes-light';
@@ -128,6 +136,35 @@ const readFollowUpQueues = (): Record<string, FollowUpQueueItem[]> => {
     return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, Array.isArray(value) ? value.filter((item: any) => item && typeof item.text === 'string').map((item: any) => ({ id: String(item.id || uid('fu')), text: item.text, createdAt: Number(item.createdAt || Date.now()) })) : []]));
   } catch { return {}; }
 };
+const readChatViewState = (): { lastSessionId: string; positions: Record<string, number> } => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CHAT_VIEW_STATE_KEY) || 'null');
+    if (!parsed || typeof parsed !== 'object') return { lastSessionId: '', positions: {} };
+    const positions = parsed.positions && typeof parsed.positions === 'object' && !Array.isArray(parsed.positions)
+      ? Object.fromEntries(Object.entries(parsed.positions).filter(([sessionId, value]) => sessionId && Number.isFinite(Number(value))).map(([sessionId, value]) => [sessionId, Math.max(0, Number(value))]))
+      : {};
+    return { lastSessionId: typeof parsed.lastSessionId === 'string' ? parsed.lastSessionId : '', positions };
+  } catch { return { lastSessionId: '', positions: {} }; }
+};
+const writeChatViewState = (sessionId: string, scrollTop?: number) => {
+  if (!sessionId || sessionId === DRAFT_SESSION_ID) return;
+  try {
+    const state = readChatViewState();
+    state.lastSessionId = sessionId;
+    if (Number.isFinite(scrollTop)) state.positions[sessionId] = Math.max(0, Number(scrollTop));
+    const keys = Object.keys(state.positions);
+    if (keys.length > 80) keys.slice(0, keys.length - 80).forEach((key) => delete state.positions[key]);
+    localStorage.setItem(CHAT_VIEW_STATE_KEY, JSON.stringify(state));
+  } catch { /* storage may be unavailable */ }
+};
+const clearLastChatViewSession = () => {
+  try {
+    const state = readChatViewState();
+    state.lastSessionId = '';
+    localStorage.setItem(CHAT_VIEW_STATE_KEY, JSON.stringify(state));
+  } catch { /* storage may be unavailable */ }
+};
+const readChatViewPosition = (sessionId: string) => readChatViewState().positions[sessionId];
 const followUpQueueKey = (sessionId: string) => sessionId || DRAFT_SESSION_ID;
 const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';
 const MESSAGE_PAGE = 24;
@@ -135,6 +172,7 @@ const MESSAGE_WINDOW = 120;
 const RAW_MESSAGE_WINDOW = MESSAGE_WINDOW * 4;
 const OTHER_PLATFORM_PENDING_ID = 'other-platform-pending';
 const initialRoute = getCurrentHashRoute();
+const initialChatView = readChatViewState();
 
 const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
 const clampNumber = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
@@ -312,7 +350,23 @@ function readPinnedIds() {
   catch { return new Set<string>(); }
 }
 function readHideCronSessions() { return localStorage.getItem(HIDE_CRON_SESSIONS_KEY) === '1'; }
+function readSkillListCache(): { savedAt: number; skills: Skill[] } | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SKILL_LIST_CACHE_KEY) || 'null');
+    if (!parsed || !Array.isArray(parsed.skills)) return null;
+    const savedAt = Number(parsed.savedAt);
+    if (!Number.isFinite(savedAt)) return null;
+    return { savedAt, skills: parsed.skills.filter((skill: any) => skill && typeof skill.name === 'string') };
+  } catch { return null; }
+}
+function writeSkillListCache(skills: Skill[]) {
+  try { localStorage.setItem(SKILL_LIST_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), skills })); } catch { /* storage may be unavailable */ }
+}
 function readCodeWrap() { return localStorage.getItem(CODE_WRAP_KEY) !== '0'; }
+function readSidebarCollapsed(defaultValue: boolean) {
+  const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+  return stored === '1' ? true : stored === '0' ? false : defaultValue;
+}
 function realModelOrEmpty(value: unknown) {
   const modelId = String(value || '').trim();
   return modelId && modelId !== 'hermes-agent' ? modelId : '';
@@ -449,7 +503,7 @@ function ContextWindowMeter({ used, total, approximate = false }: { used?: numbe
 export default function App() {
   const [mode, setMode] = useState<Mode>(initialRoute.mode || 'chat');
   const [lang, setLangState] = useState<Lang>(initLang);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'insights' || initialRoute.mode === 'terminal' || initialRoute.mode === 'settings');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readSidebarCollapsed(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'insights' || initialRoute.mode === 'terminal' || initialRoute.mode === 'settings'));
   const [sidebarWidth, setSidebarWidth] = useState(() => readSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY)));
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -470,7 +524,7 @@ export default function App() {
   const [followUpQueues, setFollowUpQueues] = useState<Record<string, FollowUpQueueItem[]>>(readFollowUpQueues);
   const [effort, setEffort] = useState<ReasoningEffort>(() => normalizeReasoningEffort(localStorage.getItem('effort')) || 'medium');
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || '' : '');
+  const [activeSessionId, setActiveSessionId] = useState<string>(initialRoute.mode === 'chat' ? initialRoute.sessionId || initialChatView.lastSessionId || '' : '');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userMessageNav, setUserMessageNav] = useState<UserMessageNavItem[]>([]);
   const [userNavLoading, setUserNavLoading] = useState(false);
@@ -498,7 +552,7 @@ export default function App() {
   const [newMessageBoundaryId, setNewMessageBoundaryId] = useState('');
   const [workspacePath, setWorkspacePath] = useState('');
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
-  const [skillList, setSkillList] = useState<Skill[]>([]);
+  const [skillList, setSkillList] = useState<Skill[]>(() => readSkillListCache()?.skills || []);
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const [skillFileTree, setSkillFileTree] = useState<Record<string, WorkspaceEntry[]>>({});
   const [expandedSkillPaths, setExpandedSkillPaths] = useState<Set<string>>(() => new Set(['']));
@@ -576,6 +630,7 @@ export default function App() {
   useEffect(() => { hasNewerRef.current = hasNewer; }, [hasNewer]);
   useEffect(() => { newMessageBoundaryIdRef.current = newMessageBoundaryId; }, [newMessageBoundaryId]);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
+  useEffect(() => { writeChatViewState(activeSessionId); }, [activeSessionId]);
   useEffect(() => () => { if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current); }, []);
   const showToast = useCallback((message: string) => {
     if (!message) return;
@@ -697,6 +752,7 @@ export default function App() {
   useEffect(() => localStorage.setItem('apiKey', apiKey), [apiKey]);
   useEffect(() => { const next = realModelOrEmpty(model); if (next) localStorage.setItem('model', next); }, [model]);
   useEffect(() => localStorage.setItem(FOLLOW_UP_BEHAVIOUR_KEY, followUpBehaviour), [followUpBehaviour]);
+  useEffect(() => localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0'), [sidebarCollapsed]);
   useEffect(() => localStorage.setItem(COMPOSER_ENTER_MODE_KEY, composerEnterMode), [composerEnterMode]);
   useEffect(() => localStorage.setItem(CODE_WRAP_KEY, codeWrap ? '1' : '0'), [codeWrap]);
   useEffect(() => localStorage.setItem('effort', effort), [effort]);
@@ -763,16 +819,23 @@ export default function App() {
 
   const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod, force = false) => {
     const cached = usageInsightsCacheRef.current[period];
-    if (cached && !force) { setUsageInsights(cached); setUsageError(''); return; }
+    if (cached && !force && Number(cached?.totals?.unpriced_tokens || 0) <= 0) { setUsageInsights(cached); setUsageError(''); return; }
     setUsageLoading(true);
     setUsageError('');
     try {
       const timezoneOffset = new Date().getTimezoneOffset();
-      const usageParams = new URLSearchParams({ period: String(period), tz_offset: String(timezoneOffset) });
-      if (force) usageParams.set('refresh', 'true');
-      const usageRes = await fetch(`/insights/usage?${usageParams.toString()}`);
+      const buildUsageUrl = (refresh: boolean) => {
+        const usageParams = new URLSearchParams({ period: String(period), tz_offset: String(timezoneOffset) });
+        if (refresh) usageParams.set('refresh', 'true');
+        return `/insights/usage?${usageParams.toString()}`;
+      };
+      let usageRes = await fetch(buildUsageUrl(force), { cache: 'no-store' });
       if (!usageRes.ok) throw new Error(await usageRes.text());
-      const nextInsights = await usageRes.json();
+      let nextInsights = await usageRes.json();
+      if (!force && Number(nextInsights?.totals?.unpriced_tokens || 0) > 0) {
+        usageRes = await fetch(buildUsageUrl(true), { cache: 'no-store' });
+        if (usageRes.ok) nextInsights = await usageRes.json();
+      }
       usageInsightsCacheRef.current[period] = nextInsights;
       setUsageInsights(nextInsights);
     } catch (err) {
@@ -918,6 +981,7 @@ export default function App() {
 
   const startDraftSession = useCallback(() => {
     const sessionModel = realModelOrEmpty(model) || models[0]?.id || '';
+    clearLastChatViewSession();
     messageRequestRef.current += 1;
     activeSessionIdRef.current = DRAFT_SESSION_ID;
     messagesRef.current = [];
@@ -1133,19 +1197,29 @@ export default function App() {
       await openSkillFile(skill.name, 'SKILL.md');
     } catch (err) { setStatus(tf('status.skillUnavailable', errorMessage(err))); }
   }, [loadSkillFiles, openSkillFile, writeHashRoute]);
-  const loadSkills = useCallback(async () => {
+  const loadSkills = useCallback(async (force = false) => {
+    const cached = readSkillListCache();
+    if (cached) {
+      setSkillList(cached.skills);
+      if (!force && Date.now() - cached.savedAt < SKILL_LIST_CACHE_TTL_MS) return;
+    }
     try {
       const res = await fetch('/skills/list', { cache: 'no-store' });
       if (!res.ok) throw new Error(await res.text());
       const body = await res.json();
       const list: Skill[] = body.data || body.skills || [];
       setSkillList(list);
+      writeSkillListCache(list);
     } catch (err) { setStatus(tf('status.skillsUnavailable', errorMessage(err))); }
   }, []);
   const toggleSkillEnabled = useCallback(async (skill: Skill, enabled: boolean) => {
     const res = await fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
     if (!res.ok) { setStatus(tf('status.skillToggleFailed', await res.text())); return; }
-    setSkillList((old) => old.map((item) => item.name === skill.name ? { ...item, enabled } : item));
+    setSkillList((old) => {
+      const next = old.map((item) => item.name === skill.name ? { ...item, enabled } : item);
+      writeSkillListCache(next);
+      return next;
+    });
     setStatus(tf(enabled ? 'status.skillEnabled' : 'status.skillDisabled', skill.name));
   }, []);
   const openSkillMenu = (skill: Skill, event: React.MouseEvent) => {
@@ -1160,12 +1234,16 @@ export default function App() {
     if (!await requestConfirm(t('skills.deleteTitle'), tf('skills.deleteConfirm', skill.name), true)) return;
     const res = await fetch(`/skills/${encodeURIComponent(skill.name)}`, { method: 'DELETE' });
     if (!res.ok) { setStatus(tf('skills.deleteFailed', await res.text())); return; }
-    setSkillList((old) => old.filter((item) => item.name !== skill.name));
+    setSkillList((old) => {
+      const next = old.filter((item) => item.name !== skill.name);
+      writeSkillListCache(next);
+      return next;
+    });
     if (selectedSkillName === skill.name) {
       clearSelectedSkill();
       writeHashRoute({ mode: 'skills' });
     }
-    await loadSkills();
+    await loadSkills(true);
     setStatus(t('skills.deleted'));
     showToast(t('skills.deleted'));
   };
@@ -1379,7 +1457,9 @@ export default function App() {
         if (activeSessionIdRef.current !== watchedSessionId) return;
         const raw = JSON.parse(ev.data);
         const msg = normalizeMessage(raw, activeSession?.source);
-        const wasNearBottom = !!chatScrollRef.current && isNearBottom(chatScrollRef.current);
+        const savedScrollTop = readChatViewPosition(watchedSessionId);
+        const viewportMatchesSaved = !Number.isFinite(savedScrollTop) || Math.abs((chatScrollRef.current?.scrollTop || 0) - Number(savedScrollTop)) <= 2;
+        const wasNearBottom = viewportMatchesSaved && !!chatScrollRef.current && isNearBottom(chatScrollRef.current);
         const prev = messagesRef.current;
         const next = mergeWatchedMessage(prev, msg);
         messagesRef.current = next;
@@ -1458,10 +1538,15 @@ export default function App() {
     scrollLatestAfterRenderRef.current = false;
     const scroller = chatScrollRef.current;
     if (!scroller) return;
-    const scrollBottom = () => { scroller.scrollTop = scroller.scrollHeight; };
-    scrollBottom();
-    requestAnimationFrame(scrollBottom);
-    window.setTimeout(scrollBottom, 60);
+    const savedTop = readChatViewPosition(activeSessionId);
+    const restorePosition = () => {
+      if (Number.isFinite(savedTop)) scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+      else scroller.scrollTop = scroller.scrollHeight;
+    };
+    restorePosition();
+    requestAnimationFrame(restorePosition);
+    window.setTimeout(restorePosition, 60);
+    window.setTimeout(restorePosition, 300);
   }, [messages, activeSessionId]);
   useLayoutEffect(() => {
     const targetId = pendingJumpMessageIdRef.current;
@@ -1999,7 +2084,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => { setMode('workspace'); setSidebarCollapsed(false); writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path }); setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path }); }} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2247,6 +2332,7 @@ function UsageAreaChart({ buckets, models, metric, stacked }: { buckets: Array<U
   </div>;
 }
 function ChatSidebar(props: { filter: string; setFilter: (v: string) => void; hideCronSessions: boolean; setHideCronSessions: (value: boolean) => void; startDraftSession: () => void; pinnedSessions: Session[]; normalSessions: Session[]; activeSessionId: string; setActiveSessionId: (v: string) => void; writeHashRoute: (route: HashRoute) => void; closeMobileSidebar: () => void; pinnedIds: Set<string>; togglePin: (id: string) => void; openSessionMenu: (session: Session, event: React.MouseEvent) => void; openSessionMenuAt: (session: Session, x: number, y: number) => void }) {
+  const [collapsedSections, setCollapsedSections] = useState<{ pinned: boolean; recent: boolean }>({ pinned: false, recent: false });
   const activateSession = (id: string) => {
     props.writeHashRoute({ mode: 'chat', sessionId: id });
     if (id === props.activeSessionId) {
@@ -2256,7 +2342,7 @@ function ChatSidebar(props: { filter: string; setFilter: (v: string) => void; hi
     props.setActiveSessionId(id);
     props.closeMobileSidebar();
   };
-  return <><div className="session-searchbar"><button className="new-chat-btn" aria-label={t('chat.new')} title={t('chat.new')} onClick={() => { props.startDraftSession(); props.closeMobileSidebar(); }}><Plus /></button><input className="filter" placeholder={t('chat.search')} value={props.filter} onChange={(e) => props.setFilter(e.target.value)} /><button type="button" className={`session-filter-btn ${props.hideCronSessions ? 'active' : ''}`} aria-label={props.hideCronSessions ? t('chat.showCronSessions') : t('chat.hideCronSessions')} title={props.hideCronSessions ? t('chat.showCronSessions') : t('chat.hideCronSessions')} aria-pressed={props.hideCronSessions} onClick={() => props.setHideCronSessions(!props.hideCronSessions)}><SlidersHorizontal /></button></div><div className="sessions">{props.pinnedSessions.length > 0 && <div className="section-label"><ChevronRight /> {t('chat.pinned')}</div>}{props.pinnedSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}<div className="section-label"><ChevronRight /> {t('chat.recent')}</div>{props.normalSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}</div></>;
+  return <><div className="session-searchbar"><button className="new-chat-btn" aria-label={t('chat.new')} title={t('chat.new')} onClick={() => { props.startDraftSession(); props.closeMobileSidebar(); }}><Plus /></button><input className="filter" placeholder={t('chat.search')} value={props.filter} onChange={(e) => props.setFilter(e.target.value)} /><button type="button" className={`session-filter-btn ${props.hideCronSessions ? 'active' : ''}`} aria-label={props.hideCronSessions ? t('chat.showCronSessions') : t('chat.hideCronSessions')} title={props.hideCronSessions ? t('chat.showCronSessions') : t('chat.hideCronSessions')} aria-pressed={props.hideCronSessions} onClick={() => props.setHideCronSessions(!props.hideCronSessions)}><SlidersHorizontal /></button></div><div className="sessions">{props.pinnedSessions.length > 0 && <><button type="button" className="section-label" aria-expanded={!collapsedSections.pinned} onClick={() => setCollapsedSections((current) => ({ ...current, pinned: !current.pinned }))}>{collapsedSections.pinned ? <ChevronRight /> : <ChevronDown />} {t('chat.pinned')}</button>{!collapsedSections.pinned && props.pinnedSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}</>}<button type="button" className="section-label" aria-expanded={!collapsedSections.recent} onClick={() => setCollapsedSections((current) => ({ ...current, recent: !current.recent }))}>{collapsedSections.recent ? <ChevronRight /> : <ChevronDown />} {t('chat.recent')}</button>{!collapsedSections.recent && props.normalSessions.map((s) => <SessionRow key={s.id} session={s} active={s.id === props.activeSessionId} pinned={props.pinnedIds.has(s.id)} onClick={() => activateSession(s.id)} onTogglePin={() => props.togglePin(s.id)} onContextMenu={(event) => props.openSessionMenu(s, event)} onLongPress={(x, y) => props.openSessionMenuAt(s, x, y)} />)}</div></>;
 }
 function SessionRow({ session, active, pinned, onClick, onTogglePin, onContextMenu, onLongPress }: { session: Session; active: boolean; pinned: boolean; onClick: () => void; onTogglePin: () => void; onContextMenu: (event: React.MouseEvent) => void; onLongPress: (x: number, y: number) => void }) {
   const longPress = useLongPressContextMenu(onLongPress);
@@ -2446,13 +2532,45 @@ function ChatHtmlPreview({ current, onClose }: { current: ChatHtmlPreviewItem | 
     </section>
   </div>;
 }
-function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', options, onChange, wide = false, hideLabel = false, searchable = false, placement = 'up', iconOnly = false, className = '', emptyLabel = t('chat.noModels') }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; options: Array<{ id: string; label: string; provider?: string; description?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string; description?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean; placement?: 'up' | 'down'; iconOnly?: boolean; className?: string; emptyLabel?: string }) {
+function ComposerDetailsControl({ currentModel, sessionProvider, modelDisplay, modelOptions, onModelChange, effort, onEffortChange, showReasoning, showToolCalls, compactMessages, onToggleReasoning, onToggleToolCalls, onToggleCompact }: { currentModel: string; sessionProvider: string; modelDisplay: string; modelOptions: ModelOption[]; onModelChange: (value: string, option?: ModelOption) => void; effort: ReasoningEffort; onEffortChange: (value: ReasoningEffort) => void; showReasoning: boolean; showToolCalls: boolean; compactMessages: boolean; onToggleReasoning: () => void; onToggleToolCalls: () => void; onToggleCompact: () => void }) {
+  const index = Math.max(0, REASONING_EFFORTS.indexOf(effort));
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState<'advanced' | 'model' | 'effort' | 'details'>('advanced');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const effortLabel = effort.charAt(0).toUpperCase() + effort.slice(1);
+  const triggerModelDisplay = modelDisplay || modelOptions[0]?.label || modelOptions[0]?.id || currentModel || t('chat.noModels');
+  const close = () => { setOpen(false); setAdvancedOpen(false); setPage('advanced'); };
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) close(); };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
+    window.addEventListener('pointerdown', closeOutside); window.addEventListener('keydown', closeOnEscape);
+    return () => { window.removeEventListener('pointerdown', closeOutside); window.removeEventListener('keydown', closeOnEscape); };
+  }, [open]);
+  const openMenu = () => { setOpen(true); setAdvancedOpen(false); setPage('advanced'); };
+  const detailsOption = (label: string, checked: boolean, onClick: () => void) => <button type="button" role="menuitemcheckbox" aria-checked={checked} className="composer-details-option" onClick={onClick}><span className="composer-details-check">{checked ? '✓' : '○'}</span><span>{label}</span></button>;
+  return <div ref={rootRef} className={`composer-details composer-details-page-${page}`}>
+    <button type="button" className="composer-details-trigger" aria-label={t('chat.showDetails')} title={t('chat.showDetails')} aria-expanded={open} onClick={() => { if (open) close(); else openMenu(); }}><span className="composer-trigger-model">{triggerModelDisplay}</span><span className="composer-trigger-effort">{effortLabel}</span></button>
+    {open && <div className="composer-details-popover" role="dialog" aria-label={t('chat.showDetails')}>
+      {!advancedOpen && <div className="composer-details-page composer-details-primary"><div className="composer-slider-title"><span>{t('chat.reasoning')}</span><output>{effortLabel}</output></div><input className="reasoning-slider" type="range" min={0} max={REASONING_EFFORTS.length - 1} step={1} value={index} aria-label={t('chat.reasoning')} aria-valuetext={effortLabel} onChange={(event) => onEffortChange(REASONING_EFFORTS[Number(event.target.value)] || 'medium')} /><div className="reasoning-slider-scale" aria-hidden="true"><span>none</span><span>max</span></div><button type="button" className="composer-details-advanced" onClick={() => { setAdvancedOpen(true); setPage('advanced'); }}><span>{t('chat.advanced')}</span><ChevronRight aria-hidden="true" /></button></div>}
+      {advancedOpen && <div className="composer-details-page composer-details-primary"><div className="composer-submenu-list" role="menu"><button type="button" className="composer-submenu-row" onClick={() => setPage('model')}><span>{t('chat.model')}</span><span className="composer-submenu-value">{modelDisplay}</span><ChevronRight aria-hidden="true" /></button><button type="button" className="composer-submenu-row" onClick={() => setPage('effort')}><span>{t('chat.reasoning')}</span><span className="composer-submenu-value">{effortLabel}</span><ChevronRight aria-hidden="true" /></button><button type="button" className="composer-submenu-row" onClick={() => setPage('details')}><span>{t('chat.showDetailsMenu')}</span><span className="composer-submenu-value" /><ChevronRight aria-hidden="true" /></button></div></div>}
+      {advancedOpen && page !== 'advanced' && <div className="composer-details-flyout">
+        {page === 'model' && <div className="composer-details-page"><button type="button" className="composer-submenu-back" onClick={() => setPage('advanced')}><ChevronLeft aria-hidden="true" /><span>{t('chat.advanced')}</span></button><input className="composer-model-search" aria-label={t('chat.searchModels')} placeholder={t('chat.searchModels')} onChange={(event) => { const input = event.currentTarget; const q = input.value.toLowerCase(); input.parentElement?.querySelectorAll<HTMLButtonElement>('[data-model-label]').forEach((item) => { item.hidden = !item.dataset.modelLabel!.toLowerCase().includes(q); }); }} /><div className="composer-model-list" role="listbox">{modelOptions.map((item) => <button type="button" role="option" data-model-label={`${item.provider || ''} ${item.label} ${item.id}`} aria-selected={modelOptionKey(item) === modelOptionKey(findModelOption(modelOptions, currentModel, sessionProvider) || { id: currentModel, label: currentModel, provider: sessionProvider })} key={modelOptionKey(item)} onClick={() => { onModelChange(item.id, item); close(); }}><span>{modelMenuLabel(item)}</span></button>)}</div></div>}
+        {page === 'effort' && <div className="composer-details-page"><button type="button" className="composer-submenu-back" onClick={() => setPage('advanced')}><ChevronLeft aria-hidden="true" /><span>{t('chat.advanced')}</span></button><div className="composer-submenu-list" role="menu">{REASONING_EFFORTS.map((item) => <button type="button" className="composer-submenu-row" key={item} onClick={() => onEffortChange(item)}><span>{item.charAt(0).toUpperCase() + item.slice(1)}</span><span className="composer-submenu-value">{effort === item ? '✓' : ''}</span></button>)}</div></div>}
+        {page === 'details' && <div className="composer-details-page"><button type="button" className="composer-submenu-back" onClick={() => setPage('advanced')}><ChevronLeft aria-hidden="true" /><span>{t('chat.showDetailsMenu')}</span></button><div className="composer-details-options" role="group" aria-label={t('chat.showDetailsMenu')}>{detailsOption(t('chat.reasoning'), showReasoning, onToggleReasoning)}{detailsOption(t('chat.tool'), showToolCalls, onToggleToolCalls)}{detailsOption(t('chat.collapseDetails'), compactMessages, onToggleCompact)}</div></div>}
+      </div>}
+    </div>}
+  </div>;
+}
+
+function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '', displayValue, options, onChange, wide = false, hideLabel = false, searchable = false, placement = 'up', iconOnly = false, className = '', emptyLabel = t('chat.noModels') }: { icon: React.ReactNode; ariaLabel: string; label?: string; value: string; valueProvider?: string; displayValue?: string; options: Array<{ id: string; label: string; provider?: string; description?: string }>; onChange: (value: string, option?: { id: string; label: string; provider?: string; description?: string }) => void; wide?: boolean; hideLabel?: boolean; searchable?: boolean; placement?: 'up' | 'down'; iconOnly?: boolean; className?: string; emptyLabel?: string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const current = findModelOption(options, value, valueProvider) || { id: value, label: value, provider: valueProvider || undefined };
   const currentKey = modelOptionKey(current);
-  const filteredOptions = searchable && query.trim() ? options.filter((item) => `${item.label} ${item.id}`.toLowerCase().includes(query.trim().toLowerCase())) : options;
+  const filteredOptions = searchable && query.trim() ? options.filter((item) => `${item.provider || ''} ${item.label} ${item.id}`.toLowerCase().includes(query.trim().toLowerCase())) : options;
   useEffect(() => {
     if (!open) return;
     const closeOutside = (event: PointerEvent) => {
@@ -2472,12 +2590,11 @@ function DropdownControl({ icon, ariaLabel, label = '', value, valueProvider = '
   return <div ref={rootRef} className={`dropdown-control ${wide ? 'wide' : ''} ${searchable ? 'searchable' : ''} ${placement === 'down' ? 'drop-down' : 'drop-up'} ${iconOnly ? 'icon-only' : ''} ${open ? 'open' : ''} ${className}`.trim()}>
     <button type="button" className="dropdown-trigger" aria-label={ariaLabel} title={ariaLabel} aria-expanded={open} onClick={() => { setOpen((v) => !v); setQuery(''); }}>
       <span className="dropdown-icon">{icon}</span>
-      {!iconOnly && <span className="dropdown-copy">{!hideLabel && <span className="dropdown-label">{label || ariaLabel}</span>}<span className="dropdown-value">{current.label}</span></span>}
-      {!iconOnly && <ChevronRight className="dropdown-caret" />}
+      <span className="dropdown-copy">{!hideLabel && <span className="dropdown-label">{label || ariaLabel}</span>}<span className="dropdown-value">{displayValue ?? current.label}</span></span>
     </button>
     {open && <div className="dropdown-menu" role="listbox">
       {searchable && <input className="dropdown-search" autoFocus placeholder={t('chat.searchModels')} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.stopPropagation()} />}
-      {filteredOptions.map((item) => <button type="button" role="option" aria-selected={modelOptionKey(item) === currentKey} className={modelOptionKey(item) === currentKey ? 'selected' : ''} key={modelOptionKey(item)} onClick={() => { onChange(item.id, item); setOpen(false); }}><span className="dropdown-option-copy"><span className="dropdown-option-label">{item.label}</span>{item.description && <span className="dropdown-option-description">{item.description}</span>}</span></button>)}
+      {filteredOptions.map((item) => <button type="button" role="option" aria-selected={modelOptionKey(item) === currentKey} className={modelOptionKey(item) === currentKey ? 'selected' : ''} key={modelOptionKey(item)} onClick={() => { onChange(item.id, item); setOpen(false); }}><span className="dropdown-option-copy"><span className="dropdown-option-label">{modelMenuLabel(item)}</span>{item.description && <span className="dropdown-option-description">{item.description}</span>}</span></button>)}
       {filteredOptions.length === 0 && <span className="dropdown-empty">{emptyLabel}</span>}
     </div>}
   </div>;
@@ -2698,6 +2815,7 @@ type ChatMainProps = {
   newMessageCount: number;
   newMessageBoundaryId: string;
   onClearNewMessages: () => void;
+  skills: Skill[];
 };
 
 function ChatMain(props: ChatMainProps) {
@@ -2731,7 +2849,7 @@ function ChatMain(props: ChatMainProps) {
       textarea.style.removeProperty('--composer-textarea-pad-bottom');
       return;
     }
-    const minHeight = 48;
+    const minHeight = 64;
     const maxHeight = Math.max(minHeight, Math.floor(visibleViewportHeight(window) * 0.2));
     textarea.style.removeProperty('--composer-textarea-pad-bottom');
     textarea.style.height = 'auto';
@@ -2813,6 +2931,7 @@ function ChatMain(props: ChatMainProps) {
   const subagentBeforeTime = subagentWindow.sessionId === props.activeSessionId ? subagentWindow.beforeTime : null;
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
+    writeChatViewState(props.activeSessionId, el.scrollTop);
     if (isCompactViewport && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (shouldLoadOlderFromScroll(el, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
     if (shouldLoadNewerFromScroll(el, props.hasNewer, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'newer');
@@ -2831,6 +2950,53 @@ function ChatMain(props: ChatMainProps) {
   const apiSessionProvider = String(active?.provider || props.activeSessionDetail?.provider || messageProvider).trim();
   const sessionProvider = String(sessionModelOverride?.provider ?? (props.activeSessionId === DRAFT_SESSION_ID ? props.selectedModelProvider : apiSessionProvider)).trim();
   const currentModel = sessionModel;
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [pickerSkills, setPickerSkills] = useState<Skill[]>(props.skills);
+  const [recentSkillNames, setRecentSkillNames] = useState<string[]>([]);
+  const [skillSearchResults, setSkillSearchResults] = useState<Skill[]>([]);
+  const [selectedComposerSkill, setSelectedComposerSkill] = useState<Skill | null>(null);
+  useEffect(() => { if (props.skills.length) setPickerSkills(props.skills); }, [props.skills]);
+  useEffect(() => {
+    if (!skillPickerOpen) return;
+    let cancelled = false;
+    Promise.all([
+      fetch('/skills/list', { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).catch(() => null),
+      fetch('/skills/recent', { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).catch(() => null),
+    ]).then(([skillsBody, recentBody]) => {
+      if (cancelled) return;
+      const loaded = (skillsBody?.data || skillsBody?.skills || []) as Skill[];
+      if (loaded.length) setPickerSkills(loaded);
+      setRecentSkillNames(Array.isArray(recentBody?.data) ? recentBody.data : []);
+    });
+    return () => { cancelled = true; };
+  }, [skillPickerOpen]);
+  useEffect(() => {
+    if (!skillPickerOpen) return;
+    const timer = window.setTimeout(() => {
+      const query = props.input.trim().replace(/^\/+/, '').toLowerCase();
+      const recent = recentSkillNames.map((name) => pickerSkills.find((skill) => skill.name === name)).filter((skill): skill is Skill => !!skill);
+      const source = query ? pickerSkills : [...recent, ...pickerSkills.filter((skill) => !recentSkillNames.includes(skill.name))];
+      setSkillSearchResults(source.filter((skill) => !query || `${skill.name} ${skill.description || ''}`.toLowerCase().includes(query)).slice(0, 24));
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [pickerSkills, props.input, recentSkillNames, skillPickerOpen]);
+  const chooseComposerSkill = useCallback((skill: Skill) => {
+    setSelectedComposerSkill(skill);
+    props.setInput(`/${skill.name}`);
+    setSkillPickerOpen(false);
+    fetch('/skills/recent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: skill.name }) }).then((response) => response.json().catch(() => null)).then((body) => { if (Array.isArray(body?.data)) setRecentSkillNames(body.data); }).catch(() => undefined);
+  }, [props.setInput]);
+  const composerSkillPrefix = selectedComposerSkill ? `/${selectedComposerSkill.name}` : '';
+  const composerSkillVisible = !!selectedComposerSkill && (props.input === composerSkillPrefix || props.input.startsWith(`${composerSkillPrefix} `));
+  const composerSkillText = composerSkillVisible ? props.input.slice(composerSkillPrefix.length).replace(/^\s+/, '') : props.input;
+  const updateComposerInput = (value: string) => {
+    if (selectedComposerSkill && composerSkillVisible) {
+      props.setInput(value ? `${composerSkillPrefix} ${value}` : composerSkillPrefix);
+      return;
+    }
+    setSelectedComposerSkill(null);
+    props.setInput(value);
+  };
   const activeTitle = active?.id === DRAFT_SESSION_ID ? 'New conversation' : active ? sessionDisplayTitle(active) : 'Hermes Agent';
   const headerTimes = sessionHeaderTimes(active, props.messages);
   const [activeNavigatorIds, setActiveNavigatorIds] = useState<Set<string>>(() => new Set());
@@ -2842,7 +3008,7 @@ function ChatMain(props: ChatMainProps) {
   const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;
   const currentModelOption = exactCurrentOption || currentOption;
   const contextModelOption = exactCurrentOption || (currentModel ? findModelOption(props.models, currentModel) : undefined);
-  const modelOptions = currentOption ? [currentOption, ...props.models] : props.models;
+  const modelOptions = orderedModelOptions(currentOption ? [currentOption, ...props.models] : props.models, currentModel, sessionProvider);
   const effortOptions = REASONING_EFFORTS.map((x) => ({ id: x, label: x }));
   const visibleMessages = useMemo(() => visibleChatMessages<ChatMessage>(props.messages, props.showReasoning, props.showToolCalls), [props.messages, props.showReasoning, props.showToolCalls]);
   const primaryActionIsStop = props.streaming && !props.input.trim();
@@ -2951,16 +3117,44 @@ function ChatMain(props: ChatMainProps) {
       <FollowUpQueueView items={props.followUpQueue || []} onSteer={props.onSteerQueuedItem} onEdit={props.onEditQueuedItem} onReorder={props.onReorderQueuedItem} />
       <div className="attachments">{props.attachments.map((a: Attachment) => <span className={`att ${a.kind}`} key={a.id}>{a.kind === 'image' ? <ImageIcon /> : <FileText />} {a.name} <button onClick={() => props.setAttachments((old: Attachment[]) => old.filter((x) => x.id !== a.id))}><X /></button></span>)}</div>
       <div className="composer-box" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); props.onFiles(e.dataTransfer.files); }}>
-        <textarea ref={textareaRef} rows={1} value={props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => props.setInput(e.target.value)} placeholder={t('chat.inputPlaceholder')} onKeyDown={(e) => { if (e.key !== 'Enter' || e.shiftKey || (e.nativeEvent as KeyboardEvent).isComposing) return; const modified = e.metaKey || e.ctrlKey; const shouldSend = props.composerEnterMode === 'enter-newline' ? modified : !modified; if (!shouldSend) return; e.preventDefault(); props.sendMessage(); }} />
+        {skillPickerOpen && <div className="composer-skill-picker" role="dialog" aria-label="Skills and files">
+          <button type="button" className="composer-picker-upload" onClick={() => props.fileInput.current?.click()}><Plus /><span>{t('chat.attachFiles')}</span></button>
+          <div className="composer-picker-divider" />
+          <div className="composer-picker-heading">{props.input.trim() ? 'Search skills' : 'Recent skills'}</div>
+          <div className="composer-picker-results" role="listbox">
+            {skillSearchResults.map((skill) => <button type="button" role="option" className="composer-skill-result" key={skill.name} onClick={() => chooseComposerSkill(skill)}><Puzzle /><span className="composer-skill-result-name">{skill.name}</span><span className="composer-skill-result-description">{skill.description || t('skills.noDescription')}</span></button>)}
+            {!skillSearchResults.length && <span className="composer-picker-empty">No matching skills</span>}
+          </div>
+        </div>}
+        <div className="composer-input-wrap">
+          {composerSkillVisible && <span className="composer-skill-chip" aria-label={`Skill ${selectedComposerSkill?.name}`}><Puzzle aria-hidden="true" /><span>{selectedComposerSkill?.name}</span></span>}
+          <textarea ref={textareaRef} rows={1} className="composer-skill-textarea" value={composerSkillVisible ? composerSkillText : props.input} onFocus={() => props.setComposerCompact(false)} onChange={(e) => updateComposerInput(e.target.value)} placeholder={skillPickerOpen ? 'Search skills…' : t('chat.inputPlaceholder')} onKeyDown={(e) => { if (composerSkillVisible && e.key === 'Backspace' && !composerSkillText) { e.preventDefault(); setSelectedComposerSkill(null); props.setInput(''); return; } if (skillPickerOpen && e.key === 'Enter' && !e.shiftKey && !(e.nativeEvent as KeyboardEvent).isComposing) { e.preventDefault(); if (skillSearchResults[0]) chooseComposerSkill(skillSearchResults[0]); return; } if (e.key !== 'Enter' || e.shiftKey || (e.nativeEvent as KeyboardEvent).isComposing) return; const modified = e.metaKey || e.ctrlKey; const shouldSend = props.composerEnterMode === 'enter-newline' ? modified : !modified; if (!shouldSend) return; e.preventDefault(); props.sendMessage(); }} />
+        </div>
         <div className="composer-footer">
-          <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
-          <button className="icon-btn attach-btn" onClick={() => props.fileInput.current?.click()} title={t('chat.attachFiles')}><Paperclip /></button>
-          <DropdownControl icon={<Bot />} ariaLabel={t('chat.model')} value={currentModel} valueProvider={sessionProvider} options={modelOptions} onChange={props.setModel} wide hideLabel searchable />
-          <DropdownControl icon={<Brain />} ariaLabel={t('chat.reasoning')} value={props.effort} options={effortOptions} onChange={(value) => props.setEffort(normalizeReasoningEffort(value) || 'medium')} hideLabel />
-          <button type="button" className={`icon-btn composer-view-toggle reasoning-view-toggle ${props.showReasoning ? 'active' : ''}`} aria-pressed={props.showReasoning} aria-label={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} title={props.showReasoning ? t('chat.hideThinking') : t('chat.showThinking')} onClick={toggleReasoningVisibility}><Lightbulb /></button>
-          <button type="button" className={`icon-btn composer-view-toggle tool-call-view-toggle ${props.showToolCalls ? 'active' : ''}`} aria-pressed={props.showToolCalls} aria-label={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} title={props.showToolCalls ? t('chat.hideToolCalls') : t('chat.showToolCalls')} onClick={toggleToolCallVisibility}><Terminal /></button>
-          <button type="button" className={`icon-btn composer-view-toggle desktop-compact-view-toggle ${props.desktopCompactMessages ? 'active' : ''}`} aria-pressed={props.desktopCompactMessages} aria-label={t('chat.compactMode')} title={t('chat.compactMode')} onClick={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}><List /></button>
-          <button type="button" className={`send-btn composer-primary-btn ${primaryActionIsStop ? 'is-stop' : 'is-send'}`} onClick={primaryActionIsStop ? props.stopStreaming : props.sendMessage} aria-label={primaryActionIsStop ? t('chat.stopStreaming') : t('chat.send')} title={primaryActionIsStop ? t('chat.stopStreaming') : t('chat.send')}>{primaryActionIsStop ? <Square /> : <ArrowUp />}</button>
+          <div className="composer-tools">
+            <div className="composer-left-controls">
+              <input ref={props.fileInput} type="file" multiple hidden onChange={(e) => props.onFiles(e.target.files)} />
+              <button type="button" className={`icon-btn attach-btn${skillPickerOpen ? ' active' : ''}`} aria-expanded={skillPickerOpen} onClick={() => { if (!skillPickerOpen) props.setInput(''); setSelectedComposerSkill(null); setSkillPickerOpen((current) => !current); }} title={t('chat.attachFiles')} aria-label={t('chat.attachFiles')}><Plus /></button>
+            </div>
+            <div className="composer-right-controls">
+              <ComposerDetailsControl
+                currentModel={currentModel}
+                sessionProvider={sessionProvider}
+                modelDisplay={modelTriggerLabel(currentModel, isMobile)}
+                modelOptions={modelOptions}
+                onModelChange={props.setModel}
+                effort={props.effort}
+                onEffortChange={props.setEffort}
+                showReasoning={props.showReasoning}
+                showToolCalls={props.showToolCalls}
+                compactMessages={props.desktopCompactMessages}
+                onToggleReasoning={toggleReasoningVisibility}
+                onToggleToolCalls={toggleToolCallVisibility}
+                onToggleCompact={() => props.setDesktopCompactMessages(!props.desktopCompactMessages)}
+              />
+            </div>
+          </div>
+          <button type="button" className={`send-btn composer-primary-btn ${primaryActionIsStop ? 'is-stop' : 'is-send'}`} onClick={primaryActionIsStop ? props.stopStreaming : props.sendMessage} aria-label={primaryActionIsStop ? t('chat.stopStreaming') : t('chat.send')} title={primaryActionIsStop ? t('chat.stopStreaming') : t('chat.send')}>{primaryActionIsStop ? <Square fill="currentColor" /> : <ArrowUp />}</button>
         </div>
       </div>
     </footer>
@@ -3085,7 +3279,43 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
   const filteredCats = query ? cats.filter((cat) => grouped[cat].some((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query))) : cats;
   const filteredSkills = (cat: string) => query ? grouped[cat].filter((s) => s.name.toLowerCase().includes(query) || (s.description || '').toLowerCase().includes(query)) : grouped[cat];
   const toggleCat = (cat: string) => setExpandedCats(new Set(expandedCats.has(cat) ? [...expandedCats].filter((c) => c !== cat) : [...expandedCats, cat]));
-  return <><div className="cron-sidebar-head"><div><h2>{t('skills.title')}</h2><p>{enabledCount} {t('skills.enabledCount')} | {skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div className="skills-list sessions">{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}{skill.version ? <span className="skill-version">{skill.version}</span> : null}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
+  const skillsListRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<{ pointerId: number; startY: number; startScrollTop: number; moved: boolean } | null>(null);
+  const suppressSkillClickRef = useRef(false);
+  const handleSkillWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!event.deltaY) return;
+    event.currentTarget.scrollTop += event.deltaY;
+    event.preventDefault();
+  };
+  const handleSkillPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    panRef.current = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: event.currentTarget.scrollTop, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const handleSkillPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+    const distance = event.clientY - pan.startY;
+    if (Math.abs(distance) > 4) pan.moved = true;
+    if (!pan.moved) return;
+    event.currentTarget.scrollTop = pan.startScrollTop - distance;
+    event.preventDefault();
+  };
+  const finishSkillPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current;
+    if (pan?.pointerId === event.pointerId) {
+      suppressSkillClickRef.current = pan.moved;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      panRef.current = null;
+    }
+  };
+  const handleSkillClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!suppressSkillClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressSkillClickRef.current = false;
+  };
+  return <><div className="cron-sidebar-head"><div><h2>{t('skills.title')}</h2><p>{enabledCount} {t('skills.enabledCount')} | {skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div ref={skillsListRef} className="skills-list sessions" onWheel={handleSkillWheel} onPointerDown={handleSkillPointerDown} onPointerMove={handleSkillPointerMove} onPointerUp={finishSkillPan} onPointerCancel={finishSkillPan} onClickCapture={handleSkillClickCapture}>{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skill.name}{skill.version ? <span className="skill-version">{skill.version}</span> : null}</span><span className="session-preview">{skill.description || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
 }
 type SkillBackup = { id?: string | number; version?: string | number; reason?: string };
 
@@ -3327,6 +3557,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
   const [metadataPlacement, setMetadataPlacement] = useState<'side' | 'bottom'>('side');
   const [modalMetadataOpen, setModalMetadataOpen] = useState(false);
   const [notice, setNotice] = useState('');
+  const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number; filename: string; phase: 'preparing' | 'downloading' } | null>(null);
   const [imageMenu, setImageMenu] = useState<{ item: ImageEntry; x: number; y: number } | null>(null);
   const scrollRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -3823,15 +4054,36 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     removeImages(names, nextModalAfterDelete); setSelecting(false); await loadStats();
   };
   const downloadSelectedFiles = async (names: string[]) => {
-    if (!names.length) return;
+    if (!names.length || downloadProgress) return;
     const selectedNameSet = new Set(names);
-    const selectedItems = imagesRef.current.filter((item) => selectedNameSet.has(item.filename));
-    for (const item of selectedItems) {
-      triggerBrowserDownload(item.download_url || item.png_url, item.download_filename || item.filename);
-      await new Promise((resolve) => window.setTimeout(resolve, 120));
+    const selectedItems = imagesRef.current.filter((item) => selectedNameSet.has(item.filename)).sort((a, b) => b.modified_at - a.modified_at || b.filename.localeCompare(a.filename));
+    setDownloadProgress({ current: 0, total: selectedItems.length, filename: '', phase: 'preparing' });
+    try {
+      const preparedItems = new Array<ImageEntry | null>(selectedItems.length);
+      let preparedCount = 0;
+      await Promise.all(selectedItems.map(async (item, index) => {
+        const prepared = item.heic_status === 'missing' ? await generateHeic(item, false) : item;
+        preparedItems[index] = prepared;
+        preparedCount += 1;
+        setDownloadProgress({ current: preparedCount, total: selectedItems.length, filename: item.filename, phase: 'preparing' });
+      }));
+      if (preparedItems.some((item) => !item)) {
+        setNotice(t('gallery.heicPreparationFailed'));
+        return;
+      }
+      const readyItems = preparedItems as ImageEntry[];
+      for (let index = 0; index < readyItems.length; index += 1) {
+        const downloadItem = readyItems[index];
+        setDownloadProgress({ current: index, total: readyItems.length, filename: downloadItem.download_filename || downloadItem.filename, phase: 'downloading' });
+        triggerBrowserDownload(downloadItem.download_url || downloadItem.png_url, downloadItem.download_filename || downloadItem.filename);
+        await new Promise((resolve) => window.setTimeout(resolve, 160));
+        setDownloadProgress({ current: index + 1, total: readyItems.length, filename: downloadItem.download_filename || downloadItem.filename, phase: 'downloading' });
+      }
+      setSelecting(false);
+      setSelected(new Set());
+    } finally {
+      window.setTimeout(() => setDownloadProgress(null), 450);
     }
-    setSelecting(false);
-    setSelected(new Set());
   };
   const organizeTime = async () => {
     if (!selectedList.length) return;
@@ -3839,11 +4091,11 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
     if (!res.ok) { setNotice(await res.text()); return; }
     setSelecting(false); setSelected(new Set()); loadImages(true);
   };
-  const generateHeic = async (item: ImageEntry): Promise<ImageEntry | null> => {
-    setNotice(tf('gallery.generatingHeic', item.filename));
+  const generateHeic = async (item: ImageEntry, announce = true): Promise<ImageEntry | null> => {
+    if (announce) setNotice(tf('gallery.generatingHeic', item.filename));
     const res = await fetch(`/image-api/images/${enc(item.filename)}/heic`, { method: 'POST' });
-    if (!res.ok) { setNotice(await res.text()); return null; }
-    const updated: ImageEntry = await res.json(); mergeImage(updated); setModal((old) => old?.filename === updated.filename ? updated : old); setNotice(t('gallery.heicDone'));
+    if (!res.ok) { if (announce) setNotice(await res.text()); return null; }
+    const updated: ImageEntry = await res.json(); mergeImage(updated); setModal((old) => old?.filename === updated.filename ? updated : old); if (announce) setNotice(t('gallery.heicDone'));
     return updated;
   };
   const downloadOne = async (item: ImageEntry) => {
@@ -3878,6 +4130,7 @@ function ImageBrowser({ theme, setTheme, requestConfirm, initialImageFilename, w
       {images.length === 0 && !loading && <div className="empty-state"><ImageIcon className="big-mark" /><h2>{t('gallery.noImages')}</h2><p>{t('gallery.noImagesDesc')}</p></div>}
       <div ref={sentinelRef} className="image-sentinel">{loading ? t('gallery.loading') : hasMore ? t('gallery.scrollMore') : t('gallery.end')}</div>
     </section>
+    {downloadProgress && <div className="gallery-download-progress" role="status" aria-live="polite"><div className="gallery-download-progress-head"><span>{downloadProgress.phase === 'preparing' ? tf('gallery.downloadPreparing', downloadProgress.filename, downloadProgress.current + 1, downloadProgress.total) : tf('gallery.downloadStarting', downloadProgress.filename, Math.min(downloadProgress.current + 1, downloadProgress.total), downloadProgress.total)}</span><b>{Math.round((downloadProgress.current / Math.max(1, downloadProgress.total)) * 100)}%</b></div><div className="gallery-download-progress-track"><span style={{ width: `${(downloadProgress.current / Math.max(1, downloadProgress.total)) * 100}%` }} /></div></div>}
     {imageMenu && <div className="image-context-menu" role="menu" style={{ left: imageMenu.x, top: imageMenu.y }} onContextMenu={(event) => event.preventDefault()} onClick={() => setImageMenu(null)}>
       {imageMenu.item.heic_status !== 'not_applicable' && <button type="button" role="menuitem" onClick={() => { downloadOne(imageMenu.item); }}><Download /> {t('gallery.downloadHEIC')}</button>}
       <button type="button" role="menuitem" onClick={() => { triggerBrowserDownload(imageMenu.item.png_url || imageMenu.item.image_url, imageMenu.item.filename); }}><Download /> {t('gallery.downloadPNG')}</button>

@@ -76,6 +76,14 @@ describe('web terminal UI', () => {
     expect(terminal).toContain('aria-pressed={mobileModifiers.ctrl}');
     expect(terminal).toContain('aria-pressed={mobileModifiers.alt}');
     expect(terminal).toContain("terminalSpecialKeySequence('escape')");
+    expect(terminal).toContain("terminalSpecialKeySequence('delete')");
+    expect(terminal).toContain("terminalSpecialKeySequence('home')");
+    expect(terminal).toContain("terminalSpecialKeySequence('pageUp')");
+    expect(terminal).toContain("terminalSpecialKeySequence('f12')");
+    expect(terminal).toContain('event.ctrlKey || event.altKey');
+    expect(terminal).toContain('handleDesktopTerminalKeyDownCapture');
+    expect(terminal).toContain('if (!active || window.matchMedia');
+    expect(terminal).toContain('onKeyDownCapture={handleDesktopTerminalKeyDownCapture}');
     expect(styles).toContain('.mobile-terminal-special-keys');
   });
 

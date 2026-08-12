@@ -195,6 +195,41 @@ describe('turn detail grouping', () => {
     expect(blocks).toHaveLength(3);
   });
 
+  test('keeps one outer frame when a system note appears between detail content', () => {
+    const state: Msg = {
+      id: 'state-between',
+      role: 'user',
+      content: '[System note: A new message arrived]',
+    };
+    const nextPrelude: Msg = { id: 'a-next', role: 'assistant', content: 'continue', toolCalls: [{ id: 'call_next' }] };
+    const nextTool: Msg = { id: 't-next', role: 'tool', content: '{"next":true}', toolName: 'terminal' };
+    const nextFinal: Msg = { id: 'a-next-final', role: 'assistant', content: 'continued answer' };
+    const items = buildTurnDetailItems([user, prelude, tool, final, state, nextPrelude, nextTool, nextFinal]);
+    const blocks = buildDesktopTurnBlocks(items);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].items.map((item) => item.kind)).toEqual([
+      'message', 'message', 'detailGroup', 'message', 'sessionState', 'message', 'detailGroup', 'message',
+    ]);
+  });
+
+  test('keeps the detail group before an in-progress system note instead of flattening it', () => {
+    const state: Msg = {
+      id: 'state-live',
+      role: 'user',
+      content: '[System note: A new message has arrived. Address the new message below FIRST.]',
+    };
+    const nextPrelude: Msg = { id: 'next-prelude-live', role: 'assistant', content: 'continue', toolCalls: [{ id: 'call-next-live' }] };
+    const nextTool: Msg = { id: 'next-tool-live', role: 'tool', content: '{"next":true}', toolName: 'terminal' };
+    const items = buildTurnDetailItems([user, prelude, tool, state, nextPrelude, nextTool], { openTrailingDetails: true });
+    const blocks = buildDesktopTurnBlocks(items);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup', 'sessionState', 'message', 'detailGroup']);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup', 'sessionState', 'message', 'detailGroup']);
+    expect(blocks[0].items[2]).toMatchObject({ kind: 'detailGroup' });
+  });
+
   test('keeps preserved task state as a standalone item outside turn details', () => {
     const state: Msg = {
       id: 'state1',
@@ -203,10 +238,11 @@ describe('turn detail grouping', () => {
     };
     const items = buildTurnDetailItems([user, prelude, tool, state, final]);
 
-    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'message', 'sessionState', 'message']);
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup', 'sessionState', 'message']);
     expect(items[3]).toMatchObject({ kind: 'sessionState', id: 'session-state:state1', message: state });
     const blocks = buildDesktopTurnBlocks(items);
-    expect(blocks[1].items.map((item) => item.kind)).toEqual(['sessionState', 'message']);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].items.map((item) => item.kind)).toEqual(['message', 'message', 'detailGroup', 'sessionState', 'message']);
   });
 
   test('keeps streaming details expanded in the same framed turn after session state', () => {

@@ -29,6 +29,15 @@ describe('web terminal helpers', () => {
     expect(terminalSpecialKeySequence('down')).toBe('\x1b[B');
     expect(terminalSpecialKeySequence('right')).toBe('\x1b[C');
     expect(terminalSpecialKeySequence('left')).toBe('\x1b[D');
+    expect(terminalSpecialKeySequence('backspace')).toBe('\x7f');
+    expect(terminalSpecialKeySequence('delete')).toBe('\x1b[3~');
+    expect(terminalSpecialKeySequence('insert')).toBe('\x1b[2~');
+    expect(terminalSpecialKeySequence('home')).toBe('\x1b[H');
+    expect(terminalSpecialKeySequence('end')).toBe('\x1b[F');
+    expect(terminalSpecialKeySequence('pageUp')).toBe('\x1b[5~');
+    expect(terminalSpecialKeySequence('pageDown')).toBe('\x1b[6~');
+    expect(terminalSpecialKeySequence('f1')).toBe('\x1bOP');
+    expect(terminalSpecialKeySequence('f12')).toBe('\x1b[24~');
   });
 
   test('maps Yahu surfaces and conventional ANSI colors without a purple-dominant palette', () => {
