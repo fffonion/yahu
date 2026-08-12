@@ -1029,13 +1029,24 @@ fn message_has_tool_calls(message: &serde_json::Value) -> bool {
 }
 
 fn message_has_reasoning(message: &serde_json::Value) -> bool {
-    ["reasoning", "reasoning_content", "reasoningContent"]
-        .iter()
-        .any(|key| message.get(*key).and_then(|value| value.as_str()).is_some_and(|text| !text.trim().is_empty()))
+    [
+        "reasoning",
+        "reasoning_content",
+        "reasoningContent",
+        "reasoning_summary",
+        "reasoningSummary",
+    ]
+    .iter()
+    .filter_map(|key| message.get(*key))
+    .any(|value| {
+        let mut text = String::new();
+        collect_json_text(value, &mut text);
+        !text.trim().is_empty()
+    })
 }
 
 fn is_completed_final_assistant_message(message: &serde_json::Value) -> bool {
-    message_role(message) == "assistant" && !message_text(message).trim().is_empty() && !message_has_tool_calls(message)
+    message_role(message) == "assistant" && ( !message_text(message).trim().is_empty() || message_has_reasoning(message)) && !message_has_tool_calls(message)
 }
 
 fn is_rootless_history_detail_candidate(message: &serde_json::Value) -> bool {
@@ -1043,13 +1054,19 @@ fn is_rootless_history_detail_candidate(message: &serde_json::Value) -> bool {
 }
 
 fn append_message_reasoning(message: &serde_json::Value, parts: &mut Vec<String>) {
-    if let Some(text) = message.get("reasoning").and_then(|value| value.as_str()).filter(|text| !text.trim().is_empty()) {
-        push_unique_reasoning(parts, text);
-        return;
+    if let Some(value) = message.get("reasoning") {
+        let mut text = String::new();
+        collect_json_text(value, &mut text);
+        if !text.trim().is_empty() {
+            push_unique_reasoning(parts, &text);
+            return;
+        }
     }
-    for key in ["reasoning_content", "reasoningContent"] {
-        if let Some(text) = message.get(key).and_then(|value| value.as_str()) {
-            push_unique_reasoning(parts, text);
+    for key in ["reasoning_content", "reasoningContent", "reasoning_summary", "reasoningSummary"] {
+        if let Some(value) = message.get(key) {
+            let mut text = String::new();
+            collect_json_text(value, &mut text);
+            push_unique_reasoning(parts, &text);
         }
     }
 }
@@ -1257,8 +1274,8 @@ fn detail_range_messages(messages: &[serde_json::Value], query: &ChatMessagesQue
         .unwrap_or(messages.len())
         .max(start);
     let total = end.saturating_sub(start);
-    let page_end = (start + limit).min(end);
-    (messages[start..page_end].to_vec(), false, page_end < end, total)
+    let page_start = end.saturating_sub(limit).max(start);
+    (messages[page_start..end].to_vec(), page_start > start, false, total)
 }
 
 fn fetch_local_active_message_tail(
@@ -1286,9 +1303,34 @@ fn fetch_local_active_message_tail(
     if messages.is_empty() {
         return Ok(None);
     }
-    let has_older_active = messages.len() > limit;
+    let mut has_older_active = messages.len() > limit;
     messages.truncate(limit);
     messages.reverse();
+
+    // The local tail can start in the middle of a tool/detail run. Keep the
+    // preceding visible turn anchor in the latest skeleton so its detail
+    // metadata gets an `after_id`; without it, the detail request spans every
+    // older turn up to the final assistant message and the transcript order is
+    // visibly wrong.
+    if let Some(first_id) = messages.first().and_then(message_i64_id) {
+        let first_role = messages.first().map(message_role).unwrap_or_default();
+        let starts_inside_detail = first_role != "user"
+            && first_role != "system"
+            && !messages.first().is_some_and(is_completed_final_assistant_message);
+        if starts_inside_detail {
+            let anchor_sql = format!(
+                "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id = ?1 AND active = 1 AND id < ?2 AND role IN ('user', 'system') ORDER BY id DESC LIMIT 1"
+            );
+            if let Some(anchor) = conn
+                .query_row(&anchor_sql, rusqlite::params![session_id, first_id], row_to_session_message)
+                .optional()?
+            {
+                messages.insert(0, anchor);
+                has_older_active = true;
+            }
+        }
+    }
+
     Ok(Some((messages, has_older_active)))
 }
 
@@ -1339,6 +1381,23 @@ async fn chat_messages_page(
             Err(_) => warn!(session_id = %session_id, "shared remote latest feed timed out"),
         }
         return json_error(StatusCode::BAD_GATEWAY, "latest message feed unavailable");
+    }
+
+    if requested_view == "details" {
+        match fetch_local_detail_range(&state, &session_id, query.after, query.before, limit) {
+            Ok(Some((page, has_older, total))) => {
+                return Json(serde_json::json!({
+                    "object": "list",
+                    "data": page,
+                    "total": total,
+                    "has_older": has_older,
+                    "has_newer": false,
+                }))
+                .into_response();
+            }
+            Ok(None) => {}
+            Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local detail range; falling back to API history"),
+        }
     }
 
     let mut all = match fetch_session_history_messages(&state, &session_id).await {
@@ -2922,6 +2981,39 @@ fn fetch_local_context_messages_with_entries(
     Ok(Some(context))
 }
 
+fn fetch_local_detail_range(
+    state: &AppState,
+    session_id: &str,
+    after: Option<i64>,
+    before: Option<i64>,
+    limit: usize,
+) -> anyhow::Result<Option<(Vec<serde_json::Value>, bool, usize)>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() || (after.is_none() && before.is_none()) {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
+    let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM messages WHERE {message_filter} AND session_id = ?1 AND (?2 IS NULL OR id > ?2) AND (?3 IS NULL OR id < ?3)"
+    );
+    let total: usize = conn.query_row(&count_sql, rusqlite::params![session_id, after, before], |row| row.get::<_, i64>(0))?.try_into()?;
+    if total == 0 {
+        return Ok(None);
+    }
+    let page_sql = format!(
+        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE {message_filter} AND session_id = ?1 AND (?2 IS NULL OR id > ?2) AND (?3 IS NULL OR id < ?3) ORDER BY id DESC LIMIT ?4"
+    );
+    let mut stmt = conn.prepare(&page_sql)?;
+    let rows = stmt.query_map(rusqlite::params![session_id, after, before, i64::try_from(limit)?], row_to_session_message)?;
+    let mut page = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    page.reverse();
+    Ok(Some((page, total > limit, total)))
+}
 #[cfg(test)]
 fn fetch_local_lineage_messages(
     state: &AppState,
@@ -3345,14 +3437,27 @@ async fn run_shared_session_watch(
                 return;
             }
         }
-        if let Ok(items) = fetch_session_messages_for_watch(
-            &state.client,
-            &state.api_url,
-            &state.api_key,
-            &session_id,
-        )
-        .await
-        {
+        let items = match fetch_local_active_message_tail(&state, &session_id, 24) {
+            Ok(Some((items, _))) => Ok(items),
+            Ok(None) => fetch_session_messages_for_watch(
+                &state.client,
+                &state.api_url,
+                &state.api_key,
+                &session_id,
+            )
+            .await,
+            Err(err) => {
+                warn!(session_id = %session_id, error = %err, "cannot read local message watch tail; falling back to API");
+                fetch_session_messages_for_watch(
+                    &state.client,
+                    &state.api_url,
+                    &state.api_key,
+                    &session_id,
+                )
+                .await
+            }
+        };
+        if let Ok(items) = items {
             let updates = if initialized {
                 changed_session_messages(&items, &mut watch_state)
             } else {

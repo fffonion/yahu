@@ -3,6 +3,62 @@
         assert!(API_SESSION_REQUEST_TIMEOUT >= std::time::Duration::from_secs(30));
     }
 
+    #[test]
+    fn local_latest_tail_keeps_previous_visible_anchor_for_detail_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                reasoning_details TEXT,
+                codex_reasoning_items TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','anchor',1,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','old tool','terminal',2,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,timestamp,active) VALUES ('s1','assistant','I will inspect','[{\"id\":\"call_1\"}]',3,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','latest tool','terminal',4,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','assistant','final',5,1)", []).unwrap();
+        drop(conn);
+
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let (tail, has_older) = fetch_local_active_message_tail(&state, "s1", 3).unwrap().unwrap();
+        let skeleton = history_skeleton_messages(&tail);
+
+        assert!(has_older);
+        assert_eq!(tail.iter().map(|message| message["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![1, 3, 4, 5]);
+        assert_eq!(skeleton.len(), 2);
+        assert_eq!(skeleton[0]["id"], 1);
+        assert_eq!(skeleton[1]["turn_details"]["after_id"], "1");
+        assert_eq!(skeleton[1]["turn_details"]["before_id"], "5");
+    }
+    #[test]
+    fn reasoning_only_assistant_message_stays_visible_in_history_skeleton() {
+        let messages = vec![
+            serde_json::json!({"id": 1, "role": "user", "content": "prompt"}),
+            serde_json::json!({"id": 2, "role": "assistant", "content": "", "reasoning": "Codex summary"}),
+        ];
+
+        let skeleton = history_skeleton_messages(&messages);
+
+        assert_eq!(skeleton.len(), 2);
+        assert_eq!(skeleton[1]["reasoning"], "Codex summary");
+        assert!(skeleton[1].get("turn_details").is_none());
+    }
+
     #[tokio::test]
     async fn chat_messages_skeleton_defers_turn_details_until_requested() {
         async fn api_messages(
@@ -137,13 +193,15 @@
         let details = chat_messages_page(
             State(state),
             AxumPath("s1".to_string()),
-            Query(ChatMessagesQuery { before: Some(6), after: Some(1), around: None, limit: Some(20), view: Some("details".to_string()) }),
+            Query(ChatMessagesQuery { before: Some(6), after: Some(1), around: None, limit: Some(2), view: Some("details".to_string()) }),
         ).await;
         let details_body = axum::body::to_bytes(details.into_body(), usize::MAX).await.unwrap();
         let details_page: serde_json::Value = serde_json::from_slice(&details_body).unwrap();
         let details_texts: Vec<_> = details_page["data"].as_array().unwrap().iter().map(|message| message["content"].as_str().unwrap_or("")).collect();
-        assert_eq!(details_texts, vec!["I will inspect", "{\"ok\":true}", "I will verify", "{\"verified\":true}"]);
-        assert_eq!(details_page["data"].as_array().unwrap()[0]["reasoning"], "plan\nprovider thought\nprovider summary");
+        assert_eq!(details_texts, vec!["I will verify", "{\"verified\":true}"]);
+        assert_eq!(details_page["total"], 4);
+        assert_eq!(details_page["has_older"], true);
+        assert_eq!(details_page["has_newer"], false);
     }
 
 
