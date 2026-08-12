@@ -130,6 +130,12 @@ describe('composer model selector', () => {
     expect(styles).toContain('.composer-right-controls .dropdown-control.searchable .dropdown-menu{left:auto;right:0;width:min(360px,calc(100vw - 48px))}');
   });
 
+  test('model trigger has hover and pressed-state feedback', () => {
+    const styles = css();
+    expect(styles).toContain('.composer-details-trigger:hover{background:var(--control-hover)');
+    expect(styles).toContain('.composer-details-trigger[aria-expanded=\"true\"]{background:var(--selection-bg)');
+  });
+
   test('composer model and reasoning triggers omit the model caret and brain icon', () => {
     const source = app();
     const styles = css();
