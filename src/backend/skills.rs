@@ -12,6 +12,49 @@ async fn skills_list(State(state): State<Arc<AppState>>) -> Response<Body> {
     Json(serde_json::json!({"object": "list", "data": data})).into_response()
 }
 
+fn recent_skills_path(state: &AppState) -> PathBuf {
+    state.hermes_home.join("skill-recent.json")
+}
+
+async fn read_recent_skills(state: &AppState) -> Vec<String> {
+    let Ok(bytes) = fs::read(recent_skills_path(state)).await else {
+        return Vec::new();
+    };
+    serde_json::from_slice::<Vec<String>>(&bytes).unwrap_or_default()
+}
+
+async fn skills_recent(State(state): State<Arc<AppState>>) -> Response<Body> {
+    Json(serde_json::json!({ "data": read_recent_skills(&state).await })).into_response()
+}
+
+async fn skill_recent_record(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<SkillRecentPayload>,
+) -> Response<Body> {
+    let name = payload.name.trim().to_string();
+    if name.is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "skill name is required");
+    }
+    if find_skill_dir(&state, &name).is_err() {
+        return json_error(StatusCode::NOT_FOUND, "skill not found");
+    }
+    let mut recent = read_recent_skills(&state).await;
+    recent.retain(|item| item != &name);
+    recent.insert(0, name);
+    recent.truncate(16);
+    let bytes = match serde_json::to_vec_pretty(&recent) {
+        Ok(bytes) => bytes,
+        Err(err) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
+    };
+    if let Err(err) = fs::create_dir_all(&state.hermes_home).await {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string());
+    }
+    if let Err(err) = fs::write(recent_skills_path(&state), bytes).await {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string());
+    }
+    Json(serde_json::json!({ "data": recent })).into_response()
+}
+
 async fn skill_files(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SkillQuery>,

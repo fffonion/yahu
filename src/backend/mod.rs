@@ -249,6 +249,11 @@ struct SkillTogglePayload {
     enabled: bool,
 }
 
+#[derive(Deserialize)]
+struct SkillRecentPayload {
+    name: String,
+}
+
 #[derive(Deserialize, Serialize)]
 struct MemoryPayload {
     memory: String,
@@ -338,6 +343,7 @@ pub async fn run() -> anyhow::Result<()> {
             patch(workspace_rename).delete(workspace_delete),
         )
         .route("/skills/list", get(skills_list))
+        .route("/skills/recent", get(skills_recent).post(skill_recent_record))
         .route("/skills/files", get(skill_files))
         .route("/skills/file", get(skill_file).put(skill_file_write))
         .route("/skills/download/{name}", get(skill_download))
