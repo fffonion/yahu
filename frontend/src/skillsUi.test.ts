@@ -193,7 +193,16 @@ describe('skills UI', () => {
     expect(source).toContain('onPointerUp={finishSkillPan}');
     expect(styles).toContain('.skills-list{min-height:0;overflow:auto;touch-action:pan-y;overscroll-behavior:contain;cursor:grab}');
   });
+
+  test('skill category controls remain clickable while list panning is enabled', () => {
+    const source = app();
+    expect(source).toContain('const handleSkillPointerDown = (event: React.PointerEvent<HTMLDivElement>) =>');
+    expect(source).toContain("event.target.closest('button, input, [role=\"switch\"]')");
+    expect(source).toContain('<button type="button" className="section-label" aria-expanded={expandedCats.has(cat)}');
+    expect(source).not.toContain('<div className="section-label" role="button"');
+  });
 });
+
 
 describe('skills backend API', () => {
   test('routes skills through restored local/Python-backed skill implementation', () => {
