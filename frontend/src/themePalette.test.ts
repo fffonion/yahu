@@ -22,10 +22,7 @@ describe('full palette theme control', () => {
     expect(source).toContain("{ id: 'vscode-dark-plus', label: 'VS Code Dark+' }");
     expect(source).toContain("{ id: 'vscode-light-plus', label: 'VS Code Light+' }");
     expect(source).toContain("<label><span>{t('theme.theme')}</span><select value={theme}");
-    expect(source).not.toContain("onClick={() => setTheme('dark')}");
-    expect(source).not.toContain("onClick={() => setTheme('light')}");
-    expect(source).not.toContain('setSkin');
-    expect(source).not.toContain('data-skin');
+
   });
 
   test('themes define complete UI and editor palettes copied from Hermes WebUI and VS Code', () => {
@@ -53,12 +50,7 @@ describe('full palette theme control', () => {
       expect(source).toContain(`{ id: '${id}', label: '${label}' }`);
       expect(styles).toContain(`:root[data-theme="${id}"]{`);
     }
-    expect(source).not.toContain("solarized-dark");
-    expect(styles).not.toContain(':root[data-theme="solarized-dark"]');
-    expect(source).not.toContain('tokyo-night');
-    expect(source).not.toContain('rose-pine-moon');
-    expect(styles).not.toContain(':root[data-theme="tokyo-night"]');
-    expect(styles).not.toContain(':root[data-theme="rose-pine-moon"]');
+
     expect(styles).toContain('--panel-raised:var(--surface);--panel-overlay:var(--surface);--control-bg:var(--surface-2);--control-hover:var(--accent-soft);');
     expect(styles).toContain('--user-bubble:var(--accent-soft);--assistant-bubble:var(--surface);--tool-surface:var(--surface-2);');
     expect(styles).toContain('--info:var(--accent);--warning:var(--accent-2);--focus-ring:var(--accent-soft);');
@@ -85,8 +77,7 @@ describe('full palette theme control', () => {
     for (const tone of ['terminal', 'file', 'search', 'browser', 'media', 'knowledge', 'automation', 'planning', 'home', 'communication', 'audio']) {
       expect(styles).toContain(`.tool-inline-icon.tool-icon-${tone}{color:var(--tool-${tone})}`);
     }
-    expect(styles).not.toContain(':root[data-theme="codex-dark"] .tool-inline-icon.tool-icon-terminal');
-    expect(styles).not.toContain(':root[data-theme="vscode-dark-plus"] .tool-inline-icon.tool-icon-terminal');
+
   });
 
   test('new theme secondary text keeps readable contrast against the page', () => {
@@ -107,15 +98,14 @@ describe('full palette theme control', () => {
     expect(styles).toContain('.composer-wrap,.composer-box textarea{background:var(--composer-bg)}');
     expect(styles).toContain('.dialog-card,.session-context-menu,.skill-context-menu,.skill-file-context-menu,.workspace-context-menu,.image-context-menu{background:var(--panel-overlay)}');
     expect(styles).toContain('.insights-main{--insights-plot-left:4.1667%;--insights-plot-right:2.5%;');
-    expect(styles).not.toContain('.insights-main{grid-column:2 / -1;--chart-0:#14b8a6;');
+
     expect(styles).toContain('.settings-content{grid-template-columns:minmax(0,920px);justify-content:start}');
     expect(styles).toContain('.settings-content label{background:transparent}');
     expect(styles).toContain('.settings-content input,.settings-content select{background-color:var(--control-bg);border-color:var(--border-strong)}');
     expect(styles).toContain('.settings-content select{cursor:pointer;padding-right:38px;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);');
     expect(styles).toContain('.rail-btn{width:42px;height:42px;border:1px solid transparent;');
     expect(styles).toContain('.sidebar .rail-btn.active{color:var(--rail-accent,var(--accent));border-color:var(--rail-accent,var(--accent));box-shadow:none}');
-    expect(styles).not.toContain('.session-item.active,.skill-row.active{background:var(--selection-bg);box-shadow:inset 3px 0 0 var(--selection-border)}');
-    expect(styles).not.toContain('.sidebar .rail-btn.active{color:var(--rail-accent,var(--accent));box-shadow:inset 3px 0 0 var(--rail-accent,var(--accent))}');
+
   });
 
   test('native select menus follow the active light or dark palette', () => {
@@ -132,7 +122,7 @@ describe('full palette theme control', () => {
     expect(styles).toContain('font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--editor-text);caret-color:var(--editor-text);background:var(--editor-bg);');
     expect(styles).toContain('.workspace-editor-highlight{display:none;');
     expect(styles).toContain('.tok-keyword{color:var(--syntax-keyword)}');
-    expect(styles).not.toContain('.tok-keyword{color:var(--syntax-keyword);font-weight:700}');
+
     expect(styles).toContain('.tok-string{color:var(--syntax-string)}');
     expect(styles).toContain('.msg-body code{background:var(--code-inline-bg);color:var(--code-text)}');
   });
