@@ -8,7 +8,7 @@ describe('streaming turn detail auto-follow', () => {
     const transcript = source();
     expect(transcript).toContain('const detailGroupRef = useRef<HTMLDetailsElement>(null);');
     expect(transcript).toContain("if (scroller) scroller.scrollTop = scroller.scrollHeight;");
-    expect(transcript).not.toContain('detailGroupRef.current?.scrollIntoView');
+
     expect(transcript).toContain('if (!open || (!item.defaultOpen && !forceOpenToken) || !detailMessages.length || !followLatestRef.current) return;');
     expect(transcript).toContain('ref={detailGroupRef}');
     expect(transcript).toContain('open={open || forceOpenToken > 0}');

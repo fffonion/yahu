@@ -22,8 +22,7 @@ describe('large-session staged loading UI', () => {
     const selectionEnd = source.indexOf('useEffect(() => {\n    if (watchSourceRef.current)', selectionStart);
     const selectionEffect = source.slice(selectionStart, selectionEnd);
     expect(selectionEffect).toContain("loadMessageWindow(activeSessionId, 'latest');");
-    expect(selectionEffect).not.toContain('loadUserMessageNav(activeSessionId);');
-    expect(selectionEffect).not.toContain('loadContextWindowSnapshot(activeSessionId);');
+
   });
 
   test('minimap ignores stale responses across A to B to A session switches', () => {

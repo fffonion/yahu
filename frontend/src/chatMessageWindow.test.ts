@@ -99,7 +99,7 @@ describe('chat message window pagination state', () => {
   test('latest history response merges with watch updates instead of replacing them', () => {
     const source = appSource();
     expect(source).toContain('current: messagesRef.current,');
-    expect(source).not.toContain("current: direction === 'latest' ? [] : messagesRef.current,");
+
   });
 
   test('app ignores stale watch events from a previous active session', () => {

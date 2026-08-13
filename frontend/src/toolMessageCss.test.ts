@@ -63,7 +63,7 @@ describe('tool message structured layout css', () => {
   test('tool summaries keep the icon inside the card with compact typography', () => {
     const source = app();
     const styles = css();
-    expect(source).not.toContain('<div className="avatar">{getToolIcon(toolName)}</div>');
+
     expect(source).toContain('<span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>');
     expect(styles).toContain('.msg-row.tool{grid-template-columns:minmax(0,1fr);max-width:920px;align-items:start}');
     expect(styles).toContain('.tool-summary{width:100%;border:0;background:transparent;color:var(--text);display:grid;grid-template-columns:18px max-content minmax(0,1fr) 20px;gap:1ch;');

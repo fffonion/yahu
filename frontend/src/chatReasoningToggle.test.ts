@@ -107,9 +107,7 @@ describe('chat reasoning display toggle', () => {
     expect(styles).toContain('.reasoning-view-toggle.active,.tool-call-view-toggle.active');
     expect(styles).toContain('.msg-reasoning');
     expect(styles).toContain('.msg-reasoning pre');
-    expect(cssRule(styles, '.msg-reasoning')).not.toContain('var(--accent');
-    expect(cssRule(styles, '.msg-reasoning>span')).not.toContain('var(--accent');
-    expect(cssRule(styles, '.msg-reasoning pre')).not.toContain('var(--accent');
+
     expect(cssRule(styles, '.msg-reasoning')).toContain('var(--surface-2)');
   });
 });

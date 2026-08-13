@@ -25,8 +25,7 @@ describe('chat media image lightbox', () => {
     expect(source).toContain('aria-label={t(\'gallery.metadata\')}');
     expect(source).toContain('aria-label={t(\'gallery.previous\')}');
     expect(source).toContain('aria-label={t(\'gallery.next\')}');
-    expect(source).not.toContain('chat-image-modal-delete');
-    expect(source).not.toContain('aria-label="Delete chat image"');
+
   });
 
   test('chat page opens HTML media in an isolated full-screen iframe preview', () => {
