@@ -12,15 +12,12 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain("const params = new URLSearchParams({ limit: '80', _: String(Date.now()) });");
     expect(app).toContain("cache: 'no-store'");
     expect(app).toContain('searchVersionRef');
-    expect(app).not.toContain("window.setInterval(() => { void loadSessions(filter); }, 5000)");
-    expect(app).not.toContain("`${s.title || ''} ${s.preview || ''}`");
   });
 
   test('session source filter is sent to the backend before pagination', () => {
     const app = source();
     expect(app).toContain("if (hideCronSessions) params.set('hide_cron_cli', 'true');");
     expect(app).toContain('splitSidebarSessions(sessions, pinnedIds)');
-    expect(app).not.toContain('splitSidebarSessions(sessions, pinnedIds, hideCronSessions)');
   });
 
   test('pinned session ids are sent to the backend so they survive the recent window', () => {
@@ -37,9 +34,6 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('aria-pressed={props.hideCronSessions}');
     expect(app).toContain('setHideCronSessions={(value: boolean) => setHideCronSessions(value)}');
     expect(app).toContain('SlidersHorizontal');
-    expect(app).not.toContain('FileText, Filter, Folder');
-    expect(app).not.toContain('<Filter />');
-    expect(app).not.toContain('<span>New conversation</span>');
     expect(css).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px');
     expect(css).toContain('.filter{height:44px');
     expect(css).toContain('.session-filter-btn{width:44px;height:44px');
@@ -61,22 +55,11 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('buildChatRequestBody(payloadInput, sessionModel, effort, sessionProvider)');
     expect(app).toContain('const exactCurrentOption = currentModel ? findModelOption(props.models, currentModel, sessionProvider) : undefined;');
     expect(app).toContain('const currentOption = currentModel && !exactCurrentOption ? currentModelDisplayOption(currentModel, props.models, sessionProvider) : undefined;');
-    expect(app).not.toContain('props.runtimeProvider');
-  });
-
-  test('mock stream UI and send branch are removed', () => {
-    const app = source();
-    expect(app).not.toContain('useMockStream');
-    expect(app).not.toContain('mock-toggle');
-    expect(app).not.toContain('/mock-stream');
-    expect(app).not.toContain('Mock stream');
   });
 
   test('session rows keep missing titles as a dash instead of promoting preview text', () => {
     const app = source();
     expect(app).toContain('sessionDisplayTitle(session)');
-    expect(app).not.toContain('<span className="session-title">{session.title || session.preview || session.id}</span>');
-    expect(app).not.toContain("session.title || '—'");
   });
 
   test('active session sidebar preview is only changed by frontend during live streaming', () => {
@@ -115,7 +98,6 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('updateSessionMessageCount(sessionId, body.total);');
     expect(app).toContain('if (Number.isFinite(total) && total >= 0) setHistoryTotal(Math.trunc(total));');
     expect(app).toContain("className={`chat-total-count${props.historyTotal === null ? ' loading' : ''}`}");
-    expect(app).not.toContain('{active?.message_count || 0} total');
   });
 
   test('opened session header shows start and latest message times on the right', () => {

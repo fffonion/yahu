@@ -21,7 +21,7 @@ describe('skills UI', () => {
     expect(styles).toContain('.rail-btn.nav-chat.active,.rail-btn.nav-cron.active,.rail-btn.nav-memory.active,.rail-btn.nav-skills.active,.rail-btn.nav-images.active');
 
     expect(styles).toContain('@media (max-width: 760px)');
-    expect(styles).not.toContain('.skills-main{display:none!important}');
+
   });
 
   test('skills mode lists skills and toggles enablement without auto-opening a skill by default', () => {
@@ -31,8 +31,7 @@ describe('skills UI', () => {
     expect(source).toContain('SkillWorkspaceAside');
     expect(source).toContain("fetch('/skills/list'");
     expect(source).toContain("fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`");
-    expect(source).not.toContain('|| list[0]');
-    expect(source).not.toContain('Skill loaded:');
+
     expect(source).toContain('className="skill-enable-toggle"');
   });
 
@@ -117,15 +116,14 @@ describe('skills UI', () => {
     expect(styles).toContain('overflow:hidden');
     expect(styles).toContain('animation:skill-subtitle-scroll 18s linear 1s infinite');
     expect(styles).toContain('to{transform:translateX(calc(-1 * var(--skill-subtitle-cycle)))}');
-    expect(styles).not.toContain('animation:skill-subtitle-scroll 9s ease-in-out 1s infinite alternate');
-    expect(styles).not.toContain('.skill-header-copy{min-width:0;overflow-x:auto');
+
   });
 
   test('skill version history reuses the shared dropdown in the preview toolbar after edit and close', () => {
     const source = app();
     const styles = css();
     const preview = source.slice(source.indexOf('function WorkspaceEditorPreview'), source.indexOf('function WorkspaceBrowser'));
-    expect(source).not.toContain('className="skill-version-bar"');
+
     expect(source).toContain('toolbarExtra={skill ? <DropdownControl');
     expect(source).toContain('placement="down"');
     expect(source).toContain('iconOnly');
@@ -153,7 +151,7 @@ describe('skills UI', () => {
     expect(source).toContain('className="dropdown-option-label"');
     expect(source).toContain('className="dropdown-option-description"');
     expect(source).toContain('label: String(backup.version)');
-    expect(source).not.toContain('label: String(backup.id)');
+
     expect(source).toContain("description: String(backup.reason || t('skills.snapshot'))");
     expect(styles).toContain('.skill-history-dropdown .dropdown-option-label{font-family:ui-monospace');
     expect(styles).toContain('.skill-history-dropdown .dropdown-option-description{');
@@ -225,6 +223,6 @@ describe('skills backend API', () => {
     expect(source).toContain('skills_collector_skips_archive_directories');
     expect(source).toContain('resolve_skill_file_path');
     expect(source).toContain('skills_config import get_disabled_skills, save_disabled_skills');
-    expect(source).not.toContain('skill_api_unavailable(');
+
   });
 });

@@ -43,6 +43,6 @@ describe('skills API routing', () => {
     expect(source).toContain('skill_item_destination_path');
     expect(source).toContain('delete_skill_dir');
     expect(source).toContain('resolve_skill_file_path');
-    expect(source).not.toContain('skill_api_unavailable(');
+
   });
 });

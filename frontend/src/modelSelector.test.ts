@@ -130,12 +130,6 @@ describe('composer model selector', () => {
     expect(styles).toContain('.composer-details-trigger[aria-expanded=\"true\"]{background:var(--selection-bg)');
   });
 
-  test('composer model and reasoning triggers omit the model caret and brain icon', () => {
-    const source = app();
-    const styles = css();
-
-  });
-
   test('composer edge blends into the transcript and the reasoning handle sits inside a thicker bar', () => {
     const styles = css();
     expect(styles).toContain('.composer-box{background:transparent;border:1px solid color-mix(in srgb,var(--text) 9%,transparent);border-radius:22px;box-shadow:none}');
