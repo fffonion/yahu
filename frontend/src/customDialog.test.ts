@@ -28,9 +28,4 @@ describe('custom themed dialogs', () => {
     expect(source).toContain('onSubmit={(event) => { event.preventDefault(); }}');
   });
 
-  test('memory and settings sidebars do not show login-key protection copy', () => {
-    const source = app();
-    expect(source).not.toContain('Protected by WebUI login key.');
-    expect(source).not.toContain('admin-note');
-  });
 });

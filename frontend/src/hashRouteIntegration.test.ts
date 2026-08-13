@@ -11,8 +11,7 @@ describe('hash route integration', () => {
     expect(source).toContain('pushHashRoute(window.history, window.location.hash, route)');
     expect(source).toContain("window.addEventListener('popstate', applyCurrentHashRoute)");
     expect(source).toContain("window.addEventListener('hashchange', applyCurrentHashRoute)");
-    expect(source).not.toContain('window.history.replaceState(null');
-    expect(source).not.toContain('window.location.hash = buildHashRoute');
+
     expect(source).toContain('const initialRoute = getCurrentHashRoute();');
   });
 

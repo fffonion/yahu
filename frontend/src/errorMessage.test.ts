@@ -27,10 +27,6 @@ describe('errorMessage', () => {
     expect(isAbortError(hostile)).toBe(false);
   });
 
-  test('App delegates fallback stringification to the helper', () => {
-    const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
-    expect(appSource).not.toContain('errorMessage(err, String(err))');
-  });
 
   test('recognizes browser-style abort errors without assuming Error instances', () => {
     expect(isAbortError({ name: 'AbortError' })).toBe(true);

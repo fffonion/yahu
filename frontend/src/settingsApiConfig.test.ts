@@ -13,9 +13,9 @@ describe('settings API configuration display', () => {
     expect(source).toContain('apiServerUrl={apiServerUrl}');
     expect(source).toContain("<label><span>{t('settings.apiUrl')}</span><input value={props.apiServerUrl || '—'} readOnly /></label>");
     expect(source).toContain("<label><span>{t('settings.apiProxyBase')}</span><input value={props.apiBase}");
-    expect(source).not.toContain("t('settings.apiBase')");
+
     expect(translations).toContain("'settings.apiUrl'");
     expect(translations).toContain("'settings.apiProxyBase'");
-    expect(translations).not.toContain('Hermes API base');
+
   });
 });

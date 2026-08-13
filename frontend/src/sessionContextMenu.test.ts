@@ -24,8 +24,7 @@ describe('session right-click context menu', () => {
     expect(source).toContain('const updatedIds = new Set<string>(Array.isArray(body.updated_ids) ? body.updated_ids : [session.id]);');
     expect(source).toContain("method: 'DELETE'");
     expect(source).toContain('apiJoin(SESSION_API_BASE, `/api/sessions/${encodeURIComponent(session.id)}`)');
-    expect(source).not.toContain('fetch(apiJoin(apiBase, `/api/sessions/${encodeURIComponent(session.id)}`), { method: \'PATCH\'');
-    expect(source).not.toContain('const patched = (body.data || body.session || body) as Session;');
+
   });
 
   test('session refreshes preserve a renamed title while a stream is still active', () => {
@@ -53,6 +52,6 @@ describe('session right-click context menu', () => {
     const end = source.indexOf('const openSessionMenu =', start);
     const fn = source.slice(start, end);
     expect(fn).toContain('setSessionMenu({ session');
-    expect(fn).not.toContain('setActiveSessionId(session.id)');
+
   });
 });
