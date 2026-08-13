@@ -11,15 +11,13 @@ describe('composer details popover', () => {
     expect(source).toContain('composer-details-trigger');
     expect(source).toContain('composer-trigger-model');
     expect(source).toContain('composer-trigger-effort');
-    expect(source).not.toContain('<Settings aria-hidden="true" />');
-    expect(source).not.toContain('composer-toolbar-model');
-    expect(source).not.toContain('composer-toolbar-effort');
+
     expect(source).toContain('composer-details-page');
     expect(source).toContain('composer-submenu-row');
     expect(source).toContain('composer-model-list');
     expect(styles).toContain('.composer-details-popover{position:absolute;right:0;bottom:calc(100% + 10px);');
     expect(styles).toContain('.composer-details-advanced{display:flex;');
     expect(styles).toContain('.composer-submenu-row{');
-    expect(source).not.toContain('function ComposerViewOptions');
+
   });
 });

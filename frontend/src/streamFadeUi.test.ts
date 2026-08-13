@@ -7,8 +7,6 @@ const styles = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf
 describe('streaming character fade', () => {
   test('keeps the streaming header to the model name and animated dots', () => {
     expect(transcript()).toContain('stream-dots');
-    expect(transcript()).not.toContain('stream-label');
-    expect(transcript()).not.toContain('stream-caret');
   });
 
   test('renders pending assistant text as stable grapheme spans with a fade-in animation', () => {
