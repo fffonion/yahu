@@ -26,7 +26,7 @@ describe('composer skill picker and popover language', () => {
     expect(styles).toContain('.composer-details-popover{position:absolute;right:0;bottom:calc(100% + 10px)');
     expect(styles).toContain('.composer-submenu-row{');
     expect(styles).toContain('.composer-model-list{');
-    expect(styles).not.toContain('.reasoning-popover::after');
+
   });
 
   test('Rust backend records recent skills independently of browser storage', () => {

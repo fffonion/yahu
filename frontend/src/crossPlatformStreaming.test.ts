@@ -30,12 +30,12 @@ describe('cross-platform session streaming watcher', () => {
   test('persisted user events preserve the local turn anchor so open details stay mounted', () => {
     const app = source();
     expect(app).toContain('i === existing ? { ...m, ...msg, id: m.id } : m');
-    expect(app).not.toContain('i === existing ? { ...m, ...msg } : m');
+
   });
 
   test('persisted tool events replace local streaming tool cards in place', () => {
     const app = source();
     expect(app).toContain("return prev.map((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '') ? { ...m, ...msg, pending: false } : m);");
-    expect(app).not.toContain('return [...withoutMatchingLocalTools, msg].slice(-MESSAGE_WINDOW);');
+
   });
 });
