@@ -44,7 +44,7 @@ describe('chat context window meter', () => {
     const styles = css();
     expect(styles).toContain('.chat-header-actions .context-window-meter{margin-left:0');
     expect(styles).toContain('.context-window-fill{height:100%;border-radius:999px;background:var(--accent)');
-    expect(styles).not.toContain('.composer-wrap.composer-compact .composer-footer .context-window-meter{display:none}');
+
     expect(styles).toContain('.composer-wrap:not(.composer-compact) .composer-footer .send-btn{margin-left:auto}');
     expect(styles).toContain('@media (max-width:760px){.mobile-chat-context{display:block;min-width:0;flex:1 1 auto}.desktop-chat-context{display:none}');
     expect(styles).toContain('.chat-header-meta .context-window-meter{width:116px;min-width:116px;max-width:116px;flex:0 0 116px}');

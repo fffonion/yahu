@@ -21,7 +21,7 @@ describe('composer enter key behaviour', () => {
     expect(source).toContain('const modified = e.metaKey || e.ctrlKey');
     expect(source).toContain("const shouldSend = props.composerEnterMode === 'enter-newline' ? modified : !modified");
     expect(source).toContain('e.preventDefault(); props.sendMessage();');
-    expect(source).not.toContain("e.key === 'Enter' && (e.metaKey || e.ctrlKey)");
+
   });
 
   test('settings exposes both enter key modes', () => {

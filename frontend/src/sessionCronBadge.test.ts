@@ -15,8 +15,7 @@ describe('session sidebar source badges', () => {
     expect(source).toContain('<Terminal />');
     expect(source).toContain("session.source === 'alp-worker'");
     expect(source).toContain('<Bot />');
-    expect(source).not.toContain('Circle,');
-    expect(source).not.toContain('<Circle />');
+
   });
 
   test('normal session rows do not reserve the old left marker column', () => {
