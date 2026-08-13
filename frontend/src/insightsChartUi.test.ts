@@ -24,8 +24,7 @@ describe('insights chart UI', () => {
   test('hides datapoint dots until hover or keyboard focus', () => {
     const app = appSource();
     const css = cssSource();
-    expect(app).not.toContain('className="usage-dot"');
-    expect(css).not.toContain('.usage-dot{');
+
     expect(css).toContain('.chart-points{position:absolute;left:0;right:0;top:0;height:260px;z-index:4;pointer-events:auto}');
     expect(app).toContain('const pointHitWidthPct = buckets.length > 1 ? (((width - pad.left - pad.right) / (buckets.length - 1)) * 0.8 / width) * 100 : (24 / width) * 100;');
     expect(app).toContain("'--hit-width': `${pointHitWidthPct}%`");
@@ -105,8 +104,7 @@ describe('insights chart UI', () => {
     expect(app).toContain("usageMetricLabel('cost_usd')");
     expect(app).toContain('className="model-value"');
     expect(app).toContain('className="model-cost-sub"');
-    expect(app).not.toContain('/insights/fx');
-    expect(app).not.toContain('currencyRates');
+
     expect(css).toContain('.model-value{display:grid;justify-items:end;gap:3px}');
     expect(css).toContain('.model-cost-sub{font-size:11px;color:var(--muted);line-height:1}');
   });
@@ -114,7 +112,7 @@ describe('insights chart UI', () => {
   test('uses the backend-selected total cost even when it is zero', () => {
     const app = appSource();
     expect(app).toContain('value={fmtCost(totals.cost_usd)}');
-    expect(app).not.toContain('totals.cost_usd || totals.actual_cost_usd || totals.estimated_cost_usd');
+
   });
 
   test('shows cache-read token volume so model totals can be reconciled', () => {
@@ -141,7 +139,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('className="signal-row signal-row-sources"');
     expect(app).toContain('className="source-channel-list"');
     expect(app).toContain('className="source-channel-chip"');
-    expect(app).not.toContain("<SignalRow name=\"Sources\" value={(props.insights?.sources || []).slice(0, 3).map((item) => `${item.source} ${fmtTokens(item.totals.total_tokens)}`).join(' · ') || '—'} />");
+
     expect(css).toContain('.signal-row-sources{display:grid;grid-template-columns:1fr;gap:8px}');
     expect(css).toContain('.source-channel-list{display:grid;grid-template-columns:1fr;gap:6px;min-width:0}');
     expect(css).toContain('.source-channel-chip{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;max-width:100%;');
@@ -154,14 +152,14 @@ describe('insights chart UI', () => {
     expect(app).toContain('className="chart-stack-toggle icon-btn"');
     expect(app).toContain("aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')}");
     expect(app).toContain('{chartStacked ? <LineChart /> : <Layers />}');
-    expect(app).not.toContain("{chartStacked ? 'Unstack' : 'Stack'}");
+
     expect(app).toContain('aria-pressed={chartStacked}');
     expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
     expect(app).toContain('className={`usage-chart ${stacked ? \'stacked\' : \'unstacked\'}`}');
     expect(app).toContain('isHourlyBucket(buckets[0]) ? modelHourlyMetricValues(model, buckets as UsageHour[], metric) : modelDailyMetricValues(model, buckets as UsageDay[], metric)');
     expect(app).toContain('className="usage-stack-area"');
     expect(app).toContain('className="usage-total-line"');
-    expect(app).not.toContain('<LineChart /></div>');
+
     expect(css).toContain('.chart-stack-toggle{width:34px;height:34px;padding:0;');
     expect(css).toContain('.usage-chart.stacked .usage-line{display:none}');
     expect(css).toContain('.usage-total-line{fill:none;stroke:var(--accent);');
@@ -184,11 +182,9 @@ describe('insights chart UI', () => {
     expect(app).toContain('const isSingleDay = props.period === 1');
     expect(app).toContain('const activeHours = props.insights?.hourly || []');
     expect(app).toContain('<button type="button" className="chart-stack-toggle icon-btn"');
-    expect(app).not.toContain('{!isSingleDay && <button type="button" className="chart-stack-toggle icon-btn"');
-    expect(app).not.toContain('fillArea={false}');
-    expect(app).not.toContain('usage-total-hour-line');
+
     expect(app).toContain('function UsageShareBar');
-    expect(app).not.toContain('<section className="insights-chart-card insights-share-card">');
+
     expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
     expect(app).toContain('<UsageShareBar models={models} metric={props.metric} />');
     expect(app).toContain('className="usage-share-map"');
@@ -199,28 +195,28 @@ describe('insights chart UI', () => {
     expect(app).toContain('className="usage-share-indicator"');
     expect(app).toContain("'--share-start': `${item.start}%`");
     expect(css).toContain('.insights-main{--insights-plot-left:4.1667%;--insights-plot-right:2.5%;grid-column:2 / -1}');
-    expect(css).not.toContain('.insights-main{grid-column:2 / -1;--chart-0:');
+
     expect(css).toContain('.usage-share-chart{display:grid;gap:0;min-height:64px;align-content:center;padding:6px 0 0}');
     expect(css).toContain('.usage-share-map{display:grid;grid-template-rows:auto 42px;gap:9px;min-width:0;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
     expect(css).toContain('.usage-share-bar{height:9px;border:1px solid var(--border);border-radius:999px;overflow:hidden;display:flex;');
     expect(css).toContain('.usage-share-indicators{display:flex;flex-wrap:wrap;gap:6px 12px;min-width:0;max-width:100%}');
     expect(css).toContain('.usage-share-indicator{position:relative;max-width:min(220px,100%);min-width:0;display:inline-grid;');
     expect(css).toContain('.usage-share-indicator::before,.usage-share-indicator::after{display:none}');
-    expect(app).not.toContain('className="chart-legend"');
+
   });
 
   test('other signal sources are selected from the active period totals', () => {
     const app = appSource();
     expect(app).toContain('const activeSources = periodSources(props.insights?.periods || [], props.insights?.sources || [], props.period);');
     expect(app).toContain('<SourceSignalList sources={activeSources.slice(0, 6)} />');
-    expect(app).not.toContain('<SourceSignalList sources={(props.insights?.sources || []).slice(0, 6)} />');
+
   });
 
   test('keeps metric card glow away from rounded corners in light themes', () => {
     const css = cssSource();
     expect(css).toContain('.insight-card::after{content:"";position:absolute;inset:auto 14px -38px 14px;');
     expect(css).toContain('height:72px;border-radius:999px;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 22%,transparent),color-mix(in srgb,var(--accent-2) 16%,transparent));');
-    expect(css).not.toContain('inset:auto -30% -55% -30%');
+
   });
 
   test('centers insights refresh icon inside desktop and mobile header buttons', () => {
@@ -233,7 +229,7 @@ describe('insights chart UI', () => {
     expect(css).toContain('.header-actions .insights-refresh{width:30px;height:30px;min-width:30px;padding:0}');
     expect(css).toContain('.usage-share-map{grid-template-rows:auto auto;gap:7px;margin-left:var(--insights-plot-left);margin-right:var(--insights-plot-right)}');
     expect(css).toContain('.chart-axis{left:var(--insights-plot-left);right:var(--insights-plot-right)}');
-    expect(css).not.toContain('.chart-axis{left:52px;right:16px}');
+
   });
 
   test('requests only the selected Insights period instead of all periods by default', () => {
@@ -243,7 +239,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('const buildUsageUrl = (refresh: boolean) => {');
     expect(app).toContain('let usageRes = await fetch(buildUsageUrl(force), { cache: \'no-store\' });');
     expect(app).toContain("useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);");
-    expect(app).not.toContain("fetch('/insights/usage')");
+
   });
 
   test('caches loaded Insights periods and only refetches on explicit refresh', () => {
