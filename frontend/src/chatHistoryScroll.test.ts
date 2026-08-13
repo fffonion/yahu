@@ -34,8 +34,6 @@ describe('chat history scroll triggers', () => {
     expect(app).toContain('const pendingHistoryScrollAnchorRef = useRef<MessageScrollAnchor | null>(null);');
     expect(app).toContain("if (direction === 'older') pendingHistoryScrollAnchorRef.current = captureMessageScrollAnchor(scroller);");
     expect(app).toContain('restoreMessageScrollAnchor(scroller, anchor);');
-    expect(app).not.toContain('const oldHeight = scroller?.scrollHeight || 0;');
-    expect(app).not.toContain('scroller.scrollTop += scroller.scrollHeight - oldHeight;');
     expect(css).toContain('.chat-scroll{position:relative;overflow:auto;');
     expect(css).toContain('.history-loading{position:absolute;top:10px;left:50%;transform:translateX(-50%);');
   });

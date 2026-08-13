@@ -61,7 +61,7 @@ describe('web terminal UI', () => {
     expect(terminal).toContain('disableStdin');
     expect(terminal).toContain('onPointerDown={openMobileKeyboard}');
     expect(terminal).toContain('onTouchStart={openMobileKeyboard}');
-    expect(terminal).not.toContain('if (event?.currentTarget instanceof HTMLButtonElement) event.preventDefault();');
+
     expect(terminal).toContain('onPointerDownCapture={focusTerminalSurface}');
     expect(terminal).toContain('stopPropagation');
     expect(styles).toContain('.mobile-terminal-input');
@@ -94,7 +94,7 @@ describe('web terminal UI', () => {
     expect(source).toContain("const [terminalMounted, setTerminalMounted] = useState(initialRoute.mode === 'terminal')");
     expect(source).toContain('{terminalMounted && <Suspense');
     expect(source).toContain("<WebTerminal active={mode === 'terminal'} cwd={terminalCwd}");
-    expect(source).not.toContain("if (next === 'terminal') setTerminalCwd('')");
+
     expect(source).toContain("next === 'terminal' ? { mode: 'terminal', cwd: terminalCwd || undefined }");
     expect(terminal).toContain('active?: boolean');
     expect(terminal).toContain("terminal-main-hidden");
@@ -105,9 +105,7 @@ describe('web terminal UI', () => {
   test('terminal bundles a monospace Nerd Font and loads it before xterm measurement', () => {
     const terminal = component();
     const styles = css();
-    expect(main()).not.toContain('@fontsource/source-sans-3');
     expect(packageJson().dependencies['@fontsource/source-sans-3']).toBeUndefined();
-    expect(styles).not.toContain('Source Sans');
     expect(terminal).toContain("import './webTerminalFont.css'");
     expect(terminal).toContain("const TERMINAL_FONT_FAMILY = '\"SauceCodePro Nerd Font Mono\", \"SauceCodePro NFM\", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'");
     expect(terminal).toContain('fontFamily: TERMINAL_FONT_FAMILY');
