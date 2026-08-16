@@ -729,7 +729,8 @@ async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::R
         );
         let body = fetch_api_json(state, url, SUBAGENT_API_PAGE_BYTE_LIMIT).await?;
         let data = body
-            .get("data")
+            .get("sessions")
+            .or_else(|| body.get("data"))
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
@@ -867,7 +868,8 @@ async fn fetch_session_messages(state: &AppState, session_id: &str) -> anyhow::R
     );
     let body = fetch_api_json(state, url, SUBAGENT_API_DETAIL_BYTE_LIMIT).await?;
     Ok(body
-        .get("data")
+        .get("messages")
+        .or_else(|| body.get("data"))
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default())

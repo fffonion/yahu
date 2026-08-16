@@ -212,7 +212,7 @@
         }
         async fn api_messages() -> Json<Value> {
             Json(serde_json::json!({
-                "data": [
+                "messages": [
                     { "role": "assistant", "content": "", "tool_calls": [{ "id": "todo-full", "function": { "name": "todo", "arguments": "{\"todos\":[{\"id\":\"keep\",\"content\":\"Keep this task\",\"status\":\"pending\"},{\"id\":\"current\",\"content\":\"Current main task\",\"status\":\"in_progress\"}]}" } }] },
                     { "role": "tool", "tool_name": "todo", "tool_call_id": "todo-full", "content": "[todo] updated task list" },
                     { "role": "assistant", "content": "", "tool_calls": [{ "id": "todo-merge", "function": { "name": "todo", "arguments": "{\"merge\":true,\"todos\":[{\"id\":\"current\",\"status\":\"completed\"}]}" } }] },
@@ -620,10 +620,10 @@
                     "started_at": 499_000.0 - index as f64,
                     "last_active": 499_500.0 - index as f64
                 })).collect::<Vec<_>>();
-                return Json(serde_json::json!({"data": data, "has_more": true}));
+                return Json(serde_json::json!({"sessions": data, "has_more": true}));
             }
             Json(serde_json::json!({
-                "data": [
+                "sessions": [
                     {"id": "other-0", "parent_session_id": "another", "started_at": 499_000.0, "last_active": 499_500.0},
                     {"id": "target", "parent_session_id": "parent", "started_at": 498_000.0, "last_active": 498_100.0}
                 ],
