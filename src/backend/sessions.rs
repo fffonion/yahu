@@ -643,7 +643,6 @@ fn api_sessions_url(
         ("offset", offset.to_string()),
         ("include_children", "false".to_string()),
         ("exclude_sources", "tool".to_string()),
-        ("order", "recent".to_string()),
     ];
     let trimmed = query.trim();
     if !trimmed.is_empty() {

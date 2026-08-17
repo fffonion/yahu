@@ -36,7 +36,6 @@
                 Some("false")
             );
             assert_eq!(query.get("offset").map(String::as_str), Some("0"));
-            assert_eq!(query.get("order").map(String::as_str), Some("recent"));
             Json(serde_json::json!({
                 "object": "list",
                 "data": [
