@@ -174,6 +174,95 @@
     }
 
     #[test]
+    fn insights_historical_backfill_subtracts_yahu_deltas_and_runs_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let state_path = temp.path().join("state.db");
+        let snapshot_path = temp.path().join("yahu-insights-usage.db");
+        let state_conn = rusqlite::Connection::open(&state_path).unwrap();
+        state_conn
+            .execute_batch(
+                "CREATE TABLE sessions (
+                     id TEXT PRIMARY KEY,
+                     source TEXT NOT NULL,
+                     started_at REAL NOT NULL,
+                     archived INTEGER NOT NULL DEFAULT 0,
+                     end_reason TEXT
+                 );
+                 CREATE TABLE session_model_usage (
+                     session_id TEXT NOT NULL,
+                     model TEXT NOT NULL,
+                     billing_provider TEXT NOT NULL DEFAULT '',
+                     billing_base_url TEXT,
+                     billing_mode TEXT NOT NULL DEFAULT '',
+                     task TEXT NOT NULL DEFAULT '',
+                     api_call_count INTEGER NOT NULL DEFAULT 0,
+                     input_tokens INTEGER NOT NULL DEFAULT 0,
+                     output_tokens INTEGER NOT NULL DEFAULT 0,
+                     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                     reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+                     estimated_cost_usd REAL NOT NULL DEFAULT 0,
+                     actual_cost_usd REAL NOT NULL DEFAULT 0,
+                     PRIMARY KEY(session_id, model, billing_provider, billing_base_url, billing_mode, task)
+                 );
+                 INSERT INTO sessions(id, source, started_at) VALUES
+                     ('old-session', 'telegram', 500),
+                     ('new-session', 'telegram', 1100);
+                 INSERT INTO session_model_usage(session_id, model, billing_provider, input_tokens, output_tokens, api_call_count)
+                 VALUES ('old-session', 'gpt-5.6-sol', 'provider-a', 100, 20, 10),
+                        ('new-session', 'gpt-5.6-sol', 'provider-a', 80, 10, 8);",
+            )
+            .unwrap();
+        drop(state_conn);
+
+        let snapshot_conn = rusqlite::Connection::open(&snapshot_path).unwrap();
+        prepare_insights_snapshot_db(&snapshot_conn).unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_meta(key, value) VALUES('coverage_started_at', 1000)",
+                [],
+            )
+            .unwrap();
+        let id = usage_counter_id("old-session", "gpt-5.6-sol", "provider-a", "", "", "");
+        let post_coverage = serde_json::json!({
+            "id": id,
+            "root_session_id": "old-session",
+            "source": "telegram",
+            "model": "gpt-5.6-sol",
+            "provider": "provider-a",
+            "started_at": 1500,
+            "input_tokens": 30,
+            "output_tokens": 5,
+            "api_call_count": 3
+        });
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_events(captured_at, row_json) VALUES(1500, ?1)",
+                [serde_json::to_string(&post_coverage).unwrap()],
+            )
+            .unwrap();
+        drop(snapshot_conn);
+
+        assert_eq!(backfill_historical_insights(&snapshot_path, &state_path).unwrap(), 1);
+        let conn = rusqlite::Connection::open(&snapshot_path).unwrap();
+        let rows = conn
+            .prepare("SELECT captured_at, row_json FROM insights_events ORDER BY captured_at")
+            .unwrap()
+            .query_map([], |row| Ok((row.get::<_, f64>(0)?, row.get::<_, String>(1)?)))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 2);
+        let historical: serde_json::Value = serde_json::from_str(&rows[0].1).unwrap();
+        assert_eq!(rows[0].0, 500.0);
+        assert_eq!(historical["input_tokens"], 70);
+        assert_eq!(historical["output_tokens"], 15);
+        assert_eq!(historical["api_call_count"], 7);
+        assert_eq!(backfill_historical_insights(&snapshot_path, &state_path).unwrap(), 0);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM insights_events", [], |row| row.get::<_, i64>(0)).unwrap(), 2);
+    }
+
+    #[test]
     fn insights_attributes_session_totals_to_the_started_day() {
         let now = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()
