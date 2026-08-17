@@ -13,7 +13,6 @@ const INSIGHTS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const INSIGHTS_SNAPSHOT_RETENTION_SECONDS: f64 = 35.0 * 86_400.0;
 const INSIGHTS_SNAPSHOT_DB: &str = "state/yahu-insights-usage.db";
 const INSIGHTS_PROVIDER_BACKFILL_VERSION: f64 = 3.0;
-const INSIGHTS_HISTORICAL_BACKFILL_VERSION: f64 = 1.0;
 const INSIGHTS_USAGE_SCHEMA_VERSION: f64 = 3.0;
 
 type ModelPriceCatalog = HashMap<String, ModelPrice>;
@@ -779,47 +778,6 @@ fn usage_counter_id(session_id: &str, model: &str, provider: &str, base_url: &st
     format!("usage:{session_id}\u{1f}{model}\u{1f}{provider}\u{1f}{base_url}\u{1f}{billing_mode}\u{1f}{task}")
 }
 
-fn insights_usage_row_from_sql(
-    row: &rusqlite::Row<'_>,
-    has_model_usage: bool,
-    aliases: &HashMap<String, String>,
-) -> rusqlite::Result<serde_json::Value> {
-    let session_id = row.get::<_, String>(0)?;
-    let model = row.get::<_, String>(3)?;
-    let provider_raw = row.get::<_, String>(4)?;
-    let base_url = row.get::<_, Option<String>>(5)?;
-    let billing_mode = row.get::<_, String>(6)?;
-    let model_config = row.get::<_, Option<String>>(7)?;
-    let task = row.get::<_, String>(8)?;
-    let provider = if has_model_usage {
-        resolve_provider_name(&provider_raw, base_url.as_deref(), aliases)
-    } else {
-        resolve_session_provider(&provider_raw, base_url.as_deref(), model_config.as_deref(), aliases)
-    };
-    let id = if has_model_usage {
-        usage_counter_id(&session_id, &model, &provider, base_url.as_deref().unwrap_or(""), &billing_mode, &task)
-    } else {
-        session_id.clone()
-    };
-    Ok(serde_json::json!({
-        "id": id,
-        "root_session_id": session_id,
-        "source": row.get::<_, String>(1)?,
-        "model": model,
-        "provider": provider,
-        "started_at": row.get::<_, f64>(2)?,
-        "input_tokens": row.get::<_, i64>(9)?,
-        "output_tokens": row.get::<_, i64>(10)?,
-        "cache_read_tokens": row.get::<_, i64>(11)?,
-        "cache_write_tokens": row.get::<_, i64>(12)?,
-        "reasoning_tokens": row.get::<_, i64>(13)?,
-        "api_call_count": row.get::<_, i64>(14)?,
-        "tool_call_count": 0,
-        "estimated_cost_usd": row.get::<_, f64>(15)?,
-        "actual_cost_usd": row.get::<_, f64>(16)?,
-    }))
-}
-
 fn fetch_changed_sessions_for_insights(
     path: &Path,
     previous_message_id: i64,
@@ -876,137 +834,43 @@ fn fetch_changed_sessions_for_insights(
     let mut statement = conn.prepare(query)?;
     let rows = statement
         .query_map(rusqlite::params![lower_bound, high_water], |row| {
-            insights_usage_row_from_sql(row, has_model_usage, &aliases)
+            let session_id = row.get::<_, String>(0)?;
+            let model = row.get::<_, String>(3)?;
+            let provider_raw = row.get::<_, String>(4)?;
+            let base_url = row.get::<_, Option<String>>(5)?;
+            let billing_mode = row.get::<_, String>(6)?;
+            let model_config = row.get::<_, Option<String>>(7)?;
+            let task = row.get::<_, String>(8)?;
+            let provider = if has_model_usage {
+                resolve_provider_name(&provider_raw, base_url.as_deref(), &aliases)
+            } else {
+                resolve_session_provider(&provider_raw, base_url.as_deref(), model_config.as_deref(), &aliases)
+            };
+            let id = if has_model_usage {
+                usage_counter_id(&session_id, &model, &provider, base_url.as_deref().unwrap_or(""), &billing_mode, &task)
+            } else {
+                session_id.clone()
+            };
+            Ok(serde_json::json!({
+                "id": id,
+                "root_session_id": session_id,
+                "source": row.get::<_, String>(1)?,
+                "model": model,
+                "provider": provider,
+                "started_at": row.get::<_, f64>(2)?,
+                "input_tokens": row.get::<_, i64>(9)?,
+                "output_tokens": row.get::<_, i64>(10)?,
+                "cache_read_tokens": row.get::<_, i64>(11)?,
+                "cache_write_tokens": row.get::<_, i64>(12)?,
+                "reasoning_tokens": row.get::<_, i64>(13)?,
+                "api_call_count": row.get::<_, i64>(14)?,
+                "tool_call_count": 0,
+                "estimated_cost_usd": row.get::<_, f64>(15)?,
+                "actual_cost_usd": row.get::<_, f64>(16)?,
+            }))
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok((rows, high_water))
-}
-
-fn fetch_historical_sessions_for_insights(
-    path: &Path,
-    min_timestamp: f64,
-    max_timestamp: f64,
-) -> anyhow::Result<Vec<serde_json::Value>> {
-    let conn = rusqlite::Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    conn.busy_timeout(Duration::from_secs(5))?;
-    let aliases = custom_provider_aliases(path.parent().unwrap_or_else(|| Path::new(".")));
-    let has_model_usage = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_model_usage')",
-        [],
-        |row| row.get::<_, bool>(0),
-    )?;
-    let query = if has_model_usage {
-        "SELECT s.id, s.source, s.started_at,
-                COALESCE(u.model, 'unknown'), COALESCE(u.billing_provider, ''),
-                u.billing_base_url, COALESCE(u.billing_mode, ''), NULL, COALESCE(u.task, ''),
-                COALESCE(u.input_tokens, 0), COALESCE(u.output_tokens, 0),
-                COALESCE(u.cache_read_tokens, 0), COALESCE(u.cache_write_tokens, 0),
-                COALESCE(u.reasoning_tokens, 0), COALESCE(u.api_call_count, 0),
-                COALESCE(u.estimated_cost_usd, 0), COALESCE(u.actual_cost_usd, 0)
-         FROM sessions s
-         JOIN session_model_usage u ON u.session_id = s.id
-         WHERE s.started_at >= ?1 AND s.started_at < ?2
-           AND s.archived = 0 AND s.source != 'tool'
-           AND COALESCE(s.end_reason, '') != 'compression'"
-    } else {
-        "SELECT s.id, s.source, s.started_at,
-                COALESCE(s.model, 'unknown'), COALESCE(s.billing_provider, ''),
-                s.billing_base_url, '', s.model_config, '',
-                COALESCE(s.input_tokens, 0), COALESCE(s.output_tokens, 0),
-                COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_write_tokens, 0),
-                COALESCE(s.reasoning_tokens, 0), COALESCE(s.api_call_count, 0),
-                COALESCE(s.estimated_cost_usd, 0), COALESCE(s.actual_cost_usd, 0)
-         FROM sessions s
-         WHERE s.started_at >= ?1 AND s.started_at < ?2
-           AND s.archived = 0 AND s.source != 'tool'
-           AND COALESCE(s.end_reason, '') != 'compression'"
-    };
-    let mut statement = conn.prepare(query)?;
-    statement
-        .query_map(rusqlite::params![min_timestamp, max_timestamp], |row| {
-            insights_usage_row_from_sql(row, has_model_usage, &aliases)
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Into::into)
-}
-
-fn backfill_historical_insights(
-    snapshot_path: &Path,
-    state_db_path: &Path,
-) -> anyhow::Result<usize> {
-    if !snapshot_path.exists() || !state_db_path.exists() {
-        return Ok(0);
-    }
-    let mut snapshot_conn = rusqlite::Connection::open(snapshot_path)?;
-    prepare_insights_snapshot_db(&snapshot_conn)?;
-    let tx = snapshot_conn.transaction()?;
-    let already_backfilled = tx
-        .query_row(
-            "SELECT value FROM insights_meta WHERE key = 'historical_backfill_version'",
-            [],
-            |row| row.get::<_, f64>(0),
-        )
-        .optional()?
-        .is_some_and(|version| version >= INSIGHTS_HISTORICAL_BACKFILL_VERSION);
-    if already_backfilled {
-        return Ok(0);
-    }
-    let Some(coverage_started_at) = tx
-        .query_row(
-            "SELECT value FROM insights_meta WHERE key = 'coverage_started_at'",
-            [],
-            |row| row.get::<_, f64>(0),
-        )
-        .optional()?
-    else {
-        return Ok(0);
-    };
-
-    let mut recorded_deltas: HashMap<String, UsageCounter> = HashMap::new();
-    let mut statement = tx.prepare("SELECT row_json FROM insights_events")?;
-    let event_rows = statement
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(statement);
-    for value in event_rows {
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(&value) else { continue };
-        let Some(counter) = UsageCounter::from_api_row(&json) else { continue };
-        recorded_deltas
-            .entry(counter.session_id.clone())
-            .or_default()
-            .add_assign(&counter);
-    }
-
-    let historical_rows = fetch_historical_sessions_for_insights(
-        state_db_path,
-        coverage_started_at - INSIGHTS_SNAPSHOT_RETENTION_SECONDS,
-        coverage_started_at,
-    )?;
-    let mut inserted = 0usize;
-    for row in historical_rows {
-        let Some(current) = UsageCounter::from_api_row(&row) else { continue };
-        let recorded = recorded_deltas.get(&current.session_id).cloned().unwrap_or_default();
-        let historical = current.subtract(&recorded);
-        if !historical.has_delta() {
-            continue;
-        }
-        let event = historical.to_event_json(current.started_at);
-        tx.execute(
-            "INSERT INTO insights_events(captured_at, row_json) VALUES(?1, ?2)",
-            rusqlite::params![current.started_at, serde_json::to_string(&event)?],
-        )?;
-        inserted += 1;
-    }
-    tx.execute(
-        "INSERT INTO insights_meta(key, value) VALUES('historical_backfill_version', ?1)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        [INSIGHTS_HISTORICAL_BACKFILL_VERSION],
-    )?;
-    tx.commit()?;
-    Ok(inserted)
 }
 
 fn insights_snapshot_is_fresh(latest_snapshot_at: Option<f64>, now: f64) -> bool {
@@ -1379,15 +1243,6 @@ async fn capture_insights_snapshot(state: &AppState, captured_at: f64) -> anyhow
     })
     .await??;
     if state_db_path.exists() {
-        let backfill_snapshot_path = path.clone();
-        let backfill_state_path = state_db_path.clone();
-        let backfilled = tokio::task::spawn_blocking(move || {
-            backfill_historical_insights(&backfill_snapshot_path, &backfill_state_path)
-        })
-        .await??;
-        if backfilled > 0 {
-            info!("backfilled {backfilled} historical Insights usage rows from state.db");
-        }
         tokio::task::spawn_blocking(move || {
             cleanup_deleted_insights_baselines(&path, &state_db_path, captured_at)
         })
