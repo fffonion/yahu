@@ -632,13 +632,14 @@ export default function App() {
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
   useEffect(() => { writeChatViewState(activeSessionId); }, [activeSessionId]);
   useEffect(() => () => { if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current); }, []);
+  const prepareLatestFollow = useCallback(() => { scrollLatestAfterRenderRef.current = 'follow'; }, []);
   const showToast = useCallback((message: string) => {
     if (!message) return;
     setToastMessage(message);
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToastMessage(''), 2600);
   }, []);
-  const scrollLatestAfterRenderRef = useRef(false);
+  const scrollLatestAfterRenderRef = useRef<'follow' | 'restore' | false>(false);
   const pendingHistoryScrollAnchorRef = useRef<MessageScrollAnchor | null>(null);
   const pendingJumpMessageIdRef = useRef('');
   const titleRefreshDoneRef = useRef<Set<string>>(new Set());
@@ -1066,7 +1067,7 @@ export default function App() {
       hasNewerRef.current = merged.hasNewer;
       setHasOlder(merged.hasOlder);
       setHasNewer(merged.hasNewer);
-      if (direction === 'latest') scrollLatestAfterRenderRef.current = true;
+      if (direction === 'latest' && !scrollLatestAfterRenderRef.current) scrollLatestAfterRenderRef.current = 'restore';
     } catch (err) { setStatus(tf('status.messagesUnavailable', errorMessage(err))); }
     finally {
       if (req === messageRequestRef.current) {
@@ -1436,6 +1437,7 @@ export default function App() {
     const isDraft = activeSessionId === DRAFT_SESSION_ID;
     setUserNavLoading(!isDraft);
     if (isDraft) return;
+    scrollLatestAfterRenderRef.current = 'restore';
     loadMessageWindow(activeSessionId, 'latest');
   }, [activeSessionId]);
   useEffect(() => {
@@ -1464,7 +1466,7 @@ export default function App() {
         const next = mergeWatchedMessage(prev, msg);
         messagesRef.current = next;
         if (wasNearBottom) {
-          scrollLatestAfterRenderRef.current = true;
+          scrollLatestAfterRenderRef.current = 'follow';
           clearNewMessages();
         } else {
           const previousVisible = visibleChatMessages(prev, showReasoningRef.current, showToolCallsRef.current);
@@ -1534,14 +1536,20 @@ export default function App() {
     };
   }, [sessionMenu, skillMenu, skillFileMenu, workspaceMenu]);
   useLayoutEffect(() => {
-    if (!scrollLatestAfterRenderRef.current) return;
+    const scrollMode = scrollLatestAfterRenderRef.current;
+    if (!scrollMode) return;
     scrollLatestAfterRenderRef.current = false;
     const scroller = chatScrollRef.current;
     if (!scroller) return;
     const savedTop = readChatViewPosition(activeSessionId);
     const restorePosition = () => {
-      if (Number.isFinite(savedTop)) scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));
-      else scroller.scrollTop = scroller.scrollHeight;
+      if (scrollMode === 'follow') {
+        scroller.scrollTop = scroller.scrollHeight;
+      } else if (Number.isFinite(savedTop)) {
+        scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+      } else {
+        scroller.scrollTop = scroller.scrollHeight;
+      }
     };
     restorePosition();
     requestAnimationFrame(restorePosition);
@@ -2084,7 +2092,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} prepareLatestFollow={prepareLatestFollow} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => { setMode('workspace'); setSidebarCollapsed(false); writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path }); setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path }); }} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -2770,6 +2778,7 @@ type ChatMainProps = {
   userNavLoading: boolean;
   historyTotal: number | null;
   onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>;
+  prepareLatestFollow: () => void;
   contextWindowSnapshot: ContextWindowSnapshot | null;
   showReasoning: boolean;
   setShowReasoning: React.Dispatch<React.SetStateAction<boolean>>;
@@ -2897,7 +2906,10 @@ function ChatMain(props: ChatMainProps) {
     window.setTimeout(scrollBottom, 800);
   }, [props.chatScrollRef]);
   const jumpToLatest = useCallback(async () => {
-    if (props.hasNewer) await props.loadMessageWindow(props.activeSessionId, 'latest');
+    if (props.hasNewer) {
+      props.prepareLatestFollow();
+      await props.loadMessageWindow(props.activeSessionId, 'latest');
+    }
     props.onClearNewMessages();
     setLatestDetailExpansion((current) => ({
       sessionId: props.activeSessionId,
@@ -2905,7 +2917,7 @@ function ChatMain(props: ChatMainProps) {
     }));
     setShowLatestButton(false);
     scrollLatestViewport();
-  }, [props.activeSessionId, props.hasNewer, props.loadMessageWindow, props.onClearNewMessages, scrollLatestViewport]);
+  }, [props.activeSessionId, props.hasNewer, props.loadMessageWindow, props.onClearNewMessages, props.prepareLatestFollow, scrollLatestViewport]);
   useLayoutEffect(() => {
     const frame = window.requestAnimationFrame(updateLatestButton);
     return () => window.cancelAnimationFrame(frame);

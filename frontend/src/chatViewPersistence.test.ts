@@ -22,9 +22,18 @@ describe('chat view persistence', () => {
 
   test('restores a saved position after the latest page renders and otherwise goes latest', () => {
     const source = app();
-    expect(source).toContain('const savedTop = readChatViewPosition(activeSessionId);');
+    expect(source).toContain("const savedTop = readChatViewPosition(activeSessionId);");
+    expect(source).toContain("const scrollMode = scrollLatestAfterRenderRef.current;");
+    expect(source).toContain("if (scrollMode === 'follow') {");
     expect(source).toContain('scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));');
     expect(source).toContain('window.setTimeout(restorePosition, 300);');
-    expect(source).toContain('else scroller.scrollTop = scroller.scrollHeight;');
+    expect(source).toContain('scroller.scrollTop = scroller.scrollHeight;');
+  });
+
+  test('marks live updates and explicit latest jumps as follow actions', () => {
+    const source = app();
+    expect(source).toContain("scrollLatestAfterRenderRef.current = 'follow';");
+    expect(source).toContain('prepareLatestFollow: () => void;');
+    expect(source).toContain('props.prepareLatestFollow();');
   });
 });
