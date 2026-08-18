@@ -147,9 +147,12 @@ describe('chat message visibility', () => {
     expect(transcript).toContain('showToolCalls: boolean');
   });
 
-  test('session changes clear old message data before loading the new window', () => {
+  test('session changes restore cached message data before refreshing the latest window', () => {
     const source = appSource();
-    expect(source).toContain('messageRequestRef.current += 1;\n    userNavRequestRef.current += 1;\n    contextWindowRequestRef.current += 1;\n    messagesRef.current = [];\n    hasOlderRef.current = false;\n    hasNewerRef.current = false;\n    pendingHistoryScrollAnchorRef.current = null;\n    setMessages([]);');
+    expect(source).toContain('const sessionMessageCacheRef = useRef<Map<string, SessionMessageCache>>(new Map());');
+    expect(source).toContain('const restored = restoreCachedMessageWindow(activeSessionId);');
+    expect(source).toContain('setMessages(cached.messages);');
+    expect(source).toContain('if (!restored) {\n      messagesRef.current = [];');
     expect(source).toContain("loadMessageWindow(activeSessionId, 'latest');");
   });
 
