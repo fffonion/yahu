@@ -75,7 +75,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain("event.preventDefault(); const nextOpen = !open; onOpenChange(node.sessionId, nextOpen);");
 
     expect(source).toContain('subagentMessagesUrl(node.sessionId)');
-    expect(source).toContain('normalizeSubagentMessages(await response.json())');
+    expect(source).toContain('normalizeSubagentMessages(await response.json(), node.context)');
     expect(source).toContain('className="subagent-progress-messages"');
     expect(source).toContain('<ChatTranscript');
 

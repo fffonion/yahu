@@ -18,7 +18,7 @@
             serde_json::json!({"id": 5, "role": "assistant", "content": "Partial review note", "timestamp": 102.5}),
         ];
 
-        let projected = project_subagent_session(&session, &messages).unwrap();
+        let projected = project_subagent_session(Path::new("/nonexistent"), &session, &messages).unwrap();
 
         assert_eq!(projected.session_id, "child-1");
         assert_eq!(projected.task, "Review the backend");
@@ -29,6 +29,42 @@
         assert_eq!(projected.todos[1].status, "in_progress");
         assert_eq!(projected.summary.as_deref(), Some("Partial review note"));
         assert_eq!(projected.activity.last().unwrap().tool, "todo");
+    }
+
+    #[test]
+    fn subagent_context_is_loaded_from_the_matching_parent_delegate_call() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                tool_calls TEXT
+            );",
+        )
+        .unwrap();
+        let calls = serde_json::json!([{
+            "function": {
+                "name": "delegate_task",
+                "arguments": serde_json::json!({
+                    "goal": "Review the backend",
+                    "context": "Use the read-only architecture checklist."
+                }).to_string()
+            }
+        }]).to_string();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, role, timestamp, tool_calls) VALUES (1, ?1, 'assistant', 99.0, ?2)",
+            rusqlite::params!["parent-1", calls],
+        )
+        .unwrap();
+        drop(conn);
+
+        assert_eq!(
+            load_subagent_context(temp.path(), "parent-1", 100.0, "Review the backend").as_deref(),
+            Some("Use the read-only architecture checklist.")
+        );
     }
 
     #[test]
@@ -473,7 +509,7 @@
             serde_json::json!({"role": "tool", "tool_name": "terminal", "tool_call_id": "term-1", "content": "API_KEY=secret-value", "timestamp": 101.0}),
         ];
 
-        let projected = project_subagent_session(&session, &messages).unwrap();
+        let projected = project_subagent_session(Path::new("/nonexistent"), &session, &messages).unwrap();
         let encoded = serde_json::to_string(&projected).unwrap();
 
         assert!(!encoded.contains("Authorization:secret"));
@@ -700,7 +736,7 @@
             "ended_at": 101.0
         });
         let messages = vec![serde_json::json!({"role": "user", "content": "Review"})];
-        let projection = project_subagent_session(&session, &messages).unwrap();
+        let projection = project_subagent_session(Path::new("/nonexistent"), &session, &messages).unwrap();
 
         let marked = mark_subagent_omitted_ancestry(projection, &HashSet::new(), "parent");
 
@@ -744,6 +780,7 @@
                 parent_session_id: "parent".to_string(),
                 ancestry_omitted: false,
                 task: "Review".to_string(),
+                context: None,
                 model: None,
                 status: status.to_string(),
                 started_at: Some(1.0),

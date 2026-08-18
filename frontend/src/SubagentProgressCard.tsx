@@ -330,7 +330,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
     fetch(subagentMessagesUrl(node.sessionId), { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return normalizeSubagentMessages(await response.json());
+        return normalizeSubagentMessages(await response.json(), node.context);
       })
       .then((items) => {
         if (!controller.signal.aborted) onMessagesLoaded(node.sessionId, node.messageCount, items);

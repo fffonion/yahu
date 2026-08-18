@@ -61,7 +61,33 @@ function mergeLatestMessages<T>(chunk: T[], current: T[]): T[] {
     const key = messageKey(message);
     if (!key || !chunkIds.has(key)) merged.push(message);
   }
-  return uniqueMessages(merged);
+  return sortMessagesInDisplayOrder(uniqueMessages(merged));
+}
+
+function sortMessagesInDisplayOrder<T>(messages: T[]): T[] {
+  const indexed = messages.map((message, index) => ({ message, index }));
+  const timestamps = indexed.map(({ message }) => {
+    if (!message || typeof message !== 'object') return undefined;
+    const value = (message as { timestamp?: unknown }).timestamp;
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  });
+  if (timestamps.every((value) => value !== undefined)) {
+    return indexed
+      .sort((left, right) => (timestamps[left.index]! - timestamps[right.index]!) || left.index - right.index)
+      .map(({ message }) => message);
+  }
+  const ids = indexed.map(({ message }) => {
+    const key = messageKey(message);
+    if (!key || !/^\d+$/.test(key)) return undefined;
+    return Number(key);
+  });
+  if (ids.every((value) => value !== undefined)) {
+    return indexed
+      .sort((left, right) => (ids[left.index]! - ids[right.index]!) || left.index - right.index)
+      .map(({ message }) => message);
+  }
+  return messages;
 }
 
 export function mergeMessageWindow<T>(input: MessageWindowMergeInput<T>): MessageWindowMergeResult<T> {

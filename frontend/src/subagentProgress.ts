@@ -44,6 +44,7 @@ export type SubagentProgress = {
   parentSessionId: string;
   ancestryOmitted: boolean;
   task: string;
+  context?: string;
   model?: string;
   status: SubagentStatus;
   startedAt?: number;
@@ -144,11 +145,18 @@ export function subagentMessagesUrl(sessionId: string): string {
   return `/chat/subagents/${encodeURIComponent(sessionId)}/messages`;
 }
 
-export function normalizeSubagentMessages(value: unknown): SubagentMessage[] {
+export function normalizeSubagentMessages(value: unknown, context?: string): SubagentMessage[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
   const data = (value as Record<string, unknown>).data;
   if (!Array.isArray(data)) return [];
-  return data.map((item, index) => normalizeSubagentMessage(item, index)).filter((item): item is SubagentMessage => !!item);
+  const messages = data.map((item, index) => normalizeSubagentMessage(item, index)).filter((item): item is SubagentMessage => !!item);
+  if (!context) return messages;
+  let replaced = false;
+  return messages.map((message) => {
+    if (replaced || message.role !== 'user') return message;
+    replaced = true;
+    return { ...message, content: context };
+  });
 }
 
 export function mergeSubagentMessages(previous: SubagentMessage[], incoming: SubagentMessage[]): SubagentMessage[] {
@@ -339,6 +347,7 @@ function normalizeSubagent(value: unknown): SubagentProgress | null {
     parentSessionId: stringValue(raw.parent_session_id),
     ancestryOmitted: raw.ancestry_omitted === true,
     task: stringValue(raw.task) || stringValue(raw.goal) || 'Subagent',
+    context: stringValue(raw.context) || undefined,
     model: stringValue(raw.model) || undefined,
     status: normalizeStatus(raw.status),
     startedAt: numberValue(raw.started_at),

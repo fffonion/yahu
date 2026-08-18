@@ -28,6 +28,21 @@ describe('chat message window pagination state', () => {
     expect(result.hasNewer).toBe(false);
   });
 
+  test('latest refresh keeps cached older messages before the fetched latest chunk', () => {
+    const result = mergeMessageWindow<Msg>({
+      current: [{ id: '10' }, { id: '11' }, { id: '12' }, { id: '13' }],
+      chunk: [{ id: '12' }, { id: '13' }],
+      direction: 'latest',
+      limit: 10,
+      hasOlder: true,
+      hasNewer: false,
+      pageHasOlder: true,
+      pageHasNewer: false,
+    });
+
+    expect(ids(result.messages)).toEqual(['10', '11', '12', '13']);
+  });
+
   test('prepending older history keeps newer=false when the current tail is still loaded', () => {
     const result = mergeMessageWindow<Msg>({
       current: [{ id: '30' }, { id: '31' }],

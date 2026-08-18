@@ -35,6 +35,11 @@ describe('streaming subagent detail identity', () => {
     expect(card).toContain("onDetailOpen(node.status === 'running')");
   });
 
+  test('renders the delegate context as the expanded user message', () => {
+    const messages = normalizeSubagentMessages(snapshot(), 'Read the exact files before editing.');
+    expect(messages[0]?.content).toBe('Read the exact files before editing.');
+  });
+
   test('incrementally reuses unchanged messages and the complete array when nothing changed', () => {
     const previous = normalizeSubagentMessages(snapshot());
     const unchanged = mergeSubagentMessages(previous, normalizeSubagentMessages(snapshot()));

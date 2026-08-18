@@ -34,6 +34,8 @@ struct SubagentProjection {
     parent_session_id: String,
     ancestry_omitted: bool,
     task: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<String>,
     model: Option<String>,
     status: String,
     started_at: Option<f64>,
@@ -686,7 +688,7 @@ async fn fetch_subagent_projection_snapshot(
         }
 
         let messages = fetch_session_messages(state, &session_id).await?;
-        let Some(projection) = project_subagent_session(&session, &messages) else {
+        let Some(projection) = project_subagent_session(&state.hermes_home, &session, &messages) else {
             continue;
         };
         cache.insert(
@@ -950,7 +952,7 @@ fn select_visible_subagent_sessions(
     visible
 }
 
-fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<SubagentProjection> {
+fn project_subagent_session(hermes_home: &Path, session: &Value, messages: &[Value]) -> Option<SubagentProjection> {
     let session_id = string_field(session, "id")?;
     let parent_session_id = string_field(session, "parent_session_id").unwrap_or_default();
     let task = messages
@@ -960,6 +962,9 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
         .map(content_text)
         .filter(|text| !text.trim().is_empty())
         .unwrap_or_else(|| "Subagent".to_string());
+    let context = number_field(session, "started_at").and_then(|started_at| {
+        load_subagent_context(hermes_home, &parent_session_id, started_at, &task)
+    });
 
     let mut pending_tools = Vec::<(String, String)>::new();
     let mut completed_tool_ids = HashSet::<String>::new();
@@ -1018,6 +1023,7 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
         parent_session_id,
         ancestry_omitted: false,
         task: truncate_chars(task.trim(), 500),
+        context,
         model: string_field(session, "model"),
         status,
         started_at: number_field(session, "started_at"),
@@ -1030,6 +1036,77 @@ fn project_subagent_session(session: &Value, messages: &[Value]) -> Option<Subag
         activity,
         summary,
     })
+}
+
+fn load_subagent_context(
+    hermes_home: &Path,
+    parent_session_id: &str,
+    child_started_at: f64,
+    task: &str,
+) -> Option<String> {
+    let db_path = hermes_home.join("state.db");
+    if !db_path.exists() {
+        return None;
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    let mut statement = conn
+        .prepare(
+            "SELECT tool_calls FROM messages
+             WHERE session_id = ?1 AND role = 'assistant' AND tool_calls IS NOT NULL
+               AND timestamp <= ?2
+             ORDER BY timestamp DESC, id DESC",
+        )
+        .ok()?;
+    let rows = statement
+        .query_map(rusqlite::params![parent_session_id, child_started_at], |row| {
+            row.get::<_, String>(0)
+        })
+        .ok()?;
+    for raw in rows.flatten() {
+        let Ok(calls) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        let Some(calls) = calls.as_array() else {
+            continue;
+        };
+        for call in calls {
+            let function = call.get("function").and_then(Value::as_object);
+            if function.and_then(|item| item.get("name")).and_then(Value::as_str) != Some("delegate_task") {
+                continue;
+            }
+            let Some(arguments) = function.and_then(|item| item.get("arguments")) else {
+                continue;
+            };
+            let parsed = match arguments {
+                Value::String(text) => serde_json::from_str::<Value>(text).ok(),
+                Value::Object(_) => Some(arguments.clone()),
+                _ => None,
+            };
+            let Some(parsed) = parsed else {
+                continue;
+            };
+            let context = if string_field(&parsed, "goal").as_deref() == Some(task) {
+                string_field(&parsed, "context")
+            } else {
+                parsed
+                    .get("tasks")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .find(|item| string_field(item, "goal").as_deref() == Some(task))
+                    .and_then(|item| string_field(item, "context"))
+            };
+            if let Some(context) = context.filter(|value| !value.is_empty()) {
+                return Some(context);
+            }
+        }
+    }
+    None
 }
 
 fn latest_todos_state(messages: &[Value]) -> Option<Vec<SubagentTodo>> {
