@@ -323,23 +323,37 @@
     }
 
     #[test]
-    fn insights_uses_official_deepseek_peak_price_for_provider_route() {
-        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+    fn insights_uses_deepseek_peak_and_off_peak_prices_by_capture_time() {
+        let peak_ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(2, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let off_peak_ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()
             .and_hms_opt(12, 0, 0)
             .unwrap()
             .and_utc()
             .timestamp() as f64;
-        let rows = vec![serde_json::json!({
-            "id": "deepseek-v4-flash",
-            "source": "telegram",
-            "model": "deepseek-v4-flash",
-            "provider": "deepseek",
-            "last_active": ts,
-            "input_tokens": 1_000_000,
-            "output_tokens": 1_000_000,
-            "cache_read_tokens": 1_000_000
-        })];
+        let rows = [peak_ts, off_peak_ts]
+            .into_iter()
+            .enumerate()
+            .map(|(index, captured_at)| {
+                serde_json::json!({
+                    "id": format!("deepseek-v4-flash-{index}"),
+                    "source": "telegram",
+                    "model": "deepseek-v4-flash",
+                    "provider": "deepseek",
+                    "captured_at": captured_at,
+                    "started_at": captured_at,
+                    "last_active": captured_at,
+                    "input_tokens": 1_000_000,
+                    "output_tokens": 1_000_000,
+                    "cache_read_tokens": 1_000_000
+                })
+            })
+            .collect::<Vec<_>>();
         let stale_models_dev = serde_json::json!({
             "deepseek": {
                 "models": {
@@ -352,9 +366,9 @@
         });
         let catalog = model_price_catalog_from_models_dev(&stale_models_dev);
 
-        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog, 1);
+        let body = aggregate_usage_insights_with_prices(&rows, off_peak_ts, &catalog, 1);
 
-        assert!((body["totals"]["estimated_cost_usd"].as_f64().unwrap() - 1.774).abs() < 0.000001);
+        assert!((body["totals"]["estimated_cost_usd"].as_f64().unwrap() - 2.661).abs() < 0.000001);
     }
 
     #[test]

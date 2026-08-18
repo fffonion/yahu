@@ -700,12 +700,18 @@ fn load_insights_usage_rows(
     };
     let mut usage_rows = {
         let mut statement = conn.prepare(
-            "SELECT row_json FROM insights_events WHERE captured_at >= ?1 ORDER BY captured_at, id",
+            "SELECT captured_at, row_json FROM insights_events WHERE captured_at >= ?1 ORDER BY captured_at, id",
         )?;
         statement
-            .query_map([min_timestamp], |row| row.get::<_, String>(0))?
+            .query_map([min_timestamp], |row| {
+                Ok((row.get::<_, f64>(0)?, row.get::<_, String>(1)?))
+            })?
             .filter_map(Result::ok)
-            .filter_map(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
+            .filter_map(|(captured_at, value)| {
+                let mut value = serde_json::from_str::<serde_json::Value>(&value).ok()?;
+                value["captured_at"] = serde_json::Value::from(captured_at);
+                Some(value)
+            })
             .collect::<Vec<_>>()
     };
     let fallback_rows = {
@@ -1035,6 +1041,12 @@ fn model_price_for_model(catalog: &ModelPriceCatalog, model: &str) -> Option<Mod
 fn model_price_for_row(catalog: &ModelPriceCatalog, row: &serde_json::Value) -> Option<ModelPrice> {
     let model = row.get("model").and_then(|value| value.as_str())?;
     if let Some(provider) = row.get("provider").and_then(|value| value.as_str()) {
+        if provider == "deepseek"
+            && let Some(captured_at) = row.get("captured_at").and_then(serde_json::Value::as_f64)
+            && let Some(price) = official_deepseek_price(model, captured_at)
+        {
+            return Some(price);
+        }
         let provider_model = format!("{provider}/{model}");
         if let Some(price) = model_price_for_model(catalog, &provider_model) {
             return Some(price);
@@ -1087,6 +1099,40 @@ fn apply_official_deepseek_peak_price_overrides(catalog: &mut ModelPriceCatalog)
         insert_model_price(catalog, &format!("deepseek/{model}"), flash);
     }
     insert_model_price(catalog, "deepseek/deepseek-v4-pro", pro);
+}
+
+fn official_deepseek_price(model: &str, captured_at: f64) -> Option<ModelPrice> {
+    let normalized = normalize_model_price_key(model);
+    let model_name = normalized
+        .strip_prefix("deepseek-")
+        .and_then(|value| value.strip_prefix("deepseek-"))
+        .unwrap_or_else(|| normalized.strip_prefix("deepseek-").unwrap_or(&normalized));
+    let peak_price = match model_name {
+        "v4-flash" | "chat" | "reasoner" => ModelPrice {
+            input_per_million: 0.44,
+            output_per_million: 1.32,
+            cache_read_per_million: 0.014,
+            cache_write_per_million: 0.0,
+        },
+        "v4-pro" => ModelPrice {
+            input_per_million: 1.32,
+            output_per_million: 3.96,
+            cache_read_per_million: 0.044,
+            cache_write_per_million: 0.0,
+        },
+        _ => return None,
+    };
+    let utc_hour = (captured_at.rem_euclid(86_400.0) / 3_600.0).floor() as u32;
+    if (1..4).contains(&utc_hour) || (6..10).contains(&utc_hour) {
+        Some(peak_price)
+    } else {
+        Some(ModelPrice {
+            input_per_million: peak_price.input_per_million / 2.0,
+            output_per_million: peak_price.output_per_million / 2.0,
+            cache_read_per_million: peak_price.cache_read_per_million / 2.0,
+            cache_write_per_million: peak_price.cache_write_per_million / 2.0,
+        })
+    }
 }
 
 fn model_price_from_models_dev_model(model: &serde_json::Value) -> Option<ModelPrice> {
