@@ -930,10 +930,7 @@ impl UsageTotals {
         let reasoning = json_i64(row, "reasoning_tokens");
         let actual_cost = json_f64(row, "actual_cost_usd");
         let api_estimated_cost = json_f64(row, "estimated_cost_usd");
-        let catalog_estimated_cost = row
-            .get("model")
-            .and_then(|value| value.as_str())
-            .and_then(|model| model_price_for_model(prices, model))
+        let catalog_estimated_cost = model_price_for_row(prices, row)
             .map(|price| price.estimate(input, output, cache_read, cache_write));
         let estimated_cost = catalog_estimated_cost.or((api_estimated_cost > 0.0).then_some(api_estimated_cost));
         let row_cost = estimated_cost.or((actual_cost > 0.0).then_some(actual_cost));
@@ -1035,6 +1032,17 @@ fn model_price_for_model(catalog: &ModelPriceCatalog, model: &str) -> Option<Mod
     catalog.get(&normalize_model_price_key(model)).copied()
 }
 
+fn model_price_for_row(catalog: &ModelPriceCatalog, row: &serde_json::Value) -> Option<ModelPrice> {
+    let model = row.get("model").and_then(|value| value.as_str())?;
+    if let Some(provider) = row.get("provider").and_then(|value| value.as_str()) {
+        let provider_model = format!("{provider}/{model}");
+        if let Some(price) = model_price_for_model(catalog, &provider_model) {
+            return Some(price);
+        }
+    }
+    model_price_for_model(catalog, model)
+}
+
 fn model_price_catalog_from_models_dev(body: &serde_json::Value) -> ModelPriceCatalog {
     let mut catalog = ModelPriceCatalog::new();
     let Some(providers) = body.as_object() else { return catalog };
@@ -1057,7 +1065,28 @@ fn model_price_catalog_from_models_dev(body: &serde_json::Value) -> ModelPriceCa
             }
         }
     }
+    apply_official_deepseek_peak_price_overrides(&mut catalog);
     catalog
+}
+
+fn apply_official_deepseek_peak_price_overrides(catalog: &mut ModelPriceCatalog) {
+    // DeepSeek's official V4 peak rates, USD per million tokens, effective 2026-08-16 16:00 UTC.
+    let flash = ModelPrice {
+        input_per_million: 0.44,
+        output_per_million: 1.32,
+        cache_read_per_million: 0.014,
+        cache_write_per_million: 0.0,
+    };
+    let pro = ModelPrice {
+        input_per_million: 1.32,
+        output_per_million: 3.96,
+        cache_read_per_million: 0.044,
+        cache_write_per_million: 0.0,
+    };
+    for model in ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"] {
+        insert_model_price(catalog, &format!("deepseek/{model}"), flash);
+    }
+    insert_model_price(catalog, "deepseek/deepseek-v4-pro", pro);
 }
 
 fn model_price_from_models_dev_model(model: &serde_json::Value) -> Option<ModelPrice> {
