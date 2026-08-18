@@ -23,7 +23,7 @@ import { visibleChatMessages } from './messageVisibility';
 import { type TurnDetailMetadata } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
-import { mergeMessageWindow } from './chatMessageWindow';
+import { mergeMessageWindow, sortMessagesInDisplayOrder } from './chatMessageWindow';
 import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, numericHistoryMessageId, type ChatHistoryPageRaw } from './chatHistoryPage';
 import { computeNewMessageMarker } from './chatNewMessages';
 import { chatLatestButtonVisible } from './chatLatest';
@@ -1499,7 +1499,7 @@ export default function App() {
         const viewportMatchesSaved = !Number.isFinite(savedScrollTop) || Math.abs((chatScrollRef.current?.scrollTop || 0) - Number(savedScrollTop)) <= 2;
         const wasNearBottom = viewportMatchesSaved && !!chatScrollRef.current && isNearBottom(chatScrollRef.current);
         const prev = messagesRef.current;
-        const next = mergeWatchedMessage(prev, msg);
+        const next = sortMessagesInDisplayOrder(mergeWatchedMessage(prev, msg));
         messagesRef.current = next;
         if (wasNearBottom) {
           scrollLatestAfterRenderRef.current = 'follow';

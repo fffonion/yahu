@@ -20,7 +20,7 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain('const turnLocalStreamIdx = findUnreconciledLocalAssistantIndex(prev);');
     expect(app).toContain('i === turnLocalStreamIdx ? { ...m, ...msg, pending: false } : m');
     expect(app).toContain('const prev = messagesRef.current;');
-    expect(app).toContain('const next = mergeWatchedMessage(prev, msg);');
+    expect(app).toContain('const next = sortMessagesInDisplayOrder(mergeWatchedMessage(prev, msg));');
     expect(app).toContain('messagesRef.current = next;');
     expect(app).toContain('computeNewMessageMarker(previousVisible, nextVisible, newMessageBoundaryIdRef.current)');
     expect(app).toContain('newMessageBoundaryId={newMessageBoundaryId}');

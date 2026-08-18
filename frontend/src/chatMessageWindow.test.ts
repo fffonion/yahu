@@ -111,9 +111,26 @@ describe('chat message window pagination state', () => {
     expect(result.hasNewer).toBe(false);
   });
 
+  test('newer pagination restores chronological order when the API chunk is reversed', () => {
+    const result = mergeMessageWindow<Msg>({
+      current: [{ id: '20' }],
+      chunk: [{ id: '22' }, { id: '21' }],
+      direction: 'newer',
+      limit: 10,
+      hasOlder: false,
+      hasNewer: true,
+      pageHasOlder: false,
+      pageHasNewer: false,
+    });
+
+    expect(ids(result.messages)).toEqual(['20', '21', '22']);
+    expect(result.hasNewer).toBe(false);
+  });
+
   test('latest history response merges with watch updates instead of replacing them', () => {
     const source = appSource();
     expect(source).toContain('current: messagesRef.current,');
+    expect(source).toContain('sortMessagesInDisplayOrder(mergeWatchedMessage(prev, msg))');
 
   });
 

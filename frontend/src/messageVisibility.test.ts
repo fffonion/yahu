@@ -169,7 +169,7 @@ describe('chat message visibility', () => {
   test('raw history window is larger than the rendered message target so hidden tool pages do not evict visible rows', () => {
     const source = appSource();
     expect(source).toContain('const RAW_MESSAGE_WINDOW = MESSAGE_WINDOW * 4;');
-    expect(source).toContain("import { mergeMessageWindow } from './chatMessageWindow';");
+    expect(source).toContain("import { mergeMessageWindow, sortMessagesInDisplayOrder } from './chatMessageWindow';");
     expect(source).toContain('limit: RAW_MESSAGE_WINDOW,');
     expect(source).toContain('const loadingMessagesRef = useRef(false);');
     expect(source).toContain("if (loadingMessagesRef.current && direction !== 'latest') return;");

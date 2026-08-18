@@ -64,7 +64,7 @@ function mergeLatestMessages<T>(chunk: T[], current: T[]): T[] {
   return sortMessagesInDisplayOrder(uniqueMessages(merged));
 }
 
-function sortMessagesInDisplayOrder<T>(messages: T[]): T[] {
+export function sortMessagesInDisplayOrder<T>(messages: T[]): T[] {
   const indexed = messages.map((message, index) => ({ message, index }));
   const timestamps = indexed.map(({ message }) => {
     if (!message || typeof message !== 'object') return undefined;
@@ -87,6 +87,25 @@ function sortMessagesInDisplayOrder<T>(messages: T[]): T[] {
       .sort((left, right) => (ids[left.index]! - ids[right.index]!) || left.index - right.index)
       .map(({ message }) => message);
   }
+  const partiallyIndexed = indexed.map(({ message, index }) => {
+    const key = messageKey(message);
+    const numericId = key && /^\d+$/.test(key) ? Number(key) : undefined;
+    const timestamp = timestamps[index];
+    return {
+      message,
+      index,
+      value: numericId ?? timestamp,
+    };
+  });
+  if (partiallyIndexed.some(({ value }) => value !== undefined)) {
+    return partiallyIndexed
+      .sort((left, right) => {
+        if (left.value === undefined) return right.value === undefined ? left.index - right.index : 1;
+        if (right.value === undefined) return -1;
+        return left.value - right.value || left.index - right.index;
+      })
+      .map(({ message }) => message);
+  }
   return messages;
 }
 
@@ -102,7 +121,7 @@ export function mergeMessageWindow<T>(input: MessageWindowMergeInput<T>): Messag
   }
   if (input.direction === 'older') {
     const olderChunk = newMessagesOnly(input.chunk, input.current);
-    const merged = uniqueMessages([...olderChunk, ...input.current]);
+    const merged = sortMessagesInDisplayOrder(uniqueMessages([...olderChunk, ...input.current]));
     return {
       messages: merged.slice(0, limit),
       hasOlder: olderChunk.length > 0 ? input.pageHasOlder : false,
@@ -110,7 +129,7 @@ export function mergeMessageWindow<T>(input: MessageWindowMergeInput<T>): Messag
     };
   }
   const newerChunk = newMessagesOnly(input.chunk, input.current);
-  const merged = uniqueMessages([...input.current, ...newerChunk]);
+  const merged = sortMessagesInDisplayOrder(uniqueMessages([...input.current, ...newerChunk]));
   return {
     messages: merged.slice(-limit),
     hasOlder: input.hasOlder || merged.length > limit,
