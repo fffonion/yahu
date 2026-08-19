@@ -21,7 +21,7 @@ describe('large-session staged loading UI', () => {
     const selectionStart = source.indexOf("if (!activeSessionId) return;\n    loadSessionDetail(activeSessionId);");
     const selectionEnd = source.indexOf('useEffect(() => {\n    if (watchSourceRef.current)', selectionStart);
     const selectionEffect = source.slice(selectionStart, selectionEnd);
-    expect(selectionEffect).toContain("loadMessageWindow(activeSessionId, 'latest');");
+    expect(selectionEffect).toContain("loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchorId);");
 
   });
 

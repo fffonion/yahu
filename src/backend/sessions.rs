@@ -1334,6 +1334,49 @@ fn fetch_local_active_message_tail(
     Ok(Some((messages, has_older_active)))
 }
 
+fn fetch_local_message_window_around(
+    state: &AppState,
+    session_id: &str,
+    around: i64,
+    limit: usize,
+) -> anyhow::Result<Option<(Vec<serde_json::Value>, bool, bool)>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let select = |order: &str| {
+        format!(
+            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id = ?1 AND active = 1 AND id {order} ?2 ORDER BY id DESC LIMIT ?3"
+        )
+    };
+    let left_limit = (limit / 2).max(1);
+    let right_limit = limit.saturating_sub(left_limit).max(1);
+    let mut left = conn
+        .prepare(&select("<="))?
+        .query_map(rusqlite::params![session_id, around, left_limit + 1], row_to_session_message)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut right = conn
+        .prepare(&select(">"))?
+        .query_map(rusqlite::params![session_id, around, right_limit + 1], row_to_session_message)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if left.is_empty() && right.is_empty() {
+        return Ok(None);
+    }
+    let has_older = left.len() > left_limit;
+    let has_newer = right.len() > right_limit;
+    left.truncate(left_limit);
+    right.truncate(right_limit);
+    left.reverse();
+    right.reverse();
+    left.extend(right);
+    Ok(Some((left, has_older, has_newer)))
+}
+
 async fn chat_messages_page(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
@@ -1341,6 +1384,30 @@ async fn chat_messages_page(
 ) -> Response<Body> {
     let limit = query.limit.unwrap_or(24).clamp(1, 80);
     let requested_view = query.view.as_deref().unwrap_or("skeleton");
+    if query.around.is_some() && query.before.is_none() && query.after.is_none()
+        && let Some(around) = query.around
+    {
+            match fetch_local_message_window_around(&state, &session_id, around, limit) {
+                Ok(Some((mut messages, has_older, has_newer))) => {
+                    inject_turn_durations(&mut messages);
+                    let skeleton = if requested_view == "skeleton" {
+                        history_skeleton_messages(&messages)
+                    } else {
+                        messages
+                    };
+                    return Json(serde_json::json!({
+                        "object": "list",
+                        "data": skeleton,
+                        "has_older": has_older,
+                        "has_newer": has_newer,
+                        "metadata_pending": true
+                    }))
+                    .into_response();
+                }
+                Ok(None) => {}
+                Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local around message window"),
+            }
+    }
     if requested_view == "latest"
         && query.before.is_none()
         && query.after.is_none()

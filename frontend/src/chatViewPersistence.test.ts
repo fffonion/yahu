@@ -7,9 +7,10 @@ describe('chat view persistence', () => {
   test('stores the last session and per-session scroll positions in localStorage', () => {
     const source = app();
     expect(source).toContain("const CHAT_VIEW_STATE_KEY = 'yahu.chat.view.v1';");
-    expect(source).toContain('const readChatViewState = (): { lastSessionId: string; positions: Record<string, number> }');
+    expect(source).toContain('const readChatViewState = (): { lastSessionId: string; positions: Record<string, number>; anchors: Record<string, string> }');
     expect(source).toContain('state.positions[sessionId] = Math.max(0, Number(scrollTop));');
-    expect(source).toContain('writeChatViewState(props.activeSessionId, el.scrollTop);');
+    expect(source).toContain('state.anchors[sessionId] = anchorId;');
+    expect(source).toContain('writeChatViewState(props.activeSessionId, el.scrollTop, captureMessageScrollAnchor(el)?.id);');
     expect(source).toContain('const viewportMatchesSaved = !Number.isFinite(savedScrollTop) || Math.abs((chatScrollRef.current?.scrollTop || 0) - Number(savedScrollTop)) <= 2;');
   });
 
@@ -22,7 +23,9 @@ describe('chat view persistence', () => {
 
   test('restores a saved position after the latest page renders and otherwise goes latest', () => {
     const source = app();
-    expect(source).toContain("const savedTop = readChatViewPosition(activeSessionId);");
+    expect(source).toContain('const savedAnchorId = readChatViewAnchor(activeSessionId);');
+    expect(source).toContain("loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchorId);");
+    expect(source).toContain("params.set('around', around);");
     expect(source).toContain("const scrollMode = scrollLatestAfterRenderRef.current;");
     expect(source).toContain("if (scrollMode === 'follow') {");
     expect(source).toContain('scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));');

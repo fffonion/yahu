@@ -38,4 +38,12 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain("return prev.map((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '') ? { ...m, ...msg, pending: false } : m);");
 
   });
+
+  test('coalesces expensive context-window refreshes during rapid watch updates', () => {
+    const app = source();
+    expect(app).toContain('const contextWindowRefreshTimerRef = useRef<number | null>(null);');
+    expect(app).toContain('const scheduleContextWindowSnapshot = useCallback((sessionId: string) => {');
+    expect(app).toContain('scheduleContextWindowSnapshot(watchedSessionId);');
+    expect(app).not.toContain('loadContextWindowSnapshot(watchedSessionId);');
+  });
 });

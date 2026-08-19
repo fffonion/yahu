@@ -11,7 +11,7 @@ describe('chat session message cache', () => {
     expect(source).toContain('while (cache.size > SESSION_MESSAGE_CACHE_LIMIT) cache.delete(cache.keys().next().value as string);');
     expect(source).toContain('const restored = restoreCachedMessageWindow(activeSessionId);');
     expect(source).toContain('setMessages(cached.messages);');
-    expect(source).toContain("loadMessageWindow(activeSessionId, 'latest');");
+    expect(source).toContain("loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchorId);");
   });
 
   test('updates the cached window after API pages and watch events', () => {

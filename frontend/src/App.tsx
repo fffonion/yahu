@@ -137,22 +137,26 @@ const readFollowUpQueues = (): Record<string, FollowUpQueueItem[]> => {
     return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, Array.isArray(value) ? value.filter((item: any) => item && typeof item.text === 'string').map((item: any) => ({ id: String(item.id || uid('fu')), text: item.text, createdAt: Number(item.createdAt || Date.now()) })) : []]));
   } catch { return {}; }
 };
-const readChatViewState = (): { lastSessionId: string; positions: Record<string, number> } => {
+const readChatViewState = (): { lastSessionId: string; positions: Record<string, number>; anchors: Record<string, string> } => {
   try {
     const parsed = JSON.parse(localStorage.getItem(CHAT_VIEW_STATE_KEY) || 'null');
-    if (!parsed || typeof parsed !== 'object') return { lastSessionId: '', positions: {} };
+    if (!parsed || typeof parsed !== 'object') return { lastSessionId: '', positions: {}, anchors: {} };
+    const anchors = parsed.anchors && typeof parsed.anchors === 'object' && !Array.isArray(parsed.anchors)
+      ? Object.fromEntries(Object.entries(parsed.anchors).filter(([sessionId, value]) => sessionId && String(value).trim()).map(([sessionId, value]) => [sessionId, String(value)]))
+      : {};
     const positions = parsed.positions && typeof parsed.positions === 'object' && !Array.isArray(parsed.positions)
       ? Object.fromEntries(Object.entries(parsed.positions).filter(([sessionId, value]) => sessionId && Number.isFinite(Number(value))).map(([sessionId, value]) => [sessionId, Math.max(0, Number(value))]))
       : {};
-    return { lastSessionId: typeof parsed.lastSessionId === 'string' ? parsed.lastSessionId : '', positions };
-  } catch { return { lastSessionId: '', positions: {} }; }
+    return { lastSessionId: typeof parsed.lastSessionId === 'string' ? parsed.lastSessionId : '', positions, anchors };
+  } catch { return { lastSessionId: '', positions: {}, anchors: {} }; }
 };
-const writeChatViewState = (sessionId: string, scrollTop?: number) => {
+const writeChatViewState = (sessionId: string, scrollTop?: number, anchorId?: string) => {
   if (!sessionId || sessionId === DRAFT_SESSION_ID) return;
   try {
     const state = readChatViewState();
     state.lastSessionId = sessionId;
     if (Number.isFinite(scrollTop)) state.positions[sessionId] = Math.max(0, Number(scrollTop));
+    if (anchorId) state.anchors[sessionId] = anchorId;
     const keys = Object.keys(state.positions);
     if (keys.length > 80) keys.slice(0, keys.length - 80).forEach((key) => delete state.positions[key]);
     localStorage.setItem(CHAT_VIEW_STATE_KEY, JSON.stringify(state));
@@ -166,6 +170,7 @@ const clearLastChatViewSession = () => {
   } catch { /* storage may be unavailable */ }
 };
 const readChatViewPosition = (sessionId: string) => readChatViewState().positions[sessionId];
+const readChatViewAnchor = (sessionId: string) => readChatViewState().anchors[sessionId];
 const followUpQueueKey = (sessionId: string) => sessionId || DRAFT_SESSION_ID;
 const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';
 const MESSAGE_PAGE = 24;
@@ -600,6 +605,7 @@ export default function App() {
   const sessionMessageCacheRef = useRef<Map<string, SessionMessageCache>>(new Map());
   const messageRequestRef = useRef(0);
   const contextWindowRequestRef = useRef(0);
+  const contextWindowRefreshTimerRef = useRef<number | null>(null);
   const userNavRequestRef = useRef(0);
   const loadingMessagesRef = useRef(false);
   const hasOlderRef = useRef(false);
@@ -952,6 +958,17 @@ export default function App() {
     } catch { if (req === contextWindowRequestRef.current) setContextWindowSnapshot(null); }
   }, []);
 
+  const scheduleContextWindowSnapshot = useCallback((sessionId: string) => {
+    if (contextWindowRefreshTimerRef.current !== null) window.clearTimeout(contextWindowRefreshTimerRef.current);
+    contextWindowRefreshTimerRef.current = window.setTimeout(() => {
+      contextWindowRefreshTimerRef.current = null;
+      void loadContextWindowSnapshot(sessionId);
+    }, 1000);
+  }, [loadContextWindowSnapshot]);
+  useEffect(() => () => {
+    if (contextWindowRefreshTimerRef.current !== null) window.clearTimeout(contextWindowRefreshTimerRef.current);
+  }, []);
+
   const changeSessionModel = useCallback((nextModel: string, option?: ModelOption) => {
     const resolvedModel = realModelOrEmpty(nextModel);
     if (!resolvedModel) return;
@@ -1030,7 +1047,7 @@ export default function App() {
     writeHashRoute({ mode: 'chat' });
   }, [model, models, selectedModelProvider, writeHashRoute]);
 
-  const loadMessageWindow = useCallback(async (sessionId: string, direction: 'latest' | 'older' | 'newer' = 'latest') => {
+  const loadMessageWindow = useCallback(async (sessionId: string, direction: 'latest' | 'older' | 'newer' = 'latest', aroundId?: string) => {
     if (sessionId === DRAFT_SESSION_ID) return;
     if (!sessionId) return;
     if (loadingMessagesRef.current && direction !== 'latest') return;
@@ -1042,6 +1059,13 @@ export default function App() {
     try {
       const params = new URLSearchParams({ limit: String(MESSAGE_PAGE), view: 'skeleton' });
       if (direction === 'latest') params.set('view', 'latest');
+      if (direction === 'latest' && aroundId) {
+        const around = numericId(aroundId);
+        if (around) {
+          params.set('view', 'skeleton');
+          params.set('around', around);
+        }
+      }
       if (direction === 'older') {
         const before = numericId(messagesRef.current[0]?.id);
         if (!before) { pendingHistoryScrollAnchorRef.current = null; return; }
@@ -1473,8 +1497,9 @@ export default function App() {
     const isDraft = activeSessionId === DRAFT_SESSION_ID;
     setUserNavLoading(!isDraft);
     if (isDraft) return;
+    const savedAnchorId = readChatViewAnchor(activeSessionId);
     scrollLatestAfterRenderRef.current = 'restore';
-    loadMessageWindow(activeSessionId, 'latest');
+    loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchorId);
   }, [activeSessionId]);
   useEffect(() => {
     if (!latestReadySessionId || latestReadySessionId !== activeSessionId) return;
@@ -1520,13 +1545,13 @@ export default function App() {
           hasNewer: cached?.hasNewer ?? hasNewerRef.current,
           total: cached?.total,
         });
-        loadContextWindowSnapshot(watchedSessionId);
+        scheduleContextWindowSnapshot(watchedSessionId);
         setStatus(t('chat.streamingOther'));
       } catch { /* ignore */ }
     };
     es.onerror = () => { watchSourceRef.current = null; };
     return () => { es.close(); watchSourceRef.current = null; };
-  }, [activeSession?.source, activeSessionId, cacheMessageWindow, clearNewMessages, loadContextWindowSnapshot]);
+  }, [activeSession?.source, activeSessionId, cacheMessageWindow, clearNewMessages, scheduleContextWindowSnapshot]);
   useEffect(() => { streamingSessionIdRef.current = streamingSessionId; }, [streamingSessionId]);
   useEffect(() => {
     if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
@@ -2986,7 +3011,7 @@ function ChatMain(props: ChatMainProps) {
   const subagentBeforeTime = subagentWindow.sessionId === props.activeSessionId ? subagentWindow.beforeTime : null;
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
-    writeChatViewState(props.activeSessionId, el.scrollTop);
+    writeChatViewState(props.activeSessionId, el.scrollTop, captureMessageScrollAnchor(el)?.id);
     if (isCompactViewport && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (shouldLoadOlderFromScroll(el, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
     if (shouldLoadNewerFromScroll(el, props.hasNewer, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'newer');
