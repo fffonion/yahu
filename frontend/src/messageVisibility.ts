@@ -39,6 +39,16 @@ function hasToolCalls(value: unknown): boolean {
   return value !== undefined && value !== null;
 }
 
+function hasDelegateToolCall(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.some((raw) => {
+    if (!raw || typeof raw !== 'object') return false;
+    const call = raw as Record<string, unknown>;
+    const fn = call.function && typeof call.function === 'object' ? call.function as Record<string, unknown> : null;
+    return String(call.name || fn?.name || '').trim().replace(/^functions\./, '') === 'delegate_task';
+  });
+}
+
 export function isAssistantToolPreludeMessage(message: MessageVisibilityInput): boolean {
   return message.role === 'assistant' && hasVisibleContent(message) && hasToolCalls(message.toolCalls);
 }
@@ -58,7 +68,8 @@ function isEmptyAssistantToolCallPlaceholder(message: MessageVisibilityInput): b
   return message.role === 'assistant'
     && !message.pending
     && !String(message.content || '').trim()
-    && hasToolCalls(message.toolCalls);
+    && hasToolCalls(message.toolCalls)
+    && !hasDelegateToolCall(message.toolCalls);
 }
 
 export function shouldRenderMessage(message: MessageVisibilityInput, showReasoning = false, showToolCalls = true): boolean {

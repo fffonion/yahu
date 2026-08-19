@@ -126,6 +126,15 @@ describe('chat message visibility', () => {
     expect(renderableMessages(prepared, false, false).map((message) => message.id)).toEqual(['a-final']);
   });
 
+  test('keeps an empty delegate call visible while waiting for its subagent result', () => {
+    const messages = [
+      { id: 'a-delegate', role: 'assistant', content: '', pending: false, toolCalls: [{ function: { name: 'delegate_task' } }] },
+      { id: 'a-old', role: 'assistant', content: 'previous answer', pending: false },
+    ];
+    expect(renderableMessages(messages, false, true).map((message) => message.id)).toEqual(['a-delegate', 'a-old']);
+    expect(renderableMessages(messages, false, false).map((message) => message.id)).toEqual(['a-old']);
+  });
+
   test('ChatMain filters visible messages without content-level history dedupe before mapping', () => {
     const source = appSource();
     const transcript = transcriptSource();
