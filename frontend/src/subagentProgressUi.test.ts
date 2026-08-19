@@ -94,6 +94,7 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-heading strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:400}');
     expect(styles).toContain('.subagent-progress-node>details>summary.completed{grid-template-columns:auto minmax(0,1fr);min-height:36px;');
     expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-panel-toggle{grid-template-columns:auto minmax(0,1fr);min-height:40px;');
+    expect(styles).toContain('.subagent-progress-card.collapsed .subagent-status-icon.interrupted + .subagent-progress-heading strong{opacity:.8}');
     expect(styles).toContain('.subagent-progress-node>details[open]>summary.completed .subagent-progress-goal strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
   });
 
