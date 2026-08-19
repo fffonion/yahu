@@ -8,6 +8,7 @@ const SUBAGENT_API_DETAIL_BYTE_LIMIT: usize = 4 * 1024 * 1024;
 const SUBAGENT_ANCESTOR_RESOLUTION_LIMIT: usize = 200;
 const SUBAGENT_VISIBLE_LIMIT: usize = 10;
 const SUBAGENT_LOOKBACK_SECONDS: f64 = 43_200.0;
+const SUBAGENT_STALE_RUNNING_SECONDS: f64 = 900.0;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
 const SUBAGENT_SUMMARY_LIMIT: usize = 600;
 const SUBAGENT_SNAPSHOT_CONCURRENCY: usize = 4;
@@ -91,6 +92,7 @@ struct SubagentSnapshot<'a> {
 struct CachedSubagentProjection {
     message_count: u64,
     ended_at: Option<f64>,
+    last_active: Option<f64>,
     projection: SubagentProjection,
 }
 
@@ -675,15 +677,14 @@ async fn fetch_subagent_projection_snapshot(
         };
         let message_count = u64_field(&session, "message_count");
         let ended_at = number_field(&session, "ended_at");
+        let last_active = number_field(&session, "last_active");
         if let Some(cached) = cache.get(&session_id)
             && cached.message_count == message_count
             && cached.ended_at == ended_at
+            && cached.last_active == last_active
         {
-            out.push(mark_subagent_omitted_ancestry(
-                cached.projection.clone(),
-                &visible_ids,
-                parent_session_id,
-            ));
+            let projection = mark_stale_running_subagent(cached.projection.clone(), last_active, window_end);
+            out.push(mark_subagent_omitted_ancestry(projection, &visible_ids, parent_session_id));
             continue;
         }
 
@@ -696,14 +697,12 @@ async fn fetch_subagent_projection_snapshot(
             CachedSubagentProjection {
                 message_count,
                 ended_at,
+                last_active,
                 projection: projection.clone(),
             },
         );
-        out.push(mark_subagent_omitted_ancestry(
-            projection,
-            &visible_ids,
-            parent_session_id,
-        ));
+        let projection = mark_stale_running_subagent(projection, last_active, window_end);
+        out.push(mark_subagent_omitted_ancestry(projection, &visible_ids, parent_session_id));
     }
     Ok(out)
 }
@@ -715,6 +714,23 @@ fn mark_subagent_omitted_ancestry(
 ) -> SubagentProjection {
     projection.ancestry_omitted = projection.parent_session_id != parent_session_id
         && !visible_ids.contains(&projection.parent_session_id);
+    projection
+}
+
+fn mark_stale_running_subagent(
+    mut projection: SubagentProjection,
+    last_active: Option<f64>,
+    now: f64,
+) -> SubagentProjection {
+    if projection.status == "running"
+        && last_active.is_some_and(|last| {
+            last.is_finite() && now.is_finite() && now >= last + SUBAGENT_STALE_RUNNING_SECONDS
+        })
+    {
+        projection.status = "interrupted".to_string();
+        projection.ended_at = last_active;
+        projection.current_tool = None;
+    }
     projection
 }
 
@@ -920,7 +936,8 @@ fn select_visible_subagent_sessions(
             let Some(started_at) = number_field(session, "started_at") else {
                 return false;
             };
-            if started_at < window_start || started_at > window_end {
+            let ended_at = number_field(session, "ended_at");
+            if started_at > window_end || (ended_at.is_some() && started_at < window_start) {
                 return false;
             }
             if string_field(session, "_lineage_root_id").as_deref() == Some(parent_session_id) {

@@ -5,6 +5,7 @@
             "parent_session_id": "parent-1",
             "model": "gpt-5.6-sol",
             "started_at": 100.0,
+            "last_active": 100.0,
             "ended_at": null,
             "message_count": 6,
             "tool_call_count": 2,
@@ -29,6 +30,28 @@
         assert_eq!(projected.todos[1].status, "in_progress");
         assert_eq!(projected.summary.as_deref(), Some("Partial review note"));
         assert_eq!(projected.activity.last().unwrap().tool, "todo");
+    }
+
+    #[test]
+    fn stale_running_subagent_is_marked_interrupted_without_hermes_changes() {
+        let session = serde_json::json!({
+            "id": "stale-child",
+            "parent_session_id": "parent-1",
+            "started_at": 100.0,
+            "ended_at": null,
+            "message_count": 1
+        });
+        let messages = vec![serde_json::json!({
+            "role": "user",
+            "content": "Long task",
+            "timestamp": 100.0
+        })];
+        let projection = project_subagent_session(Path::new("/nonexistent"), &session, &messages).unwrap();
+        let projection = mark_stale_running_subagent(projection, Some(100.0), 100.0 + SUBAGENT_STALE_RUNNING_SECONDS);
+
+        assert_eq!(projection.status, "interrupted");
+        assert_eq!(projection.ended_at, Some(100.0));
+        assert_eq!(projection.current_tool, None);
     }
 
     #[test]
@@ -518,6 +541,22 @@
     }
 
     #[test]
+    fn visible_subagent_sessions_keep_an_old_running_child_visible() {
+        let window_end = 200_000.0;
+        let sessions = vec![serde_json::json!({
+            "id": "old-running",
+            "parent_session_id": "parent",
+            "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS - 1.0,
+            "ended_at": null
+        })];
+
+        let visible = select_visible_subagent_sessions("parent", &sessions, window_end);
+
+        assert_eq!(visible.len(), 1);
+        assert_eq!(string_field(&visible[0], "id").as_deref(), Some("old-running"));
+    }
+
+    #[test]
     fn visible_subagent_sessions_follow_the_backward_twelve_hour_window_and_limit_ten() {
         assert_eq!(SUBAGENT_LOOKBACK_SECONDS, 43_200.0);
         let window_end = 200_000.0;
@@ -560,7 +599,7 @@
         let sessions = vec![
             serde_json::json!({"id": "at-start", "parent_session_id": "parent", "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS}),
             serde_json::json!({"id": "at-end", "parent_session_id": "parent", "started_at": window_end}),
-            serde_json::json!({"id": "before-start", "parent_session_id": "parent", "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS - 1.0}),
+            serde_json::json!({"id": "before-start", "parent_session_id": "parent", "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS - 1.0, "ended_at": window_end - 0.5}),
             serde_json::json!({"id": "after-end", "parent_session_id": "parent", "started_at": window_end + 1.0}),
         ];
 
@@ -598,7 +637,8 @@
                     "id": "older-parent",
                     "parent_session_id": "parent",
                     "started_at": 300_000.0,
-                    "last_active": 300_100.0
+                    "last_active": 300_100.0,
+                    "ended_at": 300_200.0
                 }
             }))
         }
