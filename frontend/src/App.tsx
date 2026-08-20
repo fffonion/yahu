@@ -72,6 +72,12 @@ type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y:
 type WorkspaceContextMenu = { entry: WorkspaceEntry; x: number; y: number } | null;
 type DialogState = { variant: 'prompt' | 'confirm'; title: string; message: string; value?: string; danger?: boolean; resolve: (value: any) => void } | null;
 type Job = { job_id?: string; id?: string; name?: string; schedule?: string | { display?: string; expr?: string }; prompt?: string; script?: string | null; status?: string; paused?: boolean; enabled?: boolean; enabled_toolsets?: string[]; enabledToolsets?: string[]; model?: string | { model?: string; provider?: string }; provider?: string; provider_snapshot?: string; model_snapshot?: string; no_agent?: boolean; noAgent?: boolean; next_run?: string; last_run?: string; deliver?: string };
+function isCronJobDisabled(job: Job) {
+  return job.enabled === false || job.paused === true || job.status === 'disabled';
+}
+function sortCronJobs(jobs: Job[]) {
+  return [...jobs].sort((left, right) => Number(isCronJobDisabled(left)) - Number(isCronJobDisabled(right)));
+}
 type CronOutput = { job_id?: string; timestamp?: string; filename?: string; content?: string; size_bytes?: number; truncated?: boolean };
 type MemoryDoc = { memory: string; user: string };
 type ImageEntry = { filename: string; heic_filename?: string | null; image_url: string; png_url: string; heic_url?: string | null; heic_status: 'available' | 'missing' | 'not_applicable' | string; download_filename: string; download_url: string; download_label: string; created_at: number; modified_at: number; size: number };
@@ -1331,7 +1337,7 @@ export default function App() {
       const res = await fetch(apiJoin(apiBase, '/api/jobs?include_disabled=true'), { headers: headers(false) });
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
       const body = await res.json();
-      const nextJobs = body.data || body.jobs || [];
+      const nextJobs = sortCronJobs((body.data || body.jobs || []) as Job[]);
       setCronJobs(nextJobs);
       if (cronEditingId && !nextJobs.some((job: Job) => jobId(job) === cronEditingId)) resetCronForm();
     } catch (err) { setStatus(tf('cron.jobsUnavailable', errorMessage(err))); }

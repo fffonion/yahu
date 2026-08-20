@@ -63,6 +63,14 @@ describe('cron manager split editor layout', () => {
     expect(source).toContain("apiJoin(apiBase, '/api/jobs?include_disabled=true')");
   });
 
+  test('sorts enabled cron jobs before disabled jobs while preserving API order within each group', () => {
+    const source = app();
+    expect(source).toContain('function isCronJobDisabled(job: Job)');
+    expect(source).toContain('function sortCronJobs(jobs: Job[])');
+    expect(source).toContain('const nextJobs = sortCronJobs((body.data || body.jobs || []) as Job[]);');
+    expect(source).toContain('Number(isCronJobDisabled(left)) - Number(isCronJobDisabled(right))');
+  });
+
   test('delete action requires a dangerous confirmation dialog before calling the delete API', () => {
     const source = app();
     const deleteStart = source.indexOf('const deleteCronJob = useCallback(async () => {');
