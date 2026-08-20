@@ -320,13 +320,12 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .composer-input-wrap{position:relative;display:flex;align-items:flex-start;min-width:0}
 .composer-input-wrap>.composer-skill-textarea{width:auto!important;min-width:0;flex:1 1 auto}
 .composer-input-wrap>.composer-skill-chip{margin-top:15px}
-.composer-skill-picker{position:absolute;left:0;right:0;bottom:calc(100% + 10px);z-index:220;display:grid;gap:7px;max-height:min(52vh,360px);padding:10px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
-.composer-picker-upload{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:7px 9px;border:0;border-radius:var(--radius-md);background:var(--surface-2);color:var(--text);cursor:pointer;text-align:left;font-size:12px}
-.composer-picker-upload:hover{background:var(--accent-soft);color:var(--accent)}
+.composer-skill-picker{position:absolute;left:0;right:0;bottom:calc(100% + 10px);z-index:220;display:grid;grid-template-rows:auto auto auto minmax(0,1fr);gap:7px;max-height:min(52vh,360px);padding:10px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.composer-picker-upload{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:7px 9px;border:0;border-radius:var(--radius-md);background:var(--surface-2);color:var(--text);cursor:pointer;text-align:left;font-size:12px}.composer-picker-upload:hover{background:var(--accent-soft);color:var(--accent)}
 .composer-picker-upload svg{width:16px;height:16px}
 .composer-picker-divider{height:1px;background:var(--border)}
 .composer-picker-heading{color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
-.composer-picker-results{display:grid;gap:3px;min-height:0;overflow:auto}
+.composer-picker-results{display:grid;gap:3px;min-height:0;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .composer-skill-result{display:grid;grid-template-columns:17px max-content minmax(0,1fr);align-items:center;gap:7px;min-width:0;padding:7px 8px;border:0;border-radius:var(--radius-md);background:transparent;color:var(--text);cursor:pointer;text-align:left}
 .composer-skill-result:hover,.composer-skill-result:focus-visible{background:var(--accent-soft);outline:0}
 .composer-skill-result>svg{width:16px;height:16px;color:#10b981;flex:0 0 16px}

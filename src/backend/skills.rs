@@ -1,15 +1,12 @@
 async fn skills_list(State(state): State<Arc<AppState>>) -> Response<Body> {
-    let disabled = load_disabled_skills(&state).await.unwrap_or_default();
-    let mut found = HashMap::<String, (SkillInfo, PathBuf)>::new();
-    for root in skill_roots(&state) {
-        collect_skill_dirs(&root, &root, &disabled, &mut found);
+    let url = format!("{}/v1/skills", state.api_url.trim_end_matches('/'));
+    match fetch_api_json(&state, url, 2 * 1024 * 1024).await {
+        Ok(body) => {
+            let data = body.get("data").cloned().unwrap_or(body);
+            Json(serde_json::json!({ "object": "list", "data": data })).into_response()
+        }
+        Err(err) => json_error(StatusCode::BAD_GATEWAY, &format!("skills API request failed: {err}")),
     }
-    let mut data: Vec<SkillInfo> = found.into_values().map(|(skill, _)| skill).collect();
-    data.sort_by(|a, b| {
-        (a.category.to_lowercase(), a.name.to_lowercase())
-            .cmp(&(b.category.to_lowercase(), b.name.to_lowercase()))
-    });
-    Json(serde_json::json!({"object": "list", "data": data})).into_response()
 }
 
 fn recent_skills_path(state: &AppState) -> PathBuf {
@@ -538,27 +535,6 @@ fn resolve_skill_write_path(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
         anyhow::bail!("skill file path escapes root");
     }
     Ok(candidate)
-}
-
-async fn load_disabled_skills(state: &AppState) -> anyhow::Result<HashSet<String>> {
-    let agent_dir = hermes_agent_dir(state);
-    let python = hermes_python_command(&agent_dir);
-    let script = "import json, os, sys\nsys.path.insert(0, os.environ['HERMES_AGENT_DIR'])\nfrom hermes_cli.config import load_config\nfrom hermes_cli.skills_config import get_disabled_skills\nprint(json.dumps(sorted(get_disabled_skills(load_config()))))";
-    let output = timeout(
-        Duration::from_secs(20),
-        Command::new(python)
-            .arg("-c")
-            .arg(script)
-            .env("HERMES_AGENT_DIR", &agent_dir)
-            .env("HERMES_HOME", &state.hermes_home)
-            .output(),
-    )
-    .await??;
-    if !output.status.success() {
-        anyhow::bail!(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-    let list: Vec<String> = serde_json::from_slice(&output.stdout)?;
-    Ok(list.into_iter().collect())
 }
 
 async fn set_skill_enabled(state: &AppState, name: &str, enabled: bool) -> anyhow::Result<()> {

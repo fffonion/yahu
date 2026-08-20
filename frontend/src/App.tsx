@@ -97,8 +97,7 @@ const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const CODE_WRAP_KEY = 'codeWrap';
 const DESKTOP_COMPACT_MESSAGES_KEY = 'desktopCompactMessages';
 const HIDE_CRON_SESSIONS_KEY = 'hideCronSessions';
-const SKILL_LIST_CACHE_KEY = 'hermes.skills.list.v1';
-const SKILL_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+
 const CHAT_VIEW_STATE_KEY = 'yahu.chat.view.v1';
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
 const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
@@ -357,18 +356,7 @@ function readPinnedIds() {
   catch { return new Set<string>(); }
 }
 function readHideCronSessions() { return localStorage.getItem(HIDE_CRON_SESSIONS_KEY) === '1'; }
-function readSkillListCache(): { savedAt: number; skills: Skill[] } | null {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(SKILL_LIST_CACHE_KEY) || 'null');
-    if (!parsed || !Array.isArray(parsed.skills)) return null;
-    const savedAt = Number(parsed.savedAt);
-    if (!Number.isFinite(savedAt)) return null;
-    return { savedAt, skills: parsed.skills.filter((skill: any) => skill && typeof skill.name === 'string') };
-  } catch { return null; }
-}
-function writeSkillListCache(skills: Skill[]) {
-  try { localStorage.setItem(SKILL_LIST_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), skills })); } catch { /* storage may be unavailable */ }
-}
+
 function readCodeWrap() { return localStorage.getItem(CODE_WRAP_KEY) !== '0'; }
 function readSidebarCollapsed(defaultValue: boolean) {
   const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
@@ -559,7 +547,7 @@ export default function App() {
   const [newMessageBoundaryId, setNewMessageBoundaryId] = useState('');
   const [workspacePath, setWorkspacePath] = useState('');
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
-  const [skillList, setSkillList] = useState<Skill[]>(() => readSkillListCache()?.skills || []);
+  const [skillList, setSkillList] = useState<Skill[]>([]);
   const [selectedSkillName, setSelectedSkillName] = useState('');
   const [skillFileTree, setSkillFileTree] = useState<Record<string, WorkspaceEntry[]>>({});
   const [expandedSkillPaths, setExpandedSkillPaths] = useState<Set<string>>(() => new Set(['']));
@@ -1255,28 +1243,20 @@ export default function App() {
       await openSkillFile(skill.name, 'SKILL.md');
     } catch (err) { setStatus(tf('status.skillUnavailable', errorMessage(err))); }
   }, [loadSkillFiles, openSkillFile, writeHashRoute]);
-  const loadSkills = useCallback(async (force = false) => {
-    const cached = readSkillListCache();
-    if (cached) {
-      setSkillList(cached.skills);
-      if (!force && Date.now() - cached.savedAt < SKILL_LIST_CACHE_TTL_MS) return;
-    }
+  const loadSkills = useCallback(async (_force = false) => {
     try {
       const res = await fetch('/skills/list', { cache: 'no-store' });
       if (!res.ok) throw new Error(await res.text());
       const body = await res.json();
       const list: Skill[] = body.data || body.skills || [];
       setSkillList(list);
-      writeSkillListCache(list);
     } catch (err) { setStatus(tf('status.skillsUnavailable', errorMessage(err))); }
   }, []);
   const toggleSkillEnabled = useCallback(async (skill: Skill, enabled: boolean) => {
     const res = await fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
     if (!res.ok) { setStatus(tf('status.skillToggleFailed', await res.text())); return; }
     setSkillList((old) => {
-      const next = old.map((item) => item.name === skill.name ? { ...item, enabled } : item);
-      writeSkillListCache(next);
-      return next;
+      return old.map((item) => item.name === skill.name ? { ...item, enabled } : item);
     });
     setStatus(tf(enabled ? 'status.skillEnabled' : 'status.skillDisabled', skill.name));
   }, []);
@@ -1293,9 +1273,7 @@ export default function App() {
     const res = await fetch(`/skills/${encodeURIComponent(skill.name)}`, { method: 'DELETE' });
     if (!res.ok) { setStatus(tf('skills.deleteFailed', await res.text())); return; }
     setSkillList((old) => {
-      const next = old.filter((item) => item.name !== skill.name);
-      writeSkillListCache(next);
-      return next;
+      return old.filter((item) => item.name !== skill.name);
     });
     if (selectedSkillName === skill.name) {
       clearSelectedSkill();
@@ -3201,7 +3179,7 @@ function ChatMain(props: ChatMainProps) {
           <button type="button" className="composer-picker-upload" onClick={() => props.fileInput.current?.click()}><Plus /><span>{t('chat.attachFiles')}</span></button>
           <div className="composer-picker-divider" />
           <div className="composer-picker-heading">{props.input.trim() ? 'Search skills' : 'Recent skills'}</div>
-          <div className="composer-picker-results" role="listbox">
+          <div className="composer-picker-results" role="listbox" onWheel={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
             {skillSearchResults.map((skill) => <button type="button" role="option" className="composer-skill-result" key={skill.name} onClick={() => chooseComposerSkill(skill)}><Puzzle /><span className="composer-skill-result-name">{skill.name}</span><span className="composer-skill-result-description">{skill.description || t('skills.noDescription')}</span></button>)}
             {!skillSearchResults.length && <span className="composer-picker-empty">No matching skills</span>}
           </div>
