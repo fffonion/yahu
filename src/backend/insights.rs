@@ -1041,7 +1041,7 @@ fn model_price_for_model(catalog: &ModelPriceCatalog, model: &str) -> Option<Mod
 fn model_price_for_row(catalog: &ModelPriceCatalog, row: &serde_json::Value) -> Option<ModelPrice> {
     let model = row.get("model").and_then(|value| value.as_str())?;
     if let Some(provider) = row.get("provider").and_then(|value| value.as_str()) {
-        if provider == "deepseek"
+        if matches!(provider, "deepseek" | "deepseek-ai")
             && let Some(captured_at) = row.get("captured_at").and_then(serde_json::Value::as_f64)
             && let Some(price) = official_deepseek_price(model, captured_at)
         {
@@ -1095,20 +1095,23 @@ fn apply_official_deepseek_peak_price_overrides(catalog: &mut ModelPriceCatalog)
         cache_read_per_million: 0.044,
         cache_write_per_million: 0.0,
     };
-    for model in ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"] {
-        insert_model_price(catalog, &format!("deepseek/{model}"), flash);
+    for provider in ["deepseek", "deepseek-ai"] {
+        for model in ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"] {
+            insert_model_price(catalog, &format!("{provider}/{model}"), flash);
+        }
     }
     insert_model_price(catalog, "deepseek/deepseek-v4-pro", pro);
 }
 
 fn official_deepseek_price(model: &str, captured_at: f64) -> Option<ModelPrice> {
     let normalized = normalize_model_price_key(model);
+    let normalized = normalized.strip_prefix("deepseek-ai-").unwrap_or(&normalized);
     let model_name = normalized
         .strip_prefix("deepseek-")
         .and_then(|value| value.strip_prefix("deepseek-"))
-        .unwrap_or_else(|| normalized.strip_prefix("deepseek-").unwrap_or(&normalized));
+        .unwrap_or_else(|| normalized.strip_prefix("deepseek-").unwrap_or(normalized));
     let peak_price = match model_name {
-        "v4-flash" | "chat" | "reasoner" => ModelPrice {
+        name if name == "v4-flash" || name.starts_with("v4-flash-") || name == "chat" || name.starts_with("chat-") || name == "reasoner" || name.starts_with("reasoner-") => ModelPrice {
             input_per_million: 0.44,
             output_per_million: 1.32,
             cache_read_per_million: 0.014,

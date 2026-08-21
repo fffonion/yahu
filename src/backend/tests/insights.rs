@@ -343,8 +343,8 @@
                 serde_json::json!({
                     "id": format!("deepseek-v4-flash-{index}"),
                     "source": "telegram",
-                    "model": "deepseek-v4-flash",
-                    "provider": "deepseek",
+                    "model": "deepseek-ai/deepseek-v4-flash-0731",
+                    "provider": "deepseek-ai",
                     "captured_at": captured_at,
                     "started_at": captured_at,
                     "last_active": captured_at,
