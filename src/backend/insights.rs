@@ -1040,13 +1040,16 @@ fn model_price_for_model(catalog: &ModelPriceCatalog, model: &str) -> Option<Mod
 
 fn model_price_for_row(catalog: &ModelPriceCatalog, row: &serde_json::Value) -> Option<ModelPrice> {
     let model = row.get("model").and_then(|value| value.as_str())?;
+    let captured_at = row
+        .get("captured_at")
+        .or_else(|| row.get("started_at"))
+        .and_then(serde_json::Value::as_f64);
+    if let Some(captured_at) = captured_at
+        && let Some(price) = official_deepseek_price(model, captured_at)
+    {
+        return Some(price);
+    }
     if let Some(provider) = row.get("provider").and_then(|value| value.as_str()) {
-        if matches!(provider, "deepseek" | "deepseek-ai")
-            && let Some(captured_at) = row.get("captured_at").and_then(serde_json::Value::as_f64)
-            && let Some(price) = official_deepseek_price(model, captured_at)
-        {
-            return Some(price);
-        }
         let provider_model = format!("{provider}/{model}");
         if let Some(price) = model_price_for_model(catalog, &provider_model) {
             return Some(price);
