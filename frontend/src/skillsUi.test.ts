@@ -13,7 +13,7 @@ describe('skills UI', () => {
   test('skills mode is available from desktop rail and mobile bottom nav', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'terminal' | 'settings'");
+    expect(source).toContain("type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'usage' | 'images' | 'workspace' | 'skills' | 'terminal' | 'settings'");
     expect(source).toContain('rail-btn nav-skills');
     expect(source).toContain("setNavMode('skills')");
     expect(source).toContain("aria-label={t('nav.skills')}><Puzzle");

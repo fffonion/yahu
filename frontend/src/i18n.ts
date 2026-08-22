@@ -371,6 +371,11 @@ const translations: Record<string, Record<string, string>> = {
   'nav.cron': { en: 'Cron', 'zh-CN': '定时', 'zh-TW': '定時', ja: 'Cron' },
   'nav.memory': { en: 'Memory', 'zh-CN': '记忆', 'zh-TW': '記憶', ja: 'メモリ' },
   'nav.insights': { en: 'Insights', 'zh-CN': '洞察', 'zh-TW': '洞察', ja: 'インサイト' },
+  'nav.usage': { en: 'Provider usage', 'zh-CN': '运营商用量', 'zh-TW': '營運商用量', ja: 'プロバイダ利用状況' },
+
+  'usage.unavailable': { en: 'Provider usage unavailable', 'zh-CN': '运营商用量不可用', 'zh-TW': '營運商用量不可用', ja: 'プロバイダ利用状況を取得できません' },
+  'usage.empty': { en: 'No provider usage configured — add keys to ~/.hermes/.env', 'zh-CN': '未配置任何运营商 — 请将 key 加入 ~/.hermes/.env', 'zh-TW': '未設定任何營運商 — 請將 key 加入 ~/.hermes/.env', ja: 'プロバイダが未設定です — key を ~/.hermes/.env に追加してください' },
+  'usage.refreshAria': { en: 'Force refresh provider usage', 'zh-CN': '强制刷新运营商用量', 'zh-TW': '強制重新整理營運商用量', ja: 'プロバイダ利用状況を強制更新' },
 
   'nav.images': { en: 'Images', 'zh-CN': '图片', 'zh-TW': '圖片', ja: '画像' },
   'nav.workspace': { en: 'Workspace', 'zh-CN': '工作区', 'zh-TW': '工作區', ja: 'ワークスペース' },

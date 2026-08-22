@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Copy, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Coins, Copy, Download, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { normalizeReasoningEffort, REASONING_EFFORTS, sessionReasoningEffort, type ReasoningEffort } from './reasoningEffort';
@@ -31,6 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
+import { sectionHasContent, type ProviderUsagePayload } from './providerUsage';
 import { splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { isTextEntryElement, visibleViewportHeight } from './viewport';
@@ -38,7 +39,7 @@ import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous' | 'gruvbox-material' | 'github-dark-dimmed' | 'codex-light' | 'codex-dark' | 'claude-code-light' | 'claude-code-dark';
-type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'images' | 'workspace' | 'skills' | 'terminal' | 'settings';
+type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'usage' | 'images' | 'workspace' | 'skills' | 'terminal' | 'settings';
 
 const WebTerminal = lazy(() => import('./WebTerminal'));
 
@@ -589,6 +590,9 @@ export default function App() {
   const [usageError, setUsageError] = useState('');
   const [usagePeriod, setUsagePeriod] = useState<1 | 7 | 30>(7);
   const [usageMetric, setUsageMetric] = useState<UsageMetric>('total_tokens');
+  const [providerUsage, setProviderUsage] = useState<ProviderUsagePayload | null>(null);
+  const [providerUsageLoading, setProviderUsageLoading] = useState(false);
+  const [providerUsageError, setProviderUsageError] = useState('');
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
@@ -872,6 +876,22 @@ export default function App() {
       setUsageLoading(false);
     }
   }, [usagePeriod]);
+
+  const loadProviderUsage = useCallback(async (force = false) => {
+    setProviderUsageLoading(true);
+    try {
+      const params = force ? '?refresh=true' : '';
+      const res = await fetch(`/provider-usage${params}`, { headers: headers(false), cache: 'no-store' });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const body = await res.json();
+      setProviderUsage(body as ProviderUsagePayload);
+      setProviderUsageError('');
+    } catch (err) {
+      setProviderUsageError(errorMessage(err, t('usage.unavailable')));
+    } finally {
+      setProviderUsageLoading(false);
+    }
+  }, []);
 
   const loadSessions = useCallback(async (query = filter) => {
     const version = ++searchVersionRef.current;
@@ -1437,6 +1457,7 @@ export default function App() {
 
   useEffect(() => { loadModels(); loadWorkspace(''); }, []);
   useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);
+  useEffect(() => { if (mode === 'usage') loadProviderUsage(); }, [mode, loadProviderUsage]);
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
   useEffect(() => { if (mode === 'cron' && cronEditingId) loadCronOutput(cronEditingId); else setCronOutput(null); }, [mode, cronEditingId, loadCronOutput]);
@@ -2110,6 +2131,7 @@ export default function App() {
           <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} title={t('nav.cron')}><CalendarClock /></button>
           <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} title={t('nav.memory')}><Brain /></button>
           <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} title={t('nav.insights')}><LineChart /></button>
+          <button className={`rail-btn nav-usage ${mode === 'usage' ? 'active' : ''}`} onClick={() => setNavMode('usage', true)} title={t('nav.usage')}><Coins /></button>
 
           <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} title={t('nav.skills')}><Puzzle /></button>
           <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} title={t('nav.images')}><ImageIcon /></button>
@@ -2157,6 +2179,7 @@ export default function App() {
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} setDeliver={setCronDeliver} editingId={cronEditingId} currentJob={activeCronJob} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} toggleCronPaused={toggleCronPaused} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} showToast={showToast} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={() => loadUsageInsights(usagePeriod, true)} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'usage' && <ProviderUsageMain payload={providerUsage} loading={providerUsageLoading} error={providerUsageError} refresh={() => loadProviderUsage(true)} theme={theme} setTheme={setTheme} />}
       {terminalMounted && <Suspense fallback={mode === 'terminal' ? <main className="main-panel terminal-main"><div className="terminal-loading">{t('terminal.loading')}</div></main> : null}><WebTerminal active={mode === 'terminal'} cwd={terminalCwd} theme={theme} headerActions={<HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToTerminal={() => setNavMode('terminal', true)} onNavigateToSettings={() => setNavMode('settings')} />} /></Suspense>}
       {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} codeWrap={codeWrap} setCodeWrap={setCodeWrap} showToast={showToast} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
@@ -2166,6 +2189,7 @@ export default function App() {
         <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label={t('nav.cron')}><CalendarClock /></button>
         <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label={t('nav.skills')}><Puzzle /></button>
         <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} aria-label={t('nav.insights')}><LineChart /></button>
+        <button className={`rail-btn nav-usage ${mode === 'usage' ? 'active' : ''}`} onClick={() => setNavMode('usage', true)} aria-label={t('nav.usage')}><Coins /></button>
         <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label={t('nav.images')}><ImageIcon /></button>
         <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} aria-label={t('nav.memory')}><Brain /></button>
       </nav>
@@ -2250,6 +2274,65 @@ function HeaderToolstrip({ children, className = '', theme, setTheme, mode, onNa
 function ModeSidebar({ mode }: { mode: Mode }) {
   return <div className="admin-side"><h2>{navLabel(mode)}</h2><p>{modeSummary(mode)}</p></div>;
 }
+
+function ProviderUsageMain(props: { payload: ProviderUsagePayload | null; loading: boolean; error: string; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void }) {
+  const sections = props.payload?.sections || [];
+  const visible = useMemo(() => sections.filter((section) => sectionHasContent(section) || section.errors.length > 0), [sections]);
+  return (
+    <main className="main-panel provider-usage-main">
+      <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode="usage">{<button className="icon-btn" onClick={props.refresh} aria-label={t('usage.refreshAria')} title={t('usage.refreshAria')} disabled={props.loading}><RefreshCw className={props.loading ? 'spin' : ''} /></button>}</HeaderToolstrip>
+      <div className="provider-usage-body">
+        <div className="provider-usage-meta">
+          <span>{props.payload ? new Date(props.payload.fetched_at * 1000).toLocaleString() : ''}</span>
+          {props.error && <span className="provider-usage-error">{props.error}</span>}
+        </div>
+        {visible.length === 0 && !props.loading && <div className="provider-usage-empty">{t('usage.empty')}</div>}
+        {visible.map((section) => (
+          <section key={section.provider} className={`provider-usage-card ${sectionHasContent(section) ? '' : 'provider-usage-card-muted'}`}>
+            <h3>{section.title}</h3>
+            {section.description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(section.description) }} />}
+            {section.windows.length > 0 && (
+              <ul className="provider-usage-windows">
+                {section.windows.map((win, index) => (
+                  <li key={`${win.window}-${index}`}>
+                    <span className="provider-usage-window-label">{win.window}</span>
+                    <span className="provider-usage-window-used">{win.used || '-'}</span>
+                    {win.reset && win.reset !== '-' && <span className="provider-usage-window-reset">↻{win.reset}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {section.rows.length > 0 && (
+              <table className="provider-usage-table">
+                <thead><tr><th></th><th>命中率</th><th>输入</th><th>输出</th><th>用量</th></tr></thead>
+                <tbody>
+                  {section.rows.map((row, index) => (
+                    <tr key={`${row.label}-${index}`}>
+                      <td>{row.label}</td>
+                      <td>{row.hit_rate || '-'}</td>
+                      <td>{row.input || '-'}</td>
+                      <td>{row.output || '-'}</td>
+                      <td>{row.cost_or_pct || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {section.errors.length > 0 && (
+              <ul className="provider-usage-errors">
+                {section.errors.map((err, index) => <li key={index}>{err}</li>)}
+              </ul>
+            )}
+          </section>
+        ))}
+      </div>
+    </main>
+  );
+}
+
+const markdownBoldToHtml = (text: string) => text
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
 function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void }) {
   const [chartStacked, setChartStacked] = useState(false);

@@ -1,3 +1,4 @@
+use chrono::Datelike;
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet},
@@ -194,6 +195,7 @@ struct AppState {
     model_cache: Arc<RwLock<ModelCache>>,
     model_price_cache: Arc<RwLock<ModelCache>>,
     insights_snapshot_refresh: Arc<Mutex<()>>,
+    provider_usage_cache: Arc<ProviderUsageCache>,
 }
 
 #[derive(Deserialize)]
@@ -326,6 +328,7 @@ pub async fn run() -> anyhow::Result<()> {
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
         model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
         insights_snapshot_refresh: Arc::new(Mutex::new(())),
+        provider_usage_cache: Arc::new(ProviderUsageCache::default()),
     });
     tokio::spawn(run_idle_cache_cleanup(state.clone()));
     tokio::spawn(run_insights_snapshot_collector(state.clone()));
@@ -390,6 +393,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/update/check", get(check_update))
         .route("/update/apply", post(apply_update))
         .route("/insights/usage", get(insights_usage))
+        .route("/provider-usage", get(provider_usage_handler))
         .route("/chat/watch/{session_id}", get(chat_watch))
         .route("/chat/subagents/{session_id}/ws", get(subagent_websocket))
         .route("/image-api/images", get(list_images))
@@ -429,6 +433,7 @@ include!("proxy.rs");
 include!("models.rs");
 include!("sessions.rs");
 include!("insights.rs");
+include!("provider_usage.rs");
 include!("workspace.rs");
 include!("skills.rs");
 include!("memory.rs");

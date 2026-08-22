@@ -9,6 +9,7 @@ mod tests {
     include!("tests/message_windows.rs");
     include!("tests/chat.rs");
     include!("tests/insights.rs");
+    include!("tests/provider_usage.rs");
     include!("tests/subagents.rs");
     include!("tests/terminal.rs");
     include!("tests/images.rs");

@@ -276,7 +276,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     const terminal = readFileSync(new URL('./WebTerminal.tsx', import.meta.url), 'utf8');
     const styles = css();
     expect(source).toContain('function HeaderToolstrip(');
-    expect(source.match(/<HeaderToolstrip/g)?.length).toBe(9);
+    expect(source.match(/<HeaderToolstrip/g)?.length).toBe(10);
     expect(source).toContain("header-toolstrip-with-leading");
     expect(terminal).toContain('<div className="terminal-navigation">{headerActions}</div>');
     expect(styles).toContain('@media (max-width:760px){.header-toolstrip{gap:0}');
