@@ -41,7 +41,13 @@ describe('web terminal UI', () => {
     expect(terminal).toContain("textarea.autocapitalize = 'off'");
     expect(terminal).toContain("textarea.autocomplete = 'off'");
     expect(terminal).toContain("textarea.spellcheck = false");
-    for (const key of ['terminal.clear', 'terminal.reconnect', 'terminal.fontDecrease', 'terminal.fontIncrease', 'terminal.keyboard']) expect(terminal).toContain(key);
+    // Clear/font/reconnect controls live in the shared title-bar toolstrip
+    // (App renders them next to the palette button) and drive the terminal
+    // through window events.
+    for (const key of ['terminal.clear', 'terminal.reconnect', 'terminal.fontDecrease', 'terminal.fontIncrease']) expect(source).toContain(key);
+    expect(terminal).toContain("'yahu-terminal-clear'");
+    expect(terminal).toContain("'yahu-terminal-font'");
+    expect(terminal).toContain("'yahu-terminal-reconnect'");
   });
 
   test('mobile terminal uses a dedicated input bridge for reliable virtual keyboard entry', () => {

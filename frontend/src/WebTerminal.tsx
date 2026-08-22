@@ -18,6 +18,8 @@ type WebTerminalProps = {
   cwd?: string;
   theme: string;
   headerActions?: ReactNode;
+  toolbarExtra?: ReactNode;
+  onFontSizeChange?: (fontSize: number) => void;
 };
 
 function cssColor(name: string, fallback: string): string {
@@ -40,7 +42,7 @@ function readStoredFontSize(): number {
   return clampTerminalFontSize(value || TERMINAL_FONT_SIZE_DEFAULT);
 }
 
-export default function WebTerminal({ active = true, cwd = '', theme, headerActions }: WebTerminalProps) {
+export default function WebTerminal({ active = true, cwd = '', theme, headerActions, toolbarExtra, onFontSizeChange }: WebTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mobileInputRef = useRef<HTMLTextAreaElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -55,6 +57,24 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [connectionKey, setConnectionKey] = useState(0);
   const [mobileModifiers, setMobileModifiers] = useState<TerminalModifierState>(mobileModifiersRef.current);
+
+  // Title-bar toolstrip buttons (rendered by App) drive these window events.
+  useEffect(() => {
+    const onClear = () => terminalRef.current?.clear();
+    const onFont = (event: Event) => {
+      const delta = (event as CustomEvent<number>).detail;
+      setFontSize((value) => clampTerminalFontSize(value + (Number(delta) || 0)));
+    };
+    const onReconnect = () => setConnectionKey((value) => value + 1);
+    window.addEventListener('yahu-terminal-clear', onClear);
+    window.addEventListener('yahu-terminal-font', onFont);
+    window.addEventListener('yahu-terminal-reconnect', onReconnect);
+    return () => {
+      window.removeEventListener('yahu-terminal-clear', onClear);
+      window.removeEventListener('yahu-terminal-font', onFont);
+      window.removeEventListener('yahu-terminal-reconnect', onReconnect);
+    };
+  }, []);
 
   const configureTextarea = useCallback(() => {
     const textarea = hostRef.current?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
@@ -343,12 +363,13 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
   useEffect(() => {
     fontSizeRef.current = fontSize;
     localStorage.setItem(TERMINAL_FONT_SIZE_KEY, String(fontSize));
+    onFontSizeChange?.(fontSize);
     const terminal = terminalRef.current;
     if (!terminal) return;
     terminal.options.fontFamily = TERMINAL_FONT_FAMILY;
     terminal.options.fontSize = fontSize;
     fitAndResize();
-  }, [fitAndResize, fontSize]);
+  }, [fitAndResize, fontSize, onFontSizeChange]);
 
   const changeFontSize = (delta: number) => setFontSize((value) => clampTerminalFontSize(value + delta));
   const stateLabel = t(`terminal.status.${connectionState}`);
@@ -359,15 +380,8 @@ export default function WebTerminal({ active = true, cwd = '', theme, headerActi
       <div className="terminal-navigation">{headerActions}</div>
     </header>
     <section className="web-terminal-shell" aria-label={t('terminal.title')}>
-      <div className="terminal-toolbar" aria-label={t('terminal.title')}>
-        <button type="button" className="icon-btn mobile-terminal-keyboard" aria-label={t('terminal.keyboard')} title={t('terminal.keyboard')} onPointerDown={openMobileKeyboard} onTouchStart={openMobileKeyboard} onClick={focusMobileInput}><Keyboard /></button>
-        <button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clear')} onClick={() => terminalRef.current?.clear()}><Eraser /></button>
-        <button type="button" className="icon-btn" aria-label={t('terminal.fontDecrease')} title={t('terminal.fontDecrease')} disabled={fontSize <= 11} onClick={() => changeFontSize(-1)}><Minus /></button>
-        <output className="terminal-font-size" aria-label={t('terminal.fontSize')}>{fontSize}px</output>
-        <button type="button" className="icon-btn" aria-label={t('terminal.fontIncrease')} title={t('terminal.fontIncrease')} disabled={fontSize >= 24} onClick={() => changeFontSize(1)}><Plus /></button>
-        <button type="button" className="icon-btn" aria-label={t('terminal.reconnect')} title={t('terminal.reconnect')} onClick={() => setConnectionKey((value) => value + 1)}><RefreshCw /></button>
-      </div>
       <div className="mobile-terminal-special-keys" aria-label={t('terminal.specialKeys')}>
+        <button type="button" className="icon-btn mobile-terminal-keyboard" aria-label={t('terminal.keyboard')} title={t('terminal.keyboard')} onPointerDown={openMobileKeyboard} onTouchStart={openMobileKeyboard} onClick={focusMobileInput}><Keyboard /></button>
         <button type="button" onPointerDown={focusMobileInput} onClick={() => sendSpecialKey('escape')}>Esc</button>
         <button type="button" className={mobileModifiers.ctrl ? 'active' : ''} aria-pressed={mobileModifiers.ctrl} onPointerDown={focusMobileInput} onClick={() => toggleMobileModifier('ctrl')}>Ctrl</button>
         <button type="button" className={mobileModifiers.alt ? 'active' : ''} aria-pressed={mobileModifiers.alt} onPointerDown={focusMobileInput} onClick={() => toggleMobileModifier('alt')}>Alt</button>
