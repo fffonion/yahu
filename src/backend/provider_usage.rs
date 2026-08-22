@@ -59,7 +59,7 @@ fn provider_env_value(hermes_home: &Path, key: &str) -> String {
     if let Ok(value) = env::var(key)
         && !value.trim().is_empty()
     {
-        return value.trim().to_string();
+        return strip_env_quotes(value.trim());
     }
     let path = hermes_home.join(".env");
     let Ok(raw) = std::fs::read_to_string(path) else {
@@ -74,14 +74,55 @@ fn provider_env_value(hermes_home: &Path, key: &str) -> String {
             continue;
         };
         if k.trim() == key {
-            return v
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .to_string();
+            return strip_env_quotes(v.trim());
         }
     }
     String::new()
+}
+
+fn strip_env_quotes(value: &str) -> String {
+    let trimmed = value.trim();
+    // .env values may be wrapped in matching quotes (shell style or JSON style).
+    if trimmed.len() >= 2
+        && ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+    {
+        return trimmed[1..trimmed.len() - 1].to_string();
+    }
+    trimmed.to_string()
+}
+
+/// Read a named custom provider's api_key from ~/.hermes/config.yaml.
+fn config_provider_api_key(hermes_home: &Path, provider_name: &str) -> String {
+    let path = hermes_home.join("config.yaml");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    let Ok(config) = serde_yaml::from_str::<serde_yaml::Value>(&raw) else {
+        return String::new();
+    };
+    let Some(providers) = config
+        .get("custom_providers")
+        .and_then(|value| value.as_sequence())
+    else {
+        return String::new();
+    };
+    let entry = providers.iter().find(|entry| {
+        entry
+            .get("name")
+            .and_then(|value| value.as_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case(provider_name))
+    });
+    let Some(entry) = entry else {
+        return String::new();
+    };
+    entry
+        .get("api_key")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn auth_json_credential_pool(
@@ -641,10 +682,17 @@ async fn fetch_atlascloud_usage(state: &AppState) -> ProviderUsageSection {
         .iter()
         .map(|key| provider_env_value(&state.hermes_home, key))
         .find(|value| !value.is_empty())
+        .filter(|value| !value.is_empty())
         .or_else(|| {
             auth_json_credential_pool(&state.hermes_home, "custom:atlascloud")
                 .first()
                 .map(|(_, token)| token.clone())
+                .filter(|token| !token.is_empty())
+        })
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            let key = config_provider_api_key(&state.hermes_home, "atlascloud");
+            (!key.is_empty()).then_some(key)
         });
     let Some(api_key) = api_key.filter(|value| !value.is_empty()) else {
         section.errors.push("缺少 ATLASCLOUD_API_KEY".into());
@@ -818,8 +866,15 @@ async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
             .push("缺少 MINIMAX_COOKIE 或 MINIMAX_GROUP_ID".into());
         return section;
     }
+    // .env stores the full cookie string ("_token=...; ..."); only prefix a
+    // bare JWT.
+    let cookie_header = if cookie.contains('=') {
+        cookie
+    } else {
+        format!("_token={cookie}")
+    };
     let headers = vec![
-        ("Cookie".to_string(), format!("_token={cookie}")),
+        ("Cookie".to_string(), cookie_header),
         ("x-group-id".to_string(), group_id),
         ("Accept".to_string(), "application/json".into()),
         (
@@ -1416,11 +1471,15 @@ async fn fetch_commandcode_usage(state: &AppState) -> ProviderUsageSection {
         return section;
     }
 
-    let mut fetched = Vec::new();
-    for (label, token) in &accounts {
-        let snapshot = commandcode_query_account(state, token).await;
-        fetched.push((label.clone(), snapshot));
-    }
+    // Fanout all accounts concurrently with per-account jitter, mirroring the
+    // token-usage script's ThreadPoolExecutor behavior; results render in
+    // stable label order.
+    let mut fetched: Vec<(String, Result<Value, String>)> =
+        futures_util::future::join_all(accounts.iter().map(|(label, token)| async {
+            jitter_delay().await;
+            (label.clone(), commandcode_query_account(state, token).await)
+        }))
+        .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
     for (label, result) in &fetched {
@@ -1618,75 +1677,93 @@ async fn fetch_codex_usage(state: &AppState) -> ProviderUsageSection {
             .push("未找到 auth.json credential_pool/openai-codex".into());
         return section;
     }
-    for (label, token) in &accounts {
-        let base_url = "https://chatgpt.com/backend-api/codex";
-        let account_id = jwt_chatgpt_account_id(token);
-        let mut headers = vec![
-            ("Authorization".to_string(), format!("Bearer {token}")),
-            ("Accept".to_string(), "application/json".into()),
-            ("User-Agent".to_string(), "codex-cli".into()),
-        ];
-        if let Some(account_id) = &account_id {
-            headers.push(("ChatGPT-Account-Id".to_string(), account_id.clone()));
-        }
-        let payload = provider_http_get_json(
-            &state.client,
-            &codex_backend_usage_url(base_url),
-            &headers,
-        )
+    // Fanout all accounts concurrently with per-account jitter, mirroring the
+    // token-usage script's ThreadPoolExecutor behavior; results render in
+    // stable label order.
+    let mut fetched: Vec<(String, Result<Value, String>)> =
+        futures_util::future::join_all(accounts.iter().map(|(label, token)| async move {
+            jitter_delay().await;
+            (label.clone(), codex_query_account(state, token).await)
+        }))
         .await;
-        let payload = match payload {
-            Ok(value) => value,
-            Err(err) => {
-                section.errors.push(format!("{label}：查询失败：{err}"));
-                continue;
+    fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+
+    for (label, result) in &fetched {
+        match result {
+            Ok(payload) => {
+                for (key, fallback) in [
+                    ("primary_window", "Session"),
+                    ("secondary_window", "Weekly"),
+                ] {
+                    let Some(window) = payload.pointer(&format!("/rate_limit/{key}")) else {
+                        continue;
+                    };
+                    let Some(used) = window.get("used_percent").and_then(Value::as_f64) else {
+                        continue;
+                    };
+                    let seconds = window
+                        .get("limit_window_seconds")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0);
+                    let window_label = match seconds {
+                        604_800 => "Weekly".to_string(),
+                        2_592_000 | 2_628_000 | 2_629_800 | 2_630_000 => "Month".to_string(),
+                        _ => fallback.to_string(),
+                    };
+                    let reset = window
+                        .get("reset_at")
+                        .and_then(|value| {
+                            value.as_str().map(str::to_string).or_else(|| {
+                                value.as_f64().map(|number| number.to_string())
+                            })
+                        })
+                        .and_then(|raw| {
+                            chrono::DateTime::parse_from_rfc3339(&raw)
+                                .ok()
+                                .map(|dt| dt.with_timezone(&chrono::Utc))
+                                .or_else(|| {
+                                    raw.parse::<f64>().ok().and_then(|ts| {
+                                        chrono::DateTime::from_timestamp(ts as i64, 0)
+                                    })
+                                })
+                        })
+                        .map(|dt| provider_reset_text_local(dt.timestamp()))
+                        .unwrap_or_else(|| "-".into());
+                    section.windows.push(ProviderUsageWindow {
+                        window: format!("{label}·{window_label}"),
+                        used: Some(format!("{used:.0}%")),
+                        reset: Some(reset),
+                    });
+                }
             }
-        };
-        for (key, fallback) in [
-            ("primary_window", "Session"),
-            ("secondary_window", "Weekly"),
-        ] {
-            let Some(window) = payload.pointer(&format!("/rate_limit/{key}")) else {
-                continue;
-            };
-            let Some(used) = window.get("used_percent").and_then(Value::as_f64) else {
-                continue;
-            };
-            let seconds = window
-                .get("limit_window_seconds")
-                .and_then(Value::as_i64)
-                .unwrap_or(0);
-            let window_label = match seconds {
-                604_800 => "Weekly".to_string(),
-                2_592_000 | 2_628_000 | 2_629_800 | 2_630_000 => "Month".to_string(),
-                _ => fallback.to_string(),
-            };
-            let reset = window
-                .get("reset_at")
-                .and_then(|value| {
-                    value.as_str().map(str::to_string).or_else(|| {
-                        value.as_f64().map(|number| number.to_string())
-                    })
-                })
-                .and_then(|raw| {
-                    chrono::DateTime::parse_from_rfc3339(&raw)
-                        .ok()
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .or_else(|| raw.parse::<f64>().ok().and_then(|ts| chrono::DateTime::from_timestamp(ts as i64, 0)))
-                })
-                .map(|dt| {
-                    let local = dt.with_timezone(&chrono::Local);
-                    format!("{}/{} {}", local.month(), local.day(), local.format("%H:%M"))
-                })
-                .unwrap_or_else(|| "-".into());
-            section.windows.push(ProviderUsageWindow {
-                window: format!("{label}·{window_label}"),
-                used: Some(format!("{used:.0}%")),
-                reset: Some(reset),
-            });
+            Err(err) => section.errors.push(format!("{label}：查询失败：{err}")),
         }
     }
     section
+}
+
+async fn codex_query_account(state: &AppState, token: &str) -> Result<Value, String> {
+    let base_url = "https://chatgpt.com/backend-api/codex";
+    let account_id = jwt_chatgpt_account_id(token);
+    let mut headers = vec![
+        ("Authorization".to_string(), format!("Bearer {token}")),
+        ("Accept".to_string(), "application/json".into()),
+        ("User-Agent".to_string(), "codex-cli".into()),
+    ];
+    if let Some(account_id) = &account_id {
+        headers.push(("ChatGPT-Account-Id".to_string(), account_id.clone()));
+    }
+    provider_http_get_json(&state.client, &codex_backend_usage_url(base_url), &headers).await
+}
+
+/// Random 200-1500ms delay so concurrent account queries don't hit upstream
+/// consoles at the same instant (mirrors the script's jitter).
+async fn jitter_delay() {
+    let millis = 200 + (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64 % 1_300)
+        .unwrap_or(0));
+    sleep(Duration::from_millis(millis)).await;
 }
 
 async fn fetch_grok_usage(state: &AppState) -> ProviderUsageSection {
