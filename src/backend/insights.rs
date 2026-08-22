@@ -1080,30 +1080,7 @@ fn model_price_catalog_from_models_dev(body: &serde_json::Value) -> ModelPriceCa
             }
         }
     }
-    apply_official_deepseek_peak_price_overrides(&mut catalog);
     catalog
-}
-
-fn apply_official_deepseek_peak_price_overrides(catalog: &mut ModelPriceCatalog) {
-    // DeepSeek's official V4 peak rates, USD per million tokens, effective 2026-08-16 16:00 UTC.
-    let flash = ModelPrice {
-        input_per_million: 0.44,
-        output_per_million: 1.32,
-        cache_read_per_million: 0.014,
-        cache_write_per_million: 0.0,
-    };
-    let pro = ModelPrice {
-        input_per_million: 1.32,
-        output_per_million: 3.96,
-        cache_read_per_million: 0.044,
-        cache_write_per_million: 0.0,
-    };
-    for provider in ["deepseek", "deepseek-ai"] {
-        for model in ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"] {
-            insert_model_price(catalog, &format!("{provider}/{model}"), flash);
-        }
-    }
-    insert_model_price(catalog, "deepseek/deepseek-v4-pro", pro);
 }
 
 fn official_deepseek_price(model: &str, captured_at: f64) -> Option<ModelPrice> {
