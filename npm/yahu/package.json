@@ -1,0 +1,25 @@
+{
+  "name": "@fffonion/yahu",
+  "version": "0.0.0",
+  "description": "Yet Another Hermes UI desktop binary",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fffonion/yahu.git"
+  },
+  "homepage": "https://github.com/fffonion/yahu",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "yahu": "bin/yahu.js"
+  },
+  "files": [
+    "bin",
+    "binaries",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

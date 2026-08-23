@@ -112,6 +112,8 @@ jobs:
   release:
     needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -123,3 +125,52 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+
+  publish-npm:
+    if: startsWith(github.ref_name, 'v')
+    needs: [build-linux, build-macos, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Assemble npm package
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_VERSION#v}"
+          mkdir -p npm-package/binaries
+          cp -R npm/yahu/. npm-package/
+          npm pkg set version="$version" --prefix npm-package
+
+          for archive in artifacts/yahu-*.tar.gz; do
+            target="$(basename "$archive" .tar.gz)"
+            mkdir -p "npm-package/binaries/$target"
+            tar -xzf "$archive" -C "npm-package/binaries/$target" yahu
+          done
+
+          archive="artifacts/yahu-x86_64-pc-windows-gnu.zip"
+          mkdir -p npm-package/binaries/x86_64-pc-windows-gnu
+          unzip -p "$archive" yahu.exe > npm-package/binaries/x86_64-pc-windows-gnu/yahu.exe
+          chmod +x npm-package/bin/yahu.js
+
+          test -x npm-package/binaries/x86_64-unknown-linux-gnu/yahu
+          test -x npm-package/binaries/aarch64-unknown-linux-gnu/yahu
+          test -x npm-package/binaries/aarch64-apple-darwin/yahu
+          test -f npm-package/binaries/x86_64-pc-windows-gnu/yahu.exe
+          (cd npm-package && npm pack --dry-run)
+
+      - name: Publish @fffonion/yahu to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > npm-package/.npmrc
+          npm publish ./npm-package --access public --userconfig npm-package/.npmrc
