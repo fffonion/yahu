@@ -69,6 +69,19 @@ Yahu is designed to sit beside an existing Hermes Agent installation. Point it a
 
 ## Install from a release
 
+### npm (recommended)
+
+Install the latest published release globally with npm:
+
+```bash
+npm install -g @fffonion/yahu
+yahu --help
+```
+
+The package includes the matching release binary for Linux x86_64/ARM64, macOS ARM64, and Windows x86_64. The global `yahu` command selects the correct binary for the current platform.
+
+### GitHub Releases
+
 Prebuilt artifacts are attached to each tagged [GitHub Release](https://github.com/fffonion/yahu/releases):
 
 - `yahu-x86_64-unknown-linux-gnu.tar.gz`
@@ -148,6 +161,7 @@ The frontend is embedded into the Rust binary at compile time. After frontend ch
 - Pull requests and pushes to `main`/`master` run frontend build/tests and Rust tests.
 - Every pushed tag builds release artifacts for Linux x86_64, Linux ARM64, macOS ARM64, and Windows x86_64.
 - Release artifacts are attached to the generated GitHub Release for that tag.
+- Versioned `vX.Y.Z` tags also publish `@fffonion/yahu` to npm; the workflow authenticates with the `NPM_TOKEN` Actions secret.
 
 ## License
 
