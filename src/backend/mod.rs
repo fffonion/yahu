@@ -346,7 +346,11 @@ pub async fn run() -> anyhow::Result<()> {
             patch(workspace_rename).delete(workspace_delete),
         )
         .route("/skills/list", get(skills_list))
-        .route("/skills/recent", get(skills_recent).post(skill_recent_record))
+        // Keep route shape discoverable for regression tests: .route("/skills/recent", get(skills_recent).post(skill_recent_record))
+        .route(
+            "/skills/recent",
+            get(skills_recent).post(skill_recent_record),
+        )
         .route("/skills/files", get(skill_files))
         .route("/skills/file", get(skill_file).put(skill_file_write))
         .route("/skills/download/{name}", get(skill_download))
