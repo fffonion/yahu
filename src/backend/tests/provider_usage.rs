@@ -9,12 +9,12 @@ mod provider_usage_tests {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(
             temp.path().join(".env"),
-            "# comment\nYAHU_TEST_MANAGEMENT_KEY=\"sk-or-mgmt-1\"\n",
+            "# comment\nYAHU_TEST_MANAGEMENT_KEY=\"[REDACTED]\"\n",
         )
         .unwrap();
         assert_eq!(
             provider_env_value(temp.path(), "YAHU_TEST_MANAGEMENT_KEY"),
-            "sk-or-mgmt-1"
+            "[REDACTED]"
         );
         assert_eq!(provider_env_value(temp.path(), "YAHU_TEST_MISSING_KEY"), "");
     }
@@ -27,8 +27,8 @@ mod provider_usage_tests {
             serde_json::json!({
                 "credential_pool": {
                     "commandcode": [
-                        {"access_token": "tok-1", "label": "acct-a"},
-                        {"api_key": "tok-2"},
+                        {"access_token": "[REDACTED]", "label": "acct-a"},
+                        {"api_key": "[REDACTED]"},
                         {"token": "", "label": "empty"}
                     ]
                 }
@@ -38,7 +38,7 @@ mod provider_usage_tests {
         .unwrap();
         let pool = auth_json_credential_pool(temp.path(), "commandcode");
         assert_eq!(pool.len(), 2);
-        assert_eq!(pool[0], ("acct-a".to_string(), "tok-1".to_string()));
+        assert_eq!(pool[0], ("acct-a".to_string(), "[REDACTED]".to_string()));
         assert_eq!(pool[1].0, "账号2");
         assert_eq!(auth_json_credential_pool(temp.path(), "missing"), Vec::new());
     }
@@ -52,6 +52,34 @@ mod provider_usage_tests {
         let weekly = opencode_window(html, "weekly").unwrap();
         assert!((weekly.0 - 88.0).abs() < 0.001);
         assert!(opencode_window(html, "monthly").is_none());
+    }
+
+    #[test]
+    fn opencode_urls_include_plan_fallback_and_honor_override() {
+        assert_eq!(
+            opencode_dashboard_urls("workspace-x", ""),
+            vec![
+                "https://opencode.ai/workspace/workspace-x/usage",
+                "https://opencode.ai/workspace/workspace-x/go",
+            ]
+        );
+        assert_eq!(
+            opencode_dashboard_urls("workspace-x", "https://example.test/custom"),
+            vec!["https://example.test/custom"]
+        );
+    }
+
+    #[test]
+    fn opencode_percent_text_does_not_duplicate_percent_sign() {
+        assert_eq!(opencode_percent_text(12.3), "12.3%");
+        assert_eq!(opencode_percent_text(88.0), "88%");
+    }
+
+    #[test]
+    fn opencode_empty_usage_page_is_detected_without_error() {
+        let html = "<p>No usage data available for the selected period.</p>";
+        assert!(opencode_has_no_usage_data(html));
+        assert!(!opencode_has_no_usage_data("rollingUsage:$R[1]={usagePercent:1,resetInSec:2}"));
     }
 
     #[test]
@@ -97,6 +125,60 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn provider_number_accepts_json_numbers_and_numeric_strings() {
+        assert_eq!(provider_number(&serde_json::json!(12.5)), Some(12.5));
+        assert_eq!(provider_number(&serde_json::json!("76.5465807600000000")), Some(76.54658076));
+        assert_eq!(provider_number(&serde_json::json!("")), None);
+        assert_eq!(provider_number(&serde_json::json!(true)), None);
+    }
+
+    #[test]
+    fn deepseek_rows_keep_script_models_and_parse_string_counters() {
+        let mut totals = HashMap::new();
+        totals.insert(
+            "deepseek-v4-pro".into(),
+            DeepseekUsageCounters {
+                cache_hit: 75.0,
+                cache_miss: 25.0,
+                response: 50.0,
+                cost: 1.25,
+            },
+        );
+        let rows = deepseek_rows(&totals);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].label, "pro");
+        assert_eq!(rows[0].input.as_deref(), Some("100"));
+        assert_eq!(rows[0].output.as_deref(), Some("50"));
+    }
+
+    #[test]
+    fn minimax_percent_fallback_handles_zero_count_quotas() {
+        let model = serde_json::json!({
+            "model_name": "general",
+            "current_interval_total_count": 0,
+            "current_weekly_total_count": 0,
+            "current_interval_remaining_percent": 90,
+            "current_weekly_remaining_percent": 86,
+            "weekly_boost_permille": 1500,
+        });
+        assert_eq!(minimax_used_percent(&model, "interval"), Some(10.0));
+        assert_eq!(minimax_used_percent(&model, "weekly"), Some(21.0));
+    }
+
+    #[test]
+    fn minimax_summary_metrics_calculate_day_week_month_tokens() {
+        let summary = serde_json::json!({
+            "daily_token_usage": [10, 20, 30],
+            "most_active_day": {"date": "2026-01-03", "token_count": 30}
+        });
+        let metrics = minimax_summary_metrics(
+            &summary,
+            chrono::NaiveDate::from_ymd_opt(2026, 1, 3).unwrap(),
+        );
+        assert_eq!(metrics, vec![("日".into(), 30.0), ("周".into(), 60.0), ("月".into(), 60.0)]);
+    }
+
+    #[test]
     fn mimo_period_and_months_cover_cycle_spanning_two_months() {
         let end = chrono::NaiveDate::from_ymd_opt(2026, 6, 27).unwrap();
         let start = end - chrono::Duration::days(30);
@@ -112,10 +194,12 @@ mod provider_usage_tests {
         let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
         let cached = ProviderUsagePayload {
             fetched_at: unix_now_seconds(),
+            providers: Vec::new(),
             sections: vec![ProviderUsageSection {
                 provider: "openrouter".into(),
                 title: "OpenRouter API 用量".into(),
                 description: "余额 **$9.00**".into(),
+                captured_at: 1_700_000_000.0,
                 rows: vec![ProviderUsageRow {
                     label: "gpt-test".into(),
                     hit_rate: None,
@@ -134,7 +218,10 @@ mod provider_usage_tests {
         // network access (the api url points at an unroutable port).
         let first = provider_usage_handler(
             State(state.clone()),
-            Query(ProviderUsageQuery { refresh: Some(false) }),
+            Query(ProviderUsageQuery {
+                refresh: Some(false),
+                provider: None,
+            }),
         )
         .await;
         assert_eq!(first.status(), StatusCode::OK);
@@ -144,7 +231,10 @@ mod provider_usage_tests {
         // others fail; every section renders rows/windows or an error note.
         let forced = provider_usage_handler(
             State(state.clone()),
-            Query(ProviderUsageQuery { refresh: Some(true) }),
+            Query(ProviderUsageQuery {
+                refresh: Some(true),
+                provider: None,
+            }),
         )
         .await;
         assert_eq!(forced.status(), StatusCode::OK);
@@ -153,8 +243,9 @@ mod provider_usage_tests {
             .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         let sections = json["sections"].as_array().unwrap();
-        // One section per provider; the handler must never panic regardless
-        // of which credentials exist in the environment.
-        assert_eq!(sections.len(), 10);
+        let providers = json["providers"].as_array().unwrap();
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0]["provider"], "openrouter");
+        assert_eq!(providers.len(), 10);
     }
 }

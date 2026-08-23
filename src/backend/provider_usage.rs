@@ -2,21 +2,26 @@
 // data. Credentials are read from ~/.hermes/.env (and ~/.hermes/auth.json
 // credential pools). Ported from ~/workspace/api-usage/token_usage.py.
 
-const PROVIDER_USAGE_TTL: Duration = Duration::from_secs(5 * 60);
+const PROVIDER_USAGE_TTL: Duration = Duration::from_secs(30 * 60);
 const PROVIDER_USAGE_TIMEOUT: Duration = Duration::from_secs(15);
 
 const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
 const DEEPSEEK_PLATFORM_BASE: &str = "https://platform.deepseek.com";
 const ATLASCLOUD_BALANCE_URL: &str = "https://api.atlascloud.ai/public/v1/balance";
 const ATLASCLOUD_MODEL_USAGE_URL: &str = "https://api.atlascloud.ai/public/v1/model-usage";
+const ATLASCLOUD_MODEL_COSTS_URL: &str = "https://api.atlascloud.ai/public/v1/model-costs";
 const MINIMAX_PLAN_REMAINS_URL: &str =
     "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains";
+const MINIMAX_USAGE_SUMMARY_URL: &str =
+    "https://www.minimaxi.com/backend/account/token_plan/usage_summary";
 const KIMI_API_BASE: &str = "https://www.kimi.com";
 const MIMO_API_BASE: &str = "https://platform.xiaomimimo.com/api/v1";
 const COMMANDCODE_API_BASE: &str = "https://api.commandcode.ai";
 const GROK_BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+const XAI_OAUTH_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
+const XAI_OAUTH_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 
-#[derive(Serialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 struct ProviderUsageRow {
     label: String,
     hit_rate: Option<String>,
@@ -25,26 +30,50 @@ struct ProviderUsageRow {
     cost_or_pct: Option<String>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct ProviderUsageWindow {
     window: String,
     used: Option<String>,
     reset: Option<String>,
 }
 
-#[derive(Serialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 struct ProviderUsageSection {
     provider: String,
     title: String,
     description: String,
+    #[serde(default)]
+    captured_at: f64,
     rows: Vec<ProviderUsageRow>,
     windows: Vec<ProviderUsageWindow>,
     errors: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct SharedProviderCacheEntry {
+    cached_at: f64,
+    section: ProviderUsageSection,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct SharedProviderCacheFile {
+    entries: HashMap<String, SharedProviderCacheEntry>,
+}
+
+#[derive(Serialize, Clone, Default)]
+struct ProviderUsageProvider {
+    provider: String,
+    title: String,
+    configured: bool,
+    query_ready: bool,
+    credential_hint: String,
+    setup_hint: String,
+}
+
 #[derive(Serialize, Clone, Default)]
 struct ProviderUsagePayload {
     fetched_at: f64,
+    providers: Vec<ProviderUsageProvider>,
     sections: Vec<ProviderUsageSection>,
 }
 
@@ -52,7 +81,6 @@ struct ProviderUsagePayload {
 struct ProviderUsageCache {
     fetched_at: Arc<RwLock<Option<Instant>>>,
     payload: Arc<RwLock<Option<ProviderUsagePayload>>>,
-    in_flight: Arc<Mutex<()>>,
 }
 
 fn provider_env_value(hermes_home: &Path, key: &str) -> String {
@@ -125,10 +153,17 @@ fn config_provider_api_key(hermes_home: &Path, provider_name: &str) -> String {
         .to_string()
 }
 
-fn auth_json_credential_pool(
+#[derive(Clone)]
+struct AuthCredentialEntry {
+    label: String,
+    access_token: String,
+    refresh_token: Option<String>,
+}
+
+fn auth_json_credential_entries(
     hermes_home: &Path,
     provider: &str,
-) -> Vec<(String, String)> {
+) -> Vec<AuthCredentialEntry> {
     let path = hermes_home.join("auth.json");
     let Ok(raw) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -143,11 +178,11 @@ fn auth_json_credential_pool(
     else {
         return Vec::new();
     };
-    entries
+    let mut credentials: Vec<AuthCredentialEntry> = entries
         .iter()
         .enumerate()
         .filter_map(|(index, entry)| {
-            let token = entry
+            let access_token = entry
                 .get("access_token")
                 .or_else(|| entry.get("api_key"))
                 .or_else(|| entry.get("token"))
@@ -161,7 +196,167 @@ fn auth_json_credential_pool(
                 .filter(|label| !label.is_empty())
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("账号{}", index + 1));
-            Some((label, token.to_string()))
+            let refresh_token = entry
+                .get("refresh_token")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|token| !token.is_empty())
+                .map(str::to_string);
+            Some(AuthCredentialEntry {
+                label,
+                access_token: access_token.to_string(),
+                refresh_token,
+            })
+        })
+        .collect();
+    credentials.sort_by_key(|entry| entry.label.to_lowercase());
+    credentials
+}
+
+fn auth_json_credential_pool(
+    hermes_home: &Path,
+    provider: &str,
+) -> Vec<(String, String)> {
+    auth_json_credential_entries(hermes_home, provider)
+        .into_iter()
+        .map(|entry| (entry.label, entry.access_token))
+        .collect()
+}
+
+fn any_provider_env_value(hermes_home: &Path, keys: &[&str]) -> bool {
+    keys.iter()
+        .any(|key| !provider_env_value(hermes_home, key).is_empty())
+}
+
+fn any_custom_provider_api_key(hermes_home: &Path, names: &[&str]) -> bool {
+    names
+        .iter()
+        .any(|name| !config_provider_api_key(hermes_home, name).is_empty())
+}
+
+fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
+    let commandcode_pool = !auth_json_credential_pool(hermes_home, "commandcode").is_empty();
+    let codex_pool = !auth_json_credential_pool(hermes_home, "openai-codex").is_empty();
+    let grok_pool = !auth_json_credential_pool(hermes_home, "xai-oauth").is_empty();
+    let entries = [
+        (
+            "openrouter",
+            "OpenRouter API 用量",
+            any_provider_env_value(hermes_home, &["OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"])
+                || any_custom_provider_api_key(hermes_home, &["openrouter"]),
+            !provider_env_value(hermes_home, "OPENROUTER_MANAGEMENT_KEY").is_empty(),
+            "OPENROUTER_MANAGEMENT_KEY",
+            "配置 OPENROUTER_MANAGEMENT_KEY；从 OpenRouter 控制台 Settings → Management Keys 创建。",
+        ),
+        (
+            "deepseek",
+            "DeepSeek 用量",
+            any_provider_env_value(hermes_home, &["DEEPSEEK_API_KEY", "DEEPSEEK_COOKIE", "DEEPSEEK_TOKEN"])
+                || any_custom_provider_api_key(hermes_home, &["deepseek"]),
+            any_provider_env_value(hermes_home, &["DEEPSEEK_COOKIE"])
+                && any_provider_env_value(hermes_home, &["DEEPSEEK_TOKEN"]),
+            "DEEPSEEK_COOKIE + DEEPSEEK_TOKEN",
+            "配置 DEEPSEEK_COOKIE 与 DEEPSEEK_TOKEN；登录 platform.deepseek.com 后，从浏览器开发者工具的已登录会话复制对应 Cookie 和认证请求字段。",
+        ),
+        (
+            "atlascloud",
+            "AtlasCloud 用量",
+            any_provider_env_value(hermes_home, &["ATLASCLOUD_API_KEY"])
+                || any_custom_provider_api_key(hermes_home, &["atlascloud"]),
+            !provider_env_value(hermes_home, "ATLASCLOUD_API_KEY").is_empty()
+                || !config_provider_api_key(hermes_home, "atlascloud").is_empty(),
+            "ATLASCLOUD_API_KEY 或 config.yaml custom_providers.api_key",
+            "配置 ATLASCLOUD_API_KEY，或在 config.yaml 的 custom_providers 中填写 atlascloud 的 api_key；从 AtlasCloud 控制台 API Keys 获取。",
+        ),
+        (
+            "mimo",
+            "MiMo 用量",
+            any_provider_env_value(hermes_home, &["MIMO_API_KEY", "MIMO_COOKIE", "MIMO_PASSTOKEN"])
+                || any_custom_provider_api_key(hermes_home, &["mimo"]),
+            !provider_env_value(hermes_home, "MIMO_COOKIE").is_empty()
+                || !provider_env_value(hermes_home, "MIMO_PASSTOKEN").is_empty(),
+            "MiMo 认证信息",
+            "配置 MiMo 平台会话，或提供 Xiaomi 账号认证种子；系统会自动换取 MiMo 会话后查询用量。",
+        ),
+        (
+            "minimax",
+            "MiniMax 用量",
+            any_provider_env_value(hermes_home, &["MINIMAX_API_KEY", "MINIMAX_COOKIE", "MINIMAX_GROUP_ID"])
+                || any_custom_provider_api_key(hermes_home, &["minimax"]),
+            any_provider_env_value(hermes_home, &["MINIMAX_COOKIE"])
+                && any_provider_env_value(hermes_home, &["MINIMAX_GROUP_ID"]),
+            "MINIMAX_COOKIE + MINIMAX_GROUP_ID",
+            "配置完整的 MINIMAX_COOKIE 与 MINIMAX_GROUP_ID；登录 minimaxi.com 后从浏览器开发者工具复制 Cookie，Group ID 可在开放平台账户页面查看。",
+        ),
+        (
+            "kimi",
+            "Kimi Code 用量",
+            any_provider_env_value(hermes_home, &["KIMI_API_KEY", "KIMI_AUTH_TOKEN"])
+                || any_custom_provider_api_key(hermes_home, &["kimi"]),
+            !provider_env_value(hermes_home, "KIMI_AUTH_TOKEN").is_empty(),
+            "KIMI_AUTH_TOKEN",
+            "配置 KIMI_AUTH_TOKEN；登录 kimi.com 后从浏览器开发者工具复制已登录会话的认证 token。",
+        ),
+        (
+            "opencode",
+            "OpenCode Go 用量",
+            any_provider_env_value(
+                hermes_home,
+                &[
+                    "OPENCODE_GO_API_KEY",
+                    "OPENCODE_GO_WORKSPACE_ID",
+                    "OPENCODE_GO_AUTH_COOKIE",
+                    "OPENCODE_WORKSPACE_ID",
+                    "OPENCODE_AUTH_COOKIE",
+                ],
+            ) || any_custom_provider_api_key(hermes_home, &["opencode-go", "opencode"]),
+            any_provider_env_value(hermes_home, &["OPENCODE_GO_WORKSPACE_ID", "OPENCODE_WORKSPACE_ID"])
+                && any_provider_env_value(hermes_home, &["OPENCODE_GO_AUTH_COOKIE", "OPENCODE_AUTH_COOKIE"]),
+            "OPENCODE_GO_WORKSPACE_ID + OPENCODE_GO_AUTH_COOKIE",
+            "配置 OpenCode Go workspace ID 和 OPENCODE_GO_AUTH_COOKIE；workspace ID 来自 workspace 地址，Cookie 从已登录 OpenCode 会话复制。",
+        ),
+        (
+            "commandcode",
+            "CommandCode 用量",
+            commandcode_pool
+                || any_provider_env_value(hermes_home, &["COMMANDCODE_API_KEY"])
+                || any_custom_provider_api_key(hermes_home, &["commandcode"]),
+            commandcode_pool || !provider_env_value(hermes_home, "COMMANDCODE_API_KEY").is_empty(),
+            "COMMANDCODE_API_KEY 或 auth.json credential_pool.commandcode",
+            "配置 COMMANDCODE_API_KEY，或在 auth.json 的 credential_pool.commandcode 中加入账号凭据；API key 从 CommandCode 控制台创建。",
+        ),
+        (
+            "codex",
+            "Codex 用量",
+            codex_pool
+                || any_provider_env_value(hermes_home, &["OPENAI_API_KEY"])
+                || any_custom_provider_api_key(hermes_home, &["openai-codex", "codex"]),
+            codex_pool,
+            "auth.json credential_pool.openai-codex",
+            "配置 auth.json 的 credential_pool.openai-codex；通过 Hermes 的 Codex OAuth 登录流程获取账号凭据。",
+        ),
+        (
+            "grok",
+            "Grok 用量",
+            grok_pool
+                || any_provider_env_value(hermes_home, &["XAI_API_KEY"])
+                || any_custom_provider_api_key(hermes_home, &["xai", "grok"]),
+            grok_pool,
+            "auth.json credential_pool.xai-oauth",
+            "配置 auth.json 的 credential_pool.xai-oauth，保留 access_token 和 refresh_token；通过 Hermes 的 xAI OAuth 登录流程获取。",
+        ),
+    ];
+    entries
+        .into_iter()
+        .map(|(provider, title, configured, query_ready, credential_hint, setup_hint)| {
+            ProviderUsageProvider {
+                provider: provider.into(),
+                title: title.into(),
+                configured,
+                query_ready,
+                credential_hint: credential_hint.into(),
+                setup_hint: setup_hint.into(),
+            }
         })
         .collect()
 }
@@ -183,6 +378,40 @@ async fn provider_http_get_json(
         return Err(format!("HTTP {status} {snippet}"));
     }
     serde_json::from_str::<Value>(&body).map_err(|err| format!("响应不是 JSON：{err}"))
+}
+
+async fn provider_http_get_text(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<String, String> {
+    let mut request = client.get(url).timeout(PROVIDER_USAGE_TIMEOUT);
+    for (name, value) in headers {
+        request = request.header(name.as_str(), value.as_str());
+    }
+    let response = request.send().await.map_err(|err| err.to_string())?;
+    let status = response.status();
+    let body = response.text().await.map_err(|err| err.to_string())?;
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    Ok(body)
+}
+
+async fn provider_http_get_json_retry(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<Value, String> {
+    match provider_http_get_json(client, url, headers).await {
+        Ok(value) => Ok(value),
+        Err(first_error) => {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            provider_http_get_json(client, url, headers)
+                .await
+                .map_err(|second_error| format!("{first_error}; retry: {second_error}"))
+        }
+    }
 }
 
 async fn provider_http_post_json(
@@ -219,15 +448,56 @@ fn fmt_provider_money(value: f64, currency: char) -> String {
     format!("{currency}{:.2}", value)
 }
 
+fn provider_reset_duration(seconds: f64) -> String {
+    let minutes = ((seconds.max(0.0) + 59.0) / 60.0).floor() as i64;
+    if minutes < 60 {
+        format!("{minutes}分钟")
+    } else {
+        format!("{}小时", (minutes + 59) / 60)
+    }
+}
+
 fn provider_reset_text_local(value: i64) -> String {
     if value <= 0 {
         return "-".to_string();
     }
-    let Some(dt) = chrono::DateTime::from_timestamp(value, 0) else {
-        return "-".to_string();
-    };
-    let local = dt.with_timezone(&chrono::Local);
-    format!("{}/{} {}", local.month(), local.day(), local.format("%H:%M"))
+    let seconds = value.saturating_sub(chrono::Utc::now().timestamp()) as f64;
+    provider_reset_duration(seconds)
+}
+
+fn provider_number(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
+        .filter(|number| number.is_finite())
+}
+
+#[derive(Clone, Default)]
+struct DeepseekUsageCounters {
+    cache_hit: f64,
+    cache_miss: f64,
+    response: f64,
+    cost: f64,
+}
+
+fn deepseek_rows(totals: &HashMap<String, DeepseekUsageCounters>) -> Vec<ProviderUsageRow> {
+    ["deepseek-v4-pro", "deepseek-v4-flash"]
+        .into_iter()
+        .filter_map(|model| {
+            let counters = totals.get(model).cloned().unwrap_or_default();
+            let input = counters.cache_hit + counters.cache_miss;
+            if input <= 0.0 && counters.response <= 0.0 && counters.cost <= 0.0 {
+                return None;
+            }
+            Some(ProviderUsageRow {
+                label: short_ds_model(model),
+                hit_rate: deepseek_cache_hit_rate(counters.cache_hit, counters.cache_miss),
+                input: Some(fmt_provider_int(input)),
+                output: Some(fmt_provider_int(counters.response)),
+                cost_or_pct: Some(fmt_provider_money(counters.cost, '¥')),
+            })
+        })
+        .collect()
 }
 
 fn deepseek_cache_hit_rate(cache_hit: f64, cache_miss: f64) -> Option<String> {
@@ -366,8 +636,8 @@ async fn fetch_openrouter_usage(state: &AppState) -> ProviderUsageSection {
     section.rows = rows_from(&month_buckets);
     section.description = format!("本月支出 **{}**", fmt_provider_money(total_cost, '$'));
     if let Some(balance) = credits.as_ref().and_then(|credits| {
-        let total = credits.pointer("/data/total_credits").and_then(Value::as_f64)?;
-        let used = credits.pointer("/data/total_usage").and_then(Value::as_f64)?;
+        let total = credits.pointer("/data/total_credits").and_then(provider_number)?;
+        let used = credits.pointer("/data/total_usage").and_then(provider_number)?;
         Some(total - used)
     }) {
         section.description = format!(
@@ -376,23 +646,18 @@ async fn fetch_openrouter_usage(state: &AppState) -> ProviderUsageSection {
             section.description
         );
     }
-    if !day_buckets.is_empty() {
-        section.windows.push(ProviderUsageWindow {
-            window: "最新日".into(),
-            used: Some(fmt_provider_int(
-                day_buckets.values().map(|b| b.input + b.output).sum::<f64>(),
-            )),
-            reset: None,
-        });
-    }
+    let day_cost: f64 = day_buckets.values().map(|b| b.cost).sum();
+    section.windows.push(ProviderUsageWindow {
+        window: "今日用量/费用".into(),
+        used: Some(format!("{} in / {} out / {}", fmt_provider_int(day_buckets.values().map(|bucket| bucket.input).sum()), fmt_provider_int(day_buckets.values().map(|bucket| bucket.output).sum()), fmt_provider_money(day_cost, '$'))),
+        reset: None,
+    });
     section
 }
 
 fn deepseek_unwrap_biz(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => map.get("biz_data").cloned().unwrap_or_else(|| value.clone()),
-        _ => value.clone(),
-    }
+    let data = value.get("data").unwrap_or(value);
+    data.get("biz_data").cloned().unwrap_or_else(|| data.clone())
 }
 
 async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
@@ -456,30 +721,19 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
                 .and_then(Value::as_array)
                 .and_then(|wallets| wallets.first())
                 .and_then(|wallet| wallet.get("balance"))
-                .and_then(Value::as_f64)
+                .and_then(provider_number)
         });
-    struct UsageCounters {
-        cache_hit: f64,
-        cache_miss: f64,
-        response: f64,
-        cost: f64,
-    }
-    fn collect_counters(item: &Value) -> (String, UsageCounters) {
+    fn collect_counters(item: &Value) -> (String, DeepseekUsageCounters) {
         let model = item
             .get("model")
             .and_then(Value::as_str)
             .unwrap_or("?")
             .to_string();
-        let mut counters = UsageCounters {
-            cache_hit: 0.0,
-            cache_miss: 0.0,
-            response: 0.0,
-            cost: 0.0,
-        };
+        let mut counters = DeepseekUsageCounters::default();
         if let Some(list) = item.get("usage").and_then(Value::as_array) {
             for entry in list {
                 let typ = entry.get("type").and_then(Value::as_str).unwrap_or("");
-                let amount = entry.get("amount").and_then(Value::as_f64).unwrap_or(0.0);
+                let amount = entry.get("amount").and_then(provider_number).unwrap_or(0.0);
                 match typ {
                     "PROMPT_CACHE_HIT_TOKEN" => counters.cache_hit += amount,
                     "PROMPT_CACHE_MISS_TOKEN" => counters.cache_miss += amount,
@@ -492,14 +746,14 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
             for entry in list {
                 let typ = entry.get("type").and_then(Value::as_str).unwrap_or("");
                 if typ != "REQUEST" {
-                    counters.cost += entry.get("amount").and_then(Value::as_f64).unwrap_or(0.0);
+                    counters.cost += entry.get("amount").and_then(provider_number).unwrap_or(0.0);
                 }
             }
         }
         (model, counters)
     }
 
-    fn merge_maps(target: &mut HashMap<String, UsageCounters>, source: Value, with_cost: bool) {
+    fn merge_maps(target: &mut HashMap<String, DeepseekUsageCounters>, source: Value, with_cost: bool) {
         let unwrapped = deepseek_unwrap_biz(&source);
         let items: Vec<Value> = if let Some(items) = unwrapped.get("total").and_then(Value::as_array) {
             items.clone()
@@ -513,7 +767,7 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
             if !with_cost {
                 counters.cost = 0.0;
             }
-            let entry = target.entry(model).or_insert(UsageCounters {
+            let entry = target.entry(model).or_insert(DeepseekUsageCounters {
                 cache_hit: 0.0,
                 cache_miss: 0.0,
                 response: 0.0,
@@ -526,8 +780,8 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
         }
     }
 
-    let mut month_totals: HashMap<String, UsageCounters> = HashMap::new();
-    let mut day_totals: HashMap<String, UsageCounters> = HashMap::new();
+    let mut month_totals: HashMap<String, DeepseekUsageCounters> = HashMap::new();
+    let mut day_totals: HashMap<String, DeepseekUsageCounters> = HashMap::new();
     if let Ok(amount_value) = &amount {
         merge_maps(&mut month_totals, amount_value.clone(), false);
         let unwrapped = deepseek_unwrap_biz(amount_value);
@@ -538,7 +792,7 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
                 {
                     for item in items {
                         let (model, counters) = collect_counters(item);
-                        let entry = day_totals.entry(model).or_insert(UsageCounters {
+                        let entry = day_totals.entry(model).or_insert(DeepseekUsageCounters {
                             cache_hit: 0.0,
                             cache_miss: 0.0,
                             response: 0.0,
@@ -577,7 +831,7 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
                     entries
                         .iter()
                         .filter(|entry| entry.get("type").and_then(Value::as_str) != Some("REQUEST"))
-                        .filter_map(|entry| entry.get("amount").and_then(Value::as_f64))
+                        .filter_map(|entry| entry.get("amount").and_then(provider_number))
                         .sum()
                 })
                 .unwrap_or(0.0);
@@ -607,7 +861,7 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
                                 .filter(|entry| {
                                     entry.get("type").and_then(Value::as_str) != Some("REQUEST")
                                 })
-                                .filter_map(|entry| entry.get("amount").and_then(Value::as_f64))
+                                .filter_map(|entry| entry.get("amount").and_then(provider_number))
                                 .sum()
                         })
                         .unwrap_or(0.0);
@@ -619,51 +873,15 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
         }
     }
 
-    fn ds_rows(totals: &HashMap<String, UsageCounters>) -> Vec<ProviderUsageRow> {
-        let preferred = ["deepseek-v4-pro", "deepseek-v4-flash"];
-        let mut ordered: Vec<String> = Vec::new();
-        for name in preferred {
-            if totals.keys().any(|model| model == name) {
-                ordered.push(name.to_string());
-            }
-        }
-        for model in totals.keys() {
-            if !ordered.contains(model) {
-                ordered.push(model.clone());
-            }
-        }
-        ordered
-            .into_iter()
-            .filter_map(|model| {
-                let counters = totals.get(&model)?;
-                let input = counters.cache_hit + counters.cache_miss;
-                Some(ProviderUsageRow {
-                    label: short_ds_model(&model),
-                    hit_rate: deepseek_cache_hit_rate(counters.cache_hit, counters.cache_miss),
-                    input: Some(fmt_provider_int(input)),
-                    output: Some(fmt_provider_int(counters.response)),
-                    cost_or_pct: Some(fmt_provider_money(counters.cost, '¥')),
-                })
-            })
-            .collect()
-    }
-
-    section.rows = ds_rows(&month_totals);
-    if !day_totals.is_empty() {
-        let day_input: f64 = day_totals.values().map(|c| c.cache_hit + c.cache_miss).sum();
-        let day_output: f64 = day_totals.values().map(|c| c.response).sum();
-        let day_cost: f64 = day_totals.values().map(|c| c.cost).sum();
-        section.windows.push(ProviderUsageWindow {
-            window: "今日".into(),
-            used: Some(format!(
-                "{} in / {} out / {}",
-                fmt_provider_int(day_input),
-                fmt_provider_int(day_output),
-                fmt_provider_money(day_cost, '¥')
-            )),
-            reset: None,
-        });
-    }
+    section.rows = deepseek_rows(&month_totals);
+    let day_input: f64 = day_totals.values().map(|c| c.cache_hit + c.cache_miss).sum();
+    let day_output: f64 = day_totals.values().map(|c| c.response).sum();
+    let day_cost: f64 = day_totals.values().map(|c| c.cost).sum();
+    section.windows.push(ProviderUsageWindow {
+        window: "今日用量/费用".into(),
+        used: Some(format!("{} in / {} out / {}", fmt_provider_int(day_input), fmt_provider_int(day_output), fmt_provider_money(day_cost, '¥'))),
+        reset: None,
+    });
     if let Some(balance) = balance {
         section
             .description
@@ -760,6 +978,10 @@ async fn fetch_atlascloud_usage(state: &AppState) -> ProviderUsageSection {
         output: f64,
         cache_creation: f64,
         cache_read: f64,
+        requests: f64,
+        images: f64,
+        video_seconds: f64,
+        cost: f64,
     }
     let mut month_map: BTreeMap<String, ModelTokens> = BTreeMap::new();
     let mut today_map: BTreeMap<String, ModelTokens> = BTreeMap::new();
@@ -785,14 +1007,19 @@ async fn fetch_atlascloud_usage(state: &AppState) -> ProviderUsageSection {
                     _ => "?".to_string(),
                 });
             let Some(model) = model else { continue };
-            let tokens = result.pointer("/usage/tokens").cloned().unwrap_or(Value::Null);
+            let usage = result.get("usage").cloned().unwrap_or(Value::Null);
+            let tokens = usage.get("tokens").cloned().unwrap_or(Value::Null);
             let read_number = |key: &str| {
                 tokens
                     .get(key)
                     .and_then(Value::as_f64)
                     .unwrap_or(0.0)
             };
+            let usage_number = |value: Option<&Value>| value.and_then(provider_number).unwrap_or(0.0);
             let entry = destination.entry(model).or_default();
+            entry.requests += usage_number(usage.get("requests"));
+            entry.images += usage_number(usage.get("images").and_then(|value| value.get("count")));
+            entry.video_seconds += usage_number(usage.get("video").and_then(|value| value.get("seconds")));
             entry.input += read_number("input");
             entry.output += read_number("output");
             entry.cache_read += read_number("cache_read");
@@ -802,47 +1029,108 @@ async fn fetch_atlascloud_usage(state: &AppState) -> ProviderUsageSection {
         }
     }
 
+    let mut cost_map: BTreeMap<String, f64> = BTreeMap::new();
+    let mut today_cost_map: BTreeMap<String, f64> = BTreeMap::new();
+    let mut cost_page: Option<String> = None;
+    loop {
+        let mut query = format!(
+            "start_date={month_start}&end_date={tomorrow}&scope=self&group_by[]=model&limit=1000"
+        );
+        if let Some(page_value) = &cost_page {
+            query.push_str(&format!("&page={page_value}"));
+        }
+        let payload = match provider_http_get_json(
+            &state.client,
+            &format!("{ATLASCLOUD_MODEL_COSTS_URL}?{query}"),
+            &headers,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(err) => {
+                section.errors.push(format!("费用查询失败：{err}"));
+                break;
+            }
+        };
+        for bucket in payload.get("data").and_then(Value::as_array).into_iter().flatten() {
+            for result in bucket.get("results").and_then(Value::as_array).into_iter().flatten() {
+                let model = result
+                    .get("model")
+                    .and_then(|value| value.get("name").or_else(|| value.get("id")))
+                    .and_then(Value::as_str);
+                let Some(model) = model else { continue };
+                let amount = result.pointer("/amount/value").and_then(provider_number).unwrap_or(0.0);
+                let model_name = model.to_string();
+                *cost_map.entry(model_name.clone()).or_default() += amount;
+                if bucket.get("date").and_then(Value::as_str) == Some(today.as_str()) {
+                    *today_cost_map.entry(model_name).or_default() += amount;
+                }
+            }
+        }
+        let has_more = payload.get("has_more").and_then(Value::as_bool).unwrap_or(false);
+        cost_page = payload.get("next_page").and_then(|value| {
+            value.as_str().map(str::to_string).or_else(|| value.as_i64().map(|number| number.to_string()))
+        });
+        if !has_more || cost_page.is_none() || cost_map.len() > 5000 {
+            break;
+        }
+    }
+    for (model, tokens) in month_map.iter_mut() {
+        tokens.cost = cost_map.get(model).copied().unwrap_or(0.0);
+    }
+    for (model, tokens) in today_map.iter_mut() {
+        tokens.cost = today_cost_map.get(model).copied().unwrap_or(0.0);
+    }
+
     fn atlas_rows(values: &BTreeMap<String, ModelTokens>) -> Vec<ProviderUsageRow> {
         let mut entries: Vec<(&String, &ModelTokens)> = values.iter().collect();
         entries.sort_by_key(|(_, tokens)| std::cmp::Reverse((tokens.input + tokens.output) as i64));
         let rows_iter = entries.into_iter();
         rows_iter
-            .map(|(model, tokens)| ProviderUsageRow {
+            .map(|(model, tokens)| {
+                let is_image = tokens.images > 0.0;
+                let is_video = tokens.video_seconds > 0.0;
+                ProviderUsageRow {
                 label: model.rsplit('/').next().unwrap_or(model).to_string(),
                 hit_rate: {
                     let context = tokens.input + tokens.cache_read + tokens.cache_creation;
                     (context > 0.0)
                         .then(|| format!("{:.1}%", tokens.cache_read / context * 100.0))
                 },
-                input: Some(fmt_provider_int(tokens.input + tokens.cache_read + tokens.cache_creation)),
-                output: Some(fmt_provider_int(tokens.output)),
-                cost_or_pct: None,
+                input: if is_image {
+                    Some(format!("{} 张", fmt_provider_int(tokens.images)))
+                } else if is_video {
+                    Some(format!("{} 秒", fmt_provider_int(tokens.video_seconds)))
+                } else {
+                    Some(fmt_provider_int(tokens.input + tokens.cache_read + tokens.cache_creation))
+                },
+                output: if is_image || is_video {
+                    Some(format!("{} 次", fmt_provider_int(tokens.requests)))
+                } else {
+                    Some(fmt_provider_int(tokens.output))
+                },
+                cost_or_pct: (tokens.cost > 0.0).then(|| fmt_provider_money(tokens.cost, '$')),
+                }
             })
             .collect()
     }
 
     section.rows = atlas_rows(&month_map);
-    if !today_map.is_empty() {
-        section.windows.push(ProviderUsageWindow {
-            window: "今日".into(),
-            used: Some(fmt_provider_int(
-                today_map
-                    .values()
-                    .map(|tokens| tokens.input + tokens.output + tokens.cache_read + tokens.cache_creation)
-                    .sum::<f64>(),
-            )),
-            reset: None,
-        });
-    }
+    let today_input: f64 = today_map.values().map(|tokens| tokens.input + tokens.cache_read + tokens.cache_creation).sum();
+    let today_output: f64 = today_map.values().map(|tokens| tokens.output).sum();
+    let today_cost: f64 = today_map.values().map(|tokens| tokens.cost).sum();
+    section.windows.push(ProviderUsageWindow {
+        window: "今日用量/费用".into(),
+        used: Some(format!("{} in / {} out / {}", fmt_provider_int(today_input), fmt_provider_int(today_output), fmt_provider_money(today_cost, '$'))),
+        reset: None,
+    });
     let available = balance.ok().and_then(|payload| {
-        payload
-            .get("available")
-            .and_then(|value| {
-                value
-                    .get("value")
-                    .and_then(Value::as_f64)
-                    .or_else(|| value.as_f64())
-            })
+        payload.get("available").and_then(|value| {
+            value
+                .get("value")
+                .and_then(provider_number)
+                .or_else(|| provider_number(value))
+        })
     });
     if let Some(available) = available {
         section
@@ -850,6 +1138,112 @@ async fn fetch_atlascloud_usage(state: &AppState) -> ProviderUsageSection {
             .push_str(&format!("余额 **{}**", fmt_provider_money(available, '$')));
     }
     section
+}
+
+fn minimax_used_percent(model: &Value, period: &str) -> Option<f64> {
+    let (total_key, usage_key, remaining_key, boost_key) = match period {
+        "interval" => (
+            "current_interval_total_count",
+            "current_interval_usage_count",
+            "current_interval_remaining_percent",
+            "interval_boost_permille",
+        ),
+        "weekly" => (
+            "current_weekly_total_count",
+            "current_weekly_usage_count",
+            "current_weekly_remaining_percent",
+            "weekly_boost_permille",
+        ),
+        _ => return None,
+    };
+    let total = provider_number(model.get(total_key).unwrap_or(&Value::Null)).unwrap_or(0.0);
+    if total > 0.0 {
+        let used = provider_number(model.get(usage_key).unwrap_or(&Value::Null)).unwrap_or(0.0);
+        return Some(((total - used) / total * 100.0).clamp(0.0, 100.0));
+    }
+    let boost = provider_number(model.get(boost_key).unwrap_or(&Value::Null)).unwrap_or(1000.0);
+    provider_number(model.get(remaining_key).unwrap_or(&Value::Null)).map(|remaining| {
+        ((100.0 - remaining).max(0.0) * boost / 1000.0).max(0.0)
+    })
+}
+
+fn minimax_capability(model_name: &str) -> &'static str {
+    match model_name {
+        "general" => "文本",
+        "video" => "视频",
+        "speech-hd" => "语音",
+        "coding-plan-vlm" => "图片理解",
+        "coding-plan-search" => "网络搜索",
+        _ => "其他",
+    }
+}
+
+fn minimax_summary_metrics(summary: &Value, today: chrono::NaiveDate) -> Vec<(String, f64)> {
+    let series = summary
+        .get("daily_token_usage")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(provider_number)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if series.is_empty() {
+        return Vec::new();
+    }
+    let mut start_date = None;
+    let mut day_index = series.len() - 1;
+    if let Some(active) = summary.get("most_active_day") {
+        let active_tokens = active.get("token_count").and_then(provider_number);
+        let active_date = active
+            .get("date")
+            .and_then(Value::as_str)
+            .and_then(|value| value.get(..10))
+            .and_then(|value| chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
+        if let (Some(active_tokens), Some(active_date)) = (active_tokens, active_date) {
+            let (index, _) = series
+                .iter()
+                .enumerate()
+                .map(|(index, value)| (index, (value - active_tokens).abs()))
+                .min_by(|left, right| left.1.total_cmp(&right.1))
+                .unwrap_or((series.len() - 1, 0.0));
+            start_date = Some(active_date - chrono::Duration::days(index as i64));
+            let offset = (today - start_date.unwrap() ).num_days();
+            if offset >= 0 {
+                day_index = (offset as usize).min(series.len() - 1);
+            }
+        }
+    }
+    let week_start = day_index.saturating_sub(6);
+    let week_tokens = series[week_start..=day_index].iter().sum::<f64>();
+    let month_tokens = if let Some(start) = start_date {
+        let values = series[..=day_index]
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                let date = start + chrono::Duration::days(*index as i64);
+                date.year() == today.year() && date.month() == today.month()
+            })
+            .map(|(_, value)| *value)
+            .sum::<f64>();
+        if values > 0.0 {
+            values
+        } else {
+            series[day_index.saturating_sub(29)..=day_index]
+                .iter()
+                .sum::<f64>()
+        }
+    } else {
+        series[day_index.saturating_sub(29)..=day_index]
+            .iter()
+            .sum::<f64>()
+    };
+    vec![
+        ("日".into(), series[day_index]),
+        ("周".into(), week_tokens),
+        ("月".into(), month_tokens),
+    ]
 }
 
 async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
@@ -884,7 +1278,9 @@ async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
         ("Referer".to_string(), "https://platform.minimaxi.com/".into()),
     ];
     let payload =
-        match provider_http_get_json(&state.client, MINIMAX_PLAN_REMAINS_URL, &headers).await {
+        match provider_http_get_json_retry(&state.client, MINIMAX_PLAN_REMAINS_URL, &headers)
+            .await
+        {
             Ok(value) => value,
             Err(err) => {
                 section.errors.push(format!("查询失败：{err}"));
@@ -899,6 +1295,30 @@ async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
         section.errors.push(format!("API 错误：{msg}"));
         return section;
     }
+    if let Ok(summary) = provider_http_get_json_retry(&state.client, MINIMAX_USAGE_SUMMARY_URL, &headers)
+        .await
+        && summary.pointer("/base_resp/status_code").and_then(Value::as_i64) == Some(0)
+    {
+        for (label, tokens) in minimax_summary_metrics(&summary, chrono::Local::now().date_naive()) {
+            let value = fmt_provider_int(tokens);
+            if label == "周"
+                && let Some(row) = section.rows.iter_mut().find(|row| row.label == "周额度")
+            {
+                row.output = Some(value);
+                continue;
+            }
+            let row_label = match label.as_str() {
+                "周" => "周额度".to_string(),
+                "月" => "月额度".to_string(),
+                _ => format!("{label}用量"),
+            };
+            section.rows.push(ProviderUsageRow {
+                label: row_label,
+                output: Some(value),
+                ..Default::default()
+            });
+        }
+    }
     for model in payload
         .get("model_remains")
         .and_then(Value::as_array)
@@ -910,36 +1330,23 @@ async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
             .and_then(Value::as_str)
             .unwrap_or("?")
             .to_string();
-        let interval_total = model
-            .get("current_interval_total_count")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
-        let interval_remaining = model
-            .get("current_interval_usage_count")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
-        let weekly_total = model
-            .get("current_weekly_total_count")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
-        let weekly_remaining = model
-            .get("current_weekly_usage_count")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
-        if interval_total > 0.0 {
-            let used_pct = ((interval_total - interval_remaining) / interval_total * 100.0).max(0.0);
+        if minimax_capability(&name) != "文本" {
+            continue;
+        }
+        if let Some(used_pct) = minimax_used_percent(&model, "interval") {
+            let value = format!("{used_pct:.1}%");
             section.windows.push(ProviderUsageWindow {
-                window: format!("5h·{name}"),
-                used: Some(format!("{used_pct:.1}%")),
-                reset: None,
+                window: "5h额度".into(),
+                used: Some(value),
+                reset: reset_from_ms(&model, "end_time"),
             });
         }
-        if weekly_total > 0.0 {
-            let used_pct = ((weekly_total - weekly_remaining) / weekly_total * 100.0).max(0.0);
+        if let Some(used_pct) = minimax_used_percent(&model, "weekly") {
+            let value = format!("{used_pct:.1}%");
             section.windows.push(ProviderUsageWindow {
-                window: format!("周·{name}"),
-                used: Some(format!("{used_pct:.1}%")),
-                reset: None,
+                window: "周额度".into(),
+                used: Some(value),
+                reset: reset_from_ms(&model, "weekly_end_time"),
             });
         }
     }
@@ -991,21 +1398,21 @@ async fn fetch_kimi_usage(state: &AppState) -> ProviderUsageSection {
     };
     if let Some(five_h) = payload_enabled(data.get("ratelimitCode5h")) {
         section.windows.push(ProviderUsageWindow {
-            window: "5h".into(),
+            window: "5h额度".into(),
             used: Some(ratio_pct(num_field(five_h, "ratio"))),
             reset: reset_from_ms(five_h, "resetTime"),
         });
     }
     if let Some(weekly) = payload_enabled(data.get("ratelimitCode7d")) {
         section.windows.push(ProviderUsageWindow {
-            window: "Week".into(),
+            window: "周额度".into(),
             used: Some(ratio_pct(num_field(weekly, "ratio"))),
             reset: reset_from_ms(weekly, "resetTime"),
         });
     }
     if let Some(balance) = data.get("subscriptionBalance").filter(|v| v.is_object()) {
         section.windows.push(ProviderUsageWindow {
-            window: "Month".into(),
+            window: "月额度".into(),
             used: Some(ratio_pct(num_field(balance, "amountUsedRatio"))),
             reset: reset_from_ms(balance, "expireTime"),
         });
@@ -1035,9 +1442,122 @@ fn reset_from_ms(value: &Value, key: &str) -> Option<String> {
 }
 
 fn provider_reset_text_seconds(seconds: f64) -> String {
-    let now = chrono::Local::now();
-    let reset = now + chrono::Duration::seconds(seconds.max(0.0) as i64);
-    format!("{}/{} {}", reset.month(), reset.day(), reset.format("%H:%M"))
+    provider_reset_duration(seconds)
+}
+
+fn mimo_service_cookie_path(hermes_home: &std::path::Path) -> std::path::PathBuf {
+    hermes_home.join("state/mimo_service_token.json")
+}
+
+fn load_mimo_service_cookie(hermes_home: &std::path::Path) -> Option<String> {
+    let body = std::fs::read_to_string(mimo_service_cookie_path(hermes_home)).ok()?;
+    let values = serde_json::from_str::<HashMap<String, String>>(&body).ok()?;
+    let required = [
+        "api-platform_serviceToken",
+        "api-platform_slh",
+        "api-platform_ph",
+        "userId",
+    ];
+    required
+        .iter()
+        .all(|key| values.get(*key).is_some_and(|value| !value.is_empty()))
+        .then(|| {
+            required
+                .iter()
+                .filter_map(|key| values.get(*key).map(|value| format!("{key}={value}")))
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+}
+
+fn save_mimo_service_cookie(
+    hermes_home: &std::path::Path,
+    values: &HashMap<String, String>,
+) -> Result<(), String> {
+    let path = mimo_service_cookie_path(hermes_home);
+    let parent = path
+        .parent()
+        .ok_or_else(|| "MiMo 会话缓存路径无效".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|err| format!("创建 MiMo 会话缓存目录失败：{err}"))?;
+    let tmp = path.with_extension("json.tmp");
+    let body = serde_json::to_vec(values).map_err(|err| format!("序列化 MiMo 会话失败：{err}"))?;
+    std::fs::write(&tmp, body).map_err(|err| format!("写入 MiMo 会话缓存失败：{err}"))?;
+    std::fs::rename(tmp, path).map_err(|err| format!("保存 MiMo 会话缓存失败：{err}"))
+}
+
+async fn refresh_mimo_service_cookie(state: &AppState) -> Result<String, String> {
+    let hermes_home = state.hermes_home.clone();
+    let passtoken = provider_env_value(&hermes_home, "MIMO_PASSTOKEN");
+    let user_id = provider_env_value(&hermes_home, "MIMO_USER_ID");
+    let device_id = provider_env_value(&hermes_home, "MIMO_DEVICE_ID");
+    if passtoken.is_empty() {
+        return Err("缺少 MiMo 账号认证信息".into());
+    }
+    let helper = hermes_home
+        .parent()
+        .unwrap_or(hermes_home.as_path())
+        .join("workspace/api-usage/mimo_auth_helper.py");
+    if !helper.is_file() {
+        return Err("缺少 MiMo 认证 helper".into());
+    }
+    let python = hermes_home.join("hermes-agent/venv/bin/python");
+    let output = tokio::task::spawn_blocking(move || {
+        let executable = if python.is_file() {
+            python
+        } else {
+            std::path::PathBuf::from("python3")
+        };
+        std::process::Command::new(executable)
+            .arg(helper)
+            .env("MIMO_PASSTOKEN", passtoken)
+            .env("MIMO_USER_ID", user_id)
+            .env("MIMO_DEVICE_ID", device_id)
+            .output()
+    })
+    .await
+    .map_err(|err| format!("MiMo 认证 helper 失败：{err}"))?
+    .map_err(|err| format!("MiMo 认证 helper 启动失败：{err}"))?;
+    if !output.status.success() {
+        return Err("MiMo 认证交换失败，请重新登录 Xiaomi 账号".into());
+    }
+    let value = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<HashMap<String, String>>(line).ok())
+        .ok_or_else(|| "MiMo 认证交换未返回会话".to_string())?;
+    let required = [
+        "api-platform_serviceToken",
+        "api-platform_slh",
+        "api-platform_ph",
+        "userId",
+    ];
+    if required.iter().any(|key| value.get(*key).is_none_or(String::is_empty)) {
+        return Err("MiMo 认证交换返回的会话不完整".into());
+    }
+    save_mimo_service_cookie(&hermes_home, &value)?;
+    Ok(required
+        .iter()
+        .filter_map(|key| value.get(*key).map(|item| format!("{key}={item}")))
+        .collect::<Vec<_>>()
+        .join("; "))
+}
+
+fn mimo_headers(cookie: &str, referer: &str) -> Vec<(String, String)> {
+    vec![
+        ("Cookie".to_string(), cookie.to_string()),
+        ("accept".to_string(), "application/json".into()),
+        (
+            "user-agent".to_string(),
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36".into(),
+        ),
+        ("origin".to_string(), "https://platform.xiaomimimo.com".into()),
+        ("referer".to_string(), referer.into()),
+        ("x-timezone".to_string(), "Asia/Shanghai".into()),
+    ]
+}
+
+fn mimo_auth_error(error: &str) -> bool {
+    error.contains("HTTP 401") || error.contains("HTTP 403") || error.contains("Unauthorized")
 }
 
 async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
@@ -1046,56 +1566,81 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
         title: "MiMo 额度".into(),
         ..Default::default()
     };
-    let cookie = provider_env_value(&state.hermes_home, "MIMO_COOKIE");
+    let mut cookie = load_mimo_service_cookie(&state.hermes_home)
+        .or_else(|| {
+            let configured = provider_env_value(&state.hermes_home, "MIMO_COOKIE");
+            (!configured.is_empty()).then_some(configured)
+        })
+        .unwrap_or_default();
+    if cookie.is_empty() && !provider_env_value(&state.hermes_home, "MIMO_PASSTOKEN").is_empty() {
+        if let Ok(refreshed) = refresh_mimo_service_cookie(state).await {
+            cookie = refreshed;
+        }
+    }
     if cookie.is_empty() {
-        section.errors.push("缺少 MIMO_COOKIE".into());
+        section.errors.push("缺少 MiMo 认证信息".into());
         return section;
     }
-    let headers = |referer: &str| {
-        vec![
-            ("Cookie".to_string(), cookie.clone()),
-            ("accept".to_string(), "application/json".into()),
-            (
-                "user-agent".to_string(),
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36".into(),
-            ),
-            ("origin".to_string(), "https://platform.xiaomimimo.com".into()),
-            ("referer".to_string(), referer.into()),
-            ("x-timezone".to_string(), "Asia/Shanghai".into()),
-        ]
-    };
 
-    let detail = provider_http_get_json(
+    let detail_result = provider_http_get_json(
         &state.client,
         &format!("{MIMO_API_BASE}/tokenPlan/detail"),
-        &headers("https://platform.xiaomimimo.com/console/plan-manage"),
+        &mimo_headers(&cookie, "https://platform.xiaomimimo.com/console/plan-manage"),
     )
     .await;
-    let detail = match detail {
-        Ok(value) => {
-            let code = value.get("code").and_then(Value::as_i64).unwrap_or(-1);
-            if !(code == 0 || code == 200) {
-                section
-                    .errors
-                    .push("cookie 已过期，请重新获取 MIMO_COOKIE".into());
-                return section;
+    let detail = match detail_result {
+        Ok(value) => value,
+        Err(first_error) if mimo_auth_error(&first_error) => {
+            match refresh_mimo_service_cookie(state).await {
+                Ok(refreshed) => {
+                    cookie = refreshed;
+                    match provider_http_get_json(
+                        &state.client,
+                        &format!("{MIMO_API_BASE}/tokenPlan/detail"),
+                        &mimo_headers(&cookie, "https://platform.xiaomimimo.com/console/plan-manage"),
+                    )
+                    .await
+                    {
+                        Ok(value) => value,
+                        Err(error) => {
+                            section.errors.push(format!("MiMo 认证后查询失败：{error}"));
+                            return section;
+                        }
+                    }
+                }
+                Err(error) => {
+                    section.errors.push(format!("MiMo 认证交换失败：{error}"));
+                    return section;
+                }
             }
-            value.get("data").cloned().unwrap_or(Value::Null)
         }
         Err(err) => {
             section.errors.push(format!("查询失败：{err}"));
             return section;
         }
     };
-
-    let plan_used = detail_usage_number(&detail, "usage", "plan_total_token", "used");
-    let plan_limit = detail_usage_number(&detail, "usage", "plan_total_token", "limit");
-    let balance_pct = match (plan_used, plan_limit) {
-        (Some(used), Some(limit)) if limit > 0.0 => {
-            format!("{:.2}%", used / limit * 100.0)
+    let detail = {
+        let code = detail.get("code").and_then(Value::as_i64).unwrap_or(-1);
+        if !(code == 0 || code == 200) {
+            section.errors.push(format!("MiMo 用量接口返回错误码：{code}"));
+            return section;
         }
-        _ => "-".to_string(),
+        detail.get("data").cloned().unwrap_or(Value::Null)
     };
+
+    let usage_summary = provider_http_get_json(
+        &state.client,
+        &format!("{MIMO_API_BASE}/tokenPlan/usage"),
+        &mimo_headers(&cookie, "https://platform.xiaomimimo.com/console/plan-manage"),
+    )
+    .await
+    .ok()
+    .and_then(|value| value.get("data").cloned())
+    .unwrap_or(Value::Null);
+    let plan_used = detail_usage_number(&detail, "usage", "plan_total_token", "used")
+        .or_else(|| detail_usage_number(&usage_summary, "usage", "plan_total_token", "used"));
+    let plan_limit = detail_usage_number(&detail, "usage", "plan_total_token", "limit")
+        .or_else(|| detail_usage_number(&usage_summary, "usage", "plan_total_token", "limit"));
     let plan_name = detail
         .get("planName")
         .and_then(Value::as_str)
@@ -1116,7 +1661,7 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
     } else {
         "不续费"
     };
-    section.description = format!("MiMo {plan_name} · {renew_tag} · 用量 **{balance_pct}**");
+    section.description = format!("MiMo {plan_name} · {renew_tag}");
 
     // Per-model billing-cycle usage rows.
     let period_end_raw = detail
@@ -1124,6 +1669,15 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
         .and_then(Value::as_str)
         .unwrap_or("");
     let (period_end_date, period_start_date) = parse_mimo_period(period_end_raw);
+    if let (Some(used), Some(limit)) = (plan_used, plan_limit)
+        && limit > 0.0
+    {
+        section.windows.push(ProviderUsageWindow {
+            window: "月额度".into(),
+            used: Some(format!("{} / {} token", fmt_provider_int(used), fmt_provider_int(limit))),
+            reset: mimo_reset_duration(period_end_raw),
+        });
+    }
     let months_to_fetch = mimo_months_in_range(period_start_date, period_end_date);
     let ph = extract_cookie_value(&cookie, "api-platform_ph");
 
@@ -1166,7 +1720,7 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
             &state.client,
             &url,
             body,
-            &headers("https://platform.xiaomimimo.com/console/plan-manage"),
+            &mimo_headers(&cookie, "https://platform.xiaomimimo.com/console/plan-manage"),
         )
         .await;
         let Ok(rows) = rows else {
@@ -1239,7 +1793,7 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
     for (model, bucket) in &day_buckets {
         let input = bucket.hit + bucket.miss;
         section.windows.push(ProviderUsageWindow {
-            window: format!("今日·{model}"),
+            window: format!("今日用量·{model}"),
             used: Some(fmt_provider_int(input + bucket.out)),
             reset: None,
         });
@@ -1279,6 +1833,17 @@ fn detail_usage_number(detail: &Value, group: &str, item_name: &str, field: &str
         .and_then(Value::as_f64)
 }
 
+fn mimo_reset_duration(value: &str) -> Option<String> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(value)
+        .map(|date| date.timestamp())
+        .or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+                .map(|date| date.and_utc().timestamp())
+        })
+        .ok()?;
+    Some(provider_reset_duration((parsed - chrono::Utc::now().timestamp()).max(0) as f64))
+}
+
 fn parse_mimo_period(period_end: &str) -> (chrono::NaiveDate, chrono::NaiveDate) {
     let parsed = chrono::NaiveDate::parse_from_str(
         period_end.chars().take(10).collect::<String>().as_str(),
@@ -1316,6 +1881,34 @@ fn mimo_months_in_range(
     months
 }
 
+#[cfg(test)]
+fn opencode_has_no_usage_data(html: &str) -> bool {
+    let normalized = html.to_ascii_lowercase();
+    normalized.contains("no usage data available")
+        || normalized.contains("make your first api call")
+}
+
+fn opencode_dashboard_urls(workspace_id: &str, override_url: &str) -> Vec<String> {
+    if !override_url.trim().is_empty() {
+        return vec![override_url.trim().to_string()];
+    }
+    vec![
+        format!("https://opencode.ai/workspace/{workspace_id}/usage"),
+        format!("https://opencode.ai/workspace/{workspace_id}/go"),
+    ]
+}
+
+fn opencode_percent_text(value: f64) -> String {
+    let mut text = format!("{value:.2}");
+    while text.contains('.') && text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.pop();
+    }
+    format!("{text}%")
+}
+
 async fn fetch_opencode_usage(state: &AppState) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "opencode".into(),
@@ -1331,9 +1924,7 @@ async fn fetch_opencode_usage(state: &AppState) -> ProviderUsageSection {
         .map(|key| provider_env_value(&state.hermes_home, key))
         .find(|value| !value.is_empty());
     let (Some(workspace_id), Some(auth_cookie)) = (workspace_id, auth_cookie) else {
-        section
-            .errors
-            .push("缺少 OPENCODE_GO_WORKSPACE_ID 或 OPENCODE_GO_AUTH_COOKIE".into());
+        section.errors.push("缺少 OpenCode Go 查询凭据".into());
         return section;
     };
     let cookie_header = if auth_cookie.starts_with("auth=") || auth_cookie.contains(';') {
@@ -1341,45 +1932,47 @@ async fn fetch_opencode_usage(state: &AppState) -> ProviderUsageSection {
     } else {
         format!("auth={auth_cookie}")
     };
-    let url = format!("https://opencode.ai/workspace/{workspace_id}/usage");
     let headers = vec![
-        ("Accept".to_string(), "text/html".into()),
+        (
+            "Accept".to_string(),
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".into(),
+        ),
         (
             "User-Agent".to_string(),
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36".into(),
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Hermes-token-usage/1.0".into(),
         ),
         ("Cookie".to_string(), cookie_header),
     ];
-    let mut request = state.client.get(&url).timeout(PROVIDER_USAGE_TIMEOUT);
-    for (name, value) in &headers {
-        request = request.header(name.as_str(), value.as_str());
-    }
-    let response = request.send().await;
-    let html = match response {
-        Ok(response) => match response.text().await {
-            Ok(text) => text,
+    let override_url = provider_env_value(&state.hermes_home, "OPENCODE_GO_DASHBOARD_URL");
+    let urls = opencode_dashboard_urls(&workspace_id, &override_url);
+    let mut errors = Vec::new();
+    for url in urls {
+        let html = match provider_http_get_text(&state.client, &url, &headers).await {
+            Ok(html) => html,
             Err(err) => {
-                section.errors.push(format!("读取失败：{err}"));
-                return section;
+                errors.push(format!("{}：{err}", url.rsplit('/').next().unwrap_or("页面")));
+                continue;
             }
-        },
-        Err(err) => {
-            section.errors.push(format!("查询失败：{err}"));
+        };
+        let mut windows = Vec::new();
+        for (name, label) in [("rolling", "5h额度"), ("weekly", "周额度"), ("monthly", "月额度")] {
+            let Some((percent, reset_seconds)) = opencode_window(&html, name) else {
+                continue;
+            };
+            windows.push(ProviderUsageWindow {
+                window: label.into(),
+                used: Some(opencode_percent_text(percent)),
+                reset: Some(provider_reset_text_seconds(reset_seconds.max(0.0))),
+            });
+        }
+        if !windows.is_empty() {
+            section.windows = windows;
             return section;
         }
-    };
-    for (name, label) in [("rolling", "5h"), ("weekly", "周"), ("monthly", "月")] {
-        let Some(window) = opencode_window(&html, name) else {
-            continue;
-        };
-        section.windows.push(ProviderUsageWindow {
-            window: label.into(),
-            used: Some(format!("{:.2}%", window.0).trim_end_matches('0').trim_end_matches('.').to_string() + "%"),
-            reset: Some(provider_reset_text_seconds(window.1)),
-        });
+        errors.push(format!("{}：缺少 5h额度/周额度/月额度窗口", url.rsplit('/').next().unwrap_or("页面")));
     }
-    if section.windows.is_empty() {
-        section.errors.push("页面缺少 5h/周/月窗口".into());
+    if !errors.is_empty() {
+        section.errors.push(format!("查询失败：{}", errors.join("；")));
     }
     section
 }
@@ -1389,9 +1982,10 @@ fn opencode_window(html: &str, name: &str) -> Option<(f64, f64)> {
     let marker = format!("{name}Usage:$R[");
     let start = html.find(&marker)? + marker.len();
     let rest = &html[start..];
-    let open = rest.find('{')?;
-    let close = rest[open..].find('}')? + open;
-    let body = &rest[open + 1..close];
+    let index_end = rest.find(']')?;
+    let body_start = rest[index_end + 1..].find('{')? + index_end + 1;
+    let body_end = rest[body_start..].find('}')? + body_start;
+    let body = &rest[body_start + 1..body_end];
     let parse_field = |key: &str| -> Option<f64> {
         let marker = format!("{key}:");
         let index = body.find(&marker)? + marker.len();
@@ -1399,9 +1993,11 @@ fn opencode_window(html: &str, name: &str) -> Option<(f64, f64)> {
         let end = tail
             .find(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == '-'))
             .unwrap_or(tail.len());
-        tail[..end].parse::<f64>().ok()
+        tail[..end].parse::<f64>().ok().filter(|value| value.is_finite())
     };
-    Some((parse_field("usagePercent")?, parse_field("resetInSec")?))
+    let percent = parse_field("usagePercent")?;
+    let reset = parse_field("resetInSec")?;
+    Some((percent, reset.max(0.0)))
 }
 
 const COMMANDCODE_PLAN_TOTAL_CREDITS: &[(&str, f64)] = &[
@@ -1451,6 +2047,20 @@ fn commandcode_plan_total(plan_id: &str) -> Option<f64> {
         .map(|(_, total)| *total)
 }
 
+fn commandcode_reset_text(snapshot: &Value, key: &str) -> String {
+    let Some(value) = snapshot.get(key) else {
+        return "-".into();
+    };
+    if let Some(timestamp) = provider_number(value) {
+        return provider_reset_text_local(timestamp as i64);
+    }
+    value
+        .as_str()
+        .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+        .map(|dt| provider_reset_text_local(dt.timestamp()))
+        .unwrap_or_else(|| "-".into())
+}
+
 async fn fetch_commandcode_usage(state: &AppState) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "commandcode".into(),
@@ -1481,33 +2091,37 @@ async fn fetch_commandcode_usage(state: &AppState) -> ProviderUsageSection {
         }))
         .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    let multi_account = fetched.len() > 1;
+    let window_name = |label: &str, period: &str| {
+        if multi_account { format!("{label} {period}") } else { period.to_string() }
+    };
 
     for (label, result) in &fetched {
         match result {
             Ok(snapshot) => {
+                let five_hour = commandcode_window_text(snapshot, "five_hour");
+                if five_hour != "-" {
+                    section.windows.push(ProviderUsageWindow {
+                        window: window_name(label, "5h额度"),
+                        used: Some(five_hour),
+                        reset: Some(commandcode_reset_text(snapshot, "five_hour_reset_at")),
+                    });
+                }
                 let weekly = commandcode_window_text(snapshot, "weekly");
-                let monthly = snapshot
-                    .get("usage_percent")
-                    .and_then(Value::as_f64)
-                    .map(|value| format!("{value:.0}%"))
-                    .unwrap_or_else(|| "-".into());
-                let reset = snapshot
-                    .get("current_period_end")
-                    .and_then(|value| {
-                        value
-                            .as_str()
-                            .map(str::to_string)
-                            .or_else(|| value.as_f64().map(|number| number.to_string()))
-                    })
-                    .map(|raw| {
-                        provider_reset_text_local(raw.parse::<i64>().unwrap_or(0))
-                    })
-                    .unwrap_or_else(|| "-".into());
-                section.windows.push(ProviderUsageWindow {
-                    window: label.clone(),
-                    used: Some(format!("{weekly} / {monthly}")),
-                    reset: Some(reset),
-                });
+                if weekly != "-" {
+                    section.windows.push(ProviderUsageWindow {
+                        window: window_name(label, "周额度"),
+                        used: Some(weekly),
+                        reset: Some(commandcode_reset_text(snapshot, "weekly_reset_at")),
+                    });
+                }
+                if let Some(monthly) = snapshot.get("usage_percent").and_then(Value::as_f64) {
+                    section.windows.push(ProviderUsageWindow {
+                        window: window_name(label, "月额度"),
+                        used: Some(format!("{monthly:.0}%")),
+                        reset: Some(commandcode_reset_text(snapshot, "current_period_end")),
+                    });
+                }
             }
             Err(err) => section
                 .errors
@@ -1692,8 +2306,8 @@ async fn fetch_codex_usage(state: &AppState) -> ProviderUsageSection {
         match result {
             Ok(payload) => {
                 for (key, fallback) in [
-                    ("primary_window", "Session"),
-                    ("secondary_window", "Weekly"),
+                    ("primary_window", "5h额度"),
+                    ("secondary_window", "周额度"),
                 ] {
                     let Some(window) = payload.pointer(&format!("/rate_limit/{key}")) else {
                         continue;
@@ -1706,8 +2320,8 @@ async fn fetch_codex_usage(state: &AppState) -> ProviderUsageSection {
                         .and_then(Value::as_i64)
                         .unwrap_or(0);
                     let window_label = match seconds {
-                        604_800 => "Weekly".to_string(),
-                        2_592_000 | 2_628_000 | 2_629_800 | 2_630_000 => "Month".to_string(),
+                        604_800 => "周额度".to_string(),
+                        2_592_000 | 2_628_000 | 2_629_800 | 2_630_000 => "月额度".to_string(),
                         _ => fallback.to_string(),
                     };
                     let reset = window
@@ -1730,7 +2344,7 @@ async fn fetch_codex_usage(state: &AppState) -> ProviderUsageSection {
                         .map(|dt| provider_reset_text_local(dt.timestamp()))
                         .unwrap_or_else(|| "-".into());
                     section.windows.push(ProviderUsageWindow {
-                        window: format!("{label}·{window_label}"),
+                        window: format!("{label} {window_label}"),
                         used: Some(format!("{used:.0}%")),
                         reset: Some(reset),
                     });
@@ -1766,70 +2380,118 @@ async fn jitter_delay() {
     sleep(Duration::from_millis(millis)).await;
 }
 
-async fn fetch_grok_usage(state: &AppState) -> ProviderUsageSection {
-    let mut section = ProviderUsageSection {
-        provider: "grok".into(),
-        title: "Grok Build 额度".into(),
-        ..Default::default()
-    };
-    let accounts = auth_json_credential_pool(&state.hermes_home, "xai-oauth");
-    let Some((_, token)) = accounts.first() else {
-        section.errors.push("未找到 xai-oauth OAuth 会话".into());
-        return section;
-    };
-    let user_id = jwt_sub_claim(token);
-    let mut headers = vec![
-        ("Authorization".to_string(), format!("Bearer {token}")),
-        ("X-XAI-Token-Auth".to_string(), "xai-grok-cli".into()),
-        ("Accept".to_string(), "application/json".into()),
-    ];
-    if let Some(user_id) = &user_id {
-        headers.push(("x-userid".to_string(), user_id.clone()));
+async fn grok_refresh_access_token(
+    state: &AppState,
+    refresh_token: &str,
+) -> Result<(String, String), String> {
+    let response = state
+        .client
+        .post(XAI_OAUTH_TOKEN_URL)
+        .timeout(PROVIDER_USAGE_TIMEOUT)
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("client_id", XAI_OAUTH_CLIENT_ID),
+            ("refresh_token", refresh_token),
+        ])
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {}", status.as_u16()));
     }
-    let payload = match provider_http_get_json(&state.client, GROK_BILLING_URL, &headers).await {
-        Ok(value) => value,
-        Err(err) => {
-            section.errors.push(format!("查询失败：{err}"));
-            return section;
+    let payload: Value = response.json().await.map_err(|err| err.to_string())?;
+    let access_token = payload
+        .get("access_token")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "刷新响应缺少 access_token".to_string())?;
+    let next_refresh = payload
+        .get("refresh_token")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .unwrap_or(refresh_token);
+    Ok((access_token.to_string(), next_refresh.to_string()))
+}
+
+async fn grok_query_account(
+    state: &AppState,
+    account: &AuthCredentialEntry,
+) -> Result<Value, String> {
+    let make_headers = |token: &str| {
+        let mut headers = vec![
+            ("Authorization".to_string(), format!("Bearer {token}")),
+            ("X-XAI-Token-Auth".to_string(), "xai-grok-cli".into()),
+            ("x-grok-client-version".to_string(), "token-usage".into()),
+            ("Accept".to_string(), "application/json".into()),
+            ("User-Agent".to_string(), "Hermes-Agent token usage".into()),
+        ];
+        if let Some(user_id) = jwt_sub_claim(token) {
+            headers.push(("x-userid".to_string(), user_id));
         }
+        headers
     };
+    let first = provider_http_get_json(
+        &state.client,
+        GROK_BILLING_URL,
+        &make_headers(&account.access_token),
+    )
+    .await;
+    match first {
+        Ok(payload) => Ok(payload),
+        Err(err) if err.starts_with("HTTP 401") => {
+            let Some(refresh_token) = account.refresh_token.as_deref() else {
+                return Err(err);
+            };
+            let (access_token, _next_refresh) =
+                grok_refresh_access_token(state, refresh_token).await?;
+            provider_http_get_json(
+                &state.client,
+                GROK_BILLING_URL,
+                &make_headers(&access_token),
+            )
+            .await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn grok_billing_snapshot(payload: &Value) -> Result<(String, f64, String, String), String> {
     let config = payload.get("config").cloned().unwrap_or(Value::Null);
     let period = config.get("currentPeriod").cloned().unwrap_or(Value::Null);
     let period_type = period
         .get("type")
         .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+        .unwrap_or("");
     let reset_raw = period
         .get("end")
         .or_else(|| config.get("billingPeriodEnd"))
         .cloned()
         .unwrap_or(Value::Null);
     if period_type.is_empty() || reset_raw.is_null() {
-        section
-            .errors
-            .push("返回内容缺少可识别的额度周期".into());
-        return section;
+        return Err("返回内容缺少可识别的额度周期".into());
     }
     let used_percent = config
         .get("creditUsagePercent")
-        .and_then(Value::as_f64)
+        .and_then(provider_number)
         .unwrap_or(0.0)
         .clamp(0.0, 100.0);
     let window = if period_type.contains("WEEKLY") {
-        "周"
+        "周额度"
     } else if period_type.contains("MONTHLY") {
-        "月"
+        "月额度"
     } else {
-        "周期"
-    };
+        "5h额度"
+    }
+    .to_string();
     let parsed_reset: Option<chrono::DateTime<chrono::Utc>> = reset_raw
         .as_str()
         .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .or_else(|| {
-            reset_raw
-                .as_f64()
+            provider_number(&reset_raw)
                 .and_then(|ts| chrono::DateTime::from_timestamp(ts as i64, 0))
         });
     let reset = parsed_reset
@@ -1841,72 +2503,304 @@ async fn fetch_grok_usage(state: &AppState) -> ProviderUsageSection {
     let tier = payload
         .get("subscriptionTier")
         .and_then(Value::as_str)
-        .unwrap_or("");
-    section.description = if tier.is_empty() {
-        format!("Grok Build · {window}额度 **{used_percent:.1}%**")
-    } else {
-        format!("Grok Build · {tier} · {window}额度 **{used_percent:.1}%**")
+        .unwrap_or("")
+        .to_string();
+    Ok((window, used_percent, reset, tier))
+}
+
+async fn fetch_grok_usage(state: &AppState) -> ProviderUsageSection {
+    let mut section = ProviderUsageSection {
+        provider: "grok".into(),
+        title: "Grok Build 额度".into(),
+        ..Default::default()
     };
-    section.windows.push(ProviderUsageWindow {
-        window: window.into(),
-        used: Some(format!("{used_percent:.1}%")),
-        reset: Some(reset),
-    });
+    let accounts = auth_json_credential_entries(&state.hermes_home, "xai-oauth");
+    if accounts.is_empty() {
+        section.errors.push("未找到 xai-oauth OAuth 会话".into());
+        return section;
+    }
+    let mut fetched: Vec<(String, Result<Value, String>)> =
+        futures_util::future::join_all(accounts.iter().map(|account| async {
+            jitter_delay().await;
+            (account.label.clone(), grok_query_account(state, account).await)
+        }))
+        .await;
+    fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    let multi_account = fetched.len() > 1;
+    section.description.clear();
+    for (label, result) in fetched {
+        match result {
+            Ok(payload) => match grok_billing_snapshot(&payload) {
+                Ok((window, used_percent, reset, tier)) => {
+                    section.windows.push(ProviderUsageWindow {
+                        window: if multi_account { format!("{label} {window}") } else { window },
+                        used: Some(format!("{used_percent:.1}%")),
+                        reset: Some(reset),
+                    });
+                    if section.description.is_empty() && !tier.is_empty() {
+                        section.description = tier;
+                    }
+                }
+                Err(err) => section.errors.push(format!("{label}：{err}")),
+            },
+            Err(err) => section.errors.push(format!("{label}：查询失败：{err}")),
+        }
+    }
     section
 }
 
-async fn collect_provider_usage(state: &AppState) -> ProviderUsagePayload {
-    let fetches: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = ProviderUsageSection> + Send + '_>>> = vec![
-        Box::pin(fetch_openrouter_usage(state)),
-        Box::pin(fetch_deepseek_usage(state)),
-        Box::pin(fetch_atlascloud_usage(state)),
-        Box::pin(fetch_mimo_usage(state)),
-        Box::pin(fetch_minimax_usage(state)),
-        Box::pin(fetch_kimi_usage(state)),
-        Box::pin(fetch_opencode_usage(state)),
-        Box::pin(fetch_commandcode_usage(state)),
-        Box::pin(fetch_codex_usage(state)),
-        Box::pin(fetch_grok_usage(state)),
-    ];
-    let sections = futures_util::future::join_all(fetches).await;
+fn provider_setup_section(meta: &ProviderUsageProvider) -> ProviderUsageSection {
+    ProviderUsageSection {
+        provider: meta.provider.clone(),
+        title: meta.title.clone(),
+        description: format!("{}。{}", meta.credential_hint, meta.setup_hint),
+        ..Default::default()
+    }
+}
+
+async fn fetch_provider_usage_section(
+    state: &AppState,
+    provider: &str,
+) -> ProviderUsageSection {
+    let mut section = match provider {
+        "openrouter" => fetch_openrouter_usage(state).await,
+        "deepseek" => fetch_deepseek_usage(state).await,
+        "atlascloud" => fetch_atlascloud_usage(state).await,
+        "minimax" => fetch_minimax_usage(state).await,
+        "kimi" => fetch_kimi_usage(state).await,
+        "mimo" => fetch_mimo_usage(state).await,
+        "opencode" => fetch_opencode_usage(state).await,
+        "commandcode" => fetch_commandcode_usage(state).await,
+        "codex" => fetch_codex_usage(state).await,
+        "grok" => fetch_grok_usage(state).await,
+        _ => ProviderUsageSection::default(),
+    };
+    section.captured_at = unix_now_seconds();
+    section
+}
+async fn collect_provider_usage_for(
+    state: &AppState,
+    provider: &str,
+    providers: Vec<ProviderUsageProvider>,
+) -> ProviderUsagePayload {
+    let section = if let Some(meta) = providers.iter().find(|meta| meta.provider == provider) {
+        if meta.query_ready {
+            fetch_provider_usage_section(state, provider).await
+        } else {
+            provider_setup_section(meta)
+        }
+    } else {
+        fetch_provider_usage_section(state, provider).await
+    };
     ProviderUsagePayload {
         fetched_at: unix_now_seconds(),
-        sections,
+        providers,
+        sections: vec![section],
     }
+}
+
+fn shared_provider_cache_path(state: &AppState) -> std::path::PathBuf {
+    state.hermes_home.join("state/token_usage_cache.json")
+}
+
+fn read_shared_provider_cache(state: &AppState) -> SharedProviderCacheFile {
+    let Ok(raw) = std::fs::read_to_string(shared_provider_cache_path(state)) else {
+        return SharedProviderCacheFile::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn write_shared_provider_cache(state: &AppState, cache: &SharedProviderCacheFile) {
+    let path = shared_provider_cache_path(state);
+    let Some(parent) = path.parent() else { return };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let Ok(raw) = serde_json::to_vec_pretty(cache) else { return };
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, raw).is_ok() {
+        let _ = std::fs::rename(tmp, path);
+    }
+}
+
+fn shared_cached_section(state: &AppState, provider: &str) -> Option<SharedProviderCacheEntry> {
+    let mut entry = read_shared_provider_cache(state).entries.get(provider).cloned()?;
+    if (provider == "deepseek"
+        && entry.section.description.is_empty()
+        && entry.section.rows.is_empty()
+        && entry.section.windows.is_empty())
+        || (provider == "openrouter" && !entry.section.description.contains("余额"))
+    {
+        return None;
+    }
+    if entry.section.captured_at <= 0.0 {
+        entry.section.captured_at = entry.cached_at;
+    }
+    Some(entry)
+}
+
+fn shared_cache_sections(state: &AppState) -> Vec<ProviderUsageSection> {
+    read_shared_provider_cache(state)
+        .entries
+        .into_values()
+        .filter_map(|mut entry| {
+            if (entry.section.provider == "deepseek"
+                && entry.section.description.is_empty()
+                && entry.section.rows.is_empty()
+                && entry.section.windows.is_empty())
+                || (entry.section.provider == "openrouter" && !entry.section.description.contains("余额"))
+            {
+                return None;
+            }
+            if entry.section.captured_at <= 0.0 {
+                entry.section.captured_at = entry.cached_at;
+            }
+            Some(entry.section)
+        })
+        .collect()
+}
+
+fn save_shared_provider_section(state: &AppState, section: &ProviderUsageSection, cached_at: f64) {
+    let mut cache = read_shared_provider_cache(state);
+    cache.entries.insert(
+        section.provider.clone(),
+        SharedProviderCacheEntry {
+            cached_at,
+            section: section.clone(),
+        },
+    );
+    write_shared_provider_cache(state, &cache);
+}
+
+async fn cached_provider_payload(
+    state: &AppState,
+    provider: &str,
+) -> Option<ProviderUsagePayload> {
+    let guard = state.provider_usage_cache.fetched_at.read().await;
+    let fetched_at = (*guard)?;
+    if fetched_at.elapsed() >= PROVIDER_USAGE_TTL {
+        return None;
+    }
+    let payload = state.provider_usage_cache.payload.read().await.clone()?;
+    payload
+        .sections
+        .iter()
+        .any(|section| section.provider == provider)
+        .then_some(payload)
+}
+
+fn merge_provider_usage_payload(
+    mut cached: ProviderUsagePayload,
+    fresh: &ProviderUsagePayload,
+) -> ProviderUsagePayload {
+    cached.fetched_at = fresh.fetched_at;
+    cached.providers = fresh.providers.clone();
+    for section in &fresh.sections {
+        if let Some(existing) = cached
+            .sections
+            .iter_mut()
+            .find(|existing| existing.provider == section.provider)
+        {
+            *existing = section.clone();
+        } else {
+            cached.sections.push(section.clone());
+        }
+    }
+    cached
 }
 
 async fn provider_usage_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ProviderUsageQuery>,
 ) -> Response<Body> {
-    let force = query.refresh.unwrap_or(false);
-    async fn cached_payload(state: &AppState) -> Option<ProviderUsagePayload> {
-        let guard = state.provider_usage_cache.fetched_at.read().await;
-        let fetched_at = (*guard)?;
-        if fetched_at.elapsed() >= PROVIDER_USAGE_TTL {
-            return None;
+    let providers = provider_usage_catalog(&state.hermes_home);
+    let Some(provider) = query.provider.as_deref().filter(|provider| !provider.is_empty()) else {
+        let mut sections = shared_cache_sections(&state);
+        if let Some(cached) = state.provider_usage_cache.payload.read().await.clone() {
+            for section in cached.sections {
+                if let Some(existing) = sections.iter_mut().find(|item| item.provider == section.provider) {
+                    *existing = section;
+                } else {
+                    sections.push(section);
+                }
+            }
         }
-        state.provider_usage_cache.payload.read().await.clone()
-    }
+        return (
+            StatusCode::OK,
+            Json(ProviderUsagePayload {
+                fetched_at: sections
+                    .iter()
+                    .filter_map(|section| shared_cached_section(&state, &section.provider).map(|entry| entry.cached_at))
+                    .max_by(f64::total_cmp)
+                    .unwrap_or_else(unix_now_seconds),
+                providers,
+                sections,
+            }),
+        )
+            .into_response();
+    };
+    let force = query.refresh.unwrap_or(false);
     if !force
-        && let Some(payload) = cached_payload(&state).await
+        && let Some(payload) = cached_provider_payload(&state, provider).await
     {
         return (StatusCode::OK, Json(payload)).into_response();
     }
-    // Serialize refreshes so parallel UI tabs don't stampede upstream consoles.
-    let _guard = state.provider_usage_cache.in_flight.lock().await;
     if !force
-        && let Some(payload) = cached_payload(&state).await
+        && let Some(entry) = shared_cached_section(&state, provider)
     {
-        return (StatusCode::OK, Json(payload)).into_response();
+        return (
+            StatusCode::OK,
+            Json(ProviderUsagePayload {
+                fetched_at: entry.cached_at,
+                providers,
+                sections: vec![entry.section],
+            }),
+        )
+            .into_response();
     }
-    let payload = collect_provider_usage(&state).await;
-    *state.provider_usage_cache.payload.write().await = Some(payload.clone());
+    let fresh = collect_provider_usage_for(&state, provider, providers).await;
+    let cached = state
+        .provider_usage_cache
+        .payload
+        .read()
+        .await
+        .clone()
+        .unwrap_or_default();
+    let merged = merge_provider_usage_payload(cached, &fresh);
+    *state.provider_usage_cache.payload.write().await = Some(merged);
     *state.provider_usage_cache.fetched_at.write().await = Some(Instant::now());
-    (StatusCode::OK, Json(payload)).into_response()
+    if let Some(section) = fresh.sections.first() {
+        save_shared_provider_section(&state, section, fresh.fetched_at);
+    }
+    (StatusCode::OK, Json(fresh)).into_response()
 }
 
 #[derive(Deserialize)]
 struct ProviderUsageQuery {
     refresh: Option<bool>,
+    provider: Option<String>,
+}
+
+#[cfg(test)]
+mod mimo_auth_tests {
+    use super::{mimo_auth_error, mimo_headers};
+
+    #[test]
+    fn recognizes_expired_mimo_session_responses() {
+        assert!(mimo_auth_error("HTTP 401 <html>Unauthorized</html>"));
+        assert!(mimo_auth_error("HTTP 403 forbidden"));
+        assert!(!mimo_auth_error("HTTP 500 upstream failure"));
+    }
+
+    #[test]
+    fn builds_mimo_headers_without_extra_credentials() {
+        let headers = mimo_headers(
+            "api-platform_ph=redacted",
+            "https://platform.xiaomimimo.com/",
+        );
+        assert!(headers
+            .iter()
+            .any(|(name, value)| name == "Cookie" && value == "api-platform_ph=redacted"));
+        assert!(headers.iter().all(|(name, _)| name != "Authorization"));
+    }
 }

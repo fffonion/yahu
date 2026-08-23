@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle as SelectionMark, CircleHelp, Code, Coins, Copy, Download, Eraser, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Minus, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChartNoAxesColumnIncreasing, Circle as SelectionMark, CircleHelp, Clock3, Code, Copy, Download, Eraser, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Minus, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { normalizeReasoningEffort, REASONING_EFFORTS, sessionReasoningEffort, type ReasoningEffort } from './reasoningEffort';
@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { sectionHasContent, type ProviderUsagePayload } from './providerUsage';
+import { sectionHasContent, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { isTextEntryElement, visibleViewportHeight } from './viewport';
@@ -104,6 +104,11 @@ const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const CODE_WRAP_KEY = 'codeWrap';
 const DESKTOP_COMPACT_MESSAGES_KEY = 'desktopCompactMessages';
 const HIDE_CRON_SESSIONS_KEY = 'hideCronSessions';
+const PROVIDER_USAGE_ENABLED_KEY = 'yahu.provider-usage.enabled.v1';
+const PROVIDER_USAGE_ORDER_KEY = 'yahu.provider-usage.order.v1';
+const PROVIDER_USAGE_AUTO_REFRESH_KEY = 'yahu.provider-usage.auto-refresh.v1';
+const PROVIDER_USAGE_AUTO_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+const PROVIDER_USAGE_AUTO_REFRESH_SECONDS = 3 * 60 * 60;
 
 const CHAT_VIEW_STATE_KEY = 'yahu.chat.view.v1';
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
@@ -136,6 +141,32 @@ const isDarkTheme = (value: Theme) => DARK_THEMES.has(value);
 const themeLabel = (value: Theme) => THEME_OPTIONS.find((item) => item.id === value)?.label || value;
 const normalizeFollowUpBehaviour = (value: string | null): FollowUpBehaviour => value === 'steer' ? 'steer' : 'queue';
 const normalizeComposerEnterMode = (value: string | null): ComposerEnterMode => value === 'enter-newline' ? 'enter-newline' : 'enter-send';
+const readProviderUsageEnabled = (): Record<string, boolean> => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_ENABLED_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === true).map(([key]) => [key, true]));
+  } catch {
+    return {};
+  }
+};
+const readProviderUsageOrder = (): string[] => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_ORDER_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+const readProviderUsageAutoRefresh = (): Record<string, boolean> => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_AUTO_REFRESH_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === true).map(([key]) => [key, true]));
+  } catch {
+    return {};
+  }
+};
 const readFollowUpQueues = (): Record<string, FollowUpQueueItem[]> => {
   try {
     const parsed = JSON.parse(localStorage.getItem(FOLLOW_UP_QUEUES_KEY) || '{}');
@@ -505,7 +536,7 @@ function ContextWindowMeter({ used, total, approximate = false }: { used?: numbe
 export default function App() {
   const [mode, setMode] = useState<Mode>(initialRoute.mode || 'chat');
   const [lang, setLangState] = useState<Lang>(initLang);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readSidebarCollapsed(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'insights' || initialRoute.mode === 'terminal' || initialRoute.mode === 'settings'));
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readSidebarCollapsed(initialRoute.mode === 'images' || initialRoute.mode === 'memory' || initialRoute.mode === 'insights' || initialRoute.mode === 'usage' || initialRoute.mode === 'terminal' || initialRoute.mode === 'settings'));
   const [sidebarWidth, setSidebarWidth] = useState(() => readSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY)));
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -592,8 +623,10 @@ export default function App() {
   const [usagePeriod, setUsagePeriod] = useState<1 | 7 | 30>(7);
   const [usageMetric, setUsageMetric] = useState<UsageMetric>('total_tokens');
   const [providerUsage, setProviderUsage] = useState<ProviderUsagePayload | null>(null);
-  const [providerUsageLoading, setProviderUsageLoading] = useState(false);
-  const [providerUsageError, setProviderUsageError] = useState('');
+  const [providerUsageLoading, setProviderUsageLoading] = useState<Record<string, boolean>>({});
+  const [providerUsageError, setProviderUsageError] = useState<Record<string, string>>({});
+  const [providerUsageEnabled, setProviderUsageEnabled] = useState<Record<string, boolean>>(readProviderUsageEnabled);
+  const [providerUsageAutoRefresh, setProviderUsageAutoRefresh] = useState<Record<string, boolean>>(readProviderUsageAutoRefresh);
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLElement | null>(null);
@@ -724,7 +757,7 @@ export default function App() {
   }, []);
   const applyHashRoute = useCallback((route: HashRoute) => {
     setMode(route.mode);
-    setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'terminal' || route.mode === 'settings');
+    setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'usage' || route.mode === 'terminal' || route.mode === 'settings');
     if (route.mode !== 'chat' && route.mode !== 'cron') setMobileSidebarOpen(false);
     if (route.mode === 'chat' && route.sessionId) switchActiveSession(route.sessionId);
     if (route.mode === 'cron' && route.jobId) setCronEditingId(route.jobId);
@@ -878,20 +911,83 @@ export default function App() {
     }
   }, [usagePeriod]);
 
-  const loadProviderUsage = useCallback(async (force = false) => {
-    setProviderUsageLoading(true);
+  const loadProviderUsageCatalog = useCallback(async () => {
+    setProviderUsageLoading((current) => ({ ...current, _catalog: true }));
+    setProviderUsageError((current) => ({ ...current, _catalog: '' }));
     try {
-      const params = force ? '?refresh=true' : '';
-      const res = await fetch(`/provider-usage${params}`, { headers: headers(false), cache: 'no-store' });
+      const res = await fetch('/provider-usage', { headers: headers(false), cache: 'no-store' });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const body = await res.json();
-      setProviderUsage(body as ProviderUsagePayload);
-      setProviderUsageError('');
+      const body = await res.json() as ProviderUsagePayload;
+      setProviderUsage({
+        fetched_at: body.fetched_at,
+        providers: body.providers || [],
+        sections: body.sections || [],
+      });
     } catch (err) {
-      setProviderUsageError(errorMessage(err, t('usage.unavailable')));
+      setProviderUsageError((current) => ({ ...current, _catalog: errorMessage(err, t('usage.unavailable')) }));
     } finally {
-      setProviderUsageLoading(false);
+      setProviderUsageLoading((current) => ({ ...current, _catalog: false }));
     }
+  }, [headers]);
+
+  const loadProviderUsageProvider = useCallback(async (provider: string, force = true) => {
+    if (!provider) return;
+    setProviderUsageLoading((current) => ({ ...current, [provider]: true }));
+    setProviderUsageError((current) => ({ ...current, [provider]: '' }));
+    try {
+      const params = new URLSearchParams({ provider });
+      if (force) params.set('refresh', 'true');
+      const res = await fetch(`/provider-usage?${params.toString()}`, { headers: headers(false), cache: 'no-store' });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const body = await res.json() as ProviderUsagePayload;
+      setProviderUsage((current) => {
+        const previousSections = current?.sections || [];
+        const sections = [...previousSections];
+        for (const section of body.sections || []) {
+          const index = sections.findIndex((item) => item.provider === section.provider);
+          if (index >= 0) sections[index] = section;
+          else sections.push(section);
+        }
+        return { fetched_at: body.fetched_at, providers: body.providers || current?.providers || [], sections };
+      });
+    } catch (err) {
+      setProviderUsageError((current) => ({ ...current, [provider]: errorMessage(err, t('usage.unavailable')) }));
+    } finally {
+      setProviderUsageLoading((current) => {
+        const next = { ...current };
+        delete next[provider];
+        return next;
+      });
+    }
+  }, [headers]);
+
+  const refreshEnabledProviderUsage = useCallback(async () => {
+    const providers = (providerUsage?.providers || []).filter((item) => providerUsageEnabled[item.provider] && item.query_ready).map((item) => item.provider);
+    if (!providers.length) return;
+    setProviderUsageLoading((current) => ({ ...current, _all: true }));
+    try {
+      await Promise.all(providers.map((provider) => loadProviderUsageProvider(provider, true)));
+    } finally {
+      setProviderUsageLoading((current) => ({ ...current, _all: false }));
+    }
+  }, [loadProviderUsageProvider, providerUsage, providerUsageEnabled]);
+
+  const toggleProviderUsage = useCallback((provider: string) => {
+    const nextEnabled = !providerUsageEnabled[provider];
+    setProviderUsageEnabled((current) => {
+      const next = { ...current, [provider]: nextEnabled };
+      try { localStorage.setItem(PROVIDER_USAGE_ENABLED_KEY, JSON.stringify(next)); } catch { /* storage can be unavailable in private mode */ }
+      return next;
+    });
+    // Cached sections are already present from the catalog request. A missing cache requires an explicit card refresh.
+  }, [providerUsageEnabled]);
+
+  const toggleProviderAutoRefresh = useCallback((provider: string) => {
+    setProviderUsageAutoRefresh((current) => {
+      const next = { ...current, [provider]: !current[provider] };
+      try { localStorage.setItem(PROVIDER_USAGE_AUTO_REFRESH_KEY, JSON.stringify(next)); } catch { /* storage can be unavailable in private mode */ }
+      return next;
+    });
   }, []);
 
   const loadSessions = useCallback(async (query = filter) => {
@@ -1458,7 +1554,32 @@ export default function App() {
 
   useEffect(() => { loadModels(); loadWorkspace(''); }, []);
   useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);
-  useEffect(() => { if (mode === 'usage') loadProviderUsage(); }, [mode, loadProviderUsage]);
+  const providerUsageAutoRefreshRef = useRef('');
+  useEffect(() => { if (mode === 'usage') loadProviderUsageCatalog(); }, [mode, loadProviderUsageCatalog]);
+  useEffect(() => {
+    if (mode !== 'usage' || !providerUsage) return;
+    const now = Date.now() / 1000;
+    const staleProviders = providerUsage.providers
+      .filter((provider) => providerUsageEnabled[provider.provider] && provider.query_ready)
+      .filter((provider) => {
+        const capturedAt = providerUsage.sections.find((section) => section.provider === provider.provider)?.captured_at;
+        return !capturedAt || now - capturedAt > PROVIDER_USAGE_AUTO_REFRESH_SECONDS;
+      });
+    const refreshKey = staleProviders.map((provider) => `${provider.provider}:${providerUsage.sections.find((section) => section.provider === provider.provider)?.captured_at || 0}`).join('|');
+    if (providerUsageAutoRefreshRef.current === refreshKey) return;
+    providerUsageAutoRefreshRef.current = refreshKey;
+    if (staleProviders.length) void Promise.all(staleProviders.map((provider) => loadProviderUsageProvider(provider.provider, true)));
+  }, [mode, loadProviderUsageProvider, providerUsage, providerUsageEnabled]);
+  useEffect(() => {
+    if (mode !== 'usage' || !providerUsage) return;
+    const timer = window.setInterval(() => {
+      const providers = providerUsage.providers
+        .filter((provider) => providerUsageEnabled[provider.provider] && provider.query_ready && providerUsageAutoRefresh[provider.provider])
+        .map((provider) => provider.provider);
+      if (providers.length) void Promise.all(providers.map((provider) => loadProviderUsageProvider(provider, true)));
+    }, PROVIDER_USAGE_AUTO_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [mode, loadProviderUsageProvider, providerUsage, providerUsageAutoRefresh, providerUsageEnabled]);
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
   useEffect(() => { if (mode === 'cron' && cronEditingId) loadCronOutput(cronEditingId); else setCronOutput(null); }, [mode, cronEditingId, loadCronOutput]);
@@ -2124,7 +2245,7 @@ export default function App() {
 
   const activeSessionModelOverride = activeSessionId ? sessionModelOverrides[activeSessionId] : undefined;
   return (
-    <div className={`app-shell ${codeWrap ? 'code-wrap' : 'code-nowrap'} ${wideMode ? 'wide-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${mode === 'memory' ? 'memory-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''} ${sidebarResizing ? 'sidebar-resizing' : ''}`} style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}>
+    <div className={`app-shell ${codeWrap ? 'code-wrap' : 'code-nowrap'} ${wideMode ? 'wide-mode' : ''} ${mode === 'usage' ? 'usage-mode' : ''} ${mode === 'images' ? 'image-mode' : ''} ${mode === 'skills' ? 'skills-mode' : ''} ${mode === 'memory' ? 'memory-mode' : ''} ${sidebarCollapsed ? 'nav-collapsed' : ''} ${mode === 'chat' && workspaceCollapsed ? 'workspace-collapsed' : ''} ${mobileSidebarOpen ? 'mobile-sidebar-open' : ''} ${sidebarResizing ? 'sidebar-resizing' : ''}`} style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}>
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="rail">
           <button className="rail-btn muted" onClick={() => setSidebarCollapsed((v) => !v)} title={sidebarCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>{sidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}</button>
@@ -2132,7 +2253,7 @@ export default function App() {
           <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} title={t('nav.cron')}><CalendarClock /></button>
           <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} title={t('nav.memory')}><Brain /></button>
           <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} title={t('nav.insights')}><LineChart /></button>
-          <button className={`rail-btn nav-usage ${mode === 'usage' ? 'active' : ''}`} onClick={() => setNavMode('usage', true)} title={t('nav.usage')}><Coins /></button>
+          <button className={`rail-btn nav-usage ${mode === 'usage' ? 'active' : ''}`} onClick={() => setNavMode('usage', true)} title={t('nav.usage')}><ChartNoAxesColumnIncreasing /></button>
 
           <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} title={t('nav.skills')}><Puzzle /></button>
           <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} title={t('nav.images')}><ImageIcon /></button>
@@ -2180,7 +2301,7 @@ export default function App() {
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} setDeliver={setCronDeliver} editingId={cronEditingId} currentJob={activeCronJob} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} toggleCronPaused={toggleCronPaused} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} showToast={showToast} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={() => loadUsageInsights(usagePeriod, true)} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
-      {mode === 'usage' && <ProviderUsageMain payload={providerUsage} loading={providerUsageLoading} error={providerUsageError} refresh={() => loadProviderUsage(true)} theme={theme} setTheme={setTheme} />}
+      {mode === 'usage' && <ProviderUsageMain payload={providerUsage} loading={providerUsageLoading} error={providerUsageError} enabled={providerUsageEnabled} autoRefresh={providerUsageAutoRefresh} toggleProvider={toggleProviderUsage} toggleProviderAutoRefresh={toggleProviderAutoRefresh} refreshProvider={(provider) => loadProviderUsageProvider(provider, true)} refreshAll={refreshEnabledProviderUsage} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {terminalMounted && <Suspense fallback={mode === 'terminal' ? <main className="main-panel terminal-main"><div className="terminal-loading">{t('terminal.loading')}</div></main> : null}><WebTerminal active={mode === 'terminal'} cwd={terminalCwd} theme={theme} onFontSizeChange={setTerminalFontSize} headerActions={<HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToTerminal={() => setNavMode('terminal', true)} onNavigateToSettings={() => setNavMode('settings')}><button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clear')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-clear'))}><Eraser /></button><button type="button" className="icon-btn" aria-label={t('terminal.fontDecrease')} title={t('terminal.fontDecrease')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-font', { detail: -1 }))}><Minus /></button><output className="terminal-font-size" aria-label={t('terminal.fontSize')}>{terminalFontSize}px</output><button type="button" className="icon-btn" aria-label={t('terminal.fontIncrease')} title={t('terminal.fontIncrease')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-font', { detail: 1 }))}><Plus /></button><button type="button" className="icon-btn" aria-label={t('terminal.reconnect')} title={t('terminal.reconnect')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-reconnect'))}><RefreshCw /></button></HeaderToolstrip>} /></Suspense>}
       {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} codeWrap={codeWrap} setCodeWrap={setCodeWrap} showToast={showToast} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
@@ -2190,7 +2311,7 @@ export default function App() {
         <button className={`rail-btn nav-cron ${mode === 'cron' ? 'active' : ''}`} onClick={() => setNavMode('cron')} aria-label={t('nav.cron')}><CalendarClock /></button>
         <button className={`rail-btn nav-skills ${mode === 'skills' ? 'active' : ''}`} onClick={() => setNavMode('skills')} aria-label={t('nav.skills')}><Puzzle /></button>
         <button className={`rail-btn nav-insights ${mode === 'insights' ? 'active' : ''}`} onClick={() => setNavMode('insights', true)} aria-label={t('nav.insights')}><LineChart /></button>
-        <button className={`rail-btn nav-usage ${mode === 'usage' ? 'active' : ''}`} onClick={() => setNavMode('usage', true)} aria-label={t('nav.usage')}><Coins /></button>
+        <button className={`rail-btn nav-usage ${mode === 'usage' ? 'active' : ''}`} onClick={() => setNavMode('usage', true)} aria-label={t('nav.usage')}><ChartNoAxesColumnIncreasing /></button>
         <button className={`rail-btn nav-images ${mode === 'images' ? 'active' : ''}`} onClick={() => setNavMode('images', true)} aria-label={t('nav.images')}><ImageIcon /></button>
         <button className={`rail-btn nav-memory ${mode === 'memory' ? 'active' : ''}`} onClick={() => setNavMode('memory')} aria-label={t('nav.memory')}><Brain /></button>
       </nav>
@@ -2276,59 +2397,292 @@ function ModeSidebar({ mode }: { mode: Mode }) {
   return <div className="admin-side"><h2>{navLabel(mode)}</h2><p>{modeSummary(mode)}</p></div>;
 }
 
-function ProviderUsageMain(props: { payload: ProviderUsagePayload | null; loading: boolean; error: string; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void }) {
+function usagePercentFromText(value: string | null | undefined): number | null {
+  const match = value?.match(/(-?\d+(?:\.\d+)?)\s*%/);
+  if (match) {
+    const percent = Number(match[1]);
+    return Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null;
+  }
+  const ratio = value?.match(/([\d,.]+)\s*\/\s*([\d,.]+)/);
+  if (!ratio) return null;
+  const used = Number(ratio[1].replace(/,/g, ''));
+  const limit = Number(ratio[2].replace(/,/g, ''));
+  return Number.isFinite(used) && Number.isFinite(limit) && limit > 0 ? Math.max(0, Math.min(100, used / limit * 100)) : null;
+}
+
+function integerPercentText(value: string | null | undefined): string {
+  if (!value) return '-';
+  return value.replace(/(-?\d+(?:\.\d+)?)\s*%/g, (_match, number) => `${Math.round(Number(number))}%`);
+}
+
+function providerTodayWindow(section: ProviderUsageSection | undefined): ProviderUsageWindow | undefined {
+  return section?.windows.find((window) => window.window.includes('今日'));
+}
+
+function todayUsageIsZero(used: string): boolean {
+  const values = used.match(/\d[\d,]*(?:\.\d+)?/g)?.map((value) => Number(value.replace(/,/g, ''))) || [];
+  return values.length >= 2 && values.slice(0, 2).every((value) => value === 0);
+}
+
+function providerTodayTokens(section: ProviderUsageSection | undefined): string {
+  const used = providerTodayWindow(section)?.used;
+  if (!used) return '';
+  if (todayUsageIsZero(used)) return t('usage.noData');
+  return used.split(' / ').slice(0, -1).join(' / ') || used;
+}
+
+function providerTodayCost(section: ProviderUsageSection | undefined): string {
+  const used = providerTodayWindow(section)?.used || '';
+  const last = used.split(' / ').at(-1) || '';
+  return /^[¥$€£]/.test(last) ? last : '';
+}
+
+function providerTodayLabel(section: ProviderUsageSection | undefined): string {
+  const used = providerTodayWindow(section)?.used || '';
+  const cost = providerTodayCost(section);
+  return todayUsageIsZero(used) || (!cost && !used) ? t('usage.todayUnused') : tf('usage.today', cost || providerTodayTokens(section) || '-');
+}
+
+function providerBrandFavicon(provider: string): string {
+  const domains: Record<string, string> = {
+    openrouter: 'openrouter.ai',
+    deepseek: 'deepseek.com',
+    atlascloud: 'atlascloud.ai',
+    mimo: 'mimo.xiaomi.com',
+    minimax: 'minimax.io',
+    kimi: 'kimi.com',
+    opencode: 'opencode.ai',
+    commandcode: 'commandcode.ai',
+    codex: 'openai.com',
+    grok: 'x.ai',
+  };
+  const domain = domains[provider] || provider;
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+}
+
+function usagePercentTone(percent: number): string {
+  if (percent >= 90) return 'is-high';
+  if (percent >= 70) return 'is-medium';
+  return 'is-low';
+}
+
+function providerBalanceText(description: string | undefined): string {
+  return description?.match(/余额\s+\*\*([^*]+)\*\*/)?.[1] || '';
+}
+
+function providerDescriptionText(description: string | undefined, provider?: string): string {
+  if (provider === 'mimo') return '';
+  return (description || '').replace(/余额\s+\*\*[^*]+\*\*；?\s*/g, '').trim();
+}
+
+function providerTitleMeta(provider: string, description: string | undefined): string {
+  if (provider !== 'mimo') return '';
+  return (description || '').replace(/\s+·\s+用量\s+\*\*[^*]+\*\*$/, '').trim();
+}
+
+function providerResetDurationText(value: string): string {
+  const text = value.trim();
+  if (/^\d+\s*(分钟|hours?|小时|minutes?)$/i.test(text)) {
+    const amount = Number(text.match(/\d+/)?.[0] || 0);
+    return /hour|小时/i.test(text) ? tf('usage.hours', amount) : tf('usage.minutes', amount);
+  }
+  const slash = text.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
+  const parsed = slash
+    ? (() => {
+        const now = new Date();
+        let date = new Date(now.getFullYear(), Number(slash[1]) - 1, Number(slash[2]), Number(slash[3]), Number(slash[4]));
+        if (date.getTime() < now.getTime()) date = new Date(now.getFullYear() + 1, Number(slash[1]) - 1, Number(slash[2]), Number(slash[3]), Number(slash[4]));
+        return date;
+      })()
+    : new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  const minutes = Math.max(0, Math.ceil((parsed.getTime() - Date.now()) / 60000));
+  return minutes < 60 ? tf('usage.minutes', minutes) : tf('usage.hours', Math.ceil(minutes / 60));
+}
+
+function commandcodeWindowParts(window: string): [string, string] | null {
+  const match = window.match(/^(.*) (5h额度|周额度|月额度)$/);
+  return match ? [match[1], match[2]] : null;
+}
+
+function ProviderUsageMain(props: {
+  payload: ProviderUsagePayload | null;
+  loading: Record<string, boolean>;
+  error: Record<string, string>;
+  enabled: Record<string, boolean>;
+  autoRefresh: Record<string, boolean>;
+  toggleProvider: (provider: string) => void;
+  toggleProviderAutoRefresh: (provider: string) => void;
+  refreshProvider: (provider: string) => void;
+  refreshAll: () => void;
+  theme: Theme;
+  setTheme: (value: Theme) => void;
+  mode: Mode;
+  onNavigateToSettings: () => void;
+}) {
+  const [providerOrder, setProviderOrder] = useState<string[]>(readProviderUsageOrder);
+  const [draggedProvider, setDraggedProvider] = useState('');
+  const providers = useMemo(() => {
+    const catalog = props.payload?.providers || [];
+    const catalogIds = new Set(catalog.map((provider) => provider.provider));
+    const order = [...providerOrder.filter((provider) => catalogIds.has(provider)), ...catalog.map((provider) => provider.provider).filter((provider) => !providerOrder.includes(provider))];
+    return order.map((providerId) => catalog.find((provider) => provider.provider === providerId)).filter((provider): provider is NonNullable<typeof provider> => Boolean(provider));
+  }, [props.payload, providerOrder]);
   const sections = props.payload?.sections || [];
-  const visible = useMemo(() => sections.filter((section) => sectionHasContent(section) || section.errors.length > 0), [sections]);
+  const enabledCount = providers.filter((provider) => props.enabled[provider.provider]).length;
+  const catalogLoading = Boolean(props.loading._catalog);
+  useEffect(() => {
+    const catalogIds = (props.payload?.providers || []).map((provider) => provider.provider);
+    if (!catalogIds.length) return;
+    setProviderOrder((current) => [...current.filter((provider) => catalogIds.includes(provider)), ...catalogIds.filter((provider) => !current.includes(provider))]);
+  }, [props.payload]);
+  useEffect(() => {
+    try { localStorage.setItem(PROVIDER_USAGE_ORDER_KEY, JSON.stringify(providerOrder)); } catch { /* storage can be unavailable in private mode */ }
+  }, [providerOrder]);
+  const moveProvider = (from: string, to: string) => {
+    if (!from || !to || from === to) return;
+    setProviderOrder((current) => {
+      const next = [...current];
+      const fromIndex = next.indexOf(from);
+      const toIndex = next.indexOf(to);
+      if (fromIndex < 0 || toIndex < 0) return current;
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, from);
+      return next;
+    });
+  };
+  const [providerMenu, setProviderMenu] = useState<{ provider: string; title: string; x: number; y: number } | null>(null);
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest('.provider-usage-context-menu')) setProviderMenu(null);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, []);
+  const openProviderMenu = (event: React.MouseEvent, provider: { provider: string; title: string }) => {
+    event.preventDefault();
+    setProviderMenu({ provider: provider.provider, title: provider.title, x: event.clientX, y: event.clientY });
+  };
   return (
     <main className="main-panel provider-usage-main">
-      <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode="usage">{<button className="icon-btn" onClick={props.refresh} aria-label={t('usage.refreshAria')} title={t('usage.refreshAria')} disabled={props.loading}><RefreshCw className={props.loading ? 'spin' : ''} /></button>}</HeaderToolstrip>
-      <div className="provider-usage-body">
-        <div className="provider-usage-meta">
-          <span>{props.payload ? new Date(props.payload.fetched_at * 1000).toLocaleString() : ''}</span>
-          {props.error && <span className="provider-usage-error">{props.error}</span>}
-        </div>
-        {visible.length === 0 && !props.loading && <div className="provider-usage-empty">{t('usage.empty')}</div>}
-        {visible.map((section) => (
-          <section key={section.provider} className={`provider-usage-card ${sectionHasContent(section) ? '' : 'provider-usage-card-muted'}`}>
-            <h3>{section.title}</h3>
-            {section.description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(section.description) }} />}
-            {section.windows.length > 0 && (
-              <ul className="provider-usage-windows">
-                {section.windows.map((win, index) => (
-                  <li key={`${win.window}-${index}`}>
-                    <span className="provider-usage-window-label">{win.window}</span>
-                    <span className="provider-usage-window-used">{win.used || '-'}</span>
-                    {win.reset && win.reset !== '-' && <span className="provider-usage-window-reset">↻{win.reset}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {section.rows.length > 0 && (
-              <table className="provider-usage-table">
-                <thead><tr><th></th><th>命中率</th><th>输入</th><th>输出</th><th>用量</th></tr></thead>
-                <tbody>
-                  {section.rows.map((row, index) => (
-                    <tr key={`${row.label}-${index}`}>
-                      <td>{row.label}</td>
-                      <td>{row.hit_rate || '-'}</td>
-                      <td>{row.input || '-'}</td>
-                      <td>{row.output || '-'}</td>
-                      <td>{row.cost_or_pct || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            {section.errors.length > 0 && (
-              <ul className="provider-usage-errors">
-                {section.errors.map((err, index) => <li key={index}>{err}</li>)}
-              </ul>
-            )}
-          </section>
-        ))}
-      </div>
+      <header className="chat-header header-no-drawer provider-usage-header">
+        <div className="provider-usage-header-meta"><h1>{t('usage.title')}</h1><span>{catalogLoading ? t('usage.loadingCache') : tf('usage.enabledCount', enabledCount, providers.length)}</span></div>
+        <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings}>
+          <button type="button" className="icon-btn provider-usage-global-refresh" onClick={props.refreshAll} disabled={Boolean(props.loading._all) || enabledCount === 0} aria-label={t('usage.refreshAllAria')} title={t('usage.refreshAllAria')}><RefreshCw className={props.loading._all ? 'spin' : ''} /></button>
+        </HeaderToolstrip>
+      </header>
+      <section className="provider-usage-body">
+        {props.error._catalog && <div className="provider-usage-banner provider-usage-error">{props.error._catalog}</div>}
+        {!catalogLoading && providers.length === 0 && <div className="provider-usage-empty">{t('usage.empty')}</div>}
+        {providers.length > 0 && <div className="provider-usage-grid">
+          {providers.map((provider) => {
+            const enabled = Boolean(props.enabled[provider.provider]);
+            const section = sections.find((item) => item.provider === provider.provider);
+            const loading = Boolean(props.loading[provider.provider]);
+            const error = props.error[provider.provider];
+            const multiAccount = provider.provider === 'commandcode' && Boolean(section?.windows.some((window) => commandcodeWindowParts(window.window)));
+            const balance = providerBalanceText(section?.description);
+            const titleMeta = providerTitleMeta(provider.provider, section?.description);
+            const tableOnly = provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud';
+            const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
+            const autoRefreshing = Boolean(props.autoRefresh[provider.provider]);
+            const subtitle = enabled
+              ? (loading ? t('usage.querying') : (section ? '' : provider.query_ready ? t('usage.waitingRefresh') : t('usage.credentialsNeeded')))
+              : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
+            const subtitleDetails = [
+              ...(tableOnly ? [providerTodayLabel(section)] : []),
+              ...(balance ? [tf('usage.balance', balance)] : []),
+              ...(titleMeta ? [titleMeta] : []),
+              ...(subtitle ? [subtitle] : []),
+            ].filter(Boolean).join(' · ');
+            return <article key={provider.provider} draggable onDragStart={() => { setDraggedProvider(provider.provider); }} onDragOver={(event) => event.preventDefault()} onDrop={() => { moveProvider(draggedProvider, provider.provider); setDraggedProvider(''); }} onDragEnd={() => setDraggedProvider('')} onContextMenu={(event) => openProviderMenu(event, provider)} className={`provider-usage-card provider-usage-provider-card insight-card ${enabled ? 'is-enabled' : 'is-disabled'} ${provider.configured ? '' : 'needs-config'} ${multiAccount ? 'is-multi-account' : ''} ${autoRefreshing ? 'is-auto-refreshing' : ''}`}>
+              <div className="provider-usage-card-head">
+                <div className="provider-usage-title-wrap">
+                  <span className={`provider-usage-brand-icon brand-${provider.provider}`} aria-hidden="true"><img src={providerBrandFavicon(provider.provider)} alt="" loading="lazy" referrerPolicy="no-referrer" /></span>
+                  <div className="provider-usage-title-main">
+                    <div className="provider-usage-title-row"><h2>{provider.title}</h2></div>
+                    <div className="provider-usage-subline"><span>{subtitleDetails || t('usage.noData')}</span></div>
+                  </div>
+                </div>
+                <div className="provider-usage-card-actions">
+                  {stale && <Clock3 className="provider-usage-stale-clock" aria-label={t('usage.stale')} />}
+                  <button type="button" className="icon-btn provider-usage-refresh" onClick={() => props.refreshProvider(provider.provider)} disabled={loading || !provider.query_ready} aria-label={`${provider.title} ${provider.query_ready ? t('usage.refreshAria') : t('usage.credentialsNeeded')}`} title={provider.query_ready ? t('usage.refreshAria') : t('usage.credentialsNeeded')}><RefreshCw className={loading ? 'spin' : ''} /></button>
+                  <label className="provider-usage-mobile-switch" aria-label={`${provider.title} ${t('usage.switchProvider')}`}><input type="checkbox" checked={enabled} onChange={() => props.toggleProvider(provider.provider)} /><i aria-hidden="true" /></label>
+                </div>
+              </div>
+              {!enabled ? <div className="provider-usage-off-state"><strong>{provider.configured ? t('usage.closed') : t('usage.notConfigured')}</strong><span>{provider.configured ? t('usage.enableToQuery') : t('usage.enableToConfigure')}</span></div> : <div className="provider-usage-card-content">
+                {!provider.query_ready && <div className="provider-usage-card-toolbar"><span className="provider-usage-credential-hint">{provider.credential_hint}</span></div>}
+                {!provider.query_ready ? <div className="provider-usage-setup"><strong>{t('usage.credentialsNeeded')}</strong><p>{provider.setup_hint}</p></div> : loading ? <ProviderUsageSkeleton /> : <>
+                  {error && <div className="provider-usage-banner provider-usage-error">{error}</div>}
+                  {section && <ProviderUsageSectionView section={section} />}
+                  {!section && !error && <div className="provider-usage-empty provider-usage-empty-small">{t('usage.noData')}</div>}
+                </>}
+              </div>}
+            </article>;
+          })}
+        </div>}
+      </section>
+      {providerMenu && <div className="provider-usage-context-menu" role="menu" style={{ left: providerMenu.x, top: providerMenu.y }} onContextMenu={(event) => event.preventDefault()} onPointerDown={(event) => event.stopPropagation()}>
+        <div className="provider-usage-context-title">{providerMenu.title}</div>
+        <label className="provider-usage-context-toggle" role="menuitemcheckbox" aria-checked={Boolean(props.enabled[providerMenu.provider])}>
+          <span>{props.enabled[providerMenu.provider] ? t('usage.disableProvider') : t('usage.enableProvider')}</span>
+          <input type="checkbox" checked={Boolean(props.enabled[providerMenu.provider])} onChange={() => { props.toggleProvider(providerMenu.provider); setProviderMenu(null); }} aria-label={`${providerMenu.title} ${t('usage.switchProvider')}`} />
+          <i aria-hidden="true" />
+        </label>
+        <label className="provider-usage-context-toggle" role="menuitemcheckbox" aria-checked={Boolean(props.autoRefresh[providerMenu.provider])}>
+          <span>{t('usage.autoRefresh')}</span>
+          <input type="checkbox" checked={Boolean(props.autoRefresh[providerMenu.provider])} onChange={() => { props.toggleProviderAutoRefresh(providerMenu.provider); }} aria-label={`${providerMenu.title} ${t('usage.switchAutoRefresh')}`} />
+          <i aria-hidden="true" />
+        </label>
+      </div>}
     </main>
   );
+}
+
+function ProviderUsageSkeleton() {
+  return <div className="provider-usage-loading insight-card-skeleton" aria-busy="true" aria-label="loading"><span className="skeleton-block skeleton-title" /><strong><i className="skeleton-block skeleton-number" /></strong><p><i className="skeleton-block skeleton-detail" /></p><i className="skeleton-block skeleton-detail" /></div>;
+}
+
+function ProviderUsageSectionView({ section }: { section: ProviderUsageSection }) {
+  const tableOnly = ['openrouter', 'deepseek', 'atlascloud'].includes(section.provider);
+  const description = tableOnly ? '' : providerDescriptionText(section.description, section.provider);
+  const commandcodeTones = new Map<string, number>();
+  let nextCommandcodeTone = 0;
+  const rowTone = (label: string) => {
+    if (section.provider !== 'commandcode') return '';
+    const account = commandcodeWindowParts(label)?.[0] || label;
+    if (!commandcodeTones.has(account)) commandcodeTones.set(account, nextCommandcodeTone++ % 2);
+    return `tone-${commandcodeTones.get(account)}`;
+  };
+  const commandcodeGroups = section.provider === 'commandcode' ? Array.from(section.windows.filter((win) => commandcodeWindowParts(win.window)?.[1] !== '5h额度').reduce((groups, win) => {
+    const account = commandcodeWindowParts(win.window)?.[0] || win.window;
+    const group = groups.get(account) || [];
+    group.push(win);
+    groups.set(account, group);
+    return groups;
+  }, new Map<string, ProviderUsageWindow[]>()).entries()) : [];
+  const renderWindow = (win: ProviderUsageWindow, index: number) => {
+    const isMimoPlan = section.provider === 'mimo' && win.window === '月额度';
+    const percent = usagePercentFromText(win.used);
+    return <article className={`provider-usage-window ${isMimoPlan ? 'provider-usage-token-plan' : ''}`} key={`${win.window}-${index}`}>
+      <div className="provider-usage-window-head"><strong>{section.provider === 'commandcode' ? (commandcodeWindowParts(win.window)?.[1] || win.window) : win.window}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{isMimoPlan ? (win.used || '-') : integerPercentText(win.used)}</span></div>
+      {percent !== null && <div className={`provider-usage-progress ${usagePercentTone(percent)}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={integerPercentText(win.used)}><span style={{ width: `${percent}%` }} /></div>}
+      {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\u00a0'}</p> : null}
+    </article>;
+  };
+  const minimaxRows = section.rows.filter((row) => ['日用量', '周额度', '月额度'].includes(row.label));
+  const tableRows = section.provider === 'minimax' ? minimaxRows : section.rows;
+  return <div className="provider-usage-data">
+    {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
+    {section.windows.length > 0 && !['openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (section.provider === 'commandcode'
+      ? <div className="provider-usage-account-groups">{commandcodeGroups.map(([account, windows], groupIndex) => <section className={`provider-usage-account-group tone-${groupIndex % 2}`} key={account}><strong>{account}</strong><div className="provider-usage-windows">{windows.map(renderWindow)}</div></section>)}</div>
+      : <div className="provider-usage-windows">{section.windows.map(renderWindow)}</div>)}
+    {tableRows.length > 0 && <div className="provider-usage-table-wrap"><table className="provider-usage-table"><thead>{section.provider === 'minimax' ? <tr><th>{t('usage.period')}</th><th>token {t('usage.input')}</th></tr> : <tr><th>{t('usage.model')}</th><th>{section.provider === 'deepseek' ? t('usage.planInput') : t('usage.input')}</th><th>{section.provider === 'deepseek' ? t('usage.planOutput') : t('usage.output')}</th><th>{section.provider === 'deepseek' ? t('usage.cacheHitRate') : t('usage.hitRate')}</th><th>{section.provider === 'deepseek' ? t('usage.cost') : t('usage.amountUsage')}</th></tr>}</thead><tbody>
+      {tableRows.map((row, index) => section.provider === 'minimax' ? <tr className="provider-usage-row" key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.output || row.input || '-'}</td></tr> : <tr className={`provider-usage-row ${rowTone(row.label)}`} key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.input || '-'}</td><td>{row.output || '-'}</td><td>{integerPercentText(row.hit_rate)}</td><td>{integerPercentText(row.cost_or_pct)}</td></tr>)}
+    </tbody></table></div>}
+    {section.errors.length > 0 && <ul className="provider-usage-errors">{section.errors.map((err, index) => <li key={index}>{err}</li>)}</ul>}
+    {!sectionHasContent(section) && section.errors.length === 0 && <div className="provider-usage-empty provider-usage-empty-small">{t('usage.noWindowData')}</div>}
+  </div>;
 }
 
 const markdownBoldToHtml = (text: string) => text

@@ -16,15 +16,26 @@ export type ProviderUsageSection = {
   provider: string;
   title: string;
   description: string;
+  captured_at?: number;
   rows: ProviderUsageRow[];
   windows: ProviderUsageWindow[];
   errors: string[];
 };
 
-export type ProviderUsagePayload = {
+export interface ProviderUsageProvider {
+  provider: string;
+  title: string;
+  configured: boolean;
+  query_ready: boolean;
+  credential_hint: string;
+  setup_hint: string;
+}
+
+export interface ProviderUsagePayload {
   fetched_at: number;
+  providers: ProviderUsageProvider[];
   sections: ProviderUsageSection[];
-};
+}
 
 export function sectionHasContent(section: ProviderUsageSection): boolean {
   return section.rows.length > 0 || section.windows.length > 0 || section.description.length > 0;
