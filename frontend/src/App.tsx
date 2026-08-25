@@ -37,6 +37,7 @@ import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFro
 import { isTextEntryElement, visibleViewportHeight } from './viewport';
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
+import { WorkspaceEntryIcon } from './workspaceIcons';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous' | 'gruvbox-material' | 'github-dark-dimmed' | 'codex-light' | 'codex-dark' | 'claude-code-light' | 'claude-code-dark';
 type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'usage' | 'images' | 'workspace' | 'skills' | 'terminal' | 'settings';
@@ -3741,7 +3742,7 @@ function WorkspaceTreeRows({ entries, workspaceTree, expandedWorkspacePaths, tog
     const activate = () => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openFile(entry);
     return <React.Fragment key={entry.path}>
       <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={activate} onContextMenu={(event) => openWorkspaceMenu?.(entry, event)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? formatFileSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(event) => { event.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span><WorkspaceEntryIcon entry={entry} expanded={expanded} /><span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? formatFileSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(event) => { event.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
       </div>
       {expanded && children.length > 0 && <WorkspaceTreeRows entries={children} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} depth={depth + 1} />}
     </React.Fragment>;
@@ -3866,7 +3867,7 @@ function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleS
     const children = expanded ? (skillFileTree[entry.path] || []) : [];
     return <React.Fragment key={entry.path}>
       <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}`} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={() => entry.kind === 'dir' ? toggleSkillFolder(entry) : skill && openSkillFile(skill.name, entry.path)} onContextMenu={(ev) => skill && openSkillFileMenu(skill, entry, ev)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); entry.kind === 'dir' ? toggleSkillFolder(entry) : skill && openSkillFile(skill.name, entry.path); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>{entry.kind === 'dir' ? <Folder /> : <FileText />}<span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? formatFileSize(entry.size) : ''}</span>
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span><WorkspaceEntryIcon entry={entry} expanded={expanded} /><span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? formatFileSize(entry.size) : ''}</span>
       </div>
       {expanded && renderRows(children, depth + 1)}
     </React.Fragment>;

@@ -48,6 +48,16 @@ describe('workspace collapse and context menu', () => {
     expect(styles).toContain('.workspace-expand');
   });
 
+  test('workspace rows use extension and folder-aware icon descriptors', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("import { WorkspaceEntryIcon } from './workspaceIcons';");
+    expect(source).toContain('<WorkspaceEntryIcon entry={entry} expanded={expanded} />');
+    expect(styles).toContain('.workspace-entry-icon');
+    expect(styles).toContain('.icon-tone-typescript');
+    expect(styles).toContain('.icon-tone-folder-tests');
+  });
+
   test('workspace row heights stay fixed when folder trees overflow', () => {
     const styles = css();
     expect(styles).toContain('.file-row{display:grid;grid-template-columns:18px 18px minmax(0,1fr) auto 28px;gap:8px;align-items:center;padding:8px;border-radius:12px;cursor:pointer;flex:0 0 auto}');
