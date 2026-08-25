@@ -16,7 +16,7 @@ describe('skills UI', () => {
     expect(source).toContain("type Mode = 'chat' | 'cron' | 'memory' | 'insights' | 'usage' | 'images' | 'workspace' | 'skills' | 'terminal' | 'settings'");
     expect(source).toContain('rail-btn nav-skills');
     expect(source).toContain("setNavMode('skills')");
-    expect(source).toContain("aria-label={t('nav.skills')}><Puzzle");
+    expect(source).toContain("case 'skills': return <Puzzle />");
     expect(styles).toContain('.rail-btn.nav-skills.active{--rail-accent:#f59e0b}');
     expect(styles).toContain('.rail-btn.nav-chat.active,.rail-btn.nav-cron.active,.rail-btn.nav-memory.active,.rail-btn.nav-skills.active,.rail-btn.nav-images.active');
 

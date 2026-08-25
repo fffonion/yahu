@@ -30,19 +30,14 @@ describe('mobile WebUI layout and touch affordances', () => {
 
   });
 
-  test('mobile bottom route icons match the desktop rail icons', () => {
+  test('mobile bottom navigation is driven by the selectable route list and shares icon mapping', () => {
     const source = app();
-    const desktopRail = source.slice(source.indexOf('<aside className={`sidebar'), source.indexOf('{!sidebarCollapsed && <div className="left-body">'));
-    const mobileRailStart = source.indexOf('<nav className="mobile-bottom-nav"');
-    const mobileRail = source.slice(mobileRailStart, source.indexOf('</nav>', mobileRailStart));
-
-    for (const nav of ['chat', 'cron', 'skills', 'insights', 'images', 'memory']) {
-      const desktopIcon = desktopRail.match(new RegExp(`nav-${nav}[\\s\\S]*?<([A-Za-z]+) \\/><\\/button>`))?.[1];
-      const mobileIcon = mobileRail.match(new RegExp(`nav-${nav}[\\s\\S]*?<([A-Za-z]+) \\/><\\/button>`))?.[1];
-      expect(mobileIcon).toBeTruthy();
-      expect(mobileIcon).toBe(desktopIcon);
+    expect(source).toContain('mobileNavModes.map');
+    expect(source).toContain('navigateMobileMode(nav)');
+    for (const nav of ['chat', 'cron', 'skills', 'insights', 'usage', 'images', 'memory', 'workspace', 'terminal']) {
+      expect(source).toContain(`case '${nav}':`);
+      expect(source).toContain(`nav-${nav}`);
     }
-
   });
 
   test('mobile keeps session cron workspace and skills lists in a hidden 80 percent left drawer', () => {
@@ -297,7 +292,7 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.chat-header .header-toolstrip,.image-toolbar .header-toolstrip{gap:0}');
     expect(styles).toContain('.header-toolstrip>button,.header-toolstrip>.header-theme-control>button{margin-left:-1px;border:1px solid var(--border);border-radius:0;background:var(--surface-2)}');
     expect(styles).toContain('.header-toolstrip-with-leading>button:first-child,.header-toolstrip:not(.header-toolstrip-with-leading)>.header-theme-control>.mobile-header-terminal-btn{margin-left:0;border-radius:var(--radius-md) 0 0 var(--radius-md)}');
-    expect(styles).toContain('.header-toolstrip>.header-theme-control>.mobile-header-settings-btn{border-radius:0 var(--radius-md) var(--radius-md) 0}');
+    expect(styles).toContain('.header-toolstrip>.header-theme-control>.mobile-header-settings-btn{border-radius:var(--radius-md)}');
   });
 
   test('mobile insights keeps charts readable and avoids horizontal overflow', () => {

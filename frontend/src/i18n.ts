@@ -348,6 +348,8 @@ const translations: Record<string, Record<string, string>> = {
   'settings.codeWrap': { en: 'Automatic code wrapping', 'zh-CN': '代码自动折行', 'zh-TW': '程式碼自動折行', ja: 'コードの自動折り返し' },
   'settings.codeWrapOn': { en: 'On', 'zh-CN': '开启', 'zh-TW': '開啟', ja: 'オン' },
   'settings.codeWrapOff': { en: 'Off', 'zh-CN': '关闭', 'zh-TW': '關閉', ja: 'オフ' },
+  'settings.mobileNav': { en: 'Mobile bottom menu', 'zh-CN': '手机版底部菜单', 'zh-TW': '行動版底部選單', ja: 'モバイル下部メニュー' },
+  'settings.mobileNavHint': { en: 'Choose up to 6 items. Settings stays at the top.', 'zh-CN': '最多选择 6 项；设置页始终位于顶部。', 'zh-TW': '最多選擇 6 項；設定頁固定在頂部。', ja: '最大6項目まで選択できます。設定は上部に固定されます。' },
   'settings.summary': { en: 'API, language, theme, and follow-ups', 'zh-CN': 'API、语言、主题和追问', 'zh-TW': 'API、語言、主題和追問', ja: 'API、言語、テーマ、フォローアップ' },
   'settings.save': { en: 'Save settings', 'zh-CN': '保存设置', 'zh-TW': '儲存設定', ja: '設定を保存' },
   'settings.saved': { en: 'Settings saved', 'zh-CN': '设置已保存', 'zh-TW': '設定已儲存', ja: '設定を保存しました' },

@@ -17,13 +17,13 @@ describe('web terminal UI', () => {
     expect(rail).toContain("setNavMode('terminal', true)");
   });
 
-  test('mobile header places Terminal immediately before Settings', () => {
+  test('mobile header keeps Settings as the only header navigation button', () => {
     const source = app();
     const start = source.indexOf('return <div className="header-theme-control"');
     const controls = source.slice(start, source.indexOf('desktop-only-theme', start));
-    expect(controls).toContain('mobile-header-terminal-btn');
-    expect(controls.indexOf('mobile-header-terminal-btn')).toBeLessThan(controls.indexOf('mobile-header-settings-btn'));
-    expect(source).toContain('onNavigateToTerminal');
+    expect(controls).toContain('mobile-header-settings-btn');
+    expect(controls).not.toContain('mobile-header-terminal-btn');
+    expect(source).not.toContain('onNavigateToTerminal');
   });
 
   test('terminal loads xterm lazily and exposes keyboard, resize, clear, reconnect, and font controls', () => {
