@@ -2195,9 +2195,12 @@ async fn commandcode_query_account(
     if let Some(org_id) = &org_id {
         scoped.push(("orgId", org_id.clone()));
     }
-    let credits = commandcode_get(state, "/alpha/billing/credits", api_key, &scoped).await?;
-    let subscription =
-        commandcode_get(state, "/alpha/billing/subscriptions", api_key, &scoped).await?;
+    let (credits_result, subscription_result) = tokio::join!(
+        commandcode_get(state, "/alpha/billing/credits", api_key, &scoped),
+        commandcode_get(state, "/alpha/billing/subscriptions", api_key, &scoped),
+    );
+    let credits = credits_result?;
+    let subscription = subscription_result?;
     let subscription_data = subscription.get("data").cloned().unwrap_or(Value::Null);
     let since = subscription_data
         .get("currentPeriodStart")

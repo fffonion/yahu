@@ -367,4 +367,10 @@ mod provider_usage_tests {
         assert_eq!(sections[0]["provider"], "openrouter");
         assert_eq!(providers.len(), 10);
     }
+
+    #[test]
+    fn commandcode_billing_requests_share_one_parallel_stage() {
+        let source = include_str!("../provider_usage.rs");
+        assert!(source.contains("let (credits_result, subscription_result) = tokio::join!("));
+    }
 }

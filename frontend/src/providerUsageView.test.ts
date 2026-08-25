@@ -80,6 +80,8 @@ describe('provider usage view', () => {
     expect(source).toContain('className="provider-usage-errors"');
     expect(source).toContain('refreshProvider');
     expect(source).toContain('refreshAll');
+    expect(source).toContain('loading && !section ? <ProviderUsageSkeleton /> : <>');
+    expect(source).toContain('{section && <ProviderUsageSectionView section={section} />}');
     expect(source).toContain('usagePercentTone');
     expect(source).toContain('progressPercent !== null &&');
     expect(source).not.toContain('const ageLabel = updatedAgo(section?.captured_at)');
