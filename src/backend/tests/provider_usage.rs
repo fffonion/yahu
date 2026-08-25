@@ -99,6 +99,125 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn codex_reset_credits_describe_count_and_relative_expiries() {
+        let now = chrono::Utc::now();
+        let payload = serde_json::json!({
+            "available_count": 3,
+            "applicable_available_count": 2,
+            "credits": [
+                {
+                    "status": "available",
+                    "expires_at": (now + chrono::Duration::minutes(90)).to_rfc3339()
+                },
+                {
+                    "status": "available",
+                    "expires_at": (now + chrono::Duration::days(3)).to_rfc3339()
+                },
+                {"status": "consumed", "expires_at": (now + chrono::Duration::days(1)).to_rfc3339()}
+            ]
+        });
+        assert_eq!(
+            codex_reset_credits_description(&payload),
+            Some("Reset：3个；当前可用：2个；到期：2小时后、3天后".to_string())
+        );
+    }
+
+    #[test]
+    fn saturated_codex_account_uses_cached_windows_until_reset() {
+        let now = chrono::Utc::now().timestamp();
+        let section: ProviderUsageSection = serde_json::from_value(serde_json::json!({
+            "provider": "codex",
+            "title": "Codex 额度",
+            "description": "",
+            "rows": [],
+            "errors": [],
+            "windows": [
+                {"window": "mayo 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
+                {"window": "mayo 周额度", "used": "20%", "reset": "旧值", "reset_at": now + 7200},
+                {"window": "me 周额度", "used": "100%", "reset": "旧值", "reset_at": now + 7200}
+            ]
+        }))
+        .unwrap();
+        assert!(provider_account_should_skip_upstream(&section, "mayo", true, now));
+        assert!(!provider_account_should_skip_upstream(&section, "mayo", true, now + 3601));
+        assert!(!provider_account_should_skip_upstream(&section, "missing", true, now));
+    }
+
+    #[test]
+    fn cached_codex_account_refresh_updates_each_window_countdown() {
+        let now = chrono::Utc::now().timestamp();
+        let section: ProviderUsageSection = serde_json::from_value(serde_json::json!({
+            "provider": "codex",
+            "title": "Codex 额度",
+            "description": "",
+            "rows": [],
+            "errors": [],
+            "windows": [
+                {"window": "mayo 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
+                {"window": "mayo 周额度", "used": "100%", "reset": "旧值", "reset_at": now + 7200}
+            ]
+        }))
+        .unwrap();
+        let refreshed = provider_cached_account_section(&section, "mayo", true, now).unwrap();
+        assert_eq!(refreshed.windows[0].reset.as_deref(), Some("1小时"));
+        assert_eq!(refreshed.windows[1].reset.as_deref(), Some("2小时"));
+    }
+
+    #[test]
+    fn generic_provider_saturated_window_refreshes_cached_reset_times() {
+        let now = chrono::Utc::now().timestamp();
+        let section: ProviderUsageSection = serde_json::from_value(serde_json::json!({
+            "provider": "kimi",
+            "title": "Kimi Code 额度",
+            "description": "",
+            "rows": [],
+            "errors": [],
+            "windows": [
+                {"window": "5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
+                {"window": "周额度", "used": "20%", "reset": "旧值", "reset_at": now + 7200}
+            ]
+        }))
+        .unwrap();
+        assert!(provider_section_should_skip_upstream(&section, now));
+        let refreshed = provider_cached_section(&section, now).unwrap();
+        assert_eq!(refreshed.windows[0].reset.as_deref(), Some("1小时"));
+        assert_eq!(refreshed.windows[1].reset.as_deref(), Some("2小时"));
+        assert!(provider_cached_section(&section, now + 3601).is_none());
+    }
+
+    #[test]
+    fn generic_provider_multi_account_skip_is_limited_to_the_saturated_account() {
+        let now = chrono::Utc::now().timestamp();
+        let section: ProviderUsageSection = serde_json::from_value(serde_json::json!({
+            "provider": "commandcode",
+            "title": "CommandCode 额度",
+            "description": "",
+            "rows": [],
+            "errors": [],
+            "windows": [
+                {"window": "acct-a 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
+                {"window": "acct-b 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600}
+            ]
+        }))
+        .unwrap();
+        assert!(provider_account_should_skip_upstream(&section, "acct-a", true, now));
+        assert!(provider_account_should_skip_upstream(&section, "acct-b", true, now));
+        let cached = provider_cached_account_section(&section, "acct-a", true, now).unwrap();
+        assert_eq!(cached.windows.len(), 1);
+        assert_eq!(cached.windows[0].window, "acct-a 5h额度");
+        assert!(provider_cached_account_section(&section, "missing", true, now).is_none());
+    }
+
+    #[test]
+    fn provider_reset_at_normalizes_millisecond_and_rfc3339_values() {
+        let seconds = chrono::Utc::now().timestamp() + 3600;
+        let millis = seconds * 1000;
+        assert_eq!(provider_reset_at(&serde_json::json!({"reset": millis}), "reset"), Some(seconds));
+        let rfc3339 = chrono::DateTime::from_timestamp(seconds, 0).unwrap().to_rfc3339();
+        assert_eq!(provider_reset_at(&serde_json::json!({"reset": rfc3339}), "reset"), Some(seconds));
+    }
+
+    #[test]
     fn commandcode_plan_total_matches_plan_prefixes() {
         assert_eq!(commandcode_plan_total("individual-goat"), Some(70.0));
         assert_eq!(commandcode_plan_total("INDIVIDUAL_PRO_V1"), Some(80.0));

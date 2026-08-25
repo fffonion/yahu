@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { sectionHasContent, type ProviderUsageSection } from './providerUsage';
+import { providerCodexResetSubtitle, sectionHasContent, type ProviderUsageSection } from './providerUsage';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
@@ -26,6 +26,20 @@ describe('provider usage view', () => {
     expect(sectionHasContent(section({ description: '余额 **$1**' }))).toBe(true);
   });
 
+  test('Codex reset subtitle keeps positive accounts and omits zero-reset accounts', () => {
+    expect(providerCodexResetSubtitle('mayo：Reset：1个；到期：28天后；me：Reset：0个'))
+      .toBe('mayo：1个重置 28天后到期');
+    expect(providerCodexResetSubtitle('mayo：Reset：0个')).toBe('');
+    expect(providerCodexResetSubtitle('mayo：Reset：2个；当前可用：1个；到期：2小时后、5天后'))
+      .toBe('mayo：2个重置 2小时后、5天后到期');
+  });
+
+  test('provider toggle refreshes only the toggled provider', () => {
+    const source = app();
+    expect(source).toContain('if (nextEnabled) void loadProviderUsageProvider(provider, true);');
+    expect(source).toContain('providerUsageEnabledRef');
+  });
+
   test('usage is an independent mode with its own hash route and nav buttons', () => {
     expect(routes()).toContain("| { mode: 'usage' }");
     const source = app();
@@ -42,7 +56,17 @@ describe('provider usage view', () => {
     expect(source).toContain('providerBrandFavicon');
     expect(source).not.toContain('providerBrandMark');
     expect(source).toContain('provider-usage-context-menu');
-    expect(source).toContain('onContextMenu={(event) => openProviderMenu(event, provider)}');
+    expect(source).not.toContain('onContextMenu={(event) => openProviderMenu(event, provider)}');
+    expect(source).toContain('provider-usage-menu-trigger');
+    expect(source).toContain('<MoreVertical />');
+    expect(source).toContain('onPointerDown={(event) => startProviderPointer(event, provider.provider)}');
+    expect(source).toContain('provider-usage-drag-placeholder');
+    expect(source).toContain('providerDragRef');
+    expect(source).toContain('event.dataTransfer.effectAllowed = \'move\'');
+    expect(source).toContain('finishProviderDrag(providerDragRef.current?.provider || draggedProvider, provider.provider)');
+    expect(css()).toContain('.provider-usage-provider-card.is-dragging');
+    expect(css()).toContain('.provider-usage-provider-card.is-touch-dragging{pointer-events:none}');
+    expect(css()).not.toContain('.provider-usage-provider-card.is-dragging{opacity:.58;pointer-events:none');
     expect(source).toContain('rowTone(row.label)');
     expect(css()).toContain('.provider-usage-row.tone-0');
     expect(css()).toContain('.provider-usage-status-dot.is-off');
@@ -57,10 +81,11 @@ describe('provider usage view', () => {
     expect(source).toContain('refreshProvider');
     expect(source).toContain('refreshAll');
     expect(source).toContain('usagePercentTone');
-    expect(source).toContain('percent !== null &&');
+    expect(source).toContain('progressPercent !== null &&');
     expect(source).not.toContain('const ageLabel = updatedAgo(section?.captured_at)');
     expect(source).not.toContain("t('usage.updated')");
-    expect(source).toContain("section.provider === 'mimo' && win.window === '月额度'");
+    expect(source).toContain('integerPercentText(win.used)');
+    expect(source).not.toContain('isMimoPlan');
     expect(source).toContain('const stale = Boolean(enabled && section?.captured_at');
     expect(source).toContain("t('usage.title')");
     expect(source).toContain('function integerPercentText');
@@ -89,8 +114,24 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-title-wrap{display:flex;align-items:flex-start');
     expect(css()).toContain('.provider-usage-brand-icon{width:22px;height:22px;flex:0 0 22px;display:grid;place-items:center;margin-top:0!important;border:0');
     expect(css()).toContain('.provider-usage-provider-card.is-auto-refreshing::before');
-    expect(css()).toContain('provider-usage-auto-refresh-edge 3.8s linear infinite');
+    expect(css()).toContain('provider-usage-auto-refresh-edge 7.6s linear infinite');
     expect(css()).toContain('.provider-usage-title-row{display:flex;align-items:center;justify-content:space-between');
+  });
+
+  test('mobile provider long press owns pointer movement and auto-scrolls at screen edges', () => {
+    const source = app();
+    expect(source).toContain('const providerUsageBodyRef = useRef<HTMLElement | null>(null);');
+    expect(source).toContain('targetElement.setPointerCapture(event.pointerId)');
+    expect(source).toContain("targetElement.style.touchAction = 'none'");
+    expect(source).toContain('scrollProviderByFinger(event.clientY - press.startY)');
+    expect(source).toContain('window.requestAnimationFrame(runProviderAutoScroll)');
+    expect(source).toContain('element.scrollTop + delta');
+    expect(source).toContain('updateProviderDragTarget(press.lastX, press.lastY, press.provider)');
+    const styles = css();
+    const panYIndex = styles.lastIndexOf('.provider-usage-provider-card{touch-action:pan-y;user-select:none}');
+    const mobileNoneIndex = styles.lastIndexOf('@media (max-width:760px){.provider-usage-provider-card{touch-action:none}}');
+    expect(panYIndex).toBeGreaterThanOrEqual(0);
+    expect(mobileNoneIndex).toBeGreaterThan(panYIndex);
   });
 
   test('frontend loads the catalog first and refreshes providers concurrently', () => {
@@ -100,7 +141,8 @@ describe('provider usage view', () => {
     expect(source).toContain("params.set('refresh', 'true')");
     expect(source).toContain('await Promise.all(providers.map((provider) => loadProviderUsageProvider(provider, true)))');
     expect(source).toContain('function todayUsageIsZero');
-    expect(source).toContain("return t('usage.noData')");
+    expect(source).not.toContain("t('usage.noData')");
+    expect(source).not.toContain("t('usage.noWindowData')");
     expect(backendRoutes()).toContain('.route("/provider-usage", get(provider_usage_handler))');
   });
 

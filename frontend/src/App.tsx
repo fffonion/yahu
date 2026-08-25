@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChartNoAxesColumnIncreasing, Circle as SelectionMark, CircleHelp, Clock3, Code, Copy, Download, Eraser, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Minus, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChartNoAxesColumnIncreasing, Circle as SelectionMark, CircleHelp, Clock3, Code, Copy, Download, Eraser, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Minus, MoreVertical, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { normalizeReasoningEffort, REASONING_EFFORTS, sessionReasoningEffort, type ReasoningEffort } from './reasoningEffort';
@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { sectionHasContent, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { isTextEntryElement, visibleViewportHeight } from './viewport';
@@ -980,8 +980,8 @@ export default function App() {
       try { localStorage.setItem(PROVIDER_USAGE_ENABLED_KEY, JSON.stringify(next)); } catch { /* storage can be unavailable in private mode */ }
       return next;
     });
-    // Cached sections are already present from the catalog request. A missing cache requires an explicit card refresh.
-  }, [providerUsageEnabled]);
+    if (nextEnabled) void loadProviderUsageProvider(provider, true);
+  }, [loadProviderUsageProvider, providerUsageEnabled]);
 
   const toggleProviderAutoRefresh = useCallback((provider: string) => {
     setProviderUsageAutoRefresh((current) => {
@@ -1556,12 +1556,14 @@ export default function App() {
   useEffect(() => { loadModels(); loadWorkspace(''); }, []);
   useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);
   const providerUsageAutoRefreshRef = useRef('');
+  const providerUsageEnabledRef = useRef(providerUsageEnabled);
+  useEffect(() => { providerUsageEnabledRef.current = providerUsageEnabled; }, [providerUsageEnabled]);
   useEffect(() => { if (mode === 'usage') loadProviderUsageCatalog(); }, [mode, loadProviderUsageCatalog]);
   useEffect(() => {
     if (mode !== 'usage' || !providerUsage) return;
     const now = Date.now() / 1000;
     const staleProviders = providerUsage.providers
-      .filter((provider) => providerUsageEnabled[provider.provider] && provider.query_ready)
+      .filter((provider) => providerUsageEnabledRef.current[provider.provider] && provider.query_ready)
       .filter((provider) => {
         const capturedAt = providerUsage.sections.find((section) => section.provider === provider.provider)?.captured_at;
         return !capturedAt || now - capturedAt > PROVIDER_USAGE_AUTO_REFRESH_SECONDS;
@@ -1570,7 +1572,7 @@ export default function App() {
     if (providerUsageAutoRefreshRef.current === refreshKey) return;
     providerUsageAutoRefreshRef.current = refreshKey;
     if (staleProviders.length) void Promise.all(staleProviders.map((provider) => loadProviderUsageProvider(provider.provider, true)));
-  }, [mode, loadProviderUsageProvider, providerUsage, providerUsageEnabled]);
+  }, [mode, loadProviderUsageProvider, providerUsage]);
   useEffect(() => {
     if (mode !== 'usage' || !providerUsage) return;
     const timer = window.setInterval(() => {
@@ -2428,7 +2430,7 @@ function todayUsageIsZero(used: string): boolean {
 function providerTodayTokens(section: ProviderUsageSection | undefined): string {
   const used = providerTodayWindow(section)?.used;
   if (!used) return '';
-  if (todayUsageIsZero(used)) return t('usage.noData');
+  if (todayUsageIsZero(used)) return '';
   return used.split(' / ').slice(0, -1).join(' / ') || used;
 }
 
@@ -2472,7 +2474,7 @@ function providerBalanceText(description: string | undefined): string {
 }
 
 function providerDescriptionText(description: string | undefined, provider?: string): string {
-  if (provider === 'mimo') return '';
+  if (provider === 'mimo' || provider === 'codex') return '';
   return (description || '').replace(/余额\s+\*\*[^*]+\*\*；?\s*/g, '').trim();
 }
 
@@ -2483,9 +2485,13 @@ function providerTitleMeta(provider: string, description: string | undefined): s
 
 function providerResetDurationText(value: string): string {
   const text = value.trim();
-  if (/^\d+\s*(分钟|hours?|小时|minutes?)$/i.test(text)) {
+  if (/^\d+\s*(分钟|hours?|小时|minutes?|days?|天)$/i.test(text)) {
     const amount = Number(text.match(/\d+/)?.[0] || 0);
-    return /hour|小时/i.test(text) ? tf('usage.hours', amount) : tf('usage.minutes', amount);
+    if (/day|天/i.test(text)) return tf('usage.days', amount);
+    if (/hour|小时/i.test(text)) {
+      return amount > 24 ? tf('usage.days', Math.ceil(amount / 24)) : tf('usage.hours', amount);
+    }
+    return tf('usage.minutes', amount);
   }
   const slash = text.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
   const parsed = slash
@@ -2498,7 +2504,8 @@ function providerResetDurationText(value: string): string {
     : new Date(text);
   if (Number.isNaN(parsed.getTime())) return text;
   const minutes = Math.max(0, Math.ceil((parsed.getTime() - Date.now()) / 60000));
-  return minutes < 60 ? tf('usage.minutes', minutes) : tf('usage.hours', Math.ceil(minutes / 60));
+  const hours = Math.ceil(minutes / 60);
+  return hours >= 24 ? tf('usage.days', Math.ceil(hours / 24)) : tf('usage.hours', hours);
 }
 
 function commandcodeWindowParts(window: string): [string, string] | null {
@@ -2523,6 +2530,23 @@ function ProviderUsageMain(props: {
 }) {
   const [providerOrder, setProviderOrder] = useState<string[]>(readProviderUsageOrder);
   const [draggedProvider, setDraggedProvider] = useState('');
+  const [dragOverProvider, setDragOverProvider] = useState('');
+  const providerDragRef = useRef<{ provider: string; target: string } | null>(null);
+  const [providerDragVisual, setProviderDragVisual] = useState<{ provider: string; left: number; top: number; width: number; height: number; offsetX: number; offsetY: number } | null>(null);
+  const providerUsageBodyRef = useRef<HTMLElement | null>(null);
+  const providerAutoScrollRef = useRef<number | null>(null);
+  const providerPressRef = useRef<{
+    provider: string;
+    pointerId: number;
+    timer: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    active: boolean;
+    scrolling: boolean;
+    element: HTMLElement;
+  } | null>(null);
   const providers = useMemo(() => {
     const catalog = props.payload?.providers || [];
     const catalogIds = new Set(catalog.map((provider) => provider.provider));
@@ -2545,9 +2569,10 @@ function ProviderUsageMain(props: {
     setProviderOrder((current) => {
       const next = [...current];
       const fromIndex = next.indexOf(from);
-      const toIndex = next.indexOf(to);
-      if (fromIndex < 0 || toIndex < 0) return current;
+      if (fromIndex < 0) return current;
       next.splice(fromIndex, 1);
+      const toIndex = next.indexOf(to);
+      if (toIndex < 0) return current;
       next.splice(toIndex, 0, from);
       return next;
     });
@@ -2560,19 +2585,192 @@ function ProviderUsageMain(props: {
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
   }, []);
-  const openProviderMenu = (event: React.MouseEvent, provider: { provider: string; title: string }) => {
+  const openProviderMenu = (event: React.MouseEvent<HTMLElement>, provider: { provider: string; title: string }) => {
     event.preventDefault();
-    setProviderMenu({ provider: provider.provider, title: provider.title, x: event.clientX, y: event.clientY });
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const requestedX = event.clientX > 0 ? event.clientX : rect.right;
+    const requestedY = event.clientY > 0 ? event.clientY : rect.bottom;
+    const x = Math.max(12, Math.min(requestedX, window.innerWidth - 222));
+    const y = Math.max(12, Math.min(requestedY, window.innerHeight - 132));
+    setProviderMenu({ provider: provider.provider, title: provider.title, x, y });
   };
+  const stopProviderAutoScroll = () => {
+    if (providerAutoScrollRef.current !== null) {
+      window.cancelAnimationFrame(providerAutoScrollRef.current);
+      providerAutoScrollRef.current = null;
+    }
+  };
+  const providerScrollElement = (): HTMLElement | null => {
+    const body = providerUsageBodyRef.current;
+    const main = body?.closest<HTMLElement>('.provider-usage-main') || null;
+    const candidates = [body, main].filter((element): element is HTMLElement => Boolean(element));
+    return candidates.find((element) => element.scrollHeight > element.clientHeight + 1) || candidates[0] || null;
+  };
+  const scrollProviderByFinger = (deltaY: number) => {
+    const element = providerScrollElement();
+    if (element) element.scrollTop = Math.max(0, Math.min(element.scrollHeight - element.clientHeight, element.scrollTop - deltaY));
+  };
+  const updateProviderDragTarget = (x: number, y: number, provider: string) => {
+    const target = document.elementsFromPoint(x, y)
+      .map((element) => element.closest<HTMLElement>('[data-provider-id]')?.dataset.providerId)
+      .find((providerId) => providerId && providerId !== provider);
+    setDragOverProvider(target || provider);
+  };
+  const runProviderAutoScroll = () => {
+    const press = providerPressRef.current;
+    if (!press?.active) {
+      providerAutoScrollRef.current = null;
+      return;
+    }
+    const element = providerScrollElement();
+    const rect = element?.getBoundingClientRect();
+    const top = rect?.top ?? 0;
+    const bottom = rect?.bottom ?? window.innerHeight;
+    const edge = 72;
+    let delta = 0;
+    if (press.lastY < top + edge) {
+      const distance = Math.max(0, press.lastY - top);
+      delta = -Math.max(2, Math.ceil((1 - Math.min(1, distance / edge)) * 18));
+    } else if (press.lastY > bottom - edge) {
+      const distance = Math.max(0, bottom - press.lastY);
+      delta = Math.max(2, Math.ceil((1 - Math.min(1, distance / edge)) * 18));
+    }
+    if (delta && element) {
+      element.scrollTop = Math.max(0, Math.min(element.scrollHeight - element.clientHeight, element.scrollTop + delta));
+      updateProviderDragTarget(press.lastX, press.lastY, press.provider);
+    }
+    providerAutoScrollRef.current = window.requestAnimationFrame(runProviderAutoScroll);
+  };
+  const startProviderAutoScroll = () => {
+    if (providerAutoScrollRef.current === null) providerAutoScrollRef.current = window.requestAnimationFrame(runProviderAutoScroll);
+  };
+  const clearProviderPress = () => {
+    const press = providerPressRef.current;
+    if (press) {
+      window.clearTimeout(press.timer);
+      press.element.style.touchAction = '';
+      try {
+        if (press.element.hasPointerCapture(press.pointerId)) press.element.releasePointerCapture(press.pointerId);
+      } catch { /* pointer capture may be unavailable */ }
+    }
+    stopProviderAutoScroll();
+    providerPressRef.current = null;
+  };
+  const startDesktopProviderDrag = (event: React.DragEvent<HTMLElement>, provider: string) => {
+    providerDragRef.current = { provider, target: provider };
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', provider);
+    setDraggedProvider(provider);
+    setDragOverProvider(provider);
+  };
+  const overDesktopProviderDrag = (event: React.DragEvent<HTMLElement>, provider: string) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    if (providerDragRef.current) providerDragRef.current.target = provider;
+    setDragOverProvider(provider);
+  };
+  const finishProviderDrag = (provider: string, targetOverride = '') => {
+    const target = targetOverride || providerDragRef.current?.target || dragOverProvider || provider;
+    moveProvider(provider, target);
+    providerDragRef.current = null;
+    setDraggedProvider('');
+    setDragOverProvider('');
+    setProviderDragVisual(null);
+    clearProviderPress();
+  };
+  const startProviderPointer = (event: React.PointerEvent<HTMLElement>, provider: string) => {
+    if (event.pointerType === 'mouse' || (event.target as HTMLElement).closest('button,input,label,a')) return;
+    clearProviderPress();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const targetElement = event.currentTarget;
+    targetElement.style.touchAction = 'none';
+    const press = {
+      provider,
+      pointerId: event.pointerId,
+      timer: 0,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      active: false,
+      scrolling: false,
+      element: targetElement,
+    };
+    try { targetElement.setPointerCapture(event.pointerId); } catch { /* pointer capture may be unavailable */ }
+    press.timer = window.setTimeout(() => {
+      if (providerPressRef.current !== press) return;
+      press.active = true;
+      press.scrolling = false;
+      setDraggedProvider(provider);
+      setDragOverProvider(provider);
+      setProviderDragVisual({ provider, left: rect.left, top: rect.top, width: rect.width, height: rect.height, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top });
+      startProviderAutoScroll();
+    }, 420);
+    providerPressRef.current = press;
+  };
+  const moveProviderPointer = (event: React.PointerEvent<HTMLElement>) => {
+    const press = providerPressRef.current;
+    if (!press || press.pointerId !== event.pointerId) return;
+    const deltaY = event.clientY - press.lastY;
+    if (!press.active) {
+      if (!press.scrolling && Math.hypot(event.clientX - press.startX, event.clientY - press.startY) > 10) {
+        window.clearTimeout(press.timer);
+        press.timer = 0;
+        press.scrolling = true;
+        scrollProviderByFinger(event.clientY - press.startY);
+      } else if (press.scrolling) {
+        scrollProviderByFinger(deltaY);
+      }
+      press.lastX = event.clientX;
+      press.lastY = event.clientY;
+      return;
+    }
+    event.preventDefault();
+    press.lastX = event.clientX;
+    press.lastY = event.clientY;
+    setProviderDragVisual((current) => current ? { ...current, left: event.clientX - current.offsetX, top: event.clientY - current.offsetY } : current);
+    updateProviderDragTarget(event.clientX, event.clientY, press.provider);
+    startProviderAutoScroll();
+  };
+  const endProviderPointer = (event: React.PointerEvent<HTMLElement>) => {
+    const press = providerPressRef.current;
+    if (!press || press.pointerId !== event.pointerId) return;
+    if (press.active) {
+      event.preventDefault();
+      finishProviderDrag(press.provider);
+    } else {
+      clearProviderPress();
+    }
+  };
+  const cancelProviderPointer = () => {
+    const press = providerPressRef.current;
+    if (press?.active) {
+      setDraggedProvider('');
+      setDragOverProvider('');
+      setProviderDragVisual(null);
+    }
+    clearProviderPress();
+  };
+  const endDesktopProviderDrag = () => {
+    providerDragRef.current = null;
+    setDraggedProvider('');
+    setDragOverProvider('');
+    setProviderDragVisual(null);
+    cancelProviderPointer();
+  };
+  useEffect(() => () => {
+    clearProviderPress();
+  }, []);
   return (
     <main className="main-panel provider-usage-main">
       <header className="chat-header header-no-drawer provider-usage-header">
-        <div className="provider-usage-header-meta"><h1>{t('usage.title')}</h1><span>{catalogLoading ? t('usage.loadingCache') : tf('usage.enabledCount', enabledCount, providers.length)}</span></div>
+        <div><h1>{t('usage.title')}</h1><span>{catalogLoading ? t('usage.loadingCache') : tf('usage.enabledCount', enabledCount, providers.length)}</span></div>
         <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings}>
           <button type="button" className="icon-btn provider-usage-global-refresh" onClick={props.refreshAll} disabled={Boolean(props.loading._all) || enabledCount === 0} aria-label={t('usage.refreshAllAria')} title={t('usage.refreshAllAria')}><RefreshCw className={props.loading._all ? 'spin' : ''} /></button>
         </HeaderToolstrip>
       </header>
-      <section className="provider-usage-body">
+      <section ref={providerUsageBodyRef} className="provider-usage-body">
         {props.error._catalog && <div className="provider-usage-banner provider-usage-error">{props.error._catalog}</div>}
         {!catalogLoading && providers.length === 0 && <div className="provider-usage-empty">{t('usage.empty')}</div>}
         {providers.length > 0 && <div className="provider-usage-grid">
@@ -2587,28 +2785,34 @@ function ProviderUsageMain(props: {
             const tableOnly = provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud';
             const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
             const autoRefreshing = Boolean(props.autoRefresh[provider.provider]);
+            const codexResetSubtitle = enabled && provider.provider === 'codex' ? providerCodexResetSubtitle(section?.description) : '';
             const subtitle = enabled
-              ? (loading ? t('usage.querying') : (section ? '' : provider.query_ready ? t('usage.waitingRefresh') : t('usage.credentialsNeeded')))
+              ? (loading ? t('usage.querying') : (section ? '' : provider.query_ready ? '' : t('usage.credentialsNeeded')))
               : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
             const subtitleDetails = [
               ...(tableOnly ? [providerTodayLabel(section)] : []),
               ...(balance ? [tf('usage.balance', balance)] : []),
               ...(titleMeta ? [titleMeta] : []),
+              ...(codexResetSubtitle ? [codexResetSubtitle] : []),
               ...(subtitle ? [subtitle] : []),
             ].filter(Boolean).join(' · ');
-            return <article key={provider.provider} draggable onDragStart={() => { setDraggedProvider(provider.provider); }} onDragOver={(event) => event.preventDefault()} onDrop={() => { moveProvider(draggedProvider, provider.provider); setDraggedProvider(''); }} onDragEnd={() => setDraggedProvider('')} onContextMenu={(event) => openProviderMenu(event, provider)} className={`provider-usage-card provider-usage-provider-card insight-card ${enabled ? 'is-enabled' : 'is-disabled'} ${provider.configured ? '' : 'needs-config'} ${multiAccount ? 'is-multi-account' : ''} ${autoRefreshing ? 'is-auto-refreshing' : ''}`}>
+            const touchDragging = providerDragVisual?.provider === provider.provider && providerDragVisual;
+            const dragging = draggedProvider === provider.provider;
+            return <React.Fragment key={provider.provider}>
+              {touchDragging && <div className="provider-usage-drag-placeholder" style={{ height: providerDragVisual.height }} aria-hidden="true" />}
+              <article data-provider-id={provider.provider} draggable onDragStart={(event) => startDesktopProviderDrag(event, provider.provider)} onDragOver={(event) => overDesktopProviderDrag(event, provider.provider)} onDrop={(event) => { event.preventDefault(); finishProviderDrag(providerDragRef.current?.provider || draggedProvider, provider.provider); }} onDragEnd={endDesktopProviderDrag} onPointerDown={(event) => startProviderPointer(event, provider.provider)} onPointerMove={moveProviderPointer} onPointerUp={endProviderPointer} onPointerCancel={cancelProviderPointer} className={`provider-usage-card provider-usage-provider-card insight-card ${enabled ? 'is-enabled' : 'is-disabled'} ${provider.configured ? '' : 'needs-config'} ${multiAccount ? 'is-multi-account' : ''} ${autoRefreshing ? 'is-auto-refreshing' : ''} ${dragging ? 'is-dragging' : ''} ${touchDragging ? 'is-touch-dragging' : ''} ${dragOverProvider === provider.provider && draggedProvider && draggedProvider !== provider.provider ? 'is-drag-over' : ''}`} style={touchDragging ? { position: 'fixed', left: providerDragVisual.left, top: providerDragVisual.top, width: providerDragVisual.width, height: providerDragVisual.height, zIndex: 310 } : undefined}>
               <div className="provider-usage-card-head">
                 <div className="provider-usage-title-wrap">
                   <span className={`provider-usage-brand-icon brand-${provider.provider}`} aria-hidden="true"><img src={providerBrandFavicon(provider.provider)} alt="" loading="lazy" referrerPolicy="no-referrer" /></span>
                   <div className="provider-usage-title-main">
                     <div className="provider-usage-title-row"><h2>{provider.title}</h2></div>
-                    <div className="provider-usage-subline"><span>{subtitleDetails || t('usage.noData')}</span></div>
+                    <div className="provider-usage-subline"><span>{subtitleDetails}</span></div>
                   </div>
                 </div>
                 <div className="provider-usage-card-actions">
                   {stale && <Clock3 className="provider-usage-stale-clock" aria-label={t('usage.stale')} />}
                   <button type="button" className="icon-btn provider-usage-refresh" onClick={() => props.refreshProvider(provider.provider)} disabled={loading || !provider.query_ready} aria-label={`${provider.title} ${provider.query_ready ? t('usage.refreshAria') : t('usage.credentialsNeeded')}`} title={provider.query_ready ? t('usage.refreshAria') : t('usage.credentialsNeeded')}><RefreshCw className={loading ? 'spin' : ''} /></button>
-                  <label className="provider-usage-mobile-switch" aria-label={`${provider.title} ${t('usage.switchProvider')}`}><input type="checkbox" checked={enabled} onChange={() => props.toggleProvider(provider.provider)} /><i aria-hidden="true" /></label>
+                  <button type="button" className="icon-btn provider-usage-menu-trigger" onClick={(event) => openProviderMenu(event, provider)} aria-label={`${provider.title} ${t('usage.providerMenu')}`} title={t('usage.providerMenu')}><MoreVertical /></button>
                 </div>
               </div>
               {!enabled ? <div className="provider-usage-off-state"><strong>{provider.configured ? t('usage.closed') : t('usage.notConfigured')}</strong><span>{provider.configured ? t('usage.enableToQuery') : t('usage.enableToConfigure')}</span></div> : <div className="provider-usage-card-content">
@@ -2616,10 +2820,11 @@ function ProviderUsageMain(props: {
                 {!provider.query_ready ? <div className="provider-usage-setup"><strong>{t('usage.credentialsNeeded')}</strong><p>{provider.setup_hint}</p></div> : loading ? <ProviderUsageSkeleton /> : <>
                   {error && <div className="provider-usage-banner provider-usage-error">{error}</div>}
                   {section && <ProviderUsageSectionView section={section} />}
-                  {!section && !error && <div className="provider-usage-empty provider-usage-empty-small">{t('usage.noData')}</div>}
+
                 </>}
               </div>}
-            </article>;
+              </article>
+            </React.Fragment>;
           })}
         </div>}
       </section>
@@ -2663,11 +2868,11 @@ function ProviderUsageSectionView({ section }: { section: ProviderUsageSection }
     return groups;
   }, new Map<string, ProviderUsageWindow[]>()).entries()) : [];
   const renderWindow = (win: ProviderUsageWindow, index: number) => {
-    const isMimoPlan = section.provider === 'mimo' && win.window === '月额度';
     const percent = usagePercentFromText(win.used);
-    return <article className={`provider-usage-window ${isMimoPlan ? 'provider-usage-token-plan' : ''}`} key={`${win.window}-${index}`}>
-      <div className="provider-usage-window-head"><strong>{section.provider === 'commandcode' ? (commandcodeWindowParts(win.window)?.[1] || win.window) : win.window}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{isMimoPlan ? (win.used || '-') : integerPercentText(win.used)}</span></div>
-      {percent !== null && <div className={`provider-usage-progress ${usagePercentTone(percent)}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={integerPercentText(win.used)}><span style={{ width: `${percent}%` }} /></div>}
+    const progressPercent = percent === null ? null : Math.min(100, Math.max(0, percent));
+    return <article className="provider-usage-window" key={`${win.window}-${index}`}>
+      <div className="provider-usage-window-head"><strong>{section.provider === 'commandcode' ? (commandcodeWindowParts(win.window)?.[1] || win.window) : win.window}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{integerPercentText(win.used)}</span></div>
+      {progressPercent !== null && <div className={`provider-usage-progress ${usagePercentTone(progressPercent)}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-valuetext={integerPercentText(win.used)}><span style={{ width: `${progressPercent}%` }} /></div>}
       {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\u00a0'}</p> : null}
     </article>;
   };
@@ -2682,7 +2887,7 @@ function ProviderUsageSectionView({ section }: { section: ProviderUsageSection }
       {tableRows.map((row, index) => section.provider === 'minimax' ? <tr className="provider-usage-row" key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.output || row.input || '-'}</td></tr> : <tr className={`provider-usage-row ${rowTone(row.label)}`} key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.input || '-'}</td><td>{row.output || '-'}</td><td>{integerPercentText(row.hit_rate)}</td><td>{integerPercentText(row.cost_or_pct)}</td></tr>)}
     </tbody></table></div>}
     {section.errors.length > 0 && <ul className="provider-usage-errors">{section.errors.map((err, index) => <li key={index}>{err}</li>)}</ul>}
-    {!sectionHasContent(section) && section.errors.length === 0 && <div className="provider-usage-empty provider-usage-empty-small">{t('usage.noWindowData')}</div>}
+
   </div>;
 }
 

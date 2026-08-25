@@ -35,6 +35,8 @@ struct ProviderUsageWindow {
     window: String,
     used: Option<String>,
     reset: Option<String>,
+    #[serde(default)]
+    reset_at: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -453,7 +455,12 @@ fn provider_reset_duration(seconds: f64) -> String {
     if minutes < 60 {
         format!("{minutes}分钟")
     } else {
-        format!("{}小时", (minutes + 59) / 60)
+        let hours = (minutes + 59) / 60;
+        if hours > 24 {
+            format!("{}天", (hours + 23) / 24)
+        } else {
+            format!("{hours}小时")
+        }
     }
 }
 
@@ -461,7 +468,14 @@ fn provider_reset_text_local(value: i64) -> String {
     if value <= 0 {
         return "-".to_string();
     }
-    let seconds = value.saturating_sub(chrono::Utc::now().timestamp()) as f64;
+    // CommandCode returns reset_at in milliseconds while most providers use
+    // Unix seconds. Normalize the millisecond form before subtracting now.
+    let timestamp = if value >= 100_000_000_000 {
+        value / 1000
+    } else {
+        value
+    };
+    let seconds = timestamp.saturating_sub(chrono::Utc::now().timestamp()) as f64;
     provider_reset_duration(seconds)
 }
 
@@ -651,6 +665,7 @@ async fn fetch_openrouter_usage(state: &AppState) -> ProviderUsageSection {
         window: "今日用量/费用".into(),
         used: Some(format!("{} in / {} out / {}", fmt_provider_int(day_buckets.values().map(|bucket| bucket.input).sum()), fmt_provider_int(day_buckets.values().map(|bucket| bucket.output).sum()), fmt_provider_money(day_cost, '$'))),
         reset: None,
+        reset_at: None,
     });
     section
 }
@@ -881,6 +896,7 @@ async fn fetch_deepseek_usage(state: &AppState) -> ProviderUsageSection {
         window: "今日用量/费用".into(),
         used: Some(format!("{} in / {} out / {}", fmt_provider_int(day_input), fmt_provider_int(day_output), fmt_provider_money(day_cost, '¥'))),
         reset: None,
+        reset_at: None,
     });
     if let Some(balance) = balance {
         section
@@ -1123,6 +1139,7 @@ async fn fetch_atlascloud_usage(state: &AppState) -> ProviderUsageSection {
         window: "今日用量/费用".into(),
         used: Some(format!("{} in / {} out / {}", fmt_provider_int(today_input), fmt_provider_int(today_output), fmt_provider_money(today_cost, '$'))),
         reset: None,
+        reset_at: None,
     });
     let available = balance.ok().and_then(|payload| {
         payload.get("available").and_then(|value| {
@@ -1339,6 +1356,7 @@ async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
                 window: "5h额度".into(),
                 used: Some(value),
                 reset: reset_from_ms(&model, "end_time"),
+                reset_at: reset_at_from_ms(&model, "end_time"),
             });
         }
         if let Some(used_pct) = minimax_used_percent(&model, "weekly") {
@@ -1347,6 +1365,7 @@ async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
                 window: "周额度".into(),
                 used: Some(value),
                 reset: reset_from_ms(&model, "weekly_end_time"),
+                reset_at: reset_at_from_ms(&model, "weekly_end_time"),
             });
         }
     }
@@ -1401,6 +1420,7 @@ async fn fetch_kimi_usage(state: &AppState) -> ProviderUsageSection {
             window: "5h额度".into(),
             used: Some(ratio_pct(num_field(five_h, "ratio"))),
             reset: reset_from_ms(five_h, "resetTime"),
+            reset_at: reset_at_from_ms(five_h, "resetTime"),
         });
     }
     if let Some(weekly) = payload_enabled(data.get("ratelimitCode7d")) {
@@ -1408,6 +1428,7 @@ async fn fetch_kimi_usage(state: &AppState) -> ProviderUsageSection {
             window: "周额度".into(),
             used: Some(ratio_pct(num_field(weekly, "ratio"))),
             reset: reset_from_ms(weekly, "resetTime"),
+            reset_at: reset_at_from_ms(weekly, "resetTime"),
         });
     }
     if let Some(balance) = data.get("subscriptionBalance").filter(|v| v.is_object()) {
@@ -1415,6 +1436,7 @@ async fn fetch_kimi_usage(state: &AppState) -> ProviderUsageSection {
             window: "月额度".into(),
             used: Some(ratio_pct(num_field(balance, "amountUsedRatio"))),
             reset: reset_from_ms(balance, "expireTime"),
+            reset_at: reset_at_from_ms(balance, "expireTime"),
         });
     }
     section
@@ -1439,6 +1461,10 @@ fn kimi_time_text(value: Option<&Value>) -> String {
 
 fn reset_from_ms(value: &Value, key: &str) -> Option<String> {
     Some(kimi_time_text(value.get(key)))
+}
+
+fn reset_at_from_ms(value: &Value, key: &str) -> Option<i64> {
+    provider_reset_at(value, key)
 }
 
 fn provider_reset_text_seconds(seconds: f64) -> String {
@@ -1641,6 +1667,7 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
         .or_else(|| detail_usage_number(&usage_summary, "usage", "plan_total_token", "used"));
     let plan_limit = detail_usage_number(&detail, "usage", "plan_total_token", "limit")
         .or_else(|| detail_usage_number(&usage_summary, "usage", "plan_total_token", "limit"));
+
     let plan_name = detail
         .get("planName")
         .and_then(Value::as_str)
@@ -1669,15 +1696,6 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
         .and_then(Value::as_str)
         .unwrap_or("");
     let (period_end_date, period_start_date) = parse_mimo_period(period_end_raw);
-    if let (Some(used), Some(limit)) = (plan_used, plan_limit)
-        && limit > 0.0
-    {
-        section.windows.push(ProviderUsageWindow {
-            window: "月额度".into(),
-            used: Some(format!("{} / {} token", fmt_provider_int(used), fmt_provider_int(limit))),
-            reset: mimo_reset_duration(period_end_raw),
-        });
-    }
     let months_to_fetch = mimo_months_in_range(period_start_date, period_end_date);
     let ph = extract_cookie_value(&cookie, "api-platform_ph");
 
@@ -1703,9 +1721,7 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
             .unwrap_or(0.0)
     };
 
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let mut month_buckets: BTreeMap<String, MimoBucket> = BTreeMap::new();
-    let mut day_buckets: BTreeMap<String, MimoBucket> = BTreeMap::new();
     for (year, month) in &months_to_fetch {
         let url = format!(
             "{MIMO_API_BASE}/usage/token-plan/list{}",
@@ -1759,12 +1775,6 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
                 entry.miss += miss;
                 entry.out += out;
             }
-            if date == today {
-                let entry = day_buckets.entry(model).or_default();
-                entry.hit += hit;
-                entry.miss += miss;
-                entry.out += out;
-            }
         }
     }
 
@@ -1772,6 +1782,14 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
         .iter()
         .map(|(model, bucket)| bucket_credits(model, bucket))
         .sum();
+    if let Some(percent) = mimo_usage_percent(plan_used, plan_limit) {
+        section.windows.push(ProviderUsageWindow {
+            window: "月额度".into(),
+            used: Some(format!("{percent:.2}%")),
+            reset: mimo_reset_duration(period_end_raw),
+            reset_at: mimo_reset_at(period_end_raw),
+        });
+    }
     for (model, bucket) in &month_buckets {
         let input = bucket.hit + bucket.miss;
         let credits = bucket_credits(model, bucket);
@@ -1788,14 +1806,6 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
             input: Some(fmt_provider_int(input)),
             output: Some(fmt_provider_int(bucket.out)),
             cost_or_pct: (!pct.eq("-")).then_some(pct),
-        });
-    }
-    for (model, bucket) in &day_buckets {
-        let input = bucket.hit + bucket.miss;
-        section.windows.push(ProviderUsageWindow {
-            window: format!("今日用量·{model}"),
-            used: Some(fmt_provider_int(input + bucket.out)),
-            reset: None,
         });
     }
     section
@@ -1833,14 +1843,25 @@ fn detail_usage_number(detail: &Value, group: &str, item_name: &str, field: &str
         .and_then(Value::as_f64)
 }
 
-fn mimo_reset_duration(value: &str) -> Option<String> {
-    let parsed = chrono::DateTime::parse_from_rfc3339(value)
+fn mimo_usage_percent(used: Option<f64>, limit: Option<f64>) -> Option<f64> {
+    match (used, limit) {
+        (Some(used), Some(limit)) if limit > 0.0 => Some((used / limit * 100.0).max(0.0)),
+        _ => None,
+    }
+}
+
+fn mimo_reset_at(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
         .map(|date| date.timestamp())
         .or_else(|_| {
             chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
                 .map(|date| date.and_utc().timestamp())
         })
-        .ok()?;
+        .ok()
+}
+
+fn mimo_reset_duration(value: &str) -> Option<String> {
+    let parsed = mimo_reset_at(value)?;
     Some(provider_reset_duration((parsed - chrono::Utc::now().timestamp()).max(0) as f64))
 }
 
@@ -1955,14 +1976,17 @@ async fn fetch_opencode_usage(state: &AppState) -> ProviderUsageSection {
             }
         };
         let mut windows = Vec::new();
+        let now = chrono::Utc::now().timestamp();
         for (name, label) in [("rolling", "5h额度"), ("weekly", "周额度"), ("monthly", "月额度")] {
             let Some((percent, reset_seconds)) = opencode_window(&html, name) else {
                 continue;
             };
+            let reset_at = now.saturating_add(reset_seconds.max(0.0) as i64);
             windows.push(ProviderUsageWindow {
                 window: label.into(),
                 used: Some(opencode_percent_text(percent)),
                 reset: Some(provider_reset_text_seconds(reset_seconds.max(0.0))),
+                reset_at: Some(reset_at),
             });
         }
         if !windows.is_empty() {
@@ -2051,17 +2075,16 @@ fn commandcode_reset_text(snapshot: &Value, key: &str) -> String {
     let Some(value) = snapshot.get(key) else {
         return "-".into();
     };
-    if let Some(timestamp) = provider_number(value) {
-        return provider_reset_text_local(timestamp as i64);
+    if let Some(timestamp) = codex_timestamp(value) {
+        return provider_reset_text_local(timestamp);
     }
-    value
-        .as_str()
-        .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
-        .map(|dt| provider_reset_text_local(dt.timestamp()))
-        .unwrap_or_else(|| "-".into())
+    "-".into()
 }
 
-async fn fetch_commandcode_usage(state: &AppState) -> ProviderUsageSection {
+async fn fetch_commandcode_usage(
+    state: &AppState,
+    cached_section: Option<&ProviderUsageSection>,
+) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "commandcode".into(),
         title: "CommandCode 额度".into(),
@@ -2081,19 +2104,39 @@ async fn fetch_commandcode_usage(state: &AppState) -> ProviderUsageSection {
         return section;
     }
 
-    // Fanout all accounts concurrently with per-account jitter, mirroring the
-    // token-usage script's ThreadPoolExecutor behavior; results render in
-    // stable label order.
-    let mut fetched: Vec<(String, Result<Value, String>)> =
-        futures_util::future::join_all(accounts.iter().map(|(label, token)| async {
+    let now = chrono::Utc::now().timestamp();
+    let multi_account = accounts.len() > 1;
+    let mut skipped_accounts = Vec::new();
+    let live_accounts = accounts
+        .into_iter()
+        .filter_map(|(label, token)| {
+            if let Some(cached) = cached_section.and_then(|section| {
+                provider_cached_account_section(section, &label, multi_account, now)
+            }) {
+                skipped_accounts.push((label, cached));
+                None
+            } else {
+                Some((label, token))
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut fetched: Vec<(String, Result<Value, String>)> = futures_util::future::join_all(
+        live_accounts.iter().map(|(label, token)| async {
             jitter_delay().await;
             (label.clone(), commandcode_query_account(state, token).await)
-        }))
-        .await;
+        }),
+    )
+    .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-    let multi_account = fetched.len() > 1;
+    for (_, cached) in skipped_accounts {
+        section.windows.extend(cached.windows);
+    }
     let window_name = |label: &str, period: &str| {
-        if multi_account { format!("{label} {period}") } else { period.to_string() }
+        if multi_account {
+            format!("{label} {period}")
+        } else {
+            period.to_string()
+        }
     };
 
     for (label, result) in &fetched {
@@ -2105,6 +2148,9 @@ async fn fetch_commandcode_usage(state: &AppState) -> ProviderUsageSection {
                         window: window_name(label, "5h额度"),
                         used: Some(five_hour),
                         reset: Some(commandcode_reset_text(snapshot, "five_hour_reset_at")),
+                        reset_at: snapshot
+                            .get("five_hour_reset_at")
+                            .and_then(codex_timestamp),
                     });
                 }
                 let weekly = commandcode_window_text(snapshot, "weekly");
@@ -2113,6 +2159,7 @@ async fn fetch_commandcode_usage(state: &AppState) -> ProviderUsageSection {
                         window: window_name(label, "周额度"),
                         used: Some(weekly),
                         reset: Some(commandcode_reset_text(snapshot, "weekly_reset_at")),
+                        reset_at: snapshot.get("weekly_reset_at").and_then(codex_timestamp),
                     });
                 }
                 if let Some(monthly) = snapshot.get("usage_percent").and_then(Value::as_f64) {
@@ -2120,6 +2167,9 @@ async fn fetch_commandcode_usage(state: &AppState) -> ProviderUsageSection {
                         window: window_name(label, "月额度"),
                         used: Some(format!("{monthly:.0}%")),
                         reset: Some(commandcode_reset_text(snapshot, "current_period_end")),
+                        reset_at: snapshot
+                            .get("current_period_end")
+                            .and_then(codex_timestamp),
                     });
                 }
             }
@@ -2236,6 +2286,10 @@ fn commandcode_window_text(snapshot: &Value, window: &str) -> String {
 }
 
 fn codex_backend_usage_url(base_url: &str) -> String {
+    format!("{}/usage", codex_backend_prefix(base_url))
+}
+
+fn codex_backend_prefix(base_url: &str) -> String {
     let mut normalized = base_url.trim().trim_end_matches('/').to_string();
     if normalized.is_empty() {
         normalized = "https://chatgpt.com/backend-api/codex".into();
@@ -2248,7 +2302,165 @@ fn codex_backend_usage_url(base_url: &str) -> String {
     } else {
         format!("{normalized}/api/codex")
     };
-    format!("{prefix}/usage")
+    prefix
+}
+
+fn codex_backend_reset_credits_url(base_url: &str) -> String {
+    format!(
+        "{}/rate-limit-reset-credits",
+        codex_backend_prefix(base_url)
+    )
+}
+
+fn codex_reset_credits_description(value: &Value) -> Option<String> {
+    let credits = value.get("credits").and_then(Value::as_array);
+    let has_count = value.get("available_count").is_some();
+    if credits.is_none() && !has_count {
+        return None;
+    }
+    let count_from = |key: &str| {
+        value
+            .get(key)
+            .and_then(provider_number)
+            .map(|number| number.max(0.0).round() as i64)
+    };
+    let available = count_from("available_count").or_else(|| {
+        credits.map(|items| {
+            items
+                .iter()
+                .filter(|credit| credit.get("status").and_then(Value::as_str) == Some("available"))
+                .count() as i64
+        })
+    })?;
+    let mut expiry_timestamps = credits
+        .into_iter()
+        .flat_map(|items| items.iter())
+        .filter(|credit| credit.get("status").and_then(Value::as_str) == Some("available"))
+        .filter_map(|credit| credit.get("expires_at"))
+        .filter_map(codex_timestamp)
+        .filter(|timestamp| *timestamp > chrono::Utc::now().timestamp())
+        .collect::<Vec<_>>();
+    expiry_timestamps.sort_unstable();
+
+    let mut parts = vec![format!("Reset：{available}个")];
+    if let Some(applicable) = count_from("applicable_available_count") {
+        parts.push(format!("当前可用：{applicable}个"));
+    }
+    if !expiry_timestamps.is_empty() {
+        let expiries = expiry_timestamps
+            .iter()
+            .map(|timestamp| format!("{}后", provider_reset_text_local(*timestamp)))
+            .collect::<Vec<_>>()
+            .join("、");
+        parts.push(format!("到期：{expiries}"));
+    }
+    Some(parts.join("；"))
+}
+
+fn codex_timestamp(value: &Value) -> Option<i64> {
+    let timestamp = if let Some(raw) = value.as_str() {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(raw) {
+            dt.timestamp()
+        } else {
+            provider_number(value)? as i64
+        }
+    } else {
+        provider_number(value)? as i64
+    };
+    Some(normalize_provider_timestamp(timestamp))
+}
+
+fn provider_reset_at(value: &Value, key: &str) -> Option<i64> {
+    value.get(key).and_then(codex_timestamp)
+}
+
+fn normalize_provider_timestamp(timestamp: i64) -> i64 {
+    if timestamp >= 100_000_000_000 {
+        timestamp / 1000
+    } else {
+        timestamp
+    }
+}
+
+fn provider_account_window_matches(window: &ProviderUsageWindow, label: &str) -> bool {
+    window.window == label || window.window.starts_with(&format!("{label} "))
+}
+
+fn provider_used_percent(window: &ProviderUsageWindow) -> Option<f64> {
+    window
+        .used
+        .as_deref()?
+        .trim()
+        .trim_end_matches('%')
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+}
+
+fn provider_section_should_skip_upstream(section: &ProviderUsageSection, now: i64) -> bool {
+    section.windows.iter().any(|window| {
+        provider_used_percent(window).is_some_and(|used| used >= 100.0)
+            && window.reset_at.is_some_and(|reset_at| reset_at > now)
+    })
+}
+
+fn provider_account_should_skip_upstream(
+    section: &ProviderUsageSection,
+    label: &str,
+    account_scoped: bool,
+    now: i64,
+) -> bool {
+    section
+        .windows
+        .iter()
+        .filter(|window| !account_scoped || provider_account_window_matches(window, label))
+        .any(|window| {
+            provider_used_percent(window).is_some_and(|used| used >= 100.0)
+                && window.reset_at.is_some_and(|reset_at| reset_at > now)
+        })
+}
+
+fn refresh_provider_cached_reset_times(
+    section: &mut ProviderUsageSection,
+    now: i64,
+) {
+    for window in &mut section.windows {
+        if let Some(reset_at) = window.reset_at {
+            window.reset = Some(provider_reset_duration((reset_at - now).max(0) as f64));
+        }
+    }
+}
+
+fn provider_cached_section(
+    section: &ProviderUsageSection,
+    now: i64,
+) -> Option<ProviderUsageSection> {
+    if !provider_section_should_skip_upstream(section, now) {
+        return None;
+    }
+    let mut cached = section.clone();
+    refresh_provider_cached_reset_times(&mut cached, now);
+    Some(cached)
+}
+
+fn provider_cached_account_section(
+    section: &ProviderUsageSection,
+    label: &str,
+    account_scoped: bool,
+    now: i64,
+) -> Option<ProviderUsageSection> {
+    if !provider_account_should_skip_upstream(section, label, account_scoped, now) {
+        return None;
+    }
+    let mut cached = section.clone();
+    if account_scoped {
+        cached
+            .windows
+            .retain(|window| provider_account_window_matches(window, label));
+    }
+    refresh_provider_cached_reset_times(&mut cached, now);
+    Some(cached)
 }
 
 fn jwt_chatgpt_account_id(token: &str) -> Option<String> {
@@ -2278,7 +2490,27 @@ fn jwt_sub_claim(token: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-async fn fetch_codex_usage(state: &AppState) -> ProviderUsageSection {
+fn codex_account_description(
+    description: &str,
+    label: &str,
+    labels: &[String],
+) -> Option<String> {
+    let marker = format!("{label}：");
+    let start = description.find(&marker)?;
+    let tail = &description[start..];
+    let end = labels
+        .iter()
+        .filter(|other| other.as_str() != label)
+        .filter_map(|other| tail.find(&format!("；{other}：")))
+        .min()
+        .unwrap_or(tail.len());
+    Some(tail[..end].trim_matches('；').to_string())
+}
+
+async fn fetch_codex_usage(
+    state: &AppState,
+    cached_section: Option<&ProviderUsageSection>,
+) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "codex".into(),
         title: "Codex 额度".into(),
@@ -2291,16 +2523,42 @@ async fn fetch_codex_usage(state: &AppState) -> ProviderUsageSection {
             .push("未找到 auth.json credential_pool/openai-codex".into());
         return section;
     }
-    // Fanout all accounts concurrently with per-account jitter, mirroring the
-    // token-usage script's ThreadPoolExecutor behavior; results render in
-    // stable label order.
+    let now = chrono::Utc::now().timestamp();
+    let labels = accounts.iter().map(|(label, _)| label.clone()).collect::<Vec<_>>();
+    let mut skipped_accounts = Vec::new();
+    let live_accounts = accounts
+        .into_iter()
+        .filter_map(|(label, token)| {
+            if let Some(cached) = cached_section
+                .and_then(|section| {
+                    provider_cached_account_section(section, &label, true, now)
+                })
+            {
+                skipped_accounts.push((label, cached));
+                None
+            } else {
+                Some((label, token))
+            }
+        })
+        .collect::<Vec<_>>();
+    for (_, cached) in &skipped_accounts {
+        section.windows.extend(cached.windows.clone());
+    }
+    // Fanout only accounts that are not currently exhausted. Accounts at 100%
+    // remain served from their cached windows until one of those windows resets.
     let mut fetched: Vec<(String, Result<Value, String>)> =
-        futures_util::future::join_all(accounts.iter().map(|(label, token)| async move {
+        futures_util::future::join_all(live_accounts.iter().map(|(label, token)| async move {
             jitter_delay().await;
             (label.clone(), codex_query_account(state, token).await)
         }))
         .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    let mut reset_descriptions = skipped_accounts
+        .iter()
+        .filter_map(|(label, cached)| {
+            codex_account_description(&cached.description, label, &labels)
+        })
+        .collect::<Vec<_>>();
 
     for (label, result) in &fetched {
         match result {
@@ -2324,35 +2582,32 @@ async fn fetch_codex_usage(state: &AppState) -> ProviderUsageSection {
                         2_592_000 | 2_628_000 | 2_629_800 | 2_630_000 => "月额度".to_string(),
                         _ => fallback.to_string(),
                     };
-                    let reset = window
-                        .get("reset_at")
-                        .and_then(|value| {
-                            value.as_str().map(str::to_string).or_else(|| {
-                                value.as_f64().map(|number| number.to_string())
-                            })
-                        })
-                        .and_then(|raw| {
-                            chrono::DateTime::parse_from_rfc3339(&raw)
-                                .ok()
-                                .map(|dt| dt.with_timezone(&chrono::Utc))
-                                .or_else(|| {
-                                    raw.parse::<f64>().ok().and_then(|ts| {
-                                        chrono::DateTime::from_timestamp(ts as i64, 0)
-                                    })
-                                })
-                        })
-                        .map(|dt| provider_reset_text_local(dt.timestamp()))
+                    let reset_at = window.get("reset_at").and_then(codex_timestamp);
+                    let reset = reset_at
+                        .map(provider_reset_text_local)
                         .unwrap_or_else(|| "-".into());
                     section.windows.push(ProviderUsageWindow {
                         window: format!("{label} {window_label}"),
                         used: Some(format!("{used:.0}%")),
                         reset: Some(reset),
+                        reset_at,
                     });
+                }
+                if let Some(reset_credits) = payload.get("_reset_credits") {
+                    if let Some(error) = reset_credits.get("_error").and_then(Value::as_str) {
+                        section
+                            .errors
+                            .push(format!("{label}：Reset 查询失败：{error}"));
+                    } else if let Some(description) = codex_reset_credits_description(reset_credits)
+                    {
+                        reset_descriptions.push(format!("{label}：{description}"));
+                    }
                 }
             }
             Err(err) => section.errors.push(format!("{label}：查询失败：{err}")),
         }
     }
+    section.description = reset_descriptions.join("；");
     section
 }
 
@@ -2367,7 +2622,22 @@ async fn codex_query_account(state: &AppState, token: &str) -> Result<Value, Str
     if let Some(account_id) = &account_id {
         headers.push(("ChatGPT-Account-Id".to_string(), account_id.clone()));
     }
-    provider_http_get_json(&state.client, &codex_backend_usage_url(base_url), &headers).await
+    let mut payload =
+        provider_http_get_json(&state.client, &codex_backend_usage_url(base_url), &headers).await?;
+    let reset_credits = match provider_http_get_json(
+        &state.client,
+        &codex_backend_reset_credits_url(base_url),
+        &headers,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => serde_json::json!({"_error": error}),
+    };
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("_reset_credits".to_string(), reset_credits);
+    }
+    Ok(payload)
 }
 
 /// Random 200-1500ms delay so concurrent account queries don't hit upstream
@@ -2458,7 +2728,9 @@ async fn grok_query_account(
     }
 }
 
-fn grok_billing_snapshot(payload: &Value) -> Result<(String, f64, String, String), String> {
+fn grok_billing_snapshot(
+    payload: &Value,
+) -> Result<(String, f64, String, String, Option<i64>), String> {
     let config = payload.get("config").cloned().unwrap_or(Value::Null);
     let period = config.get("currentPeriod").cloned().unwrap_or(Value::Null);
     let period_type = period
@@ -2486,14 +2758,9 @@ fn grok_billing_snapshot(payload: &Value) -> Result<(String, f64, String, String
         "5h额度"
     }
     .to_string();
-    let parsed_reset: Option<chrono::DateTime<chrono::Utc>> = reset_raw
-        .as_str()
-        .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .or_else(|| {
-            provider_number(&reset_raw)
-                .and_then(|ts| chrono::DateTime::from_timestamp(ts as i64, 0))
-        });
+    let reset_at = codex_timestamp(&reset_raw);
+    let parsed_reset: Option<chrono::DateTime<chrono::Utc>> =
+        reset_at.and_then(|timestamp| chrono::DateTime::from_timestamp(timestamp, 0));
     let reset = parsed_reset
         .map(|dt| {
             let local = dt.with_timezone(&chrono::Local);
@@ -2505,10 +2772,13 @@ fn grok_billing_snapshot(payload: &Value) -> Result<(String, f64, String, String
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    Ok((window, used_percent, reset, tier))
+    Ok((window, used_percent, reset, tier, reset_at))
 }
 
-async fn fetch_grok_usage(state: &AppState) -> ProviderUsageSection {
+async fn fetch_grok_usage(
+    state: &AppState,
+    cached_section: Option<&ProviderUsageSection>,
+) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "grok".into(),
         title: "Grok Build 额度".into(),
@@ -2519,23 +2789,45 @@ async fn fetch_grok_usage(state: &AppState) -> ProviderUsageSection {
         section.errors.push("未找到 xai-oauth OAuth 会话".into());
         return section;
     }
-    let mut fetched: Vec<(String, Result<Value, String>)> =
-        futures_util::future::join_all(accounts.iter().map(|account| async {
+    let now = chrono::Utc::now().timestamp();
+    let multi_account = accounts.len() > 1;
+    let mut skipped_accounts = Vec::new();
+    let live_accounts = accounts
+        .into_iter()
+        .filter_map(|account| {
+            if let Some(cached) = cached_section.and_then(|section| {
+                provider_cached_account_section(&section, &account.label, multi_account, now)
+            }) {
+                skipped_accounts.push((account.label, cached));
+                None
+            } else {
+                Some(account)
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut fetched: Vec<(String, Result<Value, String>)> = futures_util::future::join_all(
+        live_accounts.iter().map(|account| async {
             jitter_delay().await;
             (account.label.clone(), grok_query_account(state, account).await)
-        }))
-        .await;
+        }),
+    )
+    .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-    let multi_account = fetched.len() > 1;
-    section.description.clear();
+    section.description = cached_section
+        .map(|cached| cached.description.clone())
+        .unwrap_or_default();
+    for (_, cached) in skipped_accounts {
+        section.windows.extend(cached.windows);
+    }
     for (label, result) in fetched {
         match result {
             Ok(payload) => match grok_billing_snapshot(&payload) {
-                Ok((window, used_percent, reset, tier)) => {
+                Ok((window, used_percent, reset, tier, reset_at)) => {
                     section.windows.push(ProviderUsageWindow {
                         window: if multi_account { format!("{label} {window}") } else { window },
                         used: Some(format!("{used_percent:.1}%")),
                         reset: Some(reset),
+                        reset_at,
                     });
                     if section.description.is_empty() && !tier.is_empty() {
                         section.description = tier;
@@ -2561,7 +2853,16 @@ fn provider_setup_section(meta: &ProviderUsageProvider) -> ProviderUsageSection 
 async fn fetch_provider_usage_section(
     state: &AppState,
     provider: &str,
+    cached_section: Option<&ProviderUsageSection>,
 ) -> ProviderUsageSection {
+    let account_scoped = matches!(provider, "codex" | "commandcode" | "grok");
+    if !account_scoped {
+        let now = chrono::Utc::now().timestamp();
+        if let Some(mut cached) = cached_section.and_then(|section| provider_cached_section(section, now)) {
+            cached.captured_at = unix_now_seconds();
+            return cached;
+        }
+    }
     let mut section = match provider {
         "openrouter" => fetch_openrouter_usage(state).await,
         "deepseek" => fetch_deepseek_usage(state).await,
@@ -2570,27 +2871,29 @@ async fn fetch_provider_usage_section(
         "kimi" => fetch_kimi_usage(state).await,
         "mimo" => fetch_mimo_usage(state).await,
         "opencode" => fetch_opencode_usage(state).await,
-        "commandcode" => fetch_commandcode_usage(state).await,
-        "codex" => fetch_codex_usage(state).await,
-        "grok" => fetch_grok_usage(state).await,
+        "commandcode" => fetch_commandcode_usage(state, cached_section).await,
+        "codex" => fetch_codex_usage(state, cached_section).await,
+        "grok" => fetch_grok_usage(state, cached_section).await,
         _ => ProviderUsageSection::default(),
     };
     section.captured_at = unix_now_seconds();
     section
 }
+
 async fn collect_provider_usage_for(
     state: &AppState,
     provider: &str,
     providers: Vec<ProviderUsageProvider>,
 ) -> ProviderUsagePayload {
+    let cached_section = shared_cached_section(state, provider).map(|entry| entry.section);
     let section = if let Some(meta) = providers.iter().find(|meta| meta.provider == provider) {
         if meta.query_ready {
-            fetch_provider_usage_section(state, provider).await
+            fetch_provider_usage_section(state, provider, cached_section.as_ref()).await
         } else {
             provider_setup_section(meta)
         }
     } else {
-        fetch_provider_usage_section(state, provider).await
+        fetch_provider_usage_section(state, provider, cached_section.as_ref()).await
     };
     ProviderUsagePayload {
         fetched_at: unix_now_seconds(),
@@ -2783,7 +3086,10 @@ struct ProviderUsageQuery {
 
 #[cfg(test)]
 mod mimo_auth_tests {
-    use super::{mimo_auth_error, mimo_headers};
+    use super::{
+        mimo_auth_error, mimo_headers, mimo_usage_percent, provider_reset_duration,
+        provider_reset_text_local,
+    };
 
     #[test]
     fn recognizes_expired_mimo_session_responses() {
@@ -2792,6 +3098,30 @@ mod mimo_auth_tests {
         assert!(!mimo_auth_error("HTTP 500 upstream failure"));
     }
 
+    #[test]
+    fn reset_durations_switch_to_days_after_24_hours() {
+        assert_eq!(provider_reset_duration(23.0 * 3600.0), "23小时");
+        assert_eq!(provider_reset_duration(24.0 * 3600.0), "24小时");
+        assert_eq!(provider_reset_duration(142.0 * 3600.0), "6天");
+    }
+
+    #[test]
+    fn reset_text_local_accepts_millisecond_timestamps() {
+        let reset_at_millis = (chrono::Utc::now().timestamp() + 2 * 24 * 3600) * 1000;
+        assert_eq!(provider_reset_text_local(reset_at_millis), "2天");
+    }
+
+    #[test]
+    fn mimo_monthly_percent_uses_plan_token_usage_and_limit() {
+        let percent = mimo_usage_percent(Some(8469.0), Some(10000.0)).unwrap();
+        assert!((percent - 84.69).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn mimo_monthly_percent_preserves_a_real_overage_from_the_plan_fields() {
+        let percent = mimo_usage_percent(Some(10_948.0), Some(10_000.0)).unwrap();
+        assert!((percent - 109.48).abs() < 0.000_001);
+    }
     #[test]
     fn builds_mimo_headers_without_extra_credentials() {
         let headers = mimo_headers(

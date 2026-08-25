@@ -53,7 +53,7 @@ describe('hash route integration', () => {
 
   test('hash landing auto-collapses pages without a left list', () => {
     const source = app();
-    expect(source).toContain("setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'terminal' || route.mode === 'settings')");
+    expect(source).toContain("setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'usage' || route.mode === 'terminal' || route.mode === 'settings')");
     expect(source).toContain("setSidebarCollapsed(collapse || next === 'memory' || next === 'insights' || next === 'terminal' || next === 'settings')");
   });
 });
