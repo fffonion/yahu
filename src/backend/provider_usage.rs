@@ -2,6 +2,8 @@
 // data. Credentials are read from ~/.hermes/.env (and ~/.hermes/auth.json
 // credential pools). Ported from ~/workspace/api-usage/token_usage.py.
 
+use sha2::Digest;
+
 const PROVIDER_USAGE_TTL: Duration = Duration::from_secs(30 * 60);
 const PROVIDER_USAGE_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -60,6 +62,33 @@ struct SharedProviderCacheEntry {
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct SharedProviderCacheFile {
     entries: HashMap<String, SharedProviderCacheEntry>,
+    #[serde(default)]
+    commandcode_accounts: HashMap<String, CommandCodeAccountCache>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct CommandCodeAccountCache {
+    #[serde(default)]
+    token_fingerprint: String,
+    #[serde(default)]
+    org_id: Option<String>,
+    #[serde(default)]
+    current_period_start: Option<String>,
+    #[serde(default)]
+    current_period_end: Option<i64>,
+    #[serde(default)]
+    plan_id: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    total_cost: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CommandCodeCachePlan {
+    refresh_whoami: bool,
+    refresh_subscription: bool,
+    refresh_summary: bool,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -2081,6 +2110,34 @@ fn commandcode_reset_text(snapshot: &Value, key: &str) -> String {
     "-".into()
 }
 
+fn commandcode_token_fingerprint(api_key: &str) -> String {
+    let mut digest = sha2::Sha256::new();
+    digest.update(api_key.as_bytes());
+    format!("{:x}", digest.finalize())
+}
+
+fn commandcode_cache_plan(
+    cached: Option<&CommandCodeAccountCache>,
+    token_fingerprint: &str,
+    now: i64,
+) -> CommandCodeCachePlan {
+    let same_token = cached.is_some_and(|cached| cached.token_fingerprint == token_fingerprint);
+    let refresh_whoami = !same_token || cached.and_then(|cached| cached.org_id.as_ref()).is_none();
+    let period_valid = same_token
+        && cached
+            .and_then(|cached| cached.current_period_end)
+            .is_some_and(|reset_at| reset_at > now);
+    let refresh_subscription = !period_valid;
+    let refresh_summary = refresh_subscription
+        || !same_token
+        || cached.and_then(|cached| cached.total_cost).is_none();
+    CommandCodeCachePlan {
+        refresh_whoami,
+        refresh_subscription,
+        refresh_summary,
+    }
+}
+
 async fn fetch_commandcode_usage(
     state: &AppState,
     cached_section: Option<&ProviderUsageSection>,
@@ -2106,28 +2163,60 @@ async fn fetch_commandcode_usage(
 
     let now = chrono::Utc::now().timestamp();
     let multi_account = accounts.len() > 1;
+    let mut cached_account_metadata = read_shared_provider_cache(state).commandcode_accounts;
     let mut skipped_accounts = Vec::new();
     let live_accounts = accounts
         .into_iter()
         .filter_map(|(label, token)| {
-            if let Some(cached) = cached_section.and_then(|section| {
-                provider_cached_account_section(section, &label, multi_account, now)
-            }) {
-                skipped_accounts.push((label, cached));
-                None
-            } else {
-                Some((label, token))
+            let account_cache = cached_account_metadata.get(&label).cloned();
+            let token_fingerprint = commandcode_token_fingerprint(&token);
+            let token_matches = account_cache
+                .as_ref()
+                .is_none_or(|cache| cache.token_fingerprint == token_fingerprint);
+            if token_matches {
+                if let Some(cached) = cached_section.and_then(|section| {
+                    provider_cached_account_section(section, &label, multi_account, now)
+                }) {
+                    if account_cache.is_none() {
+                        cached_account_metadata.insert(
+                            label.clone(),
+                            CommandCodeAccountCache {
+                                token_fingerprint,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    skipped_accounts.push((label, cached));
+                    return None;
+                }
             }
+            Some((label, token, account_cache))
         })
         .collect::<Vec<_>>();
-    let mut fetched: Vec<(String, Result<Value, String>)> = futures_util::future::join_all(
-        live_accounts.iter().map(|(label, token)| async {
-            jitter_delay().await;
-            (label.clone(), commandcode_query_account(state, token).await)
-        }),
-    )
-    .await;
+    let mut fetched: Vec<(String, Result<(Value, CommandCodeAccountCache), String>)> =
+        futures_util::future::join_all(
+            live_accounts
+                .iter()
+                .map(|(label, token, account_cache)| async {
+                    jitter_delay().await;
+                    (
+                        label.clone(),
+                        commandcode_query_account(state, token, account_cache.as_ref(), now).await,
+                    )
+                }),
+        )
+        .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    let mut shared_cache = read_shared_provider_cache(state);
+    shared_cache.commandcode_accounts = cached_account_metadata;
+    for (label, result) in &fetched {
+        if let Ok((_, account_cache)) = result {
+            shared_cache
+                .commandcode_accounts
+                .insert(label.clone(), account_cache.clone());
+        }
+    }
+    write_shared_provider_cache(state, &shared_cache);
     for (_, cached) in skipped_accounts {
         section.windows.extend(cached.windows);
     }
@@ -2141,7 +2230,7 @@ async fn fetch_commandcode_usage(
 
     for (label, result) in &fetched {
         match result {
-            Ok(snapshot) => {
+            Ok((snapshot, _)) => {
                 let five_hour = commandcode_window_text(snapshot, "five_hour");
                 if five_hour != "-" {
                     section.windows.push(ProviderUsageWindow {
@@ -2184,24 +2273,47 @@ async fn fetch_commandcode_usage(
 async fn commandcode_query_account(
     state: &AppState,
     api_key: &str,
-) -> Result<Value, String> {
-    let whoami = commandcode_get(state, "/alpha/whoami", api_key, &[]).await?;
-    let org_id = whoami
-        .get("org")
-        .and_then(|org| org.get("id"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    cached: Option<&CommandCodeAccountCache>,
+    now: i64,
+) -> Result<(Value, CommandCodeAccountCache), String> {
+    let token_fingerprint = commandcode_token_fingerprint(api_key);
+    let plan = commandcode_cache_plan(cached, &token_fingerprint, now);
+    let cached = cached.cloned().unwrap_or_default();
+    let org_id = if plan.refresh_whoami {
+        let whoami = commandcode_get(state, "/alpha/whoami", api_key, &[]).await?;
+        whoami
+            .get("org")
+            .and_then(|org| org.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    } else {
+        cached.org_id.clone()
+    };
     let mut scoped: Vec<(&str, String)> = Vec::new();
     if let Some(org_id) = &org_id {
         scoped.push(("orgId", org_id.clone()));
     }
-    let (credits_result, subscription_result) = tokio::join!(
-        commandcode_get(state, "/alpha/billing/credits", api_key, &scoped),
-        commandcode_get(state, "/alpha/billing/subscriptions", api_key, &scoped),
-    );
-    let credits = credits_result?;
-    let subscription = subscription_result?;
-    let subscription_data = subscription.get("data").cloned().unwrap_or(Value::Null);
+    let (credits, subscription_data) = if plan.refresh_subscription {
+        let (credits_result, subscription_result) = tokio::join!(
+            commandcode_get(state, "/alpha/billing/credits", api_key, &scoped),
+            commandcode_get(state, "/alpha/billing/subscriptions", api_key, &scoped),
+        );
+        let credits = credits_result?;
+        let subscription = subscription_result?;
+        (
+            credits,
+            subscription.get("data").cloned().unwrap_or(Value::Null),
+        )
+    } else {
+        let credits = commandcode_get(state, "/alpha/billing/credits", api_key, &scoped).await?;
+        let subscription_data = serde_json::json!({
+            "currentPeriodStart": cached.current_period_start,
+            "currentPeriodEnd": cached.current_period_end,
+            "planId": cached.plan_id,
+            "status": cached.status,
+        });
+        (credits, subscription_data)
+    };
     let since = subscription_data
         .get("currentPeriodStart")
         .and_then(Value::as_str)
@@ -2209,7 +2321,17 @@ async fn commandcode_query_account(
     if let Some(since) = since {
         scoped.push(("since", since));
     }
-    let summary = commandcode_get(state, "/alpha/usage/summary", api_key, &scoped).await?;
+    let total_cost = if plan.refresh_summary {
+        let summary = commandcode_get(state, "/alpha/usage/summary", api_key, &scoped).await?;
+        let summary_obj = summary.get("data").cloned().unwrap_or(summary);
+        summary_obj
+            .get("totalCost")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            .max(0.0)
+    } else {
+        cached.total_cost.unwrap_or(0.0)
+    };
 
     let credits_obj = credits.get("credits").cloned().unwrap_or(Value::Null);
     let number = |value: &Value, key: &str| -> f64 {
@@ -2219,12 +2341,6 @@ async fn commandcode_query_account(
     let purchased_remaining = number(&credits_obj, "purchasedCredits");
     let free_remaining = number(&credits_obj, "freeCredits");
     let total_remaining = monthly_remaining + purchased_remaining + free_remaining;
-    let summary_obj = summary.get("data").cloned().unwrap_or_else(|| summary.clone());
-    let total_cost = summary_obj
-        .get("totalCost")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0)
-        .max(0.0);
 
     let plan_id = subscription_data
         .get("planId")
@@ -2260,21 +2376,40 @@ async fn commandcode_query_account(
         let pct = (pool > 0.0).then(|| (total_cost / pool * 100.0).clamp(0.0, 100.0));
         (pool, total_cost, pct)
     };
+    let current_period_end = subscription_data.get("currentPeriodEnd").cloned().unwrap_or(Value::Null);
+    let account_cache = CommandCodeAccountCache {
+        token_fingerprint,
+        org_id,
+        current_period_start: subscription_data
+            .get("currentPeriodStart")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        current_period_end: codex_timestamp(&current_period_end),
+        plan_id: (!plan_id.is_empty()).then(|| plan_id.to_string()),
+        status: subscription_data
+            .get("status")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        total_cost: Some(total_cost),
+    };
 
-    Ok(serde_json::json!({
-        "plan_total": plan_total,
-        "total_pool": total_pool,
-        "used_credits": used_credits,
-        "usage_percent": usage_percent,
-        "total_cost": total_cost,
-        "weekly_used": window_number(&weekly, "used"),
-        "weekly_cap": window_number(&weekly, "cap"),
-        "weekly_reset_at": window_reset_at(&weekly),
-        "five_hour_used": window_number(&five_hour, "used"),
-        "five_hour_cap": window_number(&five_hour, "cap"),
-        "five_hour_reset_at": window_reset_at(&five_hour),
-        "current_period_end": subscription_data.get("currentPeriodEnd").cloned().unwrap_or(Value::Null),
-    }))
+    Ok((
+        serde_json::json!({
+            "plan_total": plan_total,
+            "total_pool": total_pool,
+            "used_credits": used_credits,
+            "usage_percent": usage_percent,
+            "total_cost": total_cost,
+            "weekly_used": window_number(&weekly, "used"),
+            "weekly_cap": window_number(&weekly, "cap"),
+            "weekly_reset_at": window_reset_at(&weekly),
+            "five_hour_used": window_number(&five_hour, "used"),
+            "five_hour_cap": window_number(&five_hour, "cap"),
+            "five_hour_reset_at": window_reset_at(&five_hour),
+            "current_period_end": current_period_end,
+        }),
+        account_cache,
+    ))
 }
 
 fn commandcode_window_text(snapshot: &Value, window: &str) -> String {

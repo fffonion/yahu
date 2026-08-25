@@ -218,6 +218,47 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn commandcode_cache_plan_uses_credits_only_before_period_reset() {
+        let now = 1_800_000_000;
+        let cached = CommandCodeAccountCache {
+            token_fingerprint: "fp".into(),
+            org_id: Some("org-1".into()),
+            current_period_end: Some(now + 3600),
+            total_cost: Some(12.5),
+            ..Default::default()
+        };
+        assert_eq!(
+            commandcode_cache_plan(Some(&cached), "fp", now),
+            CommandCodeCachePlan {
+                refresh_whoami: false,
+                refresh_subscription: false,
+                refresh_summary: false,
+            }
+        );
+    }
+
+    #[test]
+    fn commandcode_cache_plan_refetches_period_data_after_expiry_or_token_change() {
+        let now = 1_800_000_000;
+        let expired = CommandCodeAccountCache {
+            token_fingerprint: "fp".into(),
+            org_id: Some("org-1".into()),
+            current_period_end: Some(now - 1),
+            total_cost: Some(12.5),
+            ..Default::default()
+        };
+        let expired_plan = commandcode_cache_plan(Some(&expired), "fp", now);
+        assert!(expired_plan.refresh_subscription);
+        assert!(expired_plan.refresh_summary);
+        assert!(!expired_plan.refresh_whoami);
+
+        let token_changed = commandcode_cache_plan(Some(&expired), "new-fp", now);
+        assert!(token_changed.refresh_whoami);
+        assert!(token_changed.refresh_subscription);
+        assert!(token_changed.refresh_summary);
+    }
+
+    #[test]
     fn commandcode_plan_total_matches_plan_prefixes() {
         assert_eq!(commandcode_plan_total("individual-goat"), Some(70.0));
         assert_eq!(commandcode_plan_total("INDIVIDUAL_PRO_V1"), Some(80.0));
