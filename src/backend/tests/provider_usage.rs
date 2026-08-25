@@ -222,7 +222,8 @@ mod provider_usage_tests {
         let now = 1_800_000_000;
         let cached = CommandCodeAccountCache {
             token_fingerprint: "fp".into(),
-            org_id: Some("org-1".into()),
+            whoami_cached: true,
+            org_id: None,
             current_period_end: Some(now + 3600),
             total_cost: Some(12.5),
             ..Default::default()
@@ -242,6 +243,7 @@ mod provider_usage_tests {
         let now = 1_800_000_000;
         let expired = CommandCodeAccountCache {
             token_fingerprint: "fp".into(),
+            whoami_cached: true,
             org_id: Some("org-1".into()),
             current_period_end: Some(now - 1),
             total_cost: Some(12.5),

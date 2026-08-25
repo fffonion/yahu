@@ -71,6 +71,8 @@ struct CommandCodeAccountCache {
     #[serde(default)]
     token_fingerprint: String,
     #[serde(default)]
+    whoami_cached: bool,
+    #[serde(default)]
     org_id: Option<String>,
     #[serde(default)]
     current_period_start: Option<String>,
@@ -2122,7 +2124,7 @@ fn commandcode_cache_plan(
     now: i64,
 ) -> CommandCodeCachePlan {
     let same_token = cached.is_some_and(|cached| cached.token_fingerprint == token_fingerprint);
-    let refresh_whoami = !same_token || cached.and_then(|cached| cached.org_id.as_ref()).is_none();
+    let refresh_whoami = !same_token || !cached.is_some_and(|cached| cached.whoami_cached);
     let period_valid = same_token
         && cached
             .and_then(|cached| cached.current_period_end)
@@ -2279,15 +2281,18 @@ async fn commandcode_query_account(
     let token_fingerprint = commandcode_token_fingerprint(api_key);
     let plan = commandcode_cache_plan(cached, &token_fingerprint, now);
     let cached = cached.cloned().unwrap_or_default();
-    let org_id = if plan.refresh_whoami {
+    let (org_id, whoami_cached) = if plan.refresh_whoami {
         let whoami = commandcode_get(state, "/alpha/whoami", api_key, &[]).await?;
-        whoami
-            .get("org")
-            .and_then(|org| org.get("id"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
+        (
+            whoami
+                .get("org")
+                .and_then(|org| org.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            true,
+        )
     } else {
-        cached.org_id.clone()
+        (cached.org_id.clone(), cached.whoami_cached)
     };
     let mut scoped: Vec<(&str, String)> = Vec::new();
     if let Some(org_id) = &org_id {
@@ -2379,6 +2384,7 @@ async fn commandcode_query_account(
     let current_period_end = subscription_data.get("currentPeriodEnd").cloned().unwrap_or(Value::Null);
     let account_cache = CommandCodeAccountCache {
         token_fingerprint,
+        whoami_cached,
         org_id,
         current_period_start: subscription_data
             .get("currentPeriodStart")
