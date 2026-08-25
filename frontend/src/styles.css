@@ -479,3 +479,13 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
   .provider-usage-header-meta>time{font-size:10px!important}
   .provider-usage-title-metrics{max-width:none!important;gap:5px!important}
 }
+
+/* iOS PWA safe-area and full-viewport layout. */
+@media (max-width:760px){
+  html,body,#root{min-height:100vh;min-height:100dvh}
+  body{min-height:100vh;min-height:100dvh}
+  .app-shell{min-height:100vh;min-height:100dvh;padding-top:env(safe-area-inset-top,0px);background:var(--surface)}
+  .app-shell>.main-panel,.app-shell>.image-browser{height:100%;min-height:0}
+  .app-shell .sidebar{top:env(safe-area-inset-top,0px);height:auto}
+  .mobile-bottom-nav{min-height:calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom,0px));padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+}

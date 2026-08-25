@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const app = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+const indexHtml = () => readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
 describe('mobile WebUI layout and touch affordances', () => {
   test('mobile uses bottom route tabs and moves the list drawer button into page headers', () => {
@@ -69,6 +70,19 @@ describe('mobile WebUI layout and touch affordances', () => {
     const styles = css();
     expect(styles).toContain('.left-body{display:flex;grid-column:1;grid-row:1;padding:16px 12px calc(12px + env(safe-area-inset-bottom,0px));min-height:0}');
 
+  });
+
+  test('iOS PWA reserves the top safe area and fills the dynamic viewport', () => {
+    const styles = css();
+    const html = indexHtml();
+    expect(html).toContain('viewport-fit=cover');
+    expect(html).toContain('name="apple-mobile-web-app-capable" content="yes"');
+    expect(html).toContain('name="mobile-web-app-capable" content="yes"');
+    expect(styles).toContain('html,body,#root{min-height:100vh;min-height:100dvh}');
+    expect(styles).toContain('padding-top:env(safe-area-inset-top,0px)');
+    expect(styles).toContain('.app-shell>.main-panel,.app-shell>.image-browser{height:100%;min-height:0}');
+    expect(styles).toContain('.app-shell .sidebar{top:env(safe-area-inset-top,0px);height:auto}');
+    expect(styles).toContain('min-height:calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom,0px))');
   });
 
   test('mobile hides the chat workspace side panel and keeps touch scroll containers usable', () => {
