@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { providerCodexResetSubtitle, sectionHasContent, type ProviderUsageSection } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+const providerUsage = () => readFileSync(new URL('./providerUsage.ts', import.meta.url), 'utf8');
 const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 const i18n = () => readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
 const routes = () => readFileSync(new URL('./hashRoute.ts', import.meta.url), 'utf8');
@@ -24,6 +25,17 @@ describe('provider usage view', () => {
     expect(sectionHasContent(section({ rows: [{ label: 'm' }] }))).toBe(true);
     expect(sectionHasContent(section({ windows: [{ window: '5h', used: '10%' }] }))).toBe(true);
     expect(sectionHasContent(section({ description: '余额 **$1**' }))).toBe(true);
+  });
+
+  test('multi-account provider groups put accounts with any full quota window last', () => {
+    const groups: ProviderUsageAccountGroup[] = [
+      ['full-week', [{ window: 'full-week 周额度', used: '100%' }]],
+      ['available', [{ window: 'available 5h额度', used: '12%' }]],
+      ['full-five-hour', [{ window: 'full-five-hour 5h额度', used: '100%' }]],
+      ['available-later', [{ window: 'available-later 月额度', used: '3 / 10' }]],
+    ];
+    expect(orderProviderUsageAccountGroups(groups).map(([account]) => account))
+      .toEqual(['available', 'available-later', 'full-week', 'full-five-hour']);
   });
 
   test('Codex reset subtitle keeps positive accounts and omits zero-reset accounts', () => {
@@ -98,6 +110,10 @@ describe('provider usage view', () => {
     expect(source).toContain('ChartNoAxesColumnIncreasing');
     expect(source).not.toContain('Coins');
     expect(source).toContain('is-multi-account');
+    expect(source).toContain('orderProviderUsageAccountGroups');
+    expect(source).toContain("['commandcode', 'codex', 'grok'].includes(provider.provider)");
+    expect(source).toContain("['commandcode', 'codex', 'grok'].includes(section.provider)");
+    expect(providerUsage()).toContain("hasQuotaWall: windows.some");
     expect(source).toContain('PROVIDER_USAGE_ORDER_KEY');
     expect(source).toContain('onDragStart');
     expect(source).toContain('onDrop');
@@ -107,7 +123,7 @@ describe('provider usage view', () => {
     expect(source).toContain('toggleProviderAutoRefresh');
     expect(source).toContain('is-auto-refreshing');
     expect(source).toContain('captured_at');
-    expect(source).toContain("section.windows.filter((win) => commandcodeWindowParts(win.window)?.[1] !== '5h额度')");
+    expect(source).toContain("windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')");
     expect(source).toContain('providerBalanceText');
     expect(css()).toContain('grid-template-columns:repeat(3,minmax(0,1fr))');
     expect(css()).toContain('height:250px;min-height:250px;max-height:250px');

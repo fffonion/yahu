@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsagePercent, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
@@ -2415,19 +2415,6 @@ function ModeSidebar({ mode }: { mode: Mode }) {
   return <div className="admin-side"><h2>{navLabel(mode)}</h2><p>{modeSummary(mode)}</p></div>;
 }
 
-function usagePercentFromText(value: string | null | undefined): number | null {
-  const match = value?.match(/(-?\d+(?:\.\d+)?)\s*%/);
-  if (match) {
-    const percent = Number(match[1]);
-    return Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null;
-  }
-  const ratio = value?.match(/([\d,.]+)\s*\/\s*([\d,.]+)/);
-  if (!ratio) return null;
-  const used = Number(ratio[1].replace(/,/g, ''));
-  const limit = Number(ratio[2].replace(/,/g, ''));
-  return Number.isFinite(used) && Number.isFinite(limit) && limit > 0 ? Math.max(0, Math.min(100, used / limit * 100)) : null;
-}
-
 function integerPercentText(value: string | null | undefined): string {
   if (!value) return '-';
   return value.replace(/(-?\d+(?:\.\d+)?)\s*%/g, (_match, number) => `${Math.round(Number(number))}%`);
@@ -2523,7 +2510,7 @@ function providerResetDurationText(value: string): string {
   return hours >= 24 ? tf('usage.days', Math.ceil(hours / 24)) : tf('usage.hours', hours);
 }
 
-function commandcodeWindowParts(window: string): [string, string] | null {
+function providerAccountWindowParts(window: string): [string, string] | null {
   const match = window.match(/^(.*) (5h额度|周额度|月额度)$/);
   return match ? [match[1], match[2]] : null;
 }
@@ -2794,7 +2781,7 @@ function ProviderUsageMain(props: {
             const section = sections.find((item) => item.provider === provider.provider);
             const loading = Boolean(props.loading[provider.provider]);
             const error = props.error[provider.provider];
-            const multiAccount = provider.provider === 'commandcode' && Boolean(section?.windows.some((window) => commandcodeWindowParts(window.window)));
+            const multiAccount = ['commandcode', 'codex', 'grok'].includes(provider.provider) && Boolean(section?.windows.some((window) => providerAccountWindowParts(window.window)));
             const balance = providerBalanceText(section?.description);
             const titleMeta = providerTitleMeta(provider.provider, section?.description);
             const tableOnly = provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud';
@@ -2867,36 +2854,39 @@ function ProviderUsageSkeleton() {
 function ProviderUsageSectionView({ section }: { section: ProviderUsageSection }) {
   const tableOnly = ['openrouter', 'deepseek', 'atlascloud'].includes(section.provider);
   const description = tableOnly ? '' : providerDescriptionText(section.description, section.provider);
-  const commandcodeTones = new Map<string, number>();
-  let nextCommandcodeTone = 0;
+  const accountTones = new Map<string, number>();
+  let nextAccountTone = 0;
   const rowTone = (label: string) => {
     if (section.provider !== 'commandcode') return '';
-    const account = commandcodeWindowParts(label)?.[0] || label;
-    if (!commandcodeTones.has(account)) commandcodeTones.set(account, nextCommandcodeTone++ % 2);
-    return `tone-${commandcodeTones.get(account)}`;
+    const account = providerAccountWindowParts(label)?.[0] || label;
+    if (!accountTones.has(account)) accountTones.set(account, nextAccountTone++ % 2);
+    return `tone-${accountTones.get(account)}`;
   };
-  const commandcodeGroups = section.provider === 'commandcode' ? Array.from(section.windows.filter((win) => commandcodeWindowParts(win.window)?.[1] !== '5h额度').reduce((groups, win) => {
-    const account = commandcodeWindowParts(win.window)?.[0] || win.window;
-    const group = groups.get(account) || [];
-    group.push(win);
-    groups.set(account, group);
-    return groups;
-  }, new Map<string, ProviderUsageWindow[]>()).entries()) : [];
+  const accountScoped = ['commandcode', 'codex', 'grok'].includes(section.provider);
+  const accountGroups = accountScoped && section.windows.some((win) => providerAccountWindowParts(win.window))
+    ? orderProviderUsageAccountGroups(Array.from(section.windows.reduce((groups, win) => {
+      const account = providerAccountWindowParts(win.window)?.[0] || win.window;
+      const group = groups.get(account) || [];
+      group.push(win);
+      groups.set(account, group);
+      return groups;
+    }, new Map<string, ProviderUsageWindow[]>()).entries()))
+    : [];
   const renderWindow = (win: ProviderUsageWindow, index: number) => {
-    const percent = usagePercentFromText(win.used);
+    const percent = providerUsagePercent(win.used);
     const progressPercent = percent === null ? null : Math.min(100, Math.max(0, percent));
     return <article className="provider-usage-window" key={`${win.window}-${index}`}>
-      <div className="provider-usage-window-head"><strong>{section.provider === 'commandcode' ? (commandcodeWindowParts(win.window)?.[1] || win.window) : win.window}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{integerPercentText(win.used)}</span></div>
+      <div className="provider-usage-window-head"><strong>{accountScoped ? (providerAccountWindowParts(win.window)?.[1] || win.window) : win.window}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{integerPercentText(win.used)}</span></div>
       {progressPercent !== null && <div className={`provider-usage-progress ${usagePercentTone(progressPercent)}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-valuetext={integerPercentText(win.used)}><span style={{ width: `${progressPercent}%` }} /></div>}
-      {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\u00a0'}</p> : null}
+      {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\\u00a0'}</p> : null}
     </article>;
   };
   const minimaxRows = section.rows.filter((row) => ['日用量', '周额度', '月额度'].includes(row.label));
   const tableRows = section.provider === 'minimax' ? minimaxRows : section.rows;
   return <div className="provider-usage-data">
     {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
-    {section.windows.length > 0 && !['openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (section.provider === 'commandcode'
-      ? <div className="provider-usage-account-groups">{commandcodeGroups.map(([account, windows], groupIndex) => <section className={`provider-usage-account-group tone-${groupIndex % 2}`} key={account}><strong>{account}</strong><div className="provider-usage-windows">{windows.map(renderWindow)}</div></section>)}</div>
+    {section.windows.length > 0 && !['openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (accountGroups.length > 0
+      ? <div className="provider-usage-account-groups">{accountGroups.map(([account, windows], groupIndex) => <section className={`provider-usage-account-group tone-${groupIndex % 2}`} key={account}><strong>{account}</strong><div className="provider-usage-windows">{(section.provider === 'commandcode' ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度') : windows).map(renderWindow)}</div></section>)}</div>
       : <div className="provider-usage-windows">{section.windows.map(renderWindow)}</div>)}
     {tableRows.length > 0 && <div className="provider-usage-table-wrap"><table className="provider-usage-table"><thead>{section.provider === 'minimax' ? <tr><th>{t('usage.period')}</th><th>token {t('usage.input')}</th></tr> : <tr><th>{t('usage.model')}</th><th>{section.provider === 'deepseek' ? t('usage.planInput') : t('usage.input')}</th><th>{section.provider === 'deepseek' ? t('usage.planOutput') : t('usage.output')}</th><th>{section.provider === 'deepseek' ? t('usage.cacheHitRate') : t('usage.hitRate')}</th><th>{section.provider === 'deepseek' ? t('usage.cost') : t('usage.amountUsage')}</th></tr>}</thead><tbody>
       {tableRows.map((row, index) => section.provider === 'minimax' ? <tr className="provider-usage-row" key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.output || row.input || '-'}</td></tr> : <tr className={`provider-usage-row ${rowTone(row.label)}`} key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.input || '-'}</td><td>{row.output || '-'}</td><td>{integerPercentText(row.hit_rate)}</td><td>{integerPercentText(row.cost_or_pct)}</td></tr>)}
