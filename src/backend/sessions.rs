@@ -3121,11 +3121,8 @@ fn fetch_local_skeleton_page(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    // A single local session has a globally ordered message-id space.  Keep
-    // the existing full lineage/API path for reset and detached-session cases
-    // until their cursor mapping can be made equally bounded.
     let entries = local_session_history_entries(&conn, session_id)?;
-    if entries.len() != 1 || entries[0].id != session_id {
+    if entries.is_empty() {
         return Ok(None);
     }
     let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
@@ -3143,20 +3140,67 @@ fn fetch_local_skeleton_page(
         if before.is_some() { "<" } else { ">" },
         if before.is_some() { "DESC" } else { "ASC" },
     );
-    let mut stmt = conn.prepare(&select)?;
-    let mut messages = stmt
-        .query_map(
-            rusqlite::params![session_id, cursor, i64::try_from(limit.saturating_add(1))?],
-            row_to_session_message,
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let has_more = messages.len() > limit;
+    let mut selected_parts = Vec::new();
+    let mut selected_len = 0usize;
+    let indices: Vec<usize> = if before.is_some() {
+        (0..entries.len()).rev().collect()
+    } else {
+        (0..entries.len()).collect()
+    };
+    for index in indices {
+        let remaining_plus_one = limit.saturating_sub(selected_len).saturating_add(1);
+        let mut stmt = conn.prepare(&select)?;
+        let part = stmt
+            .query_map(
+                rusqlite::params![
+                    entries[index].id,
+                    cursor,
+                    i64::try_from(remaining_plus_one)?
+                ],
+                row_to_session_message,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if part.is_empty() {
+            continue;
+        }
+        selected_len = selected_len.saturating_add(part.len());
+        selected_parts.push((index, part));
+        if selected_len > limit {
+            break;
+        }
+    }
+    if selected_parts.is_empty() {
+        return Ok(None);
+    }
+    let has_more = selected_len > limit;
+    if before.is_some() {
+        selected_parts.reverse();
+    }
+    let mut messages = Vec::new();
+    let mut seen = HashSet::new();
+    for (index, mut part) in selected_parts {
+        if before.is_some() {
+            part.reverse();
+        }
+        trim_compression_carryover_prefix(
+            &mut part,
+            index.checked_sub(1).and_then(|previous| entries.get(previous)),
+            SessionMessageJoinMode::VisibleHistory,
+        );
+        for message in part {
+            if let Some(id) = nav_message_id(&message)
+                && !seen.insert(id)
+            {
+                continue;
+            }
+            messages.push(message);
+        }
+    }
     messages.truncate(limit);
     if messages.is_empty() {
         return Ok(None);
     }
     if before.is_some() {
-        messages.reverse();
         Ok(Some((messages, has_more, true)))
     } else {
         Ok(Some((messages, true, has_more)))

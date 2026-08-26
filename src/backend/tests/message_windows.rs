@@ -684,8 +684,9 @@
              );",
         )
         .unwrap();
-        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,source) VALUES ('s1',NULL,1,'telegram')", []).unwrap();
-        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','prompt',1,1)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,source) VALUES ('s0',NULL,1,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,source) VALUES ('s1','s0',2,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s0','user','prompt',1,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,timestamp,active) VALUES ('s1','assistant','working','[{\"id\":\"call-1\"}]',2,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','tool payload that must stay out of skeleton paging','terminal',3,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','assistant','final',4,1)", []).unwrap();
