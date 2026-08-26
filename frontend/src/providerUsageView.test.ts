@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { orderProviderUsageAccountGroups, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const providerUsage = () => readFileSync(new URL('./providerUsage.ts', import.meta.url), 'utf8');
@@ -38,6 +38,19 @@ describe('provider usage view', () => {
       .toEqual(['available', 'available-later', 'full-week', 'full-five-hour']);
   });
 
+  test('multi-account refresh protects active quota walls and refreshes other accounts', () => {
+    const now = 1_800_000_000;
+    expect(providerUsageAccountHasActiveQuotaWall([
+      { window: 'full 周额度', used: '100%', reset_at: now + 3600 },
+      { window: 'full 5h额度', used: '12%', reset_at: now + 60 },
+    ], now)).toBe(true);
+    expect(providerUsageAccountHasActiveQuotaWall([
+      { window: 'expired 周额度', used: '100%', reset_at: now - 1 },
+    ], now)).toBe(false);
+    expect(providerUsageAccountHasActiveQuotaWall([
+      { window: 'refreshing 周额度', used: '80%', reset_at: now + 3600 },
+    ], now)).toBe(false);
+  });
   test('Codex reset subtitle keeps positive accounts and omits zero-reset accounts', () => {
     expect(providerCodexResetSubtitle('mayo：Reset：1个；到期：28天后；me：Reset：0个'))
       .toBe('mayo：1个重置 28天后到期');
@@ -93,7 +106,10 @@ describe('provider usage view', () => {
     expect(source).toContain('refreshProvider');
     expect(source).toContain('refreshAll');
     expect(source).toContain('loading && !section ? <ProviderUsageSkeleton /> : <>');
-    expect(source).toContain('{section && <ProviderUsageSectionView section={section} />}');
+    expect(source).toContain('{section && <ProviderUsageSectionView section={section} loading={loading} />}');
+    expect(source).toContain('providerUsageAccountHasActiveQuotaWall(windows)');
+    expect(source).toContain('ProviderUsageAccountSkeleton');
+    expect(source).toContain('const refreshing = loading && !providerUsageAccountHasActiveQuotaWall(windows);');
     expect(source).toContain('usagePercentTone');
     expect(source).toContain('progressPercent !== null &&');
     expect(source).not.toContain('const ageLabel = updatedAgo(section?.captured_at)');
@@ -111,7 +127,8 @@ describe('provider usage view', () => {
     expect(source).not.toContain('Coins');
     expect(source).toContain('is-multi-account');
     expect(source).toContain('orderProviderUsageAccountGroups');
-    expect(source).toContain("['commandcode', 'codex', 'grok'].includes(provider.provider)");
+    expect(source).toContain('const accountCount = new Set');
+    expect(source).toContain('const multiAccount = accountCount > 2;');
     expect(source).toContain("['commandcode', 'codex', 'grok'].includes(section.provider)");
     expect(providerUsage()).toContain("hasQuotaWall: windows.some");
     expect(source).toContain('PROVIDER_USAGE_ORDER_KEY');
@@ -129,6 +146,8 @@ describe('provider usage view', () => {
     expect(css()).toContain('height:250px;min-height:250px;max-height:250px');
     expect(css()).toContain('.provider-usage-provider-card.is-multi-account');
     expect(css()).toContain('.provider-usage-progress.is-medium span');
+    expect(css()).toContain('.provider-usage-window-skeleton');
+    expect(css()).toContain('.provider-usage-account-group.is-loading');
     expect(css()).toContain('.provider-usage-title-wrap{display:flex;align-items:flex-start');
     expect(css()).toContain('.provider-usage-brand-icon{width:22px;height:22px;flex:0 0 22px;display:grid;place-items:center;margin-top:0!important;border:0');
     expect(css()).toContain('.provider-usage-provider-card.is-auto-refreshing::before');

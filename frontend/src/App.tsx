@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { orderProviderUsageAccountGroups, providerUsagePercent, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
@@ -2781,7 +2781,8 @@ function ProviderUsageMain(props: {
             const section = sections.find((item) => item.provider === provider.provider);
             const loading = Boolean(props.loading[provider.provider]);
             const error = props.error[provider.provider];
-            const multiAccount = ['commandcode', 'codex', 'grok'].includes(provider.provider) && Boolean(section?.windows.some((window) => providerAccountWindowParts(window.window)));
+            const accountCount = new Set((section?.windows || []).map((window) => providerAccountWindowParts(window.window)?.[0]).filter(Boolean)).size;
+            const multiAccount = accountCount > 2;
             const balance = providerBalanceText(section?.description);
             const titleMeta = providerTitleMeta(provider.provider, section?.description);
             const tableOnly = provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud';
@@ -2821,7 +2822,7 @@ function ProviderUsageMain(props: {
                 {!provider.query_ready && <div className="provider-usage-card-toolbar"><span className="provider-usage-credential-hint">{provider.credential_hint}</span></div>}
                 {!provider.query_ready ? <div className="provider-usage-setup"><strong>{t('usage.credentialsNeeded')}</strong><p>{provider.setup_hint}</p></div> : loading && !section ? <ProviderUsageSkeleton /> : <>
                   {error && <div className="provider-usage-banner provider-usage-error">{error}</div>}
-                  {section && <ProviderUsageSectionView section={section} />}
+                  {section && <ProviderUsageSectionView section={section} loading={loading} />}
 
                 </>}
               </div>}
@@ -2851,7 +2852,11 @@ function ProviderUsageSkeleton() {
   return <div className="provider-usage-loading insight-card-skeleton" aria-busy="true" aria-label="loading"><span className="skeleton-block skeleton-title" /><strong><i className="skeleton-block skeleton-number" /></strong><p><i className="skeleton-block skeleton-detail" /></p><i className="skeleton-block skeleton-detail" /></div>;
 }
 
-function ProviderUsageSectionView({ section }: { section: ProviderUsageSection }) {
+function ProviderUsageAccountSkeleton({ count }: { count: number }) {
+  return <>{Array.from({ length: Math.max(1, count) }, (_, index) => <article className="provider-usage-window provider-usage-window-skeleton" key={`loading-${index}`} aria-hidden="true"><div className="provider-usage-window-head"><i className="skeleton-block provider-usage-skeleton-label" /><i className="skeleton-block provider-usage-skeleton-percent" /></div><i className="skeleton-block provider-usage-skeleton-bar" /><i className="skeleton-block provider-usage-skeleton-reset" /></article>)}</>;
+}
+
+function ProviderUsageSectionView({ section, loading = false }: { section: ProviderUsageSection; loading?: boolean }) {
   const tableOnly = ['openrouter', 'deepseek', 'atlascloud'].includes(section.provider);
   const description = tableOnly ? '' : providerDescriptionText(section.description, section.provider);
   const accountTones = new Map<string, number>();
@@ -2886,7 +2891,14 @@ function ProviderUsageSectionView({ section }: { section: ProviderUsageSection }
   return <div className="provider-usage-data">
     {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
     {section.windows.length > 0 && !['openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (accountGroups.length > 0
-      ? <div className="provider-usage-account-groups">{accountGroups.map(([account, windows], groupIndex) => <section className={`provider-usage-account-group tone-${groupIndex % 2}`} key={account}><strong>{account}</strong><div className="provider-usage-windows">{(section.provider === 'commandcode' ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度') : windows).map(renderWindow)}</div></section>)}</div>
+      ? <div className="provider-usage-account-groups">{accountGroups.map(([account, windows], groupIndex) => {
+        const visibleWindows = section.provider === 'commandcode'
+          ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')
+          : windows;
+        if (!visibleWindows.length) return null;
+        const refreshing = loading && !providerUsageAccountHasActiveQuotaWall(windows);
+        return <section className={`provider-usage-account-group tone-${groupIndex % 2}${refreshing ? ' is-loading' : ''}`} aria-busy={refreshing} key={account}><strong>{account}</strong><div className="provider-usage-windows">{refreshing ? <ProviderUsageAccountSkeleton count={visibleWindows.length} /> : visibleWindows.map(renderWindow)}</div></section>;
+      })}</div>
       : <div className="provider-usage-windows">{section.windows.map(renderWindow)}</div>)}
     {tableRows.length > 0 && <div className="provider-usage-table-wrap"><table className="provider-usage-table"><thead>{section.provider === 'minimax' ? <tr><th>{t('usage.period')}</th><th>token {t('usage.input')}</th></tr> : <tr><th>{t('usage.model')}</th><th>{section.provider === 'deepseek' ? t('usage.planInput') : t('usage.input')}</th><th>{section.provider === 'deepseek' ? t('usage.planOutput') : t('usage.output')}</th><th>{section.provider === 'deepseek' ? t('usage.cacheHitRate') : t('usage.hitRate')}</th><th>{section.provider === 'deepseek' ? t('usage.cost') : t('usage.amountUsage')}</th></tr>}</thead><tbody>
       {tableRows.map((row, index) => section.provider === 'minimax' ? <tr className="provider-usage-row" key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.output || row.input || '-'}</td></tr> : <tr className={`provider-usage-row ${rowTone(row.label)}`} key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.input || '-'}</td><td>{row.output || '-'}</td><td>{integerPercentText(row.hit_rate)}</td><td>{integerPercentText(row.cost_or_pct)}</td></tr>)}

@@ -53,6 +53,16 @@ export function providerUsagePercent(value: string | null | undefined): number |
   return Number.isFinite(used) && Number.isFinite(limit) && limit > 0 ? Math.max(0, Math.min(100, used / limit * 100)) : null;
 }
 
+export function providerUsageAccountHasActiveQuotaWall(
+  windows: ProviderUsageWindow[],
+  now = Date.now() / 1000,
+): boolean {
+  return windows.some((window) => {
+    const percent = providerUsagePercent(window.used);
+    return percent !== null && percent >= 100 && typeof window.reset_at === 'number' && window.reset_at > now;
+  });
+}
+
 export function orderProviderUsageAccountGroups(groups: ProviderUsageAccountGroup[]): ProviderUsageAccountGroup[] {
   return groups
     .map(([account, windows], index) => ({
