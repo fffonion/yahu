@@ -694,7 +694,7 @@
 
         let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
         let response = chat_messages_page(
-            State(state),
+            State(state.clone()),
             AxumPath("s1".to_string()),
             Query(ChatMessagesQuery {
                 before: Some(4),
@@ -717,6 +717,32 @@
                 .filter_map(message_i64_id)
                 .collect::<Vec<_>>(),
             vec![1, 2, 3]
+        );
+        assert!(!body.windows(b"tool payload that must stay out of skeleton paging".len()).any(|window| window == b"tool payload that must stay out of skeleton paging"));
+
+        let response = chat_messages_page(
+            State(state),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery {
+                before: None,
+                after: Some(1),
+                around: None,
+                limit: Some(3),
+                view: Some("skeleton".to_string()),
+            }),
+        )
+        .await;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(app_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(
+            page["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(message_i64_id)
+                .collect::<Vec<_>>(),
+            vec![4]
         );
         assert!(!body.windows(b"tool payload that must stay out of skeleton paging".len()).any(|window| window == b"tool payload that must stay out of skeleton paging"));
     }
