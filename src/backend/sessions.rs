@@ -1384,6 +1384,24 @@ async fn chat_messages_page(
 ) -> Response<Body> {
     let limit = query.limit.unwrap_or(24).clamp(1, 80);
     let requested_view = query.view.as_deref().unwrap_or("skeleton");
+    if requested_view == "skeleton" && (query.before.is_some() || query.after.is_some()) {
+        match fetch_local_skeleton_page(&state, &session_id, query.before, query.after, limit) {
+            Ok(Some((mut messages, has_older, has_newer))) => {
+                inject_turn_durations(&mut messages);
+                let skeleton = history_skeleton_messages(&messages);
+                return Json(serde_json::json!({
+                    "object": "list",
+                    "data": skeleton,
+                    "has_older": has_older,
+                    "has_newer": has_newer,
+                    "metadata_pending": true
+                }))
+                .into_response();
+            }
+            Ok(None) => {}
+            Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local paged skeleton window"),
+        }
+    }
     if query.around.is_some() && query.before.is_none() && query.after.is_none()
         && let Some(around) = query.around
     {
@@ -3081,6 +3099,88 @@ fn fetch_local_detail_range(
     page.reverse();
     Ok(Some((page, total > limit, total)))
 }
+
+fn fetch_local_skeleton_page(
+    state: &AppState,
+    session_id: &str,
+    before: Option<i64>,
+    after: Option<i64>,
+    limit: usize,
+) -> anyhow::Result<Option<(Vec<serde_json::Value>, bool, bool)>> {
+    let Some(cursor) = before.or(after) else {
+        return Ok(None);
+    };
+    if before.is_some() == after.is_some() {
+        return Ok(None);
+    }
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    // A single local session has a globally ordered message-id space.  Keep
+    // the existing full lineage/API path for reset and detached-session cases
+    // until their cursor mapping can be made equally bounded.
+    let entries = local_session_history_entries(&conn, session_id)?;
+    if entries.len() != 1 || entries[0].id != session_id {
+        return Ok(None);
+    }
+    let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
+    let reasoning_columns = local_skeleton_reasoning_select_columns(&conn)?;
+    let select = format!(
+        "SELECT id, session_id, role, \
+         CASE WHEN role IN ('user', 'assistant', 'system') THEN content END AS content, \
+         CASE WHEN role IN ('user', 'assistant', 'system') THEN tool_call_id END AS tool_call_id, \
+         CASE WHEN role = 'assistant' THEN tool_calls END AS tool_calls, \
+         CASE WHEN role = 'tool' THEN tool_name END AS tool_name, \
+         timestamp, token_count, \
+         CASE WHEN role = 'assistant' THEN finish_reason END AS finish_reason, \
+         {reasoning_columns} \
+         FROM messages WHERE {message_filter} AND session_id = ?1 AND id {} ?2 ORDER BY id {} LIMIT ?3",
+        if before.is_some() { "<" } else { ">" },
+        if before.is_some() { "DESC" } else { "ASC" },
+    );
+    let mut stmt = conn.prepare(&select)?;
+    let mut messages = stmt
+        .query_map(
+            rusqlite::params![session_id, cursor, i64::try_from(limit.saturating_add(1))?],
+            row_to_session_message,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = messages.len() > limit;
+    messages.truncate(limit);
+    if messages.is_empty() {
+        return Ok(None);
+    }
+    if before.is_some() {
+        messages.reverse();
+        Ok(Some((messages, has_more, true)))
+    } else {
+        Ok(Some((messages, true, has_more)))
+    }
+}
+
+fn local_skeleton_reasoning_select_columns(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
+    let details = if sqlite_table_has_columns(conn, "messages", &["reasoning_details"])? {
+        "CASE WHEN role = 'assistant' THEN reasoning_details END AS reasoning_details"
+    } else {
+        "NULL AS reasoning_details"
+    };
+    let codex_items = if sqlite_table_has_columns(conn, "messages", &["codex_reasoning_items"])? {
+        "CASE WHEN role = 'assistant' THEN codex_reasoning_items END AS codex_reasoning_items"
+    } else {
+        "NULL AS codex_reasoning_items"
+    };
+    Ok(format!(
+        "CASE WHEN role = 'assistant' THEN reasoning END AS reasoning, \
+         CASE WHEN role = 'assistant' THEN reasoning_content END AS reasoning_content, \
+         {details}, {codex_items}"
+    ))
+}
+
 #[cfg(test)]
 fn fetch_local_lineage_messages(
     state: &AppState,

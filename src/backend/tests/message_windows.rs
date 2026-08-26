@@ -625,3 +625,97 @@
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(CHAT_WATCH_POLL_INTERVAL, Duration::from_secs(5));
     }
+
+    #[tokio::test]
+    async fn paged_skeleton_history_uses_local_window_without_upstream_full_transcript() {
+        async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
+            Json(serde_json::json!({
+                "object": "hermes.session",
+                "session": {"id": session_id, "parent_session_id": null}
+            }))
+        }
+
+        async fn api_messages(
+            State(calls): State<Arc<std::sync::atomic::AtomicUsize>>,
+            AxumPath(session_id): AxumPath<String>,
+        ) -> Json<serde_json::Value> {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Json(serde_json::json!({
+                "object": "list",
+                "data": [{"id": 999, "session_id": session_id, "role": "assistant", "content": "upstream full transcript"}]
+            }))
+        }
+
+        let app_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages))
+            .with_state(app_calls.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        )
+        .unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,source) VALUES ('s1',NULL,1,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','user','prompt',1,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,timestamp,active) VALUES ('s1','assistant','working','[{\"id\":\"call-1\"}]',2,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,tool_name,timestamp,active) VALUES ('s1','tool','tool payload that must stay out of skeleton paging','terminal',3,1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s1','assistant','final',4,1)", []).unwrap();
+        drop(conn);
+
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        let response = chat_messages_page(
+            State(state),
+            AxumPath("s1".to_string()),
+            Query(ChatMessagesQuery {
+                before: Some(4),
+                after: None,
+                around: None,
+                limit: Some(3),
+                view: Some("skeleton".to_string()),
+            }),
+        )
+        .await;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(app_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(
+            page["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(message_i64_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        assert!(!body.windows(b"tool payload that must stay out of skeleton paging".len()).any(|window| window == b"tool payload that must stay out of skeleton paging"));
+    }
