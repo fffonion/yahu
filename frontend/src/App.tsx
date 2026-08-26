@@ -2820,7 +2820,7 @@ function ProviderUsageMain(props: {
               </div>
               {!enabled ? <div className="provider-usage-off-state"><strong>{provider.configured ? t('usage.closed') : t('usage.notConfigured')}</strong><span>{provider.configured ? t('usage.enableToQuery') : t('usage.enableToConfigure')}</span></div> : <div className="provider-usage-card-content">
                 {!provider.query_ready && <div className="provider-usage-card-toolbar"><span className="provider-usage-credential-hint">{provider.credential_hint}</span></div>}
-                {!provider.query_ready ? <div className="provider-usage-setup"><strong>{t('usage.credentialsNeeded')}</strong><p>{provider.setup_hint}</p></div> : loading && !section ? <ProviderUsageSkeleton /> : <>
+                {!provider.query_ready ? <div className="provider-usage-setup"><strong>{t('usage.credentialsNeeded')}</strong><p>{provider.setup_hint}</p></div> : loading && accountCount <= 1 ? <ProviderUsageSkeleton /> : <>
                   {error && <div className="provider-usage-banner provider-usage-error">{error}</div>}
                   {section && <ProviderUsageSectionView section={section} loading={loading} />}
 
