@@ -136,13 +136,35 @@ function NewMessagesSeparator() {
   return <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>;
 }
 
-export function StructuredDataView({ value }: { value: unknown }) {
+const STRUCTURED_ARRAY_COLLAPSE_THRESHOLD = 3;
+const TOOL_LONG_TEXT_THRESHOLD = 32;
+
+type StructuredDataViewProps = { value: unknown; depth?: number };
+
+function isLongToolText(value: unknown): value is string {
+  return typeof value === 'string' && value.length > TOOL_LONG_TEXT_THRESHOLD;
+}
+
+function StructuredArrayView({ value, depth }: { value: unknown[]; depth: number }) {
+  const children = <div className="tool-children">{value.map((item, index) => <div className={`tool-field${isLongToolText(item) ? ' tool-field-long' : ''}`} key={index}><span className="tool-key">{index}</span><StructuredDataView value={item} depth={depth + 1} /></div>)}</div>;
+  if (depth === 0 || !(value.length > STRUCTURED_ARRAY_COLLAPSE_THRESHOLD)) return children;
+  return <details className="tool-array-fold">
+    <summary className="tool-array-summary">
+      <ChevronRight className="tool-array-chevron" aria-hidden="true" />
+      <span className="tool-array-expand-label">{tf('tool.expandArray', value.length)}</span>
+      <span className="tool-array-collapse-label">{tf('tool.collapseArray', value.length)}</span>
+    </summary>
+    {children}
+  </details>;
+}
+
+export function StructuredDataView({ value, depth = 0 }: StructuredDataViewProps) {
   if (value === null || value === undefined) return <span className="tool-empty">null</span>;
-  if (Array.isArray(value)) return <div className="tool-children">{value.map((item, index) => <div className="tool-field" key={index}><span className="tool-key">{index}</span><StructuredDataView value={item} /></div>)}</div>;
+  if (Array.isArray(value)) return <StructuredArrayView value={value} depth={depth} />;
   if (typeof value === 'object') {
-    return <div className="tool-children">{Object.entries(value as Record<string, unknown>).map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span><StructuredDataView value={child} /></div>)}</div>;
+    return <div className="tool-children">{Object.entries(value as Record<string, unknown>).map(([key, child]) => <div className={`tool-field${isLongToolText(child) ? ' tool-field-long' : ''}`} key={key}><span className="tool-key">{key}</span><StructuredDataView value={child} depth={depth + 1} /></div>)}</div>;
   }
-  return <span className={`tool-scalar ${typeof value}`}>{String(value)}</span>;
+  return <span className={`tool-scalar ${typeof value}${isLongToolText(value) ? ' tool-scalar-long' : ''}`}>{String(value)}</span>;
 }
 
 function ToolCodeBlock({ lines, variant }: { lines: HighlightedToolCodeLine[]; variant: 'diff' | 'source' }) {
@@ -159,7 +181,7 @@ function PatchResultView({ value, filePath }: { value: unknown; filePath: string
   if (!diff) return <StructuredDataView value={value} />;
   const block = <ToolCodeBlock lines={highlightedDiffLines(diff, filePath)} variant="diff" />;
   if (!record) return block;
-  return <div className="tool-children">{Object.entries(record).map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span>{key === 'diff' ? block : <StructuredDataView value={child} />}</div>)}</div>;
+  return <div className="tool-children">{Object.entries(record).map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span>{key === 'diff' ? block : <StructuredDataView value={child} depth={1} />}</div>)}</div>;
 }
 
 function SearchFilesResultView({ value }: { value: unknown }) {

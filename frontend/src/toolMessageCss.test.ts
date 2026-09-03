@@ -54,10 +54,34 @@ describe('tool message structured layout css', () => {
 
   test('assistant structured content reuses the exact recursive tool value formatter', () => {
     const source = app();
-    expect(source).toContain('export function StructuredDataView({ value }: { value: unknown })');
-    expect(source).toContain('<StructuredDataView value={child} />');
+    expect(source).toContain('export function StructuredDataView({ value, depth = 0 }: StructuredDataViewProps)');
+    expect(source).toContain('<StructuredDataView value={child} depth={depth + 1} />');
     expect(source).toContain('<StructuredDataView value={value} />');
     expect(source).toContain('message.structuredContent ? <StructuredDataView value={message.structuredContent.value} />');
+  });
+
+  test('nested arrays longer than three items are collapsed by default', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('const STRUCTURED_ARRAY_COLLAPSE_THRESHOLD = 3;');
+    expect(source).toContain('value.length > STRUCTURED_ARRAY_COLLAPSE_THRESHOLD');
+    expect(source).toContain('<details className="tool-array-fold">');
+    expect(source).toContain("<summary className=\"tool-array-summary\">");
+    expect(source).toContain("tf('tool.expandArray', value.length)");
+    expect(source).toContain('depth={depth + 1}');
+    expect(styles).toContain('.tool-array-fold');
+    expect(styles).toContain('.tool-array-fold[open] .tool-array-chevron');
+  });
+
+  test('long tool strings switch to full-width detail rows while short strings stay inline', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('const TOOL_LONG_TEXT_THRESHOLD = 32;');
+    expect(source).toContain("isLongToolText(child) ? ' tool-field-long' : ''");
+    expect(source).toContain("isLongToolText(value) ? ' tool-scalar-long' : ''");
+    expect(styles).toContain('.tool-field-long{grid-template-columns:minmax(0,1fr);gap:4px}');
+    expect(styles).toContain('.tool-field-long .tool-key{width:auto;min-width:0;max-width:none}');
+    expect(styles).toContain('.tool-scalar-long{display:block;width:100%}');
   });
 
   test('tool summaries keep the icon inside the card with compact typography', () => {
