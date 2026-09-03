@@ -408,7 +408,7 @@ mod provider_usage_tests {
         let providers = json["providers"].as_array().unwrap();
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0]["provider"], "openrouter");
-        assert_eq!(providers.len(), 10);
+        assert_eq!(providers.len(), 11);
     }
 
     #[test]

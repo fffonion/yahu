@@ -19,9 +19,11 @@ const MINIMAX_USAGE_SUMMARY_URL: &str =
 const KIMI_API_BASE: &str = "https://www.kimi.com";
 const MIMO_API_BASE: &str = "https://platform.xiaomimimo.com/api/v1";
 const COMMANDCODE_API_BASE: &str = "https://api.commandcode.ai";
-const GROK_BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+const GROK_WEB_CREDITS_URL: &str =
+    "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
 const XAI_OAUTH_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
 const XAI_OAUTH_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
+const ZED_CLOUD_ME_URL: &str = "https://cloud.zed.dev/client/users/me";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct ProviderUsageRow {
@@ -32,7 +34,7 @@ struct ProviderUsageRow {
     cost_or_pct: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct ProviderUsageWindow {
     window: String,
     used: Option<String>,
@@ -191,6 +193,7 @@ struct AuthCredentialEntry {
     label: String,
     access_token: String,
     refresh_token: Option<String>,
+    user_id: Option<String>,
 }
 
 fn auth_json_credential_entries(
@@ -235,10 +238,12 @@ fn auth_json_credential_entries(
                 .map(str::trim)
                 .filter(|token| !token.is_empty())
                 .map(str::to_string);
+            let user_id = json_string_or_number(entry.get("user_id"));
             Some(AuthCredentialEntry {
                 label,
                 access_token: access_token.to_string(),
                 refresh_token,
+                user_id,
             })
         })
         .collect();
@@ -271,6 +276,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
     let commandcode_pool = !auth_json_credential_pool(hermes_home, "commandcode").is_empty();
     let codex_pool = !auth_json_credential_pool(hermes_home, "openai-codex").is_empty();
     let grok_pool = !auth_json_credential_pool(hermes_home, "xai-oauth").is_empty();
+    let zed_pro_pool = !auth_json_credential_pool(hermes_home, "zed-pro").is_empty();
     let entries = [
         (
             "openrouter",
@@ -378,6 +384,14 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             "auth.json credential_pool.xai-oauth",
             "配置 auth.json 的 credential_pool.xai-oauth，保留 access_token 和 refresh_token；通过 Hermes 的 xAI OAuth 登录流程获取。",
         ),
+        (
+            "zed-pro",
+            "Zed Pro 用量",
+            zed_pro_pool,
+            zed_pro_pool,
+            "auth.json credential_pool.zed-pro",
+            "配置 auth.json 的 credential_pool.zed-pro，保留 access_token 与 user_id；通过 Hermes 的 Zed 登录流程获取账号凭据。",
+        ),
     ];
     entries
         .into_iter()
@@ -467,6 +481,28 @@ async fn provider_http_post_json(
     serde_json::from_str::<Value>(&text).map_err(|err| format!("响应不是 JSON：{err}"))
 }
 
+async fn provider_http_post_bytes(
+    client: &reqwest::Client,
+    url: &str,
+    body: &[u8],
+    headers: &[(String, String)],
+) -> Result<Vec<u8>, String> {
+    let mut request = client
+        .post(url)
+        .body(body.to_vec())
+        .timeout(PROVIDER_USAGE_TIMEOUT);
+    for (name, value) in headers {
+        request = request.header(name.as_str(), value.as_str());
+    }
+    let response = request.send().await.map_err(|err| err.to_string())?;
+    let status = response.status();
+    let body = response.bytes().await.map_err(|err| err.to_string())?;
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    Ok(body.to_vec())
+}
+
 fn fmt_provider_int(value: f64) -> String {
     if value >= 1_000_000.0 {
         format!("{:.2}m", value / 1_000_000.0)
@@ -515,6 +551,17 @@ fn provider_number(value: &Value) -> Option<f64> {
         .as_f64()
         .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
         .filter(|number| number.is_finite())
+}
+
+fn json_string_or_number(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    if let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) {
+        return Some(text.to_string());
+    }
+    if let Some(number) = value.as_i64() {
+        return Some(number.to_string());
+    }
+    value.as_u64().map(|number| number.to_string())
 }
 
 #[derive(Clone, Default)]
@@ -2607,6 +2654,15 @@ fn provider_cached_account_section(
     Some(cached)
 }
 
+fn should_skip_codex_cached_account(
+    section: &ProviderUsageSection,
+    label: &str,
+    now: i64,
+    force: bool,
+) -> bool {
+    !force && provider_cached_account_section(section, label, true, now).is_some()
+}
+
 fn jwt_chatgpt_account_id(token: &str) -> Option<String> {
     let parts: Vec<&str> = token.split('.').collect();
     let payload = parts.get(1)?;
@@ -2617,19 +2673,6 @@ fn jwt_chatgpt_account_id(token: &str) -> Option<String> {
     claims
         .get("https://api.openai.com/auth")
         .and_then(|auth| auth.get("chatgpt_account_id"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-}
-
-fn jwt_sub_claim(token: &str) -> Option<String> {
-    let parts: Vec<&str> = token.split('.').collect();
-    let payload = parts.get(1)?;
-    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .ok()?;
-    let claims: Value = serde_json::from_slice(&decoded).ok()?;
-    claims
-        .get("sub")
         .and_then(Value::as_str)
         .map(str::to_string)
 }
@@ -2654,6 +2697,7 @@ fn codex_account_description(
 async fn fetch_codex_usage(
     state: &AppState,
     cached_section: Option<&ProviderUsageSection>,
+    force: bool,
 ) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "codex".into(),
@@ -2674,9 +2718,8 @@ async fn fetch_codex_usage(
         .into_iter()
         .filter_map(|(label, token)| {
             if let Some(cached) = cached_section
-                .and_then(|section| {
-                    provider_cached_account_section(section, &label, true, now)
-                })
+                .filter(|section| should_skip_codex_cached_account(section, &label, now, force))
+                .and_then(|section| provider_cached_account_section(section, &label, true, now))
             {
                 skipped_accounts.push((label, cached));
                 None
@@ -2794,6 +2837,142 @@ async fn jitter_delay() {
     sleep(Duration::from_millis(millis)).await;
 }
 
+fn grok_proto_varint(data: &[u8], offset: &mut usize) -> Result<u64, String> {
+    let mut value = 0u64;
+    for shift in (0..70).step_by(7) {
+        let byte = *data
+            .get(*offset)
+            .ok_or_else(|| "gRPC 响应的 varint 不完整".to_string())?;
+        *offset += 1;
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+    }
+    Err("gRPC 响应的 varint 溢出".to_string())
+}
+
+fn grok_proto_field(data: &[u8], wanted: u32) -> Option<(u8, Vec<u8>)> {
+    let mut offset = 0;
+    while offset < data.len() {
+        let tag = grok_proto_varint(data, &mut offset).ok()?;
+        let field = u32::try_from(tag >> 3).ok()?;
+        let wire = u8::try_from(tag & 7).ok()?;
+        let value = match wire {
+            0 => grok_proto_varint(data, &mut offset).ok()?.to_le_bytes().to_vec(),
+            1 => {
+                let end = offset.checked_add(8)?;
+                let value = data.get(offset..end)?.to_vec();
+                offset = end;
+                value
+            }
+            2 => {
+                let length = usize::try_from(grok_proto_varint(data, &mut offset).ok()?).ok()?;
+                let end = offset.checked_add(length)?;
+                let value = data.get(offset..end)?.to_vec();
+                offset = end;
+                value
+            }
+            5 => {
+                let end = offset.checked_add(4)?;
+                let value = data.get(offset..end)?.to_vec();
+                offset = end;
+                value
+            }
+            _ => return None,
+        };
+        if field == wanted {
+            return Some((wire, value));
+        }
+    }
+    None
+}
+
+fn grok_proto_timestamp(data: &[u8]) -> Option<chrono::DateTime<chrono::Utc>> {
+    let (_, seconds) = grok_proto_field(data, 1)?;
+    let seconds = i64::try_from(u64::from_le_bytes(seconds.try_into().ok()?)).ok()?;
+    let nanos = grok_proto_field(data, 2)
+        .and_then(|(_, value)| u64::from_le_bytes(value.try_into().ok()?).try_into().ok())
+        .unwrap_or(0);
+    chrono::DateTime::from_timestamp(seconds, nanos)
+}
+
+fn grok_web_billing_snapshot(body: &[u8]) -> Result<Value, String> {
+    if body.len() < 5 || body[0] & 0x80 != 0 {
+        return Err("gRPC 响应缺少有效的数据帧".to_string());
+    }
+    let length = u32::from_be_bytes(body[1..5].try_into().unwrap()) as usize;
+    let end = 5usize
+        .checked_add(length)
+        .filter(|end| *end <= body.len())
+        .ok_or_else(|| "gRPC 响应数据帧被截断".to_string())?;
+    let credits = grok_proto_field(&body[5..end], 1)
+        .filter(|(wire, _)| *wire == 2)
+        .map(|(_, value)| value)
+        .ok_or_else(|| "gRPC 响应缺少额度信息".to_string())?;
+    let used_percent = grok_proto_field(&credits, 1)
+        .filter(|(wire, value)| *wire == 5 && value.len() == 4)
+        .map(|(_, value)| f32::from_le_bytes(value.try_into().unwrap()) as f64)
+        .unwrap_or(0.0);
+    if !used_percent.is_finite() || !(0.0..=100.0).contains(&used_percent) {
+        return Err("gRPC 响应包含无效的额度比例".to_string());
+    }
+    let reset = grok_proto_field(&credits, 5)
+        .filter(|(wire, _)| *wire == 2)
+        .and_then(|(_, value)| grok_proto_timestamp(&value))
+        .or_else(|| {
+            grok_proto_field(&credits, 8)
+                .filter(|(wire, _)| *wire == 2)
+                .and_then(|(_, value)| {
+                    grok_proto_field(&value, 3)
+                        .filter(|(wire, _)| *wire == 2)
+                        .and_then(|(_, timestamp)| grok_proto_timestamp(&timestamp))
+                })
+        })
+        .ok_or_else(|| "gRPC 响应缺少额度重置时间".to_string())?;
+    Ok(serde_json::json!({
+        "config": {
+            "currentPeriod": {
+                "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                "end": reset.to_rfc3339(),
+            },
+            "creditUsagePercent": used_percent,
+        }
+    }))
+}
+
+async fn grok_query_web_billing(state: &AppState, token: &str) -> Result<Value, String> {
+    let headers = vec![
+        ("Authorization".to_string(), format!("Bearer {token}")),
+        ("Accept".to_string(), "application/grpc-web+proto".to_string()),
+        (
+            "Content-Type".to_string(),
+            "application/grpc-web+proto".to_string(),
+        ),
+        ("X-Grpc-Web".to_string(), "1".to_string()),
+        (
+            "Origin".to_string(),
+            "https://grok.com".to_string(),
+        ),
+        (
+            "Referer".to_string(),
+            "https://grok.com/".to_string(),
+        ),
+        (
+            "User-Agent".to_string(),
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36".to_string(),
+        ),
+    ];
+    let body = provider_http_post_bytes(
+        &state.client,
+        GROK_WEB_CREDITS_URL,
+        &[0, 0, 0, 0, 0],
+        &headers,
+    )
+    .await?;
+    grok_web_billing_snapshot(&body)
+}
+
 async fn grok_refresh_access_token(
     state: &AppState,
     refresh_token: &str,
@@ -2834,25 +3013,7 @@ async fn grok_query_account(
     state: &AppState,
     account: &AuthCredentialEntry,
 ) -> Result<Value, String> {
-    let make_headers = |token: &str| {
-        let mut headers = vec![
-            ("Authorization".to_string(), format!("Bearer {token}")),
-            ("X-XAI-Token-Auth".to_string(), "xai-grok-cli".into()),
-            ("x-grok-client-version".to_string(), "token-usage".into()),
-            ("Accept".to_string(), "application/json".into()),
-            ("User-Agent".to_string(), "Hermes-Agent token usage".into()),
-        ];
-        if let Some(user_id) = jwt_sub_claim(token) {
-            headers.push(("x-userid".to_string(), user_id));
-        }
-        headers
-    };
-    let first = provider_http_get_json(
-        &state.client,
-        GROK_BILLING_URL,
-        &make_headers(&account.access_token),
-    )
-    .await;
+    let first = grok_query_web_billing(state, &account.access_token).await;
     match first {
         Ok(payload) => Ok(payload),
         Err(err) if err.starts_with("HTTP 401") => {
@@ -2861,15 +3022,257 @@ async fn grok_query_account(
             };
             let (access_token, _next_refresh) =
                 grok_refresh_access_token(state, refresh_token).await?;
-            provider_http_get_json(
-                &state.client,
-                GROK_BILLING_URL,
-                &make_headers(&access_token),
-            )
-            .await
+            grok_query_web_billing(state, &access_token).await
         }
         Err(err) => Err(err),
     }
+}
+
+fn zed_plan_label(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "" => String::new(),
+        "zed_student" => "Student".into(),
+        "zed_pro" => "Pro".into(),
+        "zed_pro_trial" => "Pro Trial".into(),
+        "zed_free" => "Free".into(),
+        other => other
+            .strip_prefix("zed_")
+            .unwrap_or(other)
+            .replace('_', " "),
+    }
+}
+
+fn zed_usage_limit(value: Option<&Value>) -> Option<f64> {
+    let value = value?;
+    if value
+        .as_str()
+        .is_some_and(|text| text.eq_ignore_ascii_case("unlimited"))
+    {
+        return None;
+    }
+    if let Some(number) = provider_number(value) {
+        return Some(number);
+    }
+    let object = value.as_object()?;
+    if object.contains_key("unlimited") {
+        return None;
+    }
+    object
+        .get("limited")
+        .or_else(|| object.get("limit"))
+        .and_then(provider_number)
+}
+
+fn zed_iso_timestamp(value: Option<&Value>) -> Option<i64> {
+    let raw = value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())?;
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|stamp| stamp.timestamp())
+}
+
+fn zed_short_date(value: Option<&Value>) -> Option<String> {
+    let stamp = zed_iso_timestamp(value)?;
+    let when = chrono::DateTime::<chrono::Utc>::from_timestamp(stamp, 0)?;
+    Some(format!("{}/{}", when.format("%m"), when.format("%d")))
+}
+
+fn zed_count_text(used: Option<f64>, limit: Option<f64>) -> Option<String> {
+    let used = used?;
+    Some(match limit {
+        Some(limit) if limit > 0.0 => format!("{used:.0}/{limit:.0}"),
+        Some(_) => format!("{used:.0}"),
+        None => format!("{used:.0}/无限"),
+    })
+}
+
+fn zed_plan_name(payload: &Value) -> String {
+    let plan = payload.get("plan");
+    let raw = plan
+        .and_then(|value| value.get("plan_v3"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            plan.and_then(|value| value.get("plan_v2"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            plan.and_then(|value| value.get("plan")).and_then(|value| {
+                value
+                    .as_str()
+                    .or_else(|| value.get("plan").and_then(Value::as_str))
+            })
+        })
+        .or_else(|| {
+            payload
+                .get("plans_by_organization")
+                .and_then(Value::as_object)
+                .and_then(|plans| plans.values().find_map(Value::as_str))
+        })
+        .unwrap_or("");
+    zed_plan_label(raw)
+}
+
+fn zed_account_snapshot(
+    payload: &Value,
+) -> Result<(String, Vec<ProviderUsageWindow>), String> {
+    let plan = payload.get("plan").cloned().unwrap_or(Value::Null);
+    let plan_name = zed_plan_name(payload);
+    if plan_name.is_empty() && plan.is_null() {
+        return Err("返回内容缺少套餐信息".into());
+    }
+    let period = plan
+        .get("subscription_period")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let reset_at = zed_iso_timestamp(period.get("ended_at"));
+    let reset = reset_at.map(provider_reset_text_local);
+    let usage = plan.get("usage").cloned().unwrap_or(Value::Null);
+    let model_requests = usage.get("model_requests").cloned().unwrap_or(Value::Null);
+    let edit_predictions = usage
+        .get("edit_predictions")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let model_used = model_requests.get("used").and_then(provider_number);
+    let model_limit = zed_usage_limit(model_requests.get("limit"));
+    let edit_used = edit_predictions.get("used").and_then(provider_number);
+    let edit_limit = zed_usage_limit(edit_predictions.get("limit"));
+    let mut details = Vec::new();
+    if !plan_name.is_empty() {
+        details.push(plan_name);
+    }
+    if let (Some(start), Some(end)) = (
+        zed_short_date(period.get("started_at")),
+        zed_short_date(period.get("ended_at")),
+    ) {
+        details.push(format!("账期 {start}–{end}"));
+    }
+    if let Some(text) = zed_count_text(model_used, model_limit) {
+        details.push(format!("模型请求 {text}"));
+    }
+    if let Some(text) = zed_count_text(edit_used, edit_limit) {
+        details.push(format!("补全 {text}"));
+    }
+    let mut windows = Vec::new();
+    if let (Some(used), Some(limit)) = (model_used, model_limit)
+        && limit > 0.0
+    {
+        let percent = used / limit * 100.0;
+        if percent.is_finite() {
+            windows.push(ProviderUsageWindow {
+                window: "月额度".into(),
+                used: Some(format!("{percent:.1}%")),
+                reset,
+                reset_at,
+            });
+        }
+    }
+    Ok((details.join(" · "), windows))
+}
+
+async fn zed_query_account(
+    state: &AppState,
+    account: &AuthCredentialEntry,
+) -> Result<Value, String> {
+    let user_id = account
+        .user_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "凭据缺少 user_id".to_string())?;
+    let headers = [
+        (
+            "Authorization".into(),
+            format!("{user_id} {}", account.access_token),
+        ),
+        ("Accept".into(), "application/json".into()),
+        ("Content-Type".into(), "application/json".into()),
+        ("User-Agent".into(), "yahu/zed-pro".into()),
+    ];
+    provider_http_get_json(&state.client, ZED_CLOUD_ME_URL, &headers).await
+}
+
+async fn fetch_zed_pro_usage(
+    state: &AppState,
+    cached_section: Option<&ProviderUsageSection>,
+    force: bool,
+) -> ProviderUsageSection {
+    let mut section = ProviderUsageSection {
+        provider: "zed-pro".into(),
+        title: "Zed Pro 用量".into(),
+        ..Default::default()
+    };
+    let accounts = auth_json_credential_entries(&state.hermes_home, "zed-pro");
+    if accounts.is_empty() {
+        section.errors.push("未找到 zed-pro 账号凭据".into());
+        return section;
+    }
+    let now = chrono::Utc::now().timestamp();
+    let multi_account = accounts.len() > 1;
+    let mut skipped_accounts = Vec::new();
+    let live_accounts = accounts
+        .into_iter()
+        .filter_map(|account| {
+            if !force
+                && let Some(cached) = cached_section.and_then(|section| {
+                    provider_cached_account_section(section, &account.label, multi_account, now)
+                })
+            {
+                skipped_accounts.push((account.label, cached));
+                None
+            } else {
+                Some(account)
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut fetched: Vec<(String, Result<Value, String>)> = futures_util::future::join_all(
+        live_accounts.iter().map(|account| async {
+            jitter_delay().await;
+            (account.label.clone(), zed_query_account(state, account).await)
+        }),
+    )
+    .await;
+    fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    section.description = cached_section
+        .map(|cached| cached.description.clone())
+        .unwrap_or_default();
+    for (_, cached) in skipped_accounts {
+        section.windows.extend(cached.windows);
+        if section.description.is_empty() && !cached.description.is_empty() {
+            section.description = cached.description;
+        }
+    }
+    for (label, result) in fetched {
+        match result {
+            Ok(payload) => match zed_account_snapshot(&payload) {
+                Ok((description, windows)) => {
+                    for window in windows {
+                        section.windows.push(ProviderUsageWindow {
+                            window: if multi_account {
+                                format!("{label} {}", window.window)
+                            } else {
+                                window.window
+                            },
+                            used: window.used,
+                            reset: window.reset,
+                            reset_at: window.reset_at,
+                        });
+                    }
+                    if section.description.is_empty() && !description.is_empty() {
+                        section.description = if multi_account {
+                            format!("{label} {description}")
+                        } else {
+                            description
+                        };
+                    }
+                }
+                Err(err) => section.errors.push(format!("{label}：{err}")),
+            },
+            Err(err) => section.errors.push(format!("{label}：查询失败：{err}")),
+        }
+    }
+    section
 }
 
 fn grok_billing_snapshot(
@@ -2891,8 +3294,25 @@ fn grok_billing_snapshot(
     }
     let used_percent = config
         .get("creditUsagePercent")
+        .or_else(|| config.get("credit_usage_percent"))
         .and_then(provider_number)
-        .unwrap_or(0.0)
+        .or_else(|| {
+            config
+                .get("productUsage")
+                .and_then(Value::as_array)
+                .and_then(|products| {
+                    products
+                        .iter()
+                        .filter_map(|product| {
+                            product
+                                .get("usagePercent")
+                                .or_else(|| product.get("usage_percent"))
+                                .and_then(provider_number)
+                        })
+                        .max_by(f64::total_cmp)
+                })
+        })
+        .ok_or_else(|| "返回内容未提供周额度使用比例".to_string())?
         .clamp(0.0, 100.0);
     let window = if period_type.contains("WEEKLY") {
         "周额度"
@@ -2922,6 +3342,7 @@ fn grok_billing_snapshot(
 async fn fetch_grok_usage(
     state: &AppState,
     cached_section: Option<&ProviderUsageSection>,
+    force: bool,
 ) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "grok".into(),
@@ -2939,9 +3360,11 @@ async fn fetch_grok_usage(
     let live_accounts = accounts
         .into_iter()
         .filter_map(|account| {
-            if let Some(cached) = cached_section.and_then(|section| {
-                provider_cached_account_section(&section, &account.label, multi_account, now)
-            }) {
+            if !force
+                && let Some(cached) = cached_section.and_then(|section| {
+                    provider_cached_account_section(section, &account.label, multi_account, now)
+                })
+            {
                 skipped_accounts.push((account.label, cached));
                 None
             } else {
@@ -2998,8 +3421,9 @@ async fn fetch_provider_usage_section(
     state: &AppState,
     provider: &str,
     cached_section: Option<&ProviderUsageSection>,
+    force: bool,
 ) -> ProviderUsageSection {
-    let account_scoped = matches!(provider, "codex" | "commandcode" | "grok");
+    let account_scoped = matches!(provider, "commandcode" | "codex" | "grok" | "zed-pro");
     if !account_scoped {
         let now = chrono::Utc::now().timestamp();
         if let Some(mut cached) = cached_section.and_then(|section| provider_cached_section(section, now)) {
@@ -3016,8 +3440,9 @@ async fn fetch_provider_usage_section(
         "mimo" => fetch_mimo_usage(state).await,
         "opencode" => fetch_opencode_usage(state).await,
         "commandcode" => fetch_commandcode_usage(state, cached_section).await,
-        "codex" => fetch_codex_usage(state, cached_section).await,
-        "grok" => fetch_grok_usage(state, cached_section).await,
+        "codex" => fetch_codex_usage(state, cached_section, force).await,
+        "grok" => fetch_grok_usage(state, cached_section, force).await,
+        "zed-pro" => fetch_zed_pro_usage(state, cached_section, force).await,
         _ => ProviderUsageSection::default(),
     };
     section.captured_at = unix_now_seconds();
@@ -3028,16 +3453,17 @@ async fn collect_provider_usage_for(
     state: &AppState,
     provider: &str,
     providers: Vec<ProviderUsageProvider>,
+    force: bool,
 ) -> ProviderUsagePayload {
     let cached_section = shared_cached_section(state, provider).map(|entry| entry.section);
     let section = if let Some(meta) = providers.iter().find(|meta| meta.provider == provider) {
         if meta.query_ready {
-            fetch_provider_usage_section(state, provider, cached_section.as_ref()).await
+            fetch_provider_usage_section(state, provider, cached_section.as_ref(), force).await
         } else {
             provider_setup_section(meta)
         }
     } else {
-        fetch_provider_usage_section(state, provider, cached_section.as_ref()).await
+        fetch_provider_usage_section(state, provider, cached_section.as_ref(), force).await
     };
     ProviderUsagePayload {
         fetched_at: unix_now_seconds(),
@@ -3205,7 +3631,7 @@ async fn provider_usage_handler(
         )
             .into_response();
     }
-    let fresh = collect_provider_usage_for(&state, provider, providers).await;
+    let fresh = collect_provider_usage_for(&state, provider, providers, force).await;
     let cached = state
         .provider_usage_cache
         .payload
@@ -3231,8 +3657,9 @@ struct ProviderUsageQuery {
 #[cfg(test)]
 mod mimo_auth_tests {
     use super::{
-        mimo_auth_error, mimo_headers, mimo_usage_percent, provider_reset_duration,
-        provider_reset_text_local,
+        grok_billing_snapshot, mimo_auth_error, mimo_headers, mimo_usage_percent,
+        provider_reset_duration, provider_reset_text_local, should_skip_codex_cached_account,
+        grok_web_billing_snapshot,
     };
 
     #[test]
@@ -3256,6 +3683,75 @@ mod mimo_auth_tests {
     }
 
     #[test]
+    fn forced_codex_refresh_does_not_reuse_quota_wall_cache() {
+        let now = chrono::Utc::now().timestamp();
+        let section = super::ProviderUsageSection {
+            provider: "codex".into(),
+            windows: vec![super::ProviderUsageWindow {
+                window: "account 周额度".into(),
+                used: Some("100%".into()),
+                reset: Some("60分钟".into()),
+                reset_at: Some(now + 3600),
+            }],
+            ..Default::default()
+        };
+        assert!(should_skip_codex_cached_account(&section, "account", now, false));
+        assert!(!should_skip_codex_cached_account(&section, "account", now, true));
+    }
+
+    #[test]
+    fn grok_web_frame_ratio_uses_percentage_points() {
+        let body = b"\x00\x00\x00\x00\x15\x0a\x13\x0d\x00\x00\x80\x3f\x2a\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01";
+        let payload = grok_web_billing_snapshot(body).unwrap();
+        let (_, used, _, _, _) = grok_billing_snapshot(&payload).unwrap();
+        assert!((used - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn grok_web_frame_with_omitted_ratio_preserves_reset() {
+        let body = b"\x00\x00\x00\x00\x48\x0a\x46\x12\x00\x1a\x00\x22\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01\x2a\x0c\x08\xff\xbd\xec\xd4\x06\x10\x90\x99\x88\x9c\x01\x42\x1e\x08\x02\x12\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01\x1a\x0c\x08\xff\xbd\xec\xd4\x06\x10\x90\x99\x88\x9c\x01\x58\x01\x62\x00\x68\x01\x80\x00\x00";
+        let payload = grok_web_billing_snapshot(body).unwrap();
+        let (window, used, reset, _, _) = grok_billing_snapshot(&payload).unwrap();
+        assert_eq!(window, "周额度");
+        assert_eq!(used, 0.0);
+        assert_eq!(reset, "9/5 03:41");
+    }
+
+    #[test]
+    fn grok_missing_usage_percent_is_not_reported_as_zero() {
+        let payload = serde_json::json!({
+            "config": {
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "end": "2026-09-04T19:41:51.327290+00:00"
+                },
+                "onDemandCap": {"val": 0},
+                "onDemandUsed": {"val": 0}
+            }
+        });
+        let error = grok_billing_snapshot(&payload).unwrap_err();
+        assert!(error.contains("未提供周额度使用比例"));
+    }
+
+    #[test]
+    fn grok_product_usage_percent_can_fill_missing_combined_percent() {
+        let payload = serde_json::json!({
+            "config": {
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "end": "2026-09-04T19:41:51.327290+00:00"
+                },
+                "productUsage": [
+                    {"product": "GrokBuild", "usagePercent": 37.5},
+                    {"product": "GrokChat", "usagePercent": 12.0}
+                ]
+            }
+        });
+        let (_, used_percent, _, _, _) = grok_billing_snapshot(&payload).unwrap();
+        assert!((used_percent - 37.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn mimo_monthly_percent_uses_plan_token_usage_and_limit() {
         let percent = mimo_usage_percent(Some(8469.0), Some(10000.0)).unwrap();
         assert!((percent - 84.69).abs() < 0.000_001);
@@ -3276,5 +3772,82 @@ mod mimo_auth_tests {
             .iter()
             .any(|(name, value)| name == "Cookie" && value == "api-platform_ph=redacted"));
         assert!(headers.iter().all(|(name, _)| name != "Authorization"));
+    }
+}
+
+#[cfg(test)]
+mod zed_pro_tests {
+    use super::{json_string_or_number, zed_account_snapshot, zed_usage_limit};
+    use serde_json::{json, Value};
+
+    #[test]
+    fn student_plan_does_not_invent_a_monthly_percent() {
+        let payload = json!({
+            "plan": {
+                "plan": "zed_free",
+                "plan_v2": "zed_free",
+                "plan_v3": "zed_student",
+                "subscription_period": {
+                    "started_at": "2026-08-30T00:00:00Z",
+                    "ended_at": "2026-09-30T00:00:00Z"
+                },
+                "usage": {
+                    "model_requests": { "used": 0, "limit": { "limited": 0 } },
+                    "edit_predictions": { "used": 0, "limit": "unlimited" }
+                }
+            }
+        });
+        let (description, windows) = zed_account_snapshot(&payload).unwrap();
+        assert!(description.contains("Student"));
+        assert!(description.contains("账期 08/30–09/30"));
+        assert!(description.contains("模型请求 0"));
+        assert!(description.contains("补全 0/无限"));
+        assert!(windows.is_empty());
+    }
+
+    #[test]
+    fn pro_plan_reports_monthly_percent_from_model_requests() {
+        let payload = json!({
+            "plan": {
+                "plan_v3": "zed_pro",
+                "subscription_period": {
+                    "started_at": "2026-08-01T00:00:00Z",
+                    "ended_at": "2026-09-01T00:00:00Z"
+                },
+                "usage": {
+                    "model_requests": { "used": 50, "limit": { "limited": 500 } },
+                    "edit_predictions": { "used": 12, "limit": { "limited": 100 } }
+                }
+            }
+        });
+        let (description, windows) = zed_account_snapshot(&payload).unwrap();
+        assert!(description.contains("Pro"));
+        assert!(description.contains("模型请求 50/500"));
+        assert!(description.contains("补全 12/100"));
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].window, "月额度");
+        assert_eq!(windows[0].used.as_deref(), Some("10.0%"));
+        assert!(windows[0].reset_at.is_some());
+    }
+
+    #[test]
+    fn missing_plan_is_an_error() {
+        let err = zed_account_snapshot(&json!({})).unwrap_err();
+        assert!(err.contains("套餐"));
+    }
+
+    #[test]
+    fn usage_limit_treats_unlimited_and_zero_as_non_percent() {
+        assert_eq!(zed_usage_limit(Some(&json!("unlimited"))), None);
+        assert_eq!(zed_usage_limit(Some(&json!({"unlimited": {}}))), None);
+        assert_eq!(zed_usage_limit(Some(&json!({"limited": 0}))), Some(0.0));
+        assert_eq!(zed_usage_limit(Some(&json!({"limited": 80}))), Some(80.0));
+    }
+
+    #[test]
+    fn user_id_accepts_number_or_string() {
+        assert_eq!(json_string_or_number(Some(&json!(42))), Some("42".into()));
+        assert_eq!(json_string_or_number(Some(&json!("42"))), Some("42".into()));
+        assert_eq!(json_string_or_number(Some(&Value::Null)), None);
     }
 }

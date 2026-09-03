@@ -109,7 +109,8 @@ describe('provider usage view', () => {
     expect(source).toContain('{section && <ProviderUsageSectionView section={section} loading={loading} />}');
     expect(source).toContain('providerUsageAccountHasActiveQuotaWall(windows)');
     expect(source).toContain('ProviderUsageAccountSkeleton');
-    expect(source).toContain('const refreshing = loading && !providerUsageAccountHasActiveQuotaWall(windows);');
+    expect(source).toContain("const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows));");
+    expect(source).not.toContain("'\\\\u00a0'");
     expect(source).toContain('usagePercentTone');
     expect(source).toContain('progressPercent !== null &&');
     expect(source).not.toContain('const ageLabel = updatedAgo(section?.captured_at)');
@@ -129,7 +130,7 @@ describe('provider usage view', () => {
     expect(source).toContain('orderProviderUsageAccountGroups');
     expect(source).toContain('const accountCount = new Set');
     expect(source).toContain('const multiAccount = accountCount > 2;');
-    expect(source).toContain("['commandcode', 'codex', 'grok'].includes(section.provider)");
+    expect(source).toContain("['commandcode', 'codex', 'grok', 'zed-pro'].includes(section.provider)");
     expect(providerUsage()).toContain("hasQuotaWall: windows.some");
     expect(source).toContain('PROVIDER_USAGE_ORDER_KEY');
     expect(source).toContain('onDragStart');

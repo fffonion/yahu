@@ -2496,6 +2496,7 @@ function providerBrandFavicon(provider: string): string {
     commandcode: 'commandcode.ai',
     codex: 'openai.com',
     grok: 'x.ai',
+    'zed-pro': 'zed.dev',
   };
   const domain = domains[provider] || provider;
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
@@ -2903,7 +2904,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     if (!accountTones.has(account)) accountTones.set(account, nextAccountTone++ % 2);
     return `tone-${accountTones.get(account)}`;
   };
-  const accountScoped = ['commandcode', 'codex', 'grok'].includes(section.provider);
+  const accountScoped = ['commandcode', 'codex', 'grok', 'zed-pro'].includes(section.provider);
   const accountGroups = accountScoped && section.windows.some((win) => providerAccountWindowParts(win.window))
     ? orderProviderUsageAccountGroups(Array.from(section.windows.reduce((groups, win) => {
       const account = providerAccountWindowParts(win.window)?.[0] || win.window;
@@ -2919,7 +2920,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     return <article className="provider-usage-window" key={`${win.window}-${index}`}>
       <div className="provider-usage-window-head"><strong>{accountScoped ? (providerAccountWindowParts(win.window)?.[1] || win.window) : win.window}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{integerPercentText(win.used)}</span></div>
       {progressPercent !== null && <div className={`provider-usage-progress ${usagePercentTone(progressPercent)}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-valuetext={integerPercentText(win.used)}><span style={{ width: `${progressPercent}%` }} /></div>}
-      {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\\u00a0'}</p> : null}
+      {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\u00a0'}</p> : null}
     </article>;
   };
   const minimaxRows = section.rows.filter((row) => ['日用量', '周额度', '月额度'].includes(row.label));
@@ -2932,7 +2933,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
           ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')
           : windows;
         if (!visibleWindows.length) return null;
-        const refreshing = loading && !providerUsageAccountHasActiveQuotaWall(windows);
+        const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows));
         return <section className={`provider-usage-account-group tone-${groupIndex % 2}${refreshing ? ' is-loading' : ''}`} aria-busy={refreshing} key={account}><strong>{account}</strong><div className="provider-usage-windows">{refreshing ? <ProviderUsageAccountSkeleton count={visibleWindows.length} /> : visibleWindows.map(renderWindow)}</div></section>;
       })}</div>
       : <div className="provider-usage-windows">{section.windows.map(renderWindow)}</div>)}
