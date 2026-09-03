@@ -67,6 +67,43 @@
     }
 
     #[tokio::test]
+    async fn session_search_hides_turtle_bench_when_source_filter_is_on() {
+        use std::collections::HashMap;
+
+        async fn api_sessions(
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<serde_json::Value> {
+            assert_eq!(query.get("q").map(String::as_str), Some("cache"));
+            Json(serde_json::json!({
+                "object": "list",
+                "data": [
+                    {"id":"s1","source":"telegram","title":"keep","preview":"cache","started_at":3.0},
+                    {"id":"tb1","source":"turtle-bench","title":"bench","preview":"cache","started_at":2.0},
+                    {"id":"cli1","source":"cli","title":"cli","preview":"cache","started_at":1.0}
+                ],
+                "has_more": false
+            }))
+        }
+
+        let app = Router::new().route("/api/sessions", get(api_sessions));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let rows = fetch_sessions_from_api_server(&state, "cache", 10, true)
+            .await
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "s1");
+        assert!(rows.iter().all(|row| row["source"] != "turtle-bench"));
+    }
+
+    #[tokio::test]
     async fn session_source_filter_reaches_upstream_before_the_result_limit() {
         use std::collections::HashMap;
 
@@ -241,6 +278,12 @@
             "INSERT INTO sessions
              (id, source, model, started_at, message_count, title, archived)
              VALUES ('alp-worker-newest', 'alp-worker', 'worker-model', 3000.0, 1, 'worker', 0)",
+            [],
+        ).unwrap();
+        transaction.execute(
+            "INSERT INTO sessions
+             (id, source, model, started_at, message_count, title, archived)
+             VALUES ('turtle-bench-newest', 'turtle-bench', 'bench-model', 4000.0, 1, 'bench', 0)",
             [],
         ).unwrap();
         transaction.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('normal-89','user','latest question',1)", []).unwrap();
