@@ -126,13 +126,21 @@ describe('chat message visibility', () => {
     expect(renderableMessages(prepared, false, false).map((message) => message.id)).toEqual(['a-final']);
   });
 
-  test('keeps an empty delegate call visible while waiting for its subagent result', () => {
-    const messages = [
-      { id: 'a-delegate', role: 'assistant', content: '', pending: false, toolCalls: [{ function: { name: 'delegate_task' } }] },
-      { id: 'a-old', role: 'assistant', content: 'previous answer', pending: false },
-    ];
-    expect(renderableMessages(messages, false, true).map((message) => message.id)).toEqual(['a-delegate', 'a-old']);
-    expect(renderableMessages(messages, false, false).map((message) => message.id)).toEqual(['a-old']);
+  test('shows pending delegates as assistant status and hides completed empty delegate calls', () => {
+    const pending = { id: 'a-pending-delegate', role: 'assistant', content: '', pending: true, toolCalls: [{ function: { name: 'delegate_task' } }] };
+    const completed = { id: 'a-completed-delegate', role: 'assistant', content: '', pending: false, toolCalls: [{ function: { name: 'delegate_task' } }] };
+    const previous = { id: 'a-old', role: 'assistant', content: 'previous answer', pending: false };
+    expect(isToolLikeMessage(pending)).toBe(false);
+    expect(shouldRenderMessage(pending, false, true)).toBe(true);
+    expect(shouldRenderMessage(pending, false, false)).toBe(true);
+    expect(renderableMessages([pending, completed, previous], false, true).map((message) => message.id)).toEqual(['a-pending-delegate', 'a-old']);
+    expect(renderableMessages([completed, previous], false, true).map((message) => message.id)).toEqual(['a-old']);
+  });
+
+  test('preserves the pending flag from streamed assistant messages', async () => {
+    const { normalizeChatMessage } = await import('./chatMessage');
+    const message = normalizeChatMessage({ id: 'a-pending-delegate', role: 'assistant', content: '', pending: true, tool_calls: [{ function: { name: 'delegate_task' } }] }, 'fallback');
+    expect(message.pending).toBe(true);
   });
 
   test('ChatMain filters visible messages without content-level history dedupe before mapping', () => {
@@ -145,7 +153,7 @@ describe('chat message visibility', () => {
       { id: 'tool-validate', role: 'tool', content: 'tests passed', pending: false },
       { id: 'a-final', role: 'assistant', content: 'done', pending: false },
     ];
-    expect(source).toContain("import { visibleChatMessages } from './messageVisibility';");
+    expect(source).toContain("import { isEmptyDelegateToolCallMessage, visibleChatMessages } from './messageVisibility';");
     expect(transcript).toContain("import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';");
     expect(visibleChatMessages(messages, false, true).map((message) => message.id)).toEqual(['u1', 'a-progress', 'tool-write', 'tool-validate', 'a-final']);
     expect(source).toContain('const visibleMessages = useMemo(() => visibleChatMessages<ChatMessage>(props.messages, props.showReasoning, props.showToolCalls), [props.messages, props.showReasoning, props.showToolCalls]);');

@@ -155,6 +155,7 @@ export function normalizeChatMessage(raw: any, fallbackId: string, platformSourc
     toolCalls: raw.toolCalls ?? raw.tool_calls,
     toolCallId: String(raw.toolCallId || raw.tool_call_id || raw.call_id || '').trim() || undefined,
   };
+  if (typeof raw.pending === 'boolean') msg.pending = raw.pending;
   const tokenCount = readTokenCount(raw);
   if (tokenCount !== undefined) msg.tokenCount = tokenCount;
   const metrics = readTurnMetrics(raw);

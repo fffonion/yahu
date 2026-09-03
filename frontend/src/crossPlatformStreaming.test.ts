@@ -9,7 +9,7 @@ describe('cross-platform session streaming watcher', () => {
 
     expect(app).toContain("const OTHER_PLATFORM_PENDING_ID = 'other-platform-pending';");
     expect(app).toContain('function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[]');
-    expect(app).toContain('if (prev.some((m) => m.id === msg.id)) return prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m);');
+    expect(app).toContain('if (prev.some((m) => m.id === msg.id)) return settlePendingDelegateForToolResult(prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m), msg);');
     expect(app).toContain("msg.role === 'user'");
     expect(app).toContain("msg.role === 'assistant'");
     expect(app).toContain('findCurrentTurnPersistedAssistantIndex(prev)');
@@ -18,7 +18,7 @@ describe('cross-platform session streaming watcher', () => {
     expect(app).toContain('sameFinalIdx >= 0');
     expect(app).toContain('function findUnreconciledLocalAssistantIndex(prev: ChatMessage[])');
     expect(app).toContain('const turnLocalStreamIdx = findUnreconciledLocalAssistantIndex(prev);');
-    expect(app).toContain('i === turnLocalStreamIdx ? { ...m, ...msg, pending: false } : m');
+    expect(app).toContain('i === turnLocalStreamIdx ? mergeAssistantIntoPendingSlot(m, msg) : m');
     expect(app).toContain('const prev = messagesRef.current;');
     expect(app).toContain('const next = sortMessagesInDisplayOrder(mergeWatchedMessage(prev, msg));');
     expect(app).toContain('messagesRef.current = next;');
@@ -35,8 +35,20 @@ describe('cross-platform session streaming watcher', () => {
 
   test('persisted tool events replace local streaming tool cards in place', () => {
     const app = source();
-    expect(app).toContain("return prev.map((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '') ? { ...m, ...msg, pending: false } : m);");
+    expect(app).toContain("return settlePendingDelegateForToolResult(prev.map((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '') ? { ...m, ...msg, pending: false } : m), msg);");
 
+  });
+
+  test('delegate placeholders use the assistant pending state and settle on result or stream completion', () => {
+    const app = source();
+    expect(app).toContain("import { isEmptyDelegateToolCallMessage, visibleChatMessages } from './messageVisibility';");
+    expect(app).toContain('function mergeAssistantIntoPendingSlot(current: ChatMessage, message: ChatMessage): ChatMessage');
+    expect(app).toContain('message.pending !== false && (message.pending === true || isEmptyDelegateToolCallMessage(message))');
+    expect(app).toContain('merged.id = current.id;');
+    expect(app).toContain('function settlePendingDelegateForToolResult(messages: ChatMessage[], message: ChatMessage): ChatMessage[]');
+    expect(app).toContain('current.pending && isEmptyDelegateToolCallMessage(current) && hasToolCallId(current, toolCallId)');
+    expect(app).toContain('const wasRunning = streamingSessionIdRef.current === targetSessionId;');
+    expect(app).toContain('message.id === OTHER_PLATFORM_PENDING_ID && message.pending');
   });
 
   test('coalesces expensive context-window refreshes during rapid watch updates', () => {

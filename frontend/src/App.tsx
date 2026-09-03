@@ -19,7 +19,7 @@ import { formatHexDump } from './hexViewer';
 import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, metricValue, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSlice, periodSources, stackedAreaPath, usageModelLabel, type UsageDay, type UsageHour, type UsageInsights, type UsageMetric, type UsageModel, type UsageSource, type UsageTotals } from './insights';
 import { mergeTurnMetrics, normalizeChatMessage, readTurnMetrics } from './chatMessage';
 import { normalizeMessageParts } from './messageReasoning';
-import { visibleChatMessages } from './messageVisibility';
+import { isEmptyDelegateToolCallMessage, visibleChatMessages } from './messageVisibility';
 import { type TurnDetailMetadata } from './turnDetails';
 import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
@@ -324,6 +324,33 @@ function findUnreconciledLocalAssistantIndex(prev: ChatMessage[]) {
   }
   return -1;
 }
+function hasToolCallId(message: ChatMessage, toolCallId: string) {
+  if (message.role !== 'assistant' || !Array.isArray(message.toolCalls)) return false;
+  return message.toolCalls.some((raw) => {
+    if (!raw || typeof raw !== 'object') return false;
+    const call = raw as Record<string, unknown>;
+    return [call.call_id, call.id, call.tool_call_id].some((value) => String(value || '').trim() === toolCallId);
+  });
+}
+function keepAssistantPending(message: ChatMessage) {
+  return message.pending !== false && (message.pending === true || isEmptyDelegateToolCallMessage(message));
+}
+function mergeAssistantIntoPendingSlot(current: ChatMessage, message: ChatMessage): ChatMessage {
+  const pending = keepAssistantPending(message);
+  const merged = { ...current, ...message, pending };
+  if (pending) {
+    merged.id = current.id;
+    if (message.toolCalls === undefined && current.toolCalls !== undefined) merged.toolCalls = current.toolCalls;
+  }
+  return merged;
+}
+function settlePendingDelegateForToolResult(messages: ChatMessage[], message: ChatMessage): ChatMessage[] {
+  const toolCallId = String(message.toolCallId || '').trim();
+  if (message.role !== 'tool' || !toolCallId) return messages;
+  return messages.map((current) => current.pending && isEmptyDelegateToolCallMessage(current) && hasToolCallId(current, toolCallId)
+    ? { ...current, pending: false }
+    : current);
+}
 function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   if (msg.role === 'assistant' && isLocalStreamAssistant(msg)) {
     const currentTurnPersistedIdx = findCurrentTurnPersistedAssistantIndex(prev);
@@ -334,7 +361,7 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
         .map((m) => m.id === persistedId ? { ...m, content: msg.content || m.content, reasoning: msg.reasoning || m.reasoning, pending: msg.pending } : m);
     }
   }
-  if (prev.some((m) => m.id === msg.id)) return prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m);
+  if (prev.some((m) => m.id === msg.id)) return settlePendingDelegateForToolResult(prev.map((m) => m.id === msg.id ? { ...m, ...msg } : m), msg);
   // Match by content+role for user messages (server ID differs from local uid)
   if (msg.role === 'user') {
     const existing = prev.findIndex((m) => m.role === 'user' && m.content === msg.content);
@@ -351,7 +378,7 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
       : -1;
     if (sameFinalIdx >= 0) return prev;
     const pendingIdx = prev.findIndex((m) => m.pending && (m.id === OTHER_PLATFORM_PENDING_ID || isLocalStreamAssistant(m)));
-    if (pendingIdx >= 0) return prev.map((m, i) => i === pendingIdx ? { ...m, ...msg, pending: false } : m);
+    if (pendingIdx >= 0) return prev.map((m, i) => i === pendingIdx ? mergeAssistantIntoPendingSlot(m, msg) : m);
     if (isLocalStreamAssistant(msg)) {
       const currentTurnPersistedIdx = findCurrentTurnPersistedAssistantIndex(prev);
       if (currentTurnPersistedIdx >= 0) {
@@ -363,10 +390,10 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
       const localStreamId = prev[localStreamIdx].id;
       return prev
         .filter((m) => m.id === localStreamId || !isLocalStreamAssistant(m))
-        .map((m) => m.id === localStreamId ? { ...m, ...msg, pending: false } : m);
+        .map((m) => m.id === localStreamId ? mergeAssistantIntoPendingSlot(m, msg) : m);
     }
     const turnLocalStreamIdx = findUnreconciledLocalAssistantIndex(prev);
-    if (turnLocalStreamIdx >= 0) return prev.map((m, i) => i === turnLocalStreamIdx ? { ...m, ...msg, pending: false } : m);
+    if (turnLocalStreamIdx >= 0) return prev.map((m, i) => i === turnLocalStreamIdx ? mergeAssistantIntoPendingSlot(m, msg) : m);
   }
   if (msg.role === 'tool') {
     const samePersistedToolIdx = isLocalStreamTool(msg)
@@ -374,7 +401,7 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
       : -1;
     if (samePersistedToolIdx >= 0) return prev;
     if (!isLocalStreamTool(msg) && prev.some((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || ''))) {
-      return prev.map((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '') ? { ...m, ...msg, pending: false } : m);
+      return settlePendingDelegateForToolResult(prev.map((m) => isLocalStreamTool(m) && (m.toolName || '') === (msg.toolName || '') ? { ...m, ...msg, pending: false } : m), msg);
     }
   }
   const withoutStalePending = msg.role === 'assistant'
@@ -384,7 +411,7 @@ function mergeWatchedMessage(prev: ChatMessage[], msg: ChatMessage): ChatMessage
   if (msg.role === 'user' && !next.some((m) => m.pending && m.id === OTHER_PLATFORM_PENDING_ID)) {
     next.push({ id: OTHER_PLATFORM_PENDING_ID, role: 'assistant', content: '', pending: true });
   }
-  return next.slice(-MESSAGE_WINDOW);
+  return settlePendingDelegateForToolResult(next.slice(-MESSAGE_WINDOW), msg);
 }
 
 function isNearBottom(el: HTMLElement | null, px = 120) {
@@ -1703,11 +1730,17 @@ export default function App() {
       const running = await promise;
       if (streamStatusProbeRef.current?.promise === promise) streamStatusProbeRef.current = null;
       if (cancelled || running === null) return;
+      const wasRunning = streamingSessionIdRef.current === targetSessionId;
       if (running) {
         setStreamingSessionId(targetSessionId);
         setStatus(t('chat.streamingOther'));
-      } else if (streamingSessionIdRef.current === targetSessionId) {
+      } else if (wasRunning) {
         setStreamingSessionId('');
+        setMessages((current) => {
+          const next = current.map((message) => message.id === OTHER_PLATFORM_PENDING_ID && message.pending ? { ...message, pending: false } : message);
+          messagesRef.current = next;
+          return next;
+        });
       }
     };
     probe();

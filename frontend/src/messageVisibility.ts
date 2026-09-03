@@ -39,7 +39,7 @@ function hasToolCalls(value: unknown): boolean {
   return value !== undefined && value !== null;
 }
 
-function hasDelegateToolCall(value: unknown): boolean {
+export function hasDelegateToolCall(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
   return value.some((raw) => {
     if (!raw || typeof raw !== 'object') return false;
@@ -49,12 +49,21 @@ function hasDelegateToolCall(value: unknown): boolean {
   });
 }
 
+export function isDelegateToolCallMessage(message: MessageVisibilityInput): boolean {
+  return message.role === 'assistant' && hasDelegateToolCall(message.toolCalls);
+}
+
+export function isEmptyDelegateToolCallMessage(message: MessageVisibilityInput): boolean {
+  return isDelegateToolCallMessage(message) && !String(message.content || '').trim();
+}
+
 export function isAssistantToolPreludeMessage(message: MessageVisibilityInput): boolean {
   return message.role === 'assistant' && hasVisibleContent(message) && hasToolCalls(message.toolCalls);
 }
 
 export function isToolLikeMessage(message: MessageVisibilityInput): boolean {
   if (message.role === 'tool') return true;
+  if (message.pending && isDelegateToolCallMessage(message)) return false;
   if (isAssistantToolPreludeMessage(message)) return false;
   if (String(message.toolName || '').trim()) return true;
   if (message.toolInput !== undefined && message.toolInput !== null) return true;
@@ -68,8 +77,7 @@ function isEmptyAssistantToolCallPlaceholder(message: MessageVisibilityInput): b
   return message.role === 'assistant'
     && !message.pending
     && !String(message.content || '').trim()
-    && hasToolCalls(message.toolCalls)
-    && !hasDelegateToolCall(message.toolCalls);
+    && hasToolCalls(message.toolCalls);
 }
 
 export function shouldRenderMessage(message: MessageVisibilityInput, showReasoning = false, showToolCalls = true): boolean {
