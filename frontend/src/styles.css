@@ -232,6 +232,14 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .composer-tools{flex:0 0 auto;width:max-content;max-width:calc(100% - 48px);overflow:visible}
 .composer-tools .dropdown-control.wide{width:220px;min-width:220px;flex:0 0 220px}
 
+.session-drag-handle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:28px;margin-left:-3px;color:var(--muted);cursor:grab;touch-action:none}
+.session-item.pinned{grid-template-columns:18px 22px minmax(0,1fr) 28px}
+.session-drag-handle:hover{color:var(--accent)}
+.session-drag-handle:active{cursor:grabbing}
+.session-drag-handle svg{width:15px;height:15px}
+.session-item.dragging{opacity:.45}
+.session-item.drop-target{border-color:var(--accent);box-shadow:inset 0 2px 0 var(--accent)}
+
 /* Reference-inspired composer: one quiet dark card with separated edge controls. */
 .composer-wrap{border-top:0;background:transparent;padding:8px 18px 10px}
 .composer-box{background:transparent;border:1px solid color-mix(in srgb,var(--text) 9%,transparent);border-radius:22px;box-shadow:none}

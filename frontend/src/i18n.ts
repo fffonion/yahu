@@ -7,6 +7,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.pinned': { en: 'PINNED', 'zh-CN': '置顶', 'zh-TW': '置頂', ja: 'ピン留め' },
   'chat.pin': { en: 'Pin', 'zh-CN': '固定', 'zh-TW': '固定', ja: 'ピン留め' },
   'chat.unpin': { en: 'Unpin', 'zh-CN': '取消固定', 'zh-TW': '取消固定', ja: 'ピン解除' },
+  'chat.reorderPinned': { en: 'Reorder pinned conversation', 'zh-CN': '拖动调整置顶对话顺序', 'zh-TW': '拖曳調整置頂對話順序', ja: 'ピン留め会話の順序を変更' },
   'chat.rename': { en: 'Rename session', 'zh-CN': '重命名会话', 'zh-TW': '重新命名', ja: '名前変更' },
   'chat.delete': { en: 'Delete session', 'zh-CN': '删除会话', 'zh-TW': '刪除', ja: '削除' },
   'chat.hideCronSessions': { en: 'Hide cron, CLI, and alp-worker conversations', 'zh-CN': '隐藏定时任务、CLI 和 alp-worker 对话', 'zh-TW': '隱藏定時任務、CLI 和 alp-worker 對話', ja: 'cron・CLI・alp-worker会話を非表示' },
