@@ -83,6 +83,28 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn codex_reset_failure_reuses_cached_description_for_each_account() {
+        let cached = ProviderUsageSection {
+            provider: "codex".into(),
+            description: "mayo：Reset：3个；到期：2小时后；me：Reset：1个".into(),
+            ..Default::default()
+        };
+        let labels = vec!["mayo".to_string(), "me".to_string()];
+        assert_eq!(
+            codex_cached_reset_description(Some(&cached), "mayo", &labels),
+            Some("mayo：Reset：3个；到期：2小时后".to_string())
+        );
+        assert_eq!(
+            codex_cached_reset_description(Some(&cached), "me", &labels),
+            Some("me：Reset：1个".to_string())
+        );
+        assert_eq!(
+            codex_cached_reset_description(Some(&cached), "other", &labels),
+            None
+        );
+    }
+
+    #[test]
     fn codex_backend_url_uses_wham_for_chatgpt_base() {
         assert_eq!(
             codex_backend_usage_url("https://chatgpt.com/backend-api/codex"),

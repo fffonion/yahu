@@ -2694,6 +2694,14 @@ fn codex_account_description(
     Some(tail[..end].trim_matches('；').to_string())
 }
 
+fn codex_cached_reset_description(
+    cached_section: Option<&ProviderUsageSection>,
+    label: &str,
+    labels: &[String],
+) -> Option<String> {
+    cached_section.and_then(|section| codex_account_description(&section.description, label, labels))
+}
+
 async fn fetch_codex_usage(
     state: &AppState,
     cached_section: Option<&ProviderUsageSection>,
@@ -2782,9 +2790,15 @@ async fn fetch_codex_usage(
                 }
                 if let Some(reset_credits) = payload.get("_reset_credits") {
                     if let Some(error) = reset_credits.get("_error").and_then(Value::as_str) {
-                        section
-                            .errors
-                            .push(format!("{label}：Reset 查询失败：{error}"));
+                        if let Some(cached_description) =
+                            codex_cached_reset_description(cached_section, label, &labels)
+                        {
+                            reset_descriptions.push(cached_description);
+                        } else {
+                            section
+                                .errors
+                                .push(format!("{label}：Reset 查询失败：{error}"));
+                        }
                     } else if let Some(description) = codex_reset_credits_description(reset_credits)
                     {
                         reset_descriptions.push(format!("{label}：{description}"));
