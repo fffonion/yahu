@@ -64,4 +64,13 @@ describe('sidebar session list css', () => {
     expect(css).toContain('.workspace{border-left-width:1px;border-top-width:0;border-bottom-width:0;border-right-width:0;height:var(--app-viewport-height,100dvh);');
     expect(css).toContain('.image-browser{grid-column:2 / -1;background:var(--bg);color:var(--text);min-width:0;height:var(--app-viewport-height,100dvh);');
   });
+
+  test('mobile page resume re-syncs the viewport height even without a resize event', () => {
+    const source = app();
+    expect(source).toContain('const syncAfterPageResume = () => {');
+    expect(source).toContain("document.addEventListener('visibilitychange', syncAfterPageResume)");
+    expect(source).toContain("window.addEventListener('pageshow', syncAfterPageResume)");
+    expect(source).toContain("document.removeEventListener('visibilitychange', syncAfterPageResume)");
+    expect(source).toContain("window.removeEventListener('pageshow', syncAfterPageResume)");
+  });
 });

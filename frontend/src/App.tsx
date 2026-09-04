@@ -821,6 +821,8 @@ export default function App() {
 
   useLayoutEffect(() => {
     const stableHeight = { current: visibleViewportHeight(window) };
+    let resumeFrame = 0;
+    let resumeTimer = 0;
     const syncViewportHeight = () => {
       const nextHeight = visibleViewportHeight(window);
       if (isTextEntryElement(document.activeElement) && nextHeight < stableHeight.current) return;
@@ -828,16 +830,30 @@ export default function App() {
       document.documentElement.style.setProperty('--app-viewport-height', `${nextHeight}px`);
     };
     const syncAfterFocusChange = () => window.requestAnimationFrame(syncViewportHeight);
+    const syncAfterPageResume = () => {
+      window.cancelAnimationFrame(resumeFrame);
+      window.clearTimeout(resumeTimer);
+      resumeFrame = window.requestAnimationFrame(() => {
+        syncViewportHeight();
+        resumeTimer = window.setTimeout(syncViewportHeight, 160);
+      });
+    };
     syncViewportHeight();
     window.addEventListener('resize', syncViewportHeight);
     window.visualViewport?.addEventListener('resize', syncViewportHeight);
     window.visualViewport?.addEventListener('scroll', syncViewportHeight);
     document.addEventListener('focusout', syncAfterFocusChange);
+    document.addEventListener('visibilitychange', syncAfterPageResume);
+    window.addEventListener('pageshow', syncAfterPageResume);
     return () => {
+      window.cancelAnimationFrame(resumeFrame);
+      window.clearTimeout(resumeTimer);
       window.removeEventListener('resize', syncViewportHeight);
       window.visualViewport?.removeEventListener('resize', syncViewportHeight);
       window.visualViewport?.removeEventListener('scroll', syncViewportHeight);
       document.removeEventListener('focusout', syncAfterFocusChange);
+      document.removeEventListener('visibilitychange', syncAfterPageResume);
+      window.removeEventListener('pageshow', syncAfterPageResume);
       document.documentElement.style.removeProperty('--app-viewport-height');
     };
   }, []);
