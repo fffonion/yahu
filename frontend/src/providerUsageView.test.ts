@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const providerUsage = () => readFileSync(new URL('./providerUsage.ts', import.meta.url), 'utf8');
@@ -57,6 +57,22 @@ describe('provider usage view', () => {
     expect(providerCodexResetSubtitle('mayo：Reset：0个')).toBe('');
     expect(providerCodexResetSubtitle('mayo：Reset：2个；当前可用：1个；到期：2小时后、5天后'))
       .toBe('mayo：2个重置 2小时后、5天后到期');
+  });
+
+  test('Codex mobile reset subtitle keeps only account names and reset durations', () => {
+    expect(providerCodexMobileResetSubtitle('mayo：Reset：2个；当前可用：1个；到期：16天后、29天后；me：Reset：2个；到期：29天后、30天后'))
+      .toBe('mayo: 16天, 29天; me: 29天, 30天');
+    expect(providerCodexMobileResetSubtitle('mayo：Reset：0个；me：Reset：1个；到期：2小时后')).toBe('me: 2小时');
+  });
+
+  test('Codex card exposes the compact reset subtitle only to mobile layouts', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('providerCodexMobileResetSubtitle');
+    expect(source).toContain('provider-usage-subline-full');
+    expect(source).toContain('provider-usage-subline-mobile');
+    expect(styles).toContain('.provider-usage-subline>span.provider-usage-subline-mobile{display:none}');
+    expect(styles).toContain('.provider-usage-subline>span.provider-usage-subline-full{display:none}.provider-usage-subline>span.provider-usage-subline-mobile{display:block}');
   });
 
   test('provider toggle refreshes only the toggled provider', () => {

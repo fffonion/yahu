@@ -79,16 +79,39 @@ export function sectionHasContent(section: ProviderUsageSection): boolean {
   return section.rows.length > 0 || section.windows.length > 0 || section.description.length > 0;
 }
 
-export function providerCodexResetSubtitle(description: string | undefined): string {
+type CodexResetEntry = { account: string; count: number; expiry: string };
+
+function codexResetEntries(description: string | undefined): CodexResetEntry[] {
   const text = (description || '').trim();
-  if (!text) return '';
-  const parts: string[] = [];
+  if (!text) return [];
   const pattern = /([^；]+)：Reset：(\d+)个(?:；当前可用：\d+个)?(?:；到期：([^；]+))?/g;
-  for (const match of text.matchAll(pattern)) {
-    const count = Number(match[2]);
-    if (!Number.isFinite(count) || count <= 0) continue;
-    const expiry = match[3]?.trim();
-    parts.push(`${match[1].trim()}：${count}个重置${expiry ? ` ${expiry}到期` : ''}`);
-  }
-  return parts.join('；');
+  return Array.from(text.matchAll(pattern), (match) => ({
+    account: match[1].trim(),
+    count: Number(match[2]),
+    expiry: match[3]?.trim() || '',
+  })).filter((entry) => Number.isFinite(entry.count));
+}
+
+function codexResetDurations(expiry: string): string[] {
+  return expiry.split(/[、,，]/)
+    .map((value) => value.trim().replace(/后$/, ''))
+    .filter(Boolean);
+}
+
+export function providerCodexResetSubtitle(description: string | undefined): string {
+  return codexResetEntries(description)
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.account}：${entry.count}个重置${entry.expiry ? ` ${entry.expiry}到期` : ''}`)
+    .join('；');
+}
+
+export function providerCodexMobileResetSubtitle(description: string | undefined): string {
+  return codexResetEntries(description)
+    .filter((entry) => entry.count > 0)
+    .map((entry) => {
+      const durations = codexResetDurations(entry.expiry);
+      return durations.length ? `${entry.account}: ${durations.join(', ')}` : '';
+    })
+    .filter(Boolean)
+    .join('; ');
 }

@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
@@ -2842,6 +2842,7 @@ function ProviderUsageMain(props: {
             const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
             const autoRefreshing = Boolean(props.autoRefresh[provider.provider]);
             const codexResetSubtitle = enabled && provider.provider === 'codex' ? providerCodexResetSubtitle(section?.description) : '';
+            const codexMobileResetSubtitle = enabled && provider.provider === 'codex' ? providerCodexMobileResetSubtitle(section?.description) : '';
             const subtitle = enabled
               ? (loading ? t('usage.querying') : (section ? '' : provider.query_ready ? '' : t('usage.credentialsNeeded')))
               : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
@@ -2862,7 +2863,7 @@ function ProviderUsageMain(props: {
                   <span className={`provider-usage-brand-icon brand-${provider.provider}`} aria-hidden="true"><img src={providerBrandFavicon(provider.provider)} alt="" loading="lazy" referrerPolicy="no-referrer" /></span>
                   <div className="provider-usage-title-main">
                     <div className="provider-usage-title-row"><h2>{provider.title}</h2></div>
-                    <div className="provider-usage-subline"><span>{subtitleDetails}</span></div>
+                    <div className="provider-usage-subline">{codexMobileResetSubtitle ? <><span className="provider-usage-subline-full">{subtitleDetails}</span><span className="provider-usage-subline-mobile">{codexMobileResetSubtitle}</span></> : <span>{subtitleDetails}</span>}</div>
                   </div>
                 </div>
                 <div className="provider-usage-card-actions">

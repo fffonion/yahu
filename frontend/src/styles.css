@@ -535,3 +535,6 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
   .settings-mobile-nav-options{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .settings-mobile-nav-option{padding:8px}
 }
+
+.provider-usage-subline>span.provider-usage-subline-mobile{display:none}
+@media (max-width:760px){.provider-usage-subline>span.provider-usage-subline-full{display:none}.provider-usage-subline>span.provider-usage-subline-mobile{display:block}}
