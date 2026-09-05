@@ -835,17 +835,33 @@ export default function App() {
       stableHeight.current = nextHeight;
       document.documentElement.style.setProperty('--app-viewport-height', `${nextHeight}px`);
     };
-    const syncAfterFocusChange = () => window.requestAnimationFrame(() => syncViewportHeight());
+    const refreshViewportLayout = () => {
+      const root = document.querySelector<HTMLElement>('.app-shell');
+      if (!root) return;
+      const previousDisplay = root.style.display;
+      root.style.display = 'none';
+      void root.offsetHeight;
+      root.style.display = previousDisplay;
+    };
+    const syncAfterFocusChange = () => window.requestAnimationFrame(() => {
+      refreshViewportLayout();
+      syncViewportHeight();
+    });
     const syncAfterViewportChange = () => syncViewportHeight();
+    const healAndSyncViewport = () => {
+      refreshViewportLayout();
+      syncViewportHeight(true);
+    };
     const syncAfterPageResume = () => {
       if (document.visibilityState === 'hidden') {
         clearResumeSchedule();
         return;
       }
       clearResumeSchedule();
+      healAndSyncViewport();
       resumeFrame = window.requestAnimationFrame(() => {
-        syncViewportHeight(true);
-        resumeTimers = [160, 480, 1000].map((delay) => window.setTimeout(() => syncViewportHeight(true), delay));
+        healAndSyncViewport();
+        resumeTimers = [160, 480, 1000].map((delay) => window.setTimeout(healAndSyncViewport, delay));
       });
     };
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(syncAfterViewportChange);

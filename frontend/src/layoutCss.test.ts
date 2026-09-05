@@ -69,6 +69,11 @@ describe('sidebar session list css', () => {
   test('mobile page resume re-syncs the viewport height even without a resize event', () => {
     const source = app();
     expect(source).toContain('const syncAfterPageResume = () => {');
+    expect(source).toContain("document.querySelector<HTMLElement>('.app-shell')");
+    expect(source).toContain("root.style.display = 'none'");
+    expect(source).toContain('void root.offsetHeight');
+    expect(source).toContain('const healAndSyncViewport = () => {');
+    expect(source).toContain('healAndSyncViewport();');
     expect(source).toContain("document.addEventListener('visibilitychange', syncAfterPageResume)");
     expect(source).toContain("window.addEventListener('pageshow', syncAfterPageResume)");
     expect(source).toContain("document.removeEventListener('visibilitychange', syncAfterPageResume)");
