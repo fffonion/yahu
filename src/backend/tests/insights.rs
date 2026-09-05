@@ -174,6 +174,25 @@
     }
 
     #[test]
+    fn insights_skips_provider_backfill_scan_when_snapshot_version_is_current() {
+        let temp = tempfile::tempdir().unwrap();
+        let state_path = temp.path().join("state.db");
+        let snapshot_path = temp.path().join("yahu-insights-usage.db");
+        std::fs::write(&state_path, b"not a sqlite database").unwrap();
+        let snapshot_conn = rusqlite::Connection::open(&snapshot_path).unwrap();
+        prepare_insights_snapshot_db(&snapshot_conn).unwrap();
+        snapshot_conn
+            .execute(
+                "INSERT INTO insights_meta(key, value) VALUES('provider_backfill_version', ?1)",
+                [INSIGHTS_PROVIDER_BACKFILL_VERSION],
+            )
+            .unwrap();
+        drop(snapshot_conn);
+
+        assert_eq!(backfill_snapshot_providers(&snapshot_path, &state_path).unwrap(), 0);
+    }
+
+    #[test]
     fn insights_attributes_session_totals_to_the_started_day() {
         let now = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()

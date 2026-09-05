@@ -328,6 +328,20 @@ fn backfill_snapshot_providers(snapshot_path: &Path, state_db_path: &Path) -> an
         return Ok(0);
     }
 
+    let snapshot_conn = rusqlite::Connection::open(snapshot_path)?;
+    prepare_insights_snapshot_db(&snapshot_conn)?;
+    let already_backfilled = snapshot_conn
+        .query_row(
+            "SELECT value FROM insights_meta WHERE key = 'provider_backfill_version'",
+            [],
+            |row| row.get::<_, f64>(0),
+        )
+        .optional()?;
+    if already_backfilled.is_some_and(|version| version >= INSIGHTS_PROVIDER_BACKFILL_VERSION) {
+        return Ok(0);
+    }
+    drop(snapshot_conn);
+
     let state_conn = rusqlite::Connection::open_with_flags(
         state_db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -364,16 +378,6 @@ fn backfill_snapshot_providers(snapshot_path: &Path, state_db_path: &Path) -> an
 
     let conn = rusqlite::Connection::open(snapshot_path)?;
     prepare_insights_snapshot_db(&conn)?;
-    let already_backfilled = conn
-        .query_row(
-            "SELECT value FROM insights_meta WHERE key = 'provider_backfill_version'",
-            [],
-            |row| row.get::<_, f64>(0),
-        )
-        .optional()?;
-    if already_backfilled.is_some_and(|version| version >= INSIGHTS_PROVIDER_BACKFILL_VERSION) {
-        return Ok(0);
-    }
 
     let tx = conn.unchecked_transaction()?;
     let mut changed = 0usize;
@@ -1196,18 +1200,6 @@ async fn insights_usage(
         warn!("explicit insights snapshot refresh failed: {err}");
     }
     let snapshot_path = state.hermes_home.join(INSIGHTS_SNAPSHOT_DB);
-    let backfill_snapshot_path = snapshot_path.clone();
-    let backfill_state_path = state.hermes_home.join("state.db");
-    match tokio::task::spawn_blocking(move || {
-        backfill_snapshot_providers(&backfill_snapshot_path, &backfill_state_path)
-    })
-    .await
-    {
-        Ok(Ok(changed)) if changed > 0 => info!("backfilled providers in {changed} yahu Insights rows"),
-        Ok(Ok(_)) => {}
-        Ok(Err(err)) => warn!("Insights provider backfill failed: {err}"),
-        Err(err) => warn!("Insights provider backfill task failed: {err}"),
-    }
     let min_timestamp = now - (INSIGHTS_MAX_DAYS as f64 * 86_400.0);
     let snapshot_data = tokio::task::spawn_blocking(move || {
         load_insights_usage_rows(&snapshot_path, min_timestamp)
@@ -1301,10 +1293,25 @@ async fn capture_insights_snapshot(state: &AppState, captured_at: f64) -> anyhow
     })
     .await??;
     if state_db_path.exists() {
+        let cleanup_path = path.clone();
+        let cleanup_state_path = state_db_path.clone();
         tokio::task::spawn_blocking(move || {
-            cleanup_deleted_insights_baselines(&path, &state_db_path, captured_at)
+            cleanup_deleted_insights_baselines(&cleanup_path, &cleanup_state_path, captured_at)
         })
         .await??;
+
+        let backfill_snapshot_path = path.clone();
+        let backfill_state_path = state_db_path.clone();
+        match tokio::task::spawn_blocking(move || {
+            backfill_snapshot_providers(&backfill_snapshot_path, &backfill_state_path)
+        })
+        .await
+        {
+            Ok(Ok(changed)) if changed > 0 => info!("backfilled providers in {changed} yahu Insights rows"),
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => warn!("Insights provider backfill failed: {err}"),
+            Err(err) => warn!("Insights provider backfill task failed: {err}"),
+        }
     }
     Ok(())
 }

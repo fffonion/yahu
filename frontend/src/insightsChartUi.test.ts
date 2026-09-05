@@ -237,19 +237,25 @@ describe('insights chart UI', () => {
     expect(app).toContain('const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod');
     expect(app).toContain('const timezoneOffset = new Date().getTimezoneOffset();');
     expect(app).toContain('const buildUsageUrl = (refresh: boolean) => {');
-    expect(app).toContain('let usageRes = await fetch(buildUsageUrl(force), { cache: \'no-store\' });');
+    expect(app).toContain("const usageRes = await fetch(buildUsageUrl(force), { cache: 'no-store' });");
     expect(app).toContain("useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);");
 
   });
 
-  test('caches loaded Insights periods and only refetches on explicit refresh', () => {
+  test('caches loaded Insights periods in the browser session and only refetches on explicit refresh', () => {
     const app = appSource();
     expect(app).toContain('const usageInsightsCacheRef = useRef<Partial<Record<1 | 7 | 30, UsageInsights>>>({});');
-    expect(app).toContain('force = false');
-    expect(app).toContain('const cached = usageInsightsCacheRef.current[period];');
-    expect(app).toContain('if (cached && !force && Number(cached?.totals?.unpriced_tokens || 0) <= 0) { setUsageInsights(cached); setUsageError(\'\'); return; }');
-    expect(app).toContain('let nextInsights = await usageRes.json();');
+    expect(app).toContain('const sessionStorage = getInsightsSessionStorage();');
+    expect(app).toContain('const cached = usageInsightsCacheRef.current[period] || readInsightsSessionCache(sessionStorage, period, timezoneOffset);');
+    expect(app).toContain('if (cached && !force) {');
+    expect(app).toContain('setUsageInsights(cached);');
+    expect(app).toContain("setUsageError('');");
+    expect(app).toContain('usageInsightsCacheRef.current[period] = cached;');
+    expect(app).not.toContain('Number(cached?.totals?.unpriced_tokens || 0) <= 0');
+    expect(app).not.toContain('if (!force && Number(nextInsights?.totals?.unpriced_tokens || 0) > 0)');
+    expect(app).toContain('const nextInsights = await usageRes.json();');
     expect(app).toContain('usageInsightsCacheRef.current[period] = nextInsights;');
+    expect(app).toContain('writeInsightsSessionCache(sessionStorage, period, timezoneOffset, nextInsights);');
     expect(app).toContain('refresh={() => loadUsageInsights(usagePeriod, true)}');
   });
 });

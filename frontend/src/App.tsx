@@ -36,6 +36,7 @@ import { reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
 import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from './viewport';
+import { getInsightsSessionStorage, readInsightsSessionCache, writeInsightsSessionCache } from './insightsCache';
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 import { WorkspaceEntryIcon } from './workspaceIcons';
@@ -960,25 +961,29 @@ export default function App() {
   }, [activeSession?.model, activeSession?.provider, model, selectedModelProvider, setStatus]);
 
   const loadUsageInsights = useCallback(async (period: 1 | 7 | 30 = usagePeriod, force = false) => {
-    const cached = usageInsightsCacheRef.current[period];
-    if (cached && !force && Number(cached?.totals?.unpriced_tokens || 0) <= 0) { setUsageInsights(cached); setUsageError(''); return; }
+    const timezoneOffset = new Date().getTimezoneOffset();
+    const sessionStorage = getInsightsSessionStorage();
+    const cached = usageInsightsCacheRef.current[period] || readInsightsSessionCache(sessionStorage, period, timezoneOffset);
+    if (cached && !force) {
+      usageInsightsCacheRef.current[period] = cached;
+      setUsageInsights(cached);
+      setUsageError('');
+      setUsageLoading(false);
+      return;
+    }
     setUsageLoading(true);
     setUsageError('');
     try {
-      const timezoneOffset = new Date().getTimezoneOffset();
       const buildUsageUrl = (refresh: boolean) => {
         const usageParams = new URLSearchParams({ period: String(period), tz_offset: String(timezoneOffset) });
         if (refresh) usageParams.set('refresh', 'true');
         return `/insights/usage?${usageParams.toString()}`;
       };
-      let usageRes = await fetch(buildUsageUrl(force), { cache: 'no-store' });
+      const usageRes = await fetch(buildUsageUrl(force), { cache: 'no-store' });
       if (!usageRes.ok) throw new Error(await usageRes.text());
-      let nextInsights = await usageRes.json();
-      if (!force && Number(nextInsights?.totals?.unpriced_tokens || 0) > 0) {
-        usageRes = await fetch(buildUsageUrl(true), { cache: 'no-store' });
-        if (usageRes.ok) nextInsights = await usageRes.json();
-      }
+      const nextInsights = await usageRes.json();
       usageInsightsCacheRef.current[period] = nextInsights;
+      writeInsightsSessionCache(sessionStorage, period, timezoneOffset, nextInsights);
       setUsageInsights(nextInsights);
     } catch (err) {
       setUsageError(errorMessage(err, t('insights.unavailable')));
