@@ -838,10 +838,7 @@ export default function App() {
     const refreshViewportLayout = () => {
       const root = document.querySelector<HTMLElement>('.app-shell');
       if (!root) return;
-      const previousDisplay = root.style.display;
-      root.style.display = 'none';
       void root.offsetHeight;
-      root.style.display = previousDisplay;
     };
     const syncAfterFocusChange = () => window.requestAnimationFrame(() => {
       refreshViewportLayout();
@@ -849,8 +846,8 @@ export default function App() {
     });
     const syncAfterViewportChange = () => syncViewportHeight();
     const healAndSyncViewport = () => {
-      refreshViewportLayout();
       syncViewportHeight(true);
+      refreshViewportLayout();
     };
     const syncAfterPageResume = () => {
       if (document.visibilityState === 'hidden') {

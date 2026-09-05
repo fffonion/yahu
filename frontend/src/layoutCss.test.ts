@@ -70,7 +70,8 @@ describe('sidebar session list css', () => {
     const source = app();
     expect(source).toContain('const syncAfterPageResume = () => {');
     expect(source).toContain("document.querySelector<HTMLElement>('.app-shell')");
-    expect(source).toContain("root.style.display = 'none'");
+    expect(source).not.toContain("root.style.display = 'none'");
+    expect(source).not.toContain('root.style.display = previousDisplay');
     expect(source).toContain('void root.offsetHeight');
     expect(source).toContain('const healAndSyncViewport = () => {');
     expect(source).toContain('healAndSyncViewport();');
