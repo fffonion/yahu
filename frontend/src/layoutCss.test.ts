@@ -52,10 +52,11 @@ describe('sidebar session list css', () => {
   test('tablet layout follows the live visual viewport height', () => {
     const source = app();
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-    expect(source).toContain("import { isTextEntryElement, visibleViewportHeight } from './viewport';");
+    expect(source).toContain("import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from './viewport';");
     expect(source).toContain("document.documentElement.style.setProperty('--app-viewport-height', `${nextHeight}px`)");
-    expect(source).toContain("window.visualViewport?.addEventListener('resize', syncViewportHeight)");
-    expect(source).toContain("window.visualViewport?.addEventListener('scroll', syncViewportHeight)");
+    expect(source).toContain("window.visualViewport?.addEventListener('resize', syncAfterViewportChange)");
+    expect(source).toContain("window.visualViewport?.addEventListener('scroll', syncAfterViewportChange)");
+    expect(source).toContain('const nextHeight = afterResume ? resumedViewportHeight(source) : visibleViewportHeight(source);');
     expect(source).toContain('if (isTextEntryElement(document.activeElement) && nextHeight < stableHeight.current) return;');
     expect(source).toContain("document.addEventListener('focusout', syncAfterFocusChange)");
     expect(source).toContain('const maxHeight = Math.max(minHeight, Math.floor(visibleViewportHeight(window) * 0.2));');

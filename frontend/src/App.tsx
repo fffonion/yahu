@@ -35,7 +35,7 @@ import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall
 import { reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
-import { isTextEntryElement, visibleViewportHeight } from './viewport';
+import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from './viewport';
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
 import { WorkspaceEntryIcon } from './workspaceIcons';
@@ -822,38 +822,54 @@ export default function App() {
   useLayoutEffect(() => {
     const stableHeight = { current: visibleViewportHeight(window) };
     let resumeFrame = 0;
-    let resumeTimer = 0;
-    const syncViewportHeight = () => {
-      const nextHeight = visibleViewportHeight(window);
+    let resumeTimers: number[] = [];
+    const clearResumeSchedule = () => {
+      window.cancelAnimationFrame(resumeFrame);
+      resumeTimers.forEach((timer) => window.clearTimeout(timer));
+      resumeTimers = [];
+    };
+    const syncViewportHeight = (afterResume = false) => {
+      const source = { innerHeight: window.innerHeight, clientHeight: document.documentElement.clientHeight, visualViewport: window.visualViewport };
+      const nextHeight = afterResume ? resumedViewportHeight(source) : visibleViewportHeight(source);
       if (isTextEntryElement(document.activeElement) && nextHeight < stableHeight.current) return;
       stableHeight.current = nextHeight;
       document.documentElement.style.setProperty('--app-viewport-height', `${nextHeight}px`);
     };
-    const syncAfterFocusChange = () => window.requestAnimationFrame(syncViewportHeight);
+    const syncAfterFocusChange = () => window.requestAnimationFrame(() => syncViewportHeight());
+    const syncAfterViewportChange = () => syncViewportHeight();
     const syncAfterPageResume = () => {
-      window.cancelAnimationFrame(resumeFrame);
-      window.clearTimeout(resumeTimer);
+      if (document.visibilityState === 'hidden') {
+        clearResumeSchedule();
+        return;
+      }
+      clearResumeSchedule();
       resumeFrame = window.requestAnimationFrame(() => {
-        syncViewportHeight();
-        resumeTimer = window.setTimeout(syncViewportHeight, 160);
+        syncViewportHeight(true);
+        resumeTimers = [160, 480, 1000].map((delay) => window.setTimeout(() => syncViewportHeight(true), delay));
       });
     };
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(syncAfterViewportChange);
     syncViewportHeight();
-    window.addEventListener('resize', syncViewportHeight);
-    window.visualViewport?.addEventListener('resize', syncViewportHeight);
-    window.visualViewport?.addEventListener('scroll', syncViewportHeight);
+    resizeObserver?.observe(document.documentElement);
+    window.addEventListener('resize', syncAfterViewportChange);
+    window.visualViewport?.addEventListener('resize', syncAfterViewportChange);
+    window.visualViewport?.addEventListener('scroll', syncAfterViewportChange);
     document.addEventListener('focusout', syncAfterFocusChange);
     document.addEventListener('visibilitychange', syncAfterPageResume);
     window.addEventListener('pageshow', syncAfterPageResume);
+    window.addEventListener('focus', syncAfterPageResume);
+    window.addEventListener('orientationchange', syncAfterPageResume);
     return () => {
-      window.cancelAnimationFrame(resumeFrame);
-      window.clearTimeout(resumeTimer);
-      window.removeEventListener('resize', syncViewportHeight);
-      window.visualViewport?.removeEventListener('resize', syncViewportHeight);
-      window.visualViewport?.removeEventListener('scroll', syncViewportHeight);
+      clearResumeSchedule();
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', syncAfterViewportChange);
+      window.visualViewport?.removeEventListener('resize', syncAfterViewportChange);
+      window.visualViewport?.removeEventListener('scroll', syncAfterViewportChange);
       document.removeEventListener('focusout', syncAfterFocusChange);
       document.removeEventListener('visibilitychange', syncAfterPageResume);
       window.removeEventListener('pageshow', syncAfterPageResume);
+      window.removeEventListener('focus', syncAfterPageResume);
+      window.removeEventListener('orientationchange', syncAfterPageResume);
       document.documentElement.style.removeProperty('--app-viewport-height');
     };
   }, []);
