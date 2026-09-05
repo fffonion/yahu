@@ -969,15 +969,24 @@ fn select_visible_subagent_sessions(
     visible
 }
 
+fn is_subagent_task_marker(text: &str) -> bool {
+    let first_line = text.lines().next().unwrap_or_default().trim().to_ascii_lowercase();
+    first_line.contains("context compaction")
+        || first_line.contains("prior context")
+        || first_line.contains("active task list was preserved across context compression")
+}
+
 fn project_subagent_session(hermes_home: &Path, session: &Value, messages: &[Value]) -> Option<SubagentProjection> {
     let session_id = string_field(session, "id")?;
     let parent_session_id = string_field(session, "parent_session_id").unwrap_or_default();
-    let task = messages
-        .iter()
-        .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
-        .and_then(|message| message.get("content"))
-        .map(content_text)
-        .filter(|text| !text.trim().is_empty())
+    let task = string_field(session, "title")
+        .or_else(|| {
+            messages
+                .iter()
+                .filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+                .filter_map(|message| message.get("content").map(content_text))
+                .find(|text| !is_subagent_task_marker(text))
+        })
         .unwrap_or_else(|| "Subagent".to_string());
     let context = number_field(session, "started_at").and_then(|started_at| {
         load_subagent_context(hermes_home, &parent_session_id, started_at, &task)

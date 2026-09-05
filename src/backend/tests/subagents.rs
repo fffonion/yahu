@@ -33,6 +33,37 @@
     }
 
     #[test]
+    fn subagent_projection_keeps_original_task_after_compaction_marker() {
+        let session = serde_json::json!({
+            "id": "child-compacted",
+            "parent_session_id": "parent-1",
+            "started_at": 100.0,
+            "message_count": 3
+        });
+        let messages = vec![
+            serde_json::json!({
+                "role": "user",
+                "content": "[CONTEXT COMPACTION — REFERENCE ONLY]\nsummary of the earlier task",
+                "timestamp": 200.0
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": "Continuing the task",
+                "timestamp": 201.0
+            }),
+            serde_json::json!({
+                "role": "user",
+                "content": "Recover and finish the original subagent task.",
+                "timestamp": 202.0
+            }),
+        ];
+
+        let projected = project_subagent_session(Path::new("/nonexistent"), &session, &messages).unwrap();
+
+        assert_eq!(projected.task, "Recover and finish the original subagent task.");
+    }
+
+    #[test]
     fn stale_running_subagent_is_marked_interrupted_without_hermes_changes() {
         let session = serde_json::json!({
             "id": "stale-child",
