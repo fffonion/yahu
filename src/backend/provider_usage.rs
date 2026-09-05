@@ -3670,6 +3670,8 @@ struct ProviderUsageQuery {
 
 #[cfg(test)]
 mod mimo_auth_tests {
+    use chrono::Datelike;
+
     use super::{
         grok_billing_snapshot, mimo_auth_error, mimo_headers, mimo_usage_percent,
         provider_reset_duration, provider_reset_text_local, should_skip_codex_cached_account,
@@ -3728,7 +3730,16 @@ mod mimo_auth_tests {
         let (window, used, reset, _, _) = grok_billing_snapshot(&payload).unwrap();
         assert_eq!(window, "周额度");
         assert_eq!(used, 0.0);
-        assert_eq!(reset, "9/5 03:41");
+        let expected_reset = payload
+            .pointer("/config/currentPeriod/end")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|date| {
+                let local = date.with_timezone(&chrono::Local);
+                format!("{}/{} {}", local.month(), local.day(), local.format("%H:%M"))
+            })
+            .unwrap();
+        assert_eq!(reset, expected_reset);
     }
 
     #[test]
