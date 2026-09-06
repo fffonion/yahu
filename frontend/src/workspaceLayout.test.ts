@@ -122,5 +122,19 @@ describe('workspace page file tree layout', () => {
     const source = app();
     expect(source).toContain("const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mode === 'workspace' || mode === 'skills';");
     expect(source).toContain('MobileHeaderDrawerButton');
+    expect(source).toContain('workspace-drawer-content');
+    expect(source).toContain('workspace-mobile-close');
+    expect(source).toContain('closeMobileSidebar?.();');
+  });
+
+  test('workspace mobile page reserves the bottom navigation and closes the drawer after opening a file', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain('data-mobile-workspace="true"');
+    expect(source).toContain('const openFile = async (entry: WorkspaceEntry) =>');
+    expect(source).toContain('await openWorkspaceEntry(entry);');
+    expect(styles).toContain('.workspace-main{grid-column:2 / -1}');
+    expect(styles).toContain('.workspace-main{grid-column:1/-1;height:var(--app-viewport-height,100dvh);padding-bottom:var(--mobile-bottom-nav-height)}');
+    expect(styles).toContain('.workspace-drawer-content{display:flex;flex-direction:column;min-height:0;flex:1}');
   });
 });

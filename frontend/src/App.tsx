@@ -2362,7 +2362,7 @@ export default function App() {
           <button className={`rail-btn nav-settings ${mode === 'settings' ? 'active' : ''}`} onClick={() => setNavMode('settings')} title={t('nav.settings')}><Settings /></button>
         </div>
         {!sidebarCollapsed && <div className="left-body">
-          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} hideCronSessions={hideCronSessions} setHideCronSessions={(value: boolean) => setHideCronSessions(value)} startDraftSession={startDraftSession} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={switchActiveSession} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} reorderPinned={reorderPinned} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} openSkillMenu={openSkillMenu} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} closeMobileSidebar={closeMobileSidebar} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
+          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} hideCronSessions={hideCronSessions} setHideCronSessions={(value: boolean) => setHideCronSessions(value)} startDraftSession={startDraftSession} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={switchActiveSession} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} reorderPinned={reorderPinned} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} closeMobileSidebar={closeMobileSidebar} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} openSkillMenu={openSkillMenu} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} closeMobileSidebar={closeMobileSidebar} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
         </div>}
         {!sidebarCollapsed && <ThemeCard theme={theme} setTheme={setTheme} />}
       </aside>
@@ -4027,6 +4027,7 @@ type WorkspaceTreeProps = {
   openWorkspaceEntry: (entry: WorkspaceEntry, options?: { edit?: boolean; route?: boolean }) => void | Promise<void>;
   downloadEntry: (entry: WorkspaceEntry) => void;
   openWorkspaceMenu?: (entry: WorkspaceEntry, event: React.MouseEvent) => void;
+  closeMobileSidebar?: () => void;
 };
 
 type WorkspaceAsideProps = WorkspaceTreeProps & {
@@ -4053,7 +4054,7 @@ function WorkspaceAside(props: WorkspaceAsideProps) {
   return <aside className="workspace"><WorkspaceBrowser rootEntries={props.rootEntries} workspaceTree={props.workspaceTree} expandedWorkspacePaths={props.expandedWorkspacePaths} toggleWorkspaceFolder={props.toggleWorkspaceFolder} openWorkspaceEntry={props.openWorkspaceEntry} downloadEntry={props.downloadEntry} preview={props.preview} setPreview={props.setPreview} compact setCollapsed={props.setCollapsed} openWorkspaceMenu={props.openWorkspaceMenu} openFullPreview={props.openFullPreview} /></aside>;
 }
 function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: WorkspaceMainProps) {
-  return <main className="main-panel workspace-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
+  return <main className="main-panel workspace-main" data-mobile-workspace="true"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
 }
 
 type WorkspaceTreeRowsProps = Pick<WorkspaceTreeProps, 'workspaceTree' | 'expandedWorkspacePaths' | 'toggleWorkspaceFolder' | 'downloadEntry' | 'openWorkspaceMenu'> & {
@@ -4076,8 +4077,12 @@ function WorkspaceTreeRows({ entries, workspaceTree, expandedWorkspacePaths, tog
   });
 }
 
-function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu }: WorkspaceTreeProps) {
-  return <><div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div></div><div className="workspace-tree file-list"><WorkspaceTreeRows entries={rootEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /></div></>;
+function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu, closeMobileSidebar }: WorkspaceTreeProps) {
+  const openFile = async (entry: WorkspaceEntry) => {
+    await openWorkspaceEntry(entry);
+    closeMobileSidebar?.();
+  };
+  return <div className="workspace-drawer-content"><div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div><button type="button" className="workspace-mobile-close" aria-label={t('nav.closeList')} title={t('nav.closeList')} onClick={() => closeMobileSidebar?.()}><X /></button></div><div className="workspace-tree file-list"><WorkspaceTreeRows entries={rootEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /></div></div>;
 }
 function MarqueeText({ children }: { children: React.ReactNode }) {
   const rootRef = useRef<HTMLSpanElement>(null);
