@@ -33,7 +33,8 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('aria-label={t(\'chat.new\')}');
     expect(app).toContain('aria-pressed={props.hideCronSessions}');
     expect(app).toContain('setHideCronSessions={(value: boolean) => setHideCronSessions(value)}');
-    expect(app).toContain('Turtle');
+    expect(app).toContain('SlidersHorizontal');
+    expect(app).toContain("session.source === 'turtle-soup' ? <Turtle /> : session.source === 'turtle-bench' ? <Turtle />");
     expect(css).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px');
     expect(css).toContain('.filter{height:44px');
     expect(css).toContain('.session-filter-btn{width:44px;height:44px');
