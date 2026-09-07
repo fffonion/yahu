@@ -67,7 +67,7 @@
     }
 
     #[tokio::test]
-    async fn session_search_hides_turtle_bench_when_source_filter_is_on() {
+    async fn session_search_hides_turtle_sources_when_source_filter_is_on() {
         use std::collections::HashMap;
 
         async fn api_sessions(
@@ -79,6 +79,7 @@
                 "data": [
                     {"id":"s1","source":"telegram","title":"keep","preview":"cache","started_at":3.0},
                     {"id":"tb1","source":"turtle-bench","title":"bench","preview":"cache","started_at":2.0},
+                    {"id":"ts1","source":"turtle-soup","title":"soup","preview":"cache","started_at":1.5},
                     {"id":"cli1","source":"cli","title":"cli","preview":"cache","started_at":1.0}
                 ],
                 "has_more": false
@@ -100,7 +101,9 @@
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["id"], "s1");
-        assert!(rows.iter().all(|row| row["source"] != "turtle-bench"));
+        assert!(rows.iter().all(|row| {
+            row["source"] != "turtle-bench" && row["source"] != "turtle-soup"
+        }));
     }
 
     #[tokio::test]
@@ -284,6 +287,12 @@
             "INSERT INTO sessions
              (id, source, model, started_at, message_count, title, archived)
              VALUES ('turtle-bench-newest', 'turtle-bench', 'bench-model', 4000.0, 1, 'bench', 0)",
+            [],
+        ).unwrap();
+        transaction.execute(
+            "INSERT INTO sessions
+             (id, source, model, started_at, message_count, title, archived)
+             VALUES ('turtle-soup-newest', 'turtle-soup', 'soup-model', 3500.0, 1, 'soup', 0)",
             [],
         ).unwrap();
         transaction.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('normal-89','user','latest question',1)", []).unwrap();

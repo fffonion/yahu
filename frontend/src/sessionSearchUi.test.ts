@@ -26,25 +26,25 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('[filter, hideCronSessions, pinnedIds, headers');
   });
 
-  test('new conversation and cron filter are icon buttons beside the search field', () => {
+  test('new conversation and source filter are icon buttons beside the search field', () => {
     const app = source();
     const css = styles();
     expect(app).toContain('className="session-searchbar"');
     expect(app).toContain('aria-label={t(\'chat.new\')}');
     expect(app).toContain('aria-pressed={props.hideCronSessions}');
     expect(app).toContain('setHideCronSessions={(value: boolean) => setHideCronSessions(value)}');
-    expect(app).toContain('SlidersHorizontal');
+    expect(app).toContain('Turtle');
     expect(css).toContain('.session-searchbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px');
     expect(css).toContain('.filter{height:44px');
     expect(css).toContain('.session-filter-btn{width:44px;height:44px');
   });
 
-  test('session source filter copy names cron, CLI, and alp-worker conversations', () => {
+  test('session source filter copy names cron, CLI, alp-worker, and turtle conversations', () => {
     const i18n = translations();
-    expect(i18n).toContain("en: 'Hide cron, CLI, and alp-worker conversations'");
-    expect(i18n).toContain("'zh-CN': '隐藏定时任务、CLI 和 alp-worker 对话'");
-    expect(i18n).toContain("en: 'Show cron, CLI, and alp-worker conversations'");
-    expect(i18n).toContain("'zh-CN': '显示定时任务、CLI 和 alp-worker 对话'");
+    expect(i18n).toContain("en: 'Hide cron, CLI, alp-worker, turtle-soup, and turtle-bench conversations'");
+    expect(i18n).toContain("'zh-CN': '隐藏定时任务、CLI、alp-worker、turtle-soup 和 turtle-bench 对话'");
+    expect(i18n).toContain("en: 'Show cron, CLI, alp-worker, turtle-soup, and turtle-bench conversations'");
+    expect(i18n).toContain("'zh-CN': '显示定时任务、CLI、alp-worker、turtle-soup 和 turtle-bench 对话'");
   });
 
   test('composer model comes from selected session details, not a global Hermes fallback', () => {
