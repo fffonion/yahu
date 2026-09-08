@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { markdownText } from './markdown';
 import { parseSessionStateMessage } from './sessionStateMessage';
 
@@ -33,8 +34,17 @@ A background fan-out has finished.
 --- ✗ TASK 1/1: review timed out ---`)).toEqual({
       notice: 'ASYNC DELEGATION BATCH COMPLETE — deleg_41e1ea8f',
       tasks: [],
+      collapsible: true,
       details: 'A background fan-out has finished.\n\n--- ✗ TASK 1/1: review timed out ---',
     });
+  });
+
+  test('renders async delegation completion as a collapsed details block', () => {
+    const transcriptSource = readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8');
+    const stylesSource = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+    expect(transcriptSource).toContain('className="session-state-message session-state-collapsible"');
+    expect(transcriptSource).toContain('<summary className="session-state-summary">');
+    expect(stylesSource).toContain('.session-state-collapsible[open] .session-state-arrow');
   });
 
   test('formats every exact bracketed first line while leaving sender prefixes and inline prose alone', () => {

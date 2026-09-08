@@ -31,7 +31,7 @@ import { findNewMessageSplitIndex } from './chatNewMessages';
 import { t, tf } from './i18n';
 import { markdownText } from './markdown';
 import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
-import { parseSessionStateMessage, type SessionTaskStatus } from './sessionStateMessage';
+import { parseSessionStateMessage, type SessionStateContent, type SessionTaskStatus } from './sessionStateMessage';
 import { formatChatMessageTime } from './sessionTime';
 import { parseSearchFilesResult } from './searchFilesResult';
 import { highlightSourceText } from './syntaxHighlight';
@@ -500,16 +500,29 @@ function SessionTaskCheckbox({ status, label }: { status: SessionTaskStatus; lab
   return <input type="checkbox" className="session-task-checkbox" checked={status === 'completed'} readOnly tabIndex={-1} aria-label={label} ref={(node) => { if (node) node.indeterminate = status === 'in_progress'; }} />;
 }
 
-function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessage> }) {
-  const state = parseSessionStateMessage(item.message.content);
-  if (!state) return null;
-  return <article className="session-state-message" data-message-id={item.message.id || item.id}>
-    <div className="session-state-notice"><Info aria-hidden="true" /><span>{state.notice}</span></div>
+function SessionStateBody({ state }: { state: SessionStateContent }) {
+  return <>
     {state.details && <div className="session-state-details msg-body"><div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(state.details) }} /></div>}
     {state.tasks.length > 0 && <ul className="session-task-list">{state.tasks.map((task, index) => <li className={`session-task-item ${task.status}`} key={`${task.id}:${index}`}>
       <SessionTaskCheckbox status={task.status} label={`${task.id ? `${task.id}: ` : ''}${task.description}`} />
       <span className="session-task-copy">{task.id && <strong>{task.id}</strong>}<span>{task.description}</span></span>
     </li>)}</ul>}
+  </>;
+}
+
+function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessage> }) {
+  const state = parseSessionStateMessage(item.message.content);
+  if (!state) return null;
+  const messageId = item.message.id || item.id;
+  const notice = <div className="session-state-notice"><Info aria-hidden="true" /><span>{state.notice}</span></div>;
+  const body = <SessionStateBody state={state} />;
+  if (state.collapsible) return <details className="session-state-message session-state-collapsible" data-message-id={messageId} aria-label={state.notice}>
+    <summary className="session-state-summary">{notice}<ChevronRight className="session-state-arrow" aria-hidden="true" /></summary>
+    {body}
+  </details>;
+  return <article className="session-state-message" data-message-id={messageId}>
+    {notice}
+    {body}
   </article>;
 }
 

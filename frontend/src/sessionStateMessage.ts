@@ -10,6 +10,7 @@ export type SessionStateContent = {
   notice: string;
   tasks: SessionTaskItem[];
   details?: string;
+  collapsible?: boolean;
 };
 
 const taskLine = /^-\s+\[([ xX>~-])\]\s+(.+?)(?:\s+\((pending|in_progress|completed|cancelled)\))?\s*$/;
@@ -28,7 +29,7 @@ export function parseSessionStateMessage(content: string): SessionStateContent |
   if (!noticeMatch || noticeMatch[1].includes('|')) return null;
   const notice = noticeMatch[1].trim();
   const details = lines.slice(1).join('\n').trim();
-  if (asyncDelegationCompleteNotice.test(notice)) return { notice, tasks: [], ...(details ? { details } : {}) };
+  if (asyncDelegationCompleteNotice.test(notice)) return { notice, tasks: [], collapsible: true, ...(details ? { details } : {}) };
 
   const tasks: SessionTaskItem[] = [];
   for (const line of lines.slice(1)) {
