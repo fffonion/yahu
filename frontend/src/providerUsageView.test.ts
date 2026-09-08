@@ -38,6 +38,23 @@ describe('provider usage view', () => {
       .toEqual(['available', 'available-later', 'full-week', 'full-five-hour']);
   });
 
+  test('CommandCode treats 99% and 100% as quota walls for refresh protection and ordering', () => {
+    const now = 1_800_000_000;
+    const groups: ProviderUsageAccountGroup[] = [
+      ['commandcode-99', [{ window: 'commandcode-99 月额度', used: '99%' }]],
+      ['commandcode-100', [{ window: 'commandcode-100 月额度', used: '100%' }]],
+      ['commandcode-available', [{ window: 'commandcode-available 月额度', used: '20%' }]],
+    ];
+    expect(orderProviderUsageAccountGroups(groups, 99).map(([account]) => account))
+      .toEqual(['commandcode-available', 'commandcode-99', 'commandcode-100']);
+    expect(providerUsageAccountHasActiveQuotaWall([
+      { window: 'commandcode-99 月额度', used: '99%', reset_at: now + 3600 },
+    ], now, 99)).toBe(true);
+    expect(providerUsageAccountHasActiveQuotaWall([
+      { window: 'commandcode-100 月额度', used: '100%', reset_at: now + 3600 },
+    ], now, 99)).toBe(true);
+  });
+
   test('multi-account refresh protects active quota walls and refreshes other accounts', () => {
     const now = 1_800_000_000;
     expect(providerUsageAccountHasActiveQuotaWall([
@@ -123,9 +140,9 @@ describe('provider usage view', () => {
     expect(source).toContain('refreshAll');
     expect(source).toContain('loading && accountCount <= 1 ? <ProviderUsageSkeleton /> : <>');
     expect(source).toContain('{section && <ProviderUsageSectionView section={section} loading={loading} />}');
-    expect(source).toContain('providerUsageAccountHasActiveQuotaWall(windows)');
+    expect(source).toContain('providerUsageAccountHasActiveQuotaWall(windows, Date.now() / 1000, quotaWallPercent)');
     expect(source).toContain('ProviderUsageAccountSkeleton');
-    expect(source).toContain("const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows));");
+    expect(source).toContain("const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows, Date.now() / 1000, quotaWallPercent));");
     expect(source).not.toContain("'\\\\u00a0'");
     expect(css()).toContain('.header-toolstrip-with-leading .mobile-header-settings-btn{border-top-left-radius:0;border-bottom-left-radius:0}');
     expect(source).toContain('usagePercentTone');

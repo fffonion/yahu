@@ -19,6 +19,7 @@ const MINIMAX_USAGE_SUMMARY_URL: &str =
 const KIMI_API_BASE: &str = "https://www.kimi.com";
 const MIMO_API_BASE: &str = "https://platform.xiaomimimo.com/api/v1";
 const COMMANDCODE_API_BASE: &str = "https://api.commandcode.ai";
+const COMMANDCODE_QUOTA_WALL_PERCENT: f64 = 99.0;
 const GROK_WEB_CREDITS_URL: &str =
     "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
 const XAI_OAUTH_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
@@ -2589,9 +2590,18 @@ fn provider_used_percent(window: &ProviderUsageWindow) -> Option<f64> {
         .filter(|value| value.is_finite())
 }
 
+fn provider_quota_wall_percent(section: &ProviderUsageSection) -> f64 {
+    if section.provider == "commandcode" {
+        COMMANDCODE_QUOTA_WALL_PERCENT
+    } else {
+        100.0
+    }
+}
+
 fn provider_section_should_skip_upstream(section: &ProviderUsageSection, now: i64) -> bool {
+    let quota_wall_percent = provider_quota_wall_percent(section);
     section.windows.iter().any(|window| {
-        provider_used_percent(window).is_some_and(|used| used >= 100.0)
+        provider_used_percent(window).is_some_and(|used| used >= quota_wall_percent)
             && window.reset_at.is_some_and(|reset_at| reset_at > now)
     })
 }
@@ -2602,12 +2612,13 @@ fn provider_account_should_skip_upstream(
     account_scoped: bool,
     now: i64,
 ) -> bool {
+    let quota_wall_percent = provider_quota_wall_percent(section);
     section
         .windows
         .iter()
         .filter(|window| !account_scoped || provider_account_window_matches(window, label))
         .any(|window| {
-            provider_used_percent(window).is_some_and(|used| used >= 100.0)
+            provider_used_percent(window).is_some_and(|used| used >= quota_wall_percent)
                 && window.reset_at.is_some_and(|reset_at| reset_at > now)
         })
 }

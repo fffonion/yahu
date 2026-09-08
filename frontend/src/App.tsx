@@ -2956,6 +2956,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     return `tone-${accountTones.get(account)}`;
   };
   const accountScoped = ['commandcode', 'codex', 'grok', 'zed-pro'].includes(section.provider);
+  const quotaWallPercent = section.provider === 'commandcode' ? 99 : 100;
   const accountGroups = accountScoped && section.windows.some((win) => providerAccountWindowParts(win.window))
     ? orderProviderUsageAccountGroups(Array.from(section.windows.reduce((groups, win) => {
       const account = providerAccountWindowParts(win.window)?.[0] || win.window;
@@ -2963,7 +2964,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
       group.push(win);
       groups.set(account, group);
       return groups;
-    }, new Map<string, ProviderUsageWindow[]>()).entries()))
+    }, new Map<string, ProviderUsageWindow[]>()).entries()), quotaWallPercent)
     : [];
   const renderWindow = (win: ProviderUsageWindow, index: number) => {
     const percent = providerUsagePercent(win.used);
@@ -2984,7 +2985,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
           ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')
           : windows;
         if (!visibleWindows.length) return null;
-        const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows));
+        const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows, Date.now() / 1000, quotaWallPercent));
         return <section className={`provider-usage-account-group tone-${groupIndex % 2}${refreshing ? ' is-loading' : ''}`} aria-busy={refreshing} key={account}><strong>{account}</strong><div className="provider-usage-windows">{refreshing ? <ProviderUsageAccountSkeleton count={visibleWindows.length} /> : visibleWindows.map(renderWindow)}</div></section>;
       })}</div>
       : <div className="provider-usage-windows">{section.windows.map(renderWindow)}</div>)}

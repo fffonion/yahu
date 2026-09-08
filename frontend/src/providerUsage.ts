@@ -56,20 +56,21 @@ export function providerUsagePercent(value: string | null | undefined): number |
 export function providerUsageAccountHasActiveQuotaWall(
   windows: ProviderUsageWindow[],
   now = Date.now() / 1000,
+  quotaWallPercent = 100,
 ): boolean {
   return windows.some((window) => {
     const percent = providerUsagePercent(window.used);
-    return percent !== null && percent >= 100 && typeof window.reset_at === 'number' && window.reset_at > now;
+    return percent !== null && percent >= quotaWallPercent && typeof window.reset_at === 'number' && window.reset_at > now;
   });
 }
 
-export function orderProviderUsageAccountGroups(groups: ProviderUsageAccountGroup[]): ProviderUsageAccountGroup[] {
+export function orderProviderUsageAccountGroups(groups: ProviderUsageAccountGroup[], quotaWallPercent = 100): ProviderUsageAccountGroup[] {
   return groups
     .map(([account, windows], index) => ({
       account,
       windows,
       index,
-      hasQuotaWall: windows.some((window) => (providerUsagePercent(window.used) ?? -1) >= 100),
+      hasQuotaWall: windows.some((window) => (providerUsagePercent(window.used) ?? -1) >= quotaWallPercent),
     }))
     .sort((left, right) => Number(left.hasQuotaWall) - Number(right.hasQuotaWall) || left.index - right.index)
     .map(({ account, windows }) => [account, windows]);

@@ -231,6 +231,31 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn commandcode_99_and_100_percent_windows_use_quota_wall_cache_policy() {
+        let now = 1_800_000_000;
+        let section: ProviderUsageSection = serde_json::from_value(serde_json::json!({
+            "provider": "commandcode",
+            "title": "CommandCode 额度",
+            "description": "",
+            "rows": [],
+            "errors": [],
+            "windows": [
+                {"window": "acct-a 5h额度", "used": "99%", "reset": "旧值", "reset_at": now + 3600},
+                {"window": "acct-b 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
+                {"window": "acct-c 5h额度", "used": "20%", "reset": "旧值", "reset_at": now + 3600}
+            ]
+        }))
+        .unwrap();
+
+        assert!(provider_account_should_skip_upstream(&section, "acct-a", true, now));
+        assert!(provider_account_should_skip_upstream(&section, "acct-b", true, now));
+        assert!(!provider_account_should_skip_upstream(&section, "acct-c", true, now));
+        let cached = provider_cached_account_section(&section, "acct-b", true, now).unwrap();
+        assert_eq!(cached.windows[0].window, "acct-b 5h额度");
+        assert_eq!(cached.windows[0].reset.as_deref(), Some("1小时"));
+    }
+
+    #[test]
     fn provider_reset_at_normalizes_millisecond_and_rfc3339_values() {
         let seconds = chrono::Utc::now().timestamp() + 3600;
         let millis = seconds * 1000;
