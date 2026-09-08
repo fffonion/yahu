@@ -295,6 +295,7 @@ function ToolMessageView({ message, suppressMessageAnchor = false }: { message: 
   const isError = summary.status !== 'ok';
   const toolName = summary.toolName;
   const canonicalToolName = toolName.replace(/^functions\./, '');
+  const fullWidthTool = ['patch', 'read_file', 'write_file'].includes(canonicalToolName);
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
       <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
@@ -303,7 +304,7 @@ function ToolMessageView({ message, suppressMessageAnchor = false }: { message: 
         <span className="tool-subtitle">{summary.subtitle}</span>
         <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
       </button>
-      {expanded && <div className={`tool-detail${canonicalToolName === 'patch' ? ' tool-detail-patch' : ''}`}>
+      {expanded && <div className={`tool-detail${fullWidthTool ? ' tool-detail-wide' : ''}${canonicalToolName === 'patch' ? ' tool-detail-patch' : ''}`}>
         {summary.input !== undefined && <ToolDetailSection title={t('tool.invocation')} value={summary.input} summary={summary} mode="input" />}
         <ToolDetailSection title={t('tool.result')} value={summary.result} summary={summary} />
       </div>}

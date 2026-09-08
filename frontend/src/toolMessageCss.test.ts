@@ -41,14 +41,15 @@ describe('tool message structured layout css', () => {
     expect(styles).toContain('.tool-code-source .tok-keyword{color:var(--syntax-keyword)}');
   });
 
-  test('mobile patch details use the full expanded container width', () => {
+  test('mobile patch, read_file, and write_file details use the full expanded container width', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("canonicalToolName === 'patch' ? ' tool-detail-patch' : ''");
+    expect(source).toContain("const fullWidthTool = ['patch', 'read_file', 'write_file'].includes(canonicalToolName);");
+    expect(source).toContain("fullWidthTool ? ' tool-detail-wide' : ''");
     expect(source).toContain('className="tool-patch-result"');
-    expect(styles).toContain('.tool-patch-result,.tool-source-content{width:100%;min-width:0;max-width:100%}');
-    expect(styles).toContain('.mobile-compact-chat .tool-detail.tool-detail-patch{padding-left:0}');
-    expect(styles).toContain('.mobile-compact-chat .tool-detail-patch .tool-field:has(.tool-patch-result){grid-template-columns:minmax(0,1fr);gap:4px}');
+    expect(styles).toContain('.tool-patch-result,.tool-source-content,.tool-detail-wide .tool-code-block{width:100%;min-width:0;max-width:100%}');
+    expect(styles).toContain('.mobile-compact-chat .tool-detail.tool-detail-wide{padding-left:0}');
+    expect(styles).toContain('.mobile-compact-chat .tool-detail-wide .tool-field:has(.tool-patch-result){grid-template-columns:minmax(0,1fr);gap:4px}');
   });
 
   test('search_files results parse JSON into grouped match rows instead of recursive fields', () => {
