@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { highlightedDiffLines, highlightedReadFileLines } from './toolCodeHighlight';
+import { highlightedDiffLines, highlightedReadFileLines, highlightedSourceLines } from './toolCodeHighlight';
 
 describe('tool code result highlighting', () => {
   test('separates read_file line numbers from syntax-highlighted source', () => {
@@ -16,6 +16,15 @@ describe('tool code result highlighting', () => {
     expect(lines[0].html).toContain('<span class="tok-number">42</span>');
     expect(lines[1].lineNumber).toBe('13');
     expect(lines[1].html).toContain('<span class="tok-comment">// retained comment</span>');
+  });
+
+  test('highlights write_file source without expecting read_file line prefixes', () => {
+    const lines = highlightedSourceLines('export const answer = 42;\n// written comment', '/tmp/answer.ts');
+
+    expect(lines[0].lineNumber).toBeUndefined();
+    expect(lines[0].html).toContain('<span class="tok-keyword">export</span>');
+    expect(lines[0].html).toContain('<span class="tok-number">42</span>');
+    expect(lines[1].html).toContain('<span class="tok-comment">// written comment</span>');
   });
 
   test('highlights diff structure and source syntax using each target filename', () => {

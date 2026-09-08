@@ -26,17 +26,29 @@ describe('tool message structured layout css', () => {
     expect(styles).toContain('.tool-detail-section{display:grid;gap:7px}');
   });
 
-  test('patch and read_file results render filename-aware highlighted code blocks', () => {
+  test('patch, read_file, and write_file render filename-aware highlighted code blocks', () => {
     const source = app();
     const styles = css();
     expect(source).toContain("canonicalToolName === 'read_file'");
     expect(source).toContain('highlightedReadFileLines(summary.result, summary.filePath)');
+    expect(source).toContain("canonicalToolName === 'write_file'");
+    expect(source).toContain('highlightedSourceLines(child, summary.filePath)');
     expect(source).toContain("canonicalToolName === 'patch'");
     expect(source).toContain('highlightedDiffLines(diff, filePath)');
     expect(source).toContain('tool-code-line-number');
     expect(styles).toContain('.tool-code-line.diff-add{background:');
     expect(styles).toContain('.tool-code-line.diff-remove{background:');
     expect(styles).toContain('.tool-code-source .tok-keyword{color:var(--syntax-keyword)}');
+  });
+
+  test('mobile patch details use the full expanded container width', () => {
+    const source = app();
+    const styles = css();
+    expect(source).toContain("canonicalToolName === 'patch' ? ' tool-detail-patch' : ''");
+    expect(source).toContain('className="tool-patch-result"');
+    expect(styles).toContain('.tool-patch-result,.tool-source-content{width:100%;min-width:0;max-width:100%}');
+    expect(styles).toContain('.mobile-compact-chat .tool-detail.tool-detail-patch{padding-left:0}');
+    expect(styles).toContain('.mobile-compact-chat .tool-detail-patch .tool-field:has(.tool-patch-result){grid-template-columns:minmax(0,1fr);gap:4px}');
   });
 
   test('search_files results parse JSON into grouped match rows instead of recursive fields', () => {

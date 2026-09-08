@@ -35,7 +35,7 @@ import { parseSessionStateMessage, type SessionTaskStatus } from './sessionState
 import { formatChatMessageTime } from './sessionTime';
 import { parseSearchFilesResult } from './searchFilesResult';
 import { highlightSourceText } from './syntaxHighlight';
-import { highlightedDiffLines, highlightedReadFileLines, type HighlightedToolCodeLine } from './toolCodeHighlight';
+import { highlightedDiffLines, highlightedReadFileLines, highlightedSourceLines, type HighlightedToolCodeLine } from './toolCodeHighlight';
 import { summarizeToolMessage, type ToolSummary } from './toolMessage';
 import { streamGraphemes } from './streamGraphemes';
 import {
@@ -179,9 +179,22 @@ function PatchResultView({ value, filePath }: { value: unknown; filePath: string
   const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
   const diff = typeof value === 'string' ? value : typeof record?.diff === 'string' ? record.diff : '';
   if (!diff) return <StructuredDataView value={value} />;
-  const block = <ToolCodeBlock lines={highlightedDiffLines(diff, filePath)} variant="diff" />;
+  const block = <div className="tool-patch-result"><ToolCodeBlock lines={highlightedDiffLines(diff, filePath)} variant="diff" /></div>;
   if (!record) return block;
   return <div className="tool-children">{Object.entries(record).map(([key, child]) => <div className="tool-field" key={key}><span className="tool-key">{key}</span>{key === 'diff' ? block : <StructuredDataView value={child} depth={1} />}</div>)}</div>;
+}
+
+function WriteFileInputView({ summary }: { summary: ToolSummary }) {
+  const input = summary.input;
+  const record = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : null;
+  if (!record || typeof record.content !== 'string') return <StructuredDataView value={input} />;
+  return <div className="tool-children tool-write-file-input">{Object.entries(record).map(([key, child]) => {
+    const isContent = key === 'content' && typeof child === 'string';
+    return <div className={`tool-field${isContent ? ' tool-field-code' : ''}`} key={key}>
+      <span className="tool-key">{key}</span>
+      {isContent ? <div className="tool-source-content"><ToolCodeBlock lines={highlightedSourceLines(child, summary.filePath)} variant="source" /></div> : <StructuredDataView value={child} depth={1} />}
+    </div>;
+  })}</div>;
 }
 
 function SearchFilesResultView({ value }: { value: unknown }) {
@@ -213,8 +226,15 @@ function ToolResultView({ summary }: { summary: ToolSummary }) {
   return <StructuredDataView value={summary.result} />;
 }
 
-function ToolDetailSection({ title, value, summary }: { title: string; value: unknown; summary?: ToolSummary }) {
-  return <section className="tool-detail-section"><h4>{title}</h4>{summary ? <ToolResultView summary={summary} /> : <StructuredDataView value={value} />}</section>;
+function ToolInputView({ summary }: { summary: ToolSummary }) {
+  const canonicalToolName = summary.toolName.replace(/^functions\./, '');
+  if (canonicalToolName === 'write_file') return <WriteFileInputView summary={summary} />;
+  return <StructuredDataView value={summary.input} />;
+}
+
+function ToolDetailSection({ title, value, summary, mode = 'result' }: { title: string; value: unknown; summary?: ToolSummary; mode?: 'input' | 'result' }) {
+  const content = summary ? mode === 'input' ? <ToolInputView summary={summary} /> : <ToolResultView summary={summary} /> : <StructuredDataView value={value} />;
+  return <section className="tool-detail-section"><h4>{title}</h4>{content}</section>;
 }
 
 function getToolIcon(toolName: string): React.ReactNode {
@@ -274,6 +294,7 @@ function ToolMessageView({ message, suppressMessageAnchor = false }: { message: 
   );
   const isError = summary.status !== 'ok';
   const toolName = summary.toolName;
+  const canonicalToolName = toolName.replace(/^functions\./, '');
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
       <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
@@ -282,8 +303,8 @@ function ToolMessageView({ message, suppressMessageAnchor = false }: { message: 
         <span className="tool-subtitle">{summary.subtitle}</span>
         <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
       </button>
-      {expanded && <div className="tool-detail">
-        {summary.input !== undefined && <ToolDetailSection title={t('tool.invocation')} value={summary.input} />}
+      {expanded && <div className={`tool-detail${canonicalToolName === 'patch' ? ' tool-detail-patch' : ''}`}>
+        {summary.input !== undefined && <ToolDetailSection title={t('tool.invocation')} value={summary.input} summary={summary} mode="input" />}
         <ToolDetailSection title={t('tool.result')} value={summary.result} summary={summary} />
       </div>}
     </div>

@@ -230,7 +230,7 @@ export function summarizeToolMessage(content: string, fallbackToolName = '', fal
   const errorSubtitle = fields.find((f) => f.key === 'error')?.value;
   const resultSubtitle = fields.find((f) => ['result', 'output', 'message', 'content'].includes(f.key))?.value;
   const canonicalToolName = toolName.replace(/^functions\./, '');
-  const filePath = ['patch', 'read_file'].includes(canonicalToolName) ? fullFilePathFromInput(root, input) : '';
+  const filePath = ['patch', 'read_file', 'write_file'].includes(canonicalToolName) ? fullFilePathFromInput(root, input) : '';
   const fileSummaryPath = compactFilePath(filePath);
   const fileSummary = fileSummaryPath ? `${fileSummaryPath}${root ? ` · ${Object.keys(root).length} fields` : ''}` : '';
   const inputSubtitle = inputSummaryFromInput(toolName, input);

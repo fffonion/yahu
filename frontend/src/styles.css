@@ -173,7 +173,7 @@ select:focus,input:focus,textarea:focus{box-shadow:0 0 0 3px var(--focus-ring)}
 
 @media (max-width:760px){.header-toolstrip{gap:0}.chat-header .header-toolstrip,.image-toolbar .header-toolstrip{gap:0}.header-toolstrip>.header-theme-control{gap:0;margin-left:0}.header-toolstrip>button,.header-toolstrip>.header-theme-control>button{margin-left:-1px;border:1px solid var(--border);border-radius:0;background:var(--surface-2)}.header-toolstrip>button{width:30px;height:30px;min-width:30px;padding:0;justify-content:center}.header-toolstrip>.header-theme-control>button{width:30px;height:30px;min-width:30px;padding:0}.header-toolstrip-with-leading>button:first-child,.header-toolstrip:not(.header-toolstrip-with-leading)>.header-theme-control>.mobile-header-terminal-btn{margin-left:0;border-radius:var(--radius-md) 0 0 var(--radius-md)}.header-toolstrip>.header-theme-control>.mobile-header-settings-btn{border-radius:var(--radius-md)}.header-toolstrip-with-leading>.header-theme-control>.mobile-header-terminal-btn{border-radius:0}.header-toolstrip>.header-theme-control>.mobile-header-terminal-btn.active,.header-toolstrip>.header-theme-control>.mobile-header-settings-btn.active{background:var(--accent-soft);border-color:var(--border)}.chat-header>.chat-header-copy{overflow:hidden}.terminal-navigation{gap:0!important}}
 
-@media (max-width:760px){.header-toolstrip-with-leading .mobile-header-settings-btn{border-top-left-radius:0;border-bottom-left-radius:0}}
+@media (max-width:760px){.header-toolstrip-with-leading>.header-theme-control>.mobile-header-settings-btn{border-radius:0 var(--radius-md) var(--radius-md) 0}.header-toolstrip:not(.header-toolstrip-with-leading)>.header-theme-control>.mobile-header-settings-btn{margin-left:0;border:1px solid var(--border);border-radius:var(--radius-md)}}
 
 /* Final semantic radius layer: tiny controls < regular controls < cards < large panels. */
 .pin-hit,.workspace-head button,.preview-head-actions .icon-btn,.subagent-progress-mark,.subagent-status-icon,.subagent-todo-box,.followup-drag-handle,.followup-action,.source-channel-chip,.skill-version{border-radius:var(--radius-sm)}
@@ -552,3 +552,6 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 }
 
 @media (max-width:760px){.provider-usage-subline>span.provider-usage-subline-full{display:none}.provider-usage-subline>span.provider-usage-subline-mobile{display:block}}
+
+.tool-patch-result,.tool-source-content{width:100%;min-width:0;max-width:100%}.tool-patch-result .tool-code-block,.tool-source-content .tool-code-block{width:100%;min-width:0;max-width:100%}.tool-field-code{grid-template-columns:minmax(0,1fr);gap:4px}.tool-field-code .tool-key{width:auto;min-width:0;max-width:none}
+@media(max-width:760px){.mobile-compact-chat .tool-detail.tool-detail-patch{padding-left:0}.mobile-compact-chat .tool-detail-patch .tool-field:has(.tool-patch-result){grid-template-columns:minmax(0,1fr);gap:4px}.mobile-compact-chat .tool-detail-patch .tool-patch-result{width:100%;min-width:0}}

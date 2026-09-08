@@ -14,6 +14,15 @@ function normalizedDiffPath(value: string) {
   return path.replace(/^[ab]\//, '');
 }
 
+export function highlightedSourceLines(content: string, filePath: string): HighlightedToolCodeLine[] {
+  return String(content || '').split('\n').map((line) => ({
+    kind: 'context',
+    prefix: '',
+    html: highlightSourceText(line, filePath),
+    filePath,
+  }));
+}
+
 export function highlightedReadFileLines(content: string, filePath: string): HighlightedToolCodeLine[] {
   return String(content || '').split('\n').map((line) => {
     const match = line.match(/^\s*(\d+)\|(.*)$/);

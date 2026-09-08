@@ -137,4 +137,15 @@ describe('summarizeToolMessage', () => {
     expect(summary.subtitle).toBe('src/…/tools/ToolMessage.tsx · 3 fields');
     expect(summary.filePath).toBe('/home/wow/project/src/features/chat/tools/ToolMessage.tsx');
   });
+
+  test('write file summary retains its source path and content in the invocation', () => {
+    const summary = summarizeToolMessage(
+      JSON.stringify({ bytes_written: 31, status: 'ok' }),
+      'functions.write_file',
+      { path: '/home/wow/project/src/features/ToolMessage.tsx', content: 'export const value = true;' },
+    );
+    expect(summary.subtitle).toBe('src/features/ToolMessage.tsx · 2 fields');
+    expect(summary.filePath).toBe('/home/wow/project/src/features/ToolMessage.tsx');
+    expect(summary.input).toEqual({ path: '/home/wow/project/src/features/ToolMessage.tsx', content: 'export const value = true;' });
+  });
 });
