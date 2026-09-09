@@ -52,4 +52,11 @@ describe('Insights session cache', () => {
     expect(readInsightsSessionCache(storage, 7, -480)).toBeNull();
     expect(() => writeInsightsSessionCache({ getItem: () => null, setItem: () => { throw new Error('quota'); } }, 7, -480, sampleInsights(7))).not.toThrow();
   });
+
+  test('does not reuse the pre-pricing-fix session cache', () => {
+    const storage = memoryStorage();
+    storage.values.set('yahu.insights.session-cache.v1:-480:7', JSON.stringify(sampleInsights(7)));
+
+    expect(readInsightsSessionCache(storage, 7, -480)).toBeNull();
+  });
 });

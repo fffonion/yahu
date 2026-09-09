@@ -6,7 +6,7 @@ export type InsightsSessionStorage = {
   setItem: (key: string, value: string) => void;
 };
 
-const INSIGHTS_SESSION_CACHE_PREFIX = 'yahu.insights.session-cache.v1';
+const INSIGHTS_SESSION_CACHE_PREFIX = 'yahu.insights.session-cache.v2';
 
 export function getInsightsSessionStorage(): InsightsSessionStorage | undefined {
   if (typeof window === 'undefined') return undefined;
