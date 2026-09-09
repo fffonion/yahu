@@ -1039,7 +1039,16 @@ fn insert_model_price(catalog: &mut ModelPriceCatalog, key: &str, price: ModelPr
 }
 
 fn model_price_for_model(catalog: &ModelPriceCatalog, model: &str) -> Option<ModelPrice> {
-    catalog.get(&normalize_model_price_key(model)).copied()
+    let normalized = normalize_model_price_key(model);
+    catalog.get(&normalized).copied().or_else(|| {
+        let alias = normalized
+            .find("deepseek-v4.1-flash")
+            .map(|index| format!("{}deepseek-v4-flash", &normalized[..index]))?;
+        catalog
+            .get(&alias)
+            .copied()
+            .or_else(|| catalog.get("deepseek-v4-flash").copied())
+    })
 }
 
 fn model_price_for_row(catalog: &ModelPriceCatalog, row: &serde_json::Value) -> Option<ModelPrice> {
@@ -1095,7 +1104,7 @@ fn official_deepseek_price(model: &str, captured_at: f64) -> Option<ModelPrice> 
         .and_then(|value| value.strip_prefix("deepseek-"))
         .unwrap_or_else(|| normalized.strip_prefix("deepseek-").unwrap_or(normalized));
     let peak_price = match model_name {
-        name if name == "v4-flash" || name.starts_with("v4-flash-") || name == "chat" || name.starts_with("chat-") || name == "reasoner" || name.starts_with("reasoner-") => ModelPrice {
+        name if name == "v4-flash" || name.starts_with("v4-flash-") || name == "v4.1-flash" || name.starts_with("v4.1-flash-") || name == "chat" || name.starts_with("chat-") || name == "reasoner" || name.starts_with("reasoner-") => ModelPrice {
             input_per_million: 0.44,
             output_per_million: 1.32,
             cache_read_per_million: 0.014,

@@ -362,7 +362,7 @@
                 serde_json::json!({
                     "id": format!("deepseek-v4-flash-{index}"),
                     "source": "telegram",
-                    "model": "deepseek-ai/deepseek-v4-flash-0731",
+                    "model": "deepseek-v4.1-flash-expires-on-0910",
                     "provider": "deepseek-ai",
                     "captured_at": captured_at,
                     "started_at": captured_at,
@@ -388,6 +388,43 @@
         let body = aggregate_usage_insights_with_prices(&rows, off_peak_ts, &catalog, 1);
 
         assert!((body["totals"]["estimated_cost_usd"].as_f64().unwrap() - 2.661).abs() < 0.000001);
+    }
+
+    #[test]
+    fn insights_aliases_deepseek_v41_flash_expiry_to_v4_flash_catalog_price() {
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![serde_json::json!({
+            "id": "deepseek-v41-expiring",
+            "source": "telegram",
+            "model": "deepseek-v4.1-flash-expires-on-0910",
+            "provider": "deepseek",
+            "last_active": ts,
+            "input_tokens": 1_000_000,
+            "output_tokens": 1_000_000,
+            "cache_read_tokens": 1_000_000,
+            "cache_write_tokens": 0,
+            "reasoning_tokens": 0
+        })];
+        let catalog = model_price_catalog_from_models_dev(&serde_json::json!({
+            "deepseek": {
+                "models": {
+                    "deepseek-v4-flash": {
+                        "id": "deepseek-v4-flash",
+                        "cost": {"input": 0.14, "output": 0.28, "cache_read": 0.0028}
+                    }
+                }
+            }
+        }));
+
+        let body = aggregate_usage_insights_with_prices(&rows, ts, &catalog, 1);
+
+        assert!((body["totals"]["estimated_cost_usd"].as_f64().unwrap() - 0.4228).abs() < 0.000001);
+        assert_eq!(body["totals"]["unpriced_tokens"], 0);
     }
 
     #[test]
