@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { normalizeChatMessage } from './chatMessage';
+import { isSessionStateMessage } from './sessionStateMessage';
 import { parsePlatformSenderMessage } from './chatSender';
 
 const app = () => [readFileSync(new URL('./App.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8'), readFileSync(new URL('./chatMessage.ts', import.meta.url), 'utf8')].join('\n');
@@ -46,6 +47,22 @@ describe('platform sender labels in chat bubbles', () => {
       role: 'user',
       content,
     });
+  });
+
+  test('strips a name-only sender before a reserved notice without a platform source', () => {
+    const rawContent = '[Alliumcepa Triplef] [ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] A background fan-out unit has finished.';
+    const parsed = parsePlatformSenderMessage(rawContent);
+    expect(parsed).toEqual({
+      senderName: 'Alliumcepa Triplef',
+      content: '[ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] A background fan-out unit has finished.',
+    });
+    const message = normalizeChatMessage({ id: 'name-only-async', role: 'user', content: rawContent }, 'fallback');
+    expect(message).toMatchObject({
+      role: 'user',
+      content: '[ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] A background fan-out unit has finished.',
+      platformSenderName: 'Alliumcepa Triplef',
+    });
+    expect(isSessionStateMessage(message)).toBe(true);
   });
 
   test('leaves normal bracketed text alone', () => {

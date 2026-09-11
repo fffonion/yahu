@@ -126,7 +126,7 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("node.indeterminate = status === 'in_progress'");
     expect(source).toContain('<SessionStateMessage item={item} />');
     expect(source).toContain("sessionStateOnly ? ' session-state-turn-block' : ''");
-    expect(styles).toContain('.session-state-message{');
+    expect(styles).toContain('.session-state-message{width:100%;max-width:920px;align-self:flex-start;display:grid;gap:5px;padding:2px 9px;margin-block:-8px;');
     expect(styles).toContain('.session-task-checkbox{');
 
     expect(styles).toContain('.desktop-turn-block.session-state-turn-block');
