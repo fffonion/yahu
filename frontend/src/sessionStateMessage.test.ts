@@ -111,6 +111,23 @@ A background fan-out has finished.
     expect(parseSessionStateMessage('\n[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toMatchObject({ collapsible: true, details: 'details' });
   });
 
+  test('folds aggregate background and system notices without a closing bracket on the first line', () => {
+    expect(parseSessionStateMessage('[IMPORTANT: 2 background processes completed for this session.\nTreat these results as one completion batch.')).toEqual({
+      notice: 'IMPORTANT: 2 background processes completed for this session.',
+      tasks: [],
+      collapsible: true,
+      details: 'Treat these results as one completion batch.',
+    });
+    expect(parseSessionStateMessage('[IMPORTANT: 2 background subagent delegations completed for this session. Treat these results as one completion batch and send at most one consolidated user-facing response.\n\n[ASYNC DELEGATION BATCH COMPLETE — deleg_1dcc5fe4]')).toMatchObject({
+      notice: 'IMPORTANT: 2 background subagent delegations completed for this session. Treat these results as one completion batch and send at most one consolidated user-facing response.',
+      collapsible: true,
+    });
+    expect(parseSessionStateMessage("[System note: A new message has arrived. The conversation history contains pending tool outputs from an interrupted turn.\n\n[Alliumcepa Triplef|1698432746]\n继续")).toMatchObject({
+      notice: 'System note: A new message has arrived. The conversation history contains pending tool outputs from an interrupted turn.',
+      collapsible: true,
+    });
+  });
+
   test('formats the standing-goal notice and preserves the following markdown list', () => {
     const parsed = parseSessionStateMessage('[Continuing toward your standing goal]\n- first item\n- second item');
     expect(parsed).toEqual({

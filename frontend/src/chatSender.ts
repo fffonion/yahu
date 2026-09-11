@@ -7,6 +7,20 @@ export type ParsedPlatformSenderMessage = {
 const PLATFORM_SENDER_PREFIX = /^\[([^\]|\n]{1,120})\|([^\]\n]{1,80})\][ \t]*(?:\r?\n)?([\s\S]*)$/;
 const NAME_ONLY_PLATFORM_SENDER_PREFIX = /^\[([^\]|\n]{1,120})\][ \t]*(?:\r?\n)?([\s\S]*)$/;
 const NAME_ONLY_SENDER_SOURCES = new Set(['telegram', 'qqbot', 'weixin', 'discord', 'slack', 'whatsapp', 'signal']);
+const RESERVED_NAME_ONLY_SESSION_NOTICES = [
+  /^ASYNC DELEGATION BATCH COMPLETE\s*(?:--|—)\s*deleg_[A-Za-z0-9]+$/i,
+  /^CONTEXT COMPACTION\s*(?:--|—)\s*REFERENCE ONLY$/i,
+  /^OUT-OF-BAND USER MESSAGE\b/i,
+  /^IMPORTANT:/i,
+  /^System note:/i,
+  /^Session state restored$/i,
+  /^Your active task list was preserved across context compression$/i,
+  /^Continuing toward your standing goal$/i,
+];
+
+function isReservedNameOnlySessionNotice(value: string): boolean {
+  return RESERVED_NAME_ONLY_SESSION_NOTICES.some((pattern) => pattern.test(value));
+}
 
 export function platformSourceUsesNameOnlySenderPrefix(source: unknown): boolean {
   return NAME_ONLY_SENDER_SOURCES.has(String(source || '').trim().toLowerCase());
@@ -24,6 +38,6 @@ export function parsePlatformSenderMessage(content: string, allowNameOnly = fals
   const nameOnlyMatch = text.match(NAME_ONLY_PLATFORM_SENDER_PREFIX);
   if (!nameOnlyMatch) return { content: text };
   const senderName = nameOnlyMatch[1].trim();
-  if (!senderName) return { content: text };
+  if (!senderName || isReservedNameOnlySessionNotice(senderName)) return { content: text };
   return { senderName, content: nameOnlyMatch[2] };
 }

@@ -18,6 +18,8 @@ const asyncDelegationCompleteNotice = /^ASYNC DELEGATION BATCH COMPLETE\s*(?:--|
 const asyncDelegationWithDetails = /^\s*\[?(ASYNC DELEGATION BATCH COMPLETE\s*(?:--|—)\s*deleg_[A-Za-z0-9]+)\]?(?:[ \t]*(?:\r?\n|[ \t]+))([\s\S]*)$/i;
 const contextCompactionNotice = /^CONTEXT COMPACTION\s*(?:--|—)\s*REFERENCE ONLY$/i;
 const contextCompactionWithDetails = /^\s*\[(CONTEXT COMPACTION\s*(?:--|—)\s*REFERENCE ONLY)\](?:[ \t]*(?:\r?\n|[ \t]+))([\s\S]*)$/i;
+const closedBracketedSystemNoticeWithDetails = /^\s*\[((?:IMPORTANT:|System note:)[^\r\n]*?)\](?:[ \t]*(?:\r?\n|[ \t]+))([\s\S]*)$/i;
+const openBracketedSystemNoticeWithDetails = /^\s*\[((?:IMPORTANT:|System note:)[^\r\n]+)(?:\r?\n|$)([\s\S]*)$/i;
 const backgroundProcessNotice = /^\[IMPORTANT:\s*Background process\s+(\S+)\s+(.+?)(?:\s+\(exit code\s+[^)]*\))?\.\]?(?:[ \t]+|\r?\n|$)([\s\S]*)$/i;
 
 function statusFromMarker(marker: string): SessionTaskStatus {
@@ -62,6 +64,18 @@ function parseInlineSpecialNotice(content: string): SessionStateContent | null {
   if (contextMatch) {
     const notice = contextMatch[1].trim();
     const details = contextMatch[2].trim();
+    return {
+      notice,
+      tasks: [],
+      collapsible: true,
+      ...(details ? { details } : {}),
+    };
+  }
+
+  const systemNoticeMatch = content.match(closedBracketedSystemNoticeWithDetails) || content.match(openBracketedSystemNoticeWithDetails);
+  if (systemNoticeMatch) {
+    const notice = systemNoticeMatch[1].trim();
+    const details = systemNoticeMatch[2].trim();
     return {
       notice,
       tasks: [],

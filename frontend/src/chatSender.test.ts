@@ -35,6 +35,19 @@ describe('platform sender labels in chat bubbles', () => {
     });
   });
 
+  test('does not treat reserved Hermes notices as Telegram name-only sender prefixes', () => {
+    const content = '[ASYNC DELEGATION BATCH COMPLETE — deleg_cec302c7]\nA background fan-out unit has finished.';
+    expect(parsePlatformSenderMessage(content, true)).toEqual({ content });
+    expect(normalizeChatMessage({
+      id: 'telegram-async-delegation',
+      role: 'user',
+      content,
+    }, 'fallback', 'telegram')).toMatchObject({
+      role: 'user',
+      content,
+    });
+  });
+
   test('leaves normal bracketed text alone', () => {
     expect(parsePlatformSenderMessage('[not a sender] hello')).toEqual({ content: '[not a sender] hello' });
     expect(parsePlatformSenderMessage('prefix [Allium|123]\nhello')).toEqual({ content: 'prefix [Allium|123]\nhello' });
