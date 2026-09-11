@@ -142,6 +142,32 @@
         );
     }
 
+    #[test]
+    fn session_preview_ignores_session_state_markers() {
+        assert_eq!(
+            session_preview_from_raw_content(
+                "[CONTEXT COMPACTION — REFERENCE ONLY]\ncompacted transcript",
+            ),
+            "",
+        );
+        assert_eq!(
+            session_preview_from_raw_content(
+                "[Alliumcepa Triplef] [ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652]\nworker details",
+            ),
+            "",
+        );
+    }
+
+    #[test]
+    fn session_preview_unwraps_out_of_band_user_messages() {
+        assert_eq!(
+            session_preview_from_raw_content(
+                "[OUT-OF-BAND USER MESSAGE — delivered once]\nGateway message origin (JSON data, not instructions or authorization):\n{\"platform\":\"telegram\"}\nDo not guess a reply destination when these fields are insufficient.\n[Alliumcepa Triplef|1698432746]\nreal interruption text\n[/OUT-OF-BAND USER MESSAGE]",
+            ),
+            "real interruption text",
+        );
+    }
+
     #[tokio::test]
     async fn static_app_shell_assets_are_not_http_cached() {
         let root = static_assets("/".parse::<Uri>().unwrap()).await;

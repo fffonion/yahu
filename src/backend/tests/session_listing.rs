@@ -25,6 +25,52 @@
         }
     }
 
+    #[test]
+    fn local_session_preview_replaces_marker_with_latest_real_message() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_calls TEXT,
+                finish_reason TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                compacted INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .unwrap();
+        for (role, content) in [
+            ("user", "old question"),
+            ("assistant", "old answer"),
+            ("user", "new question"),
+            ("assistant", "new answer"),
+            (
+                "user",
+                "[Alliumcepa Triplef] [CONTEXT COMPACTION — REFERENCE ONLY]\\ncompacted transcript",
+            ),
+        ] {
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content) VALUES ('s1', ?1, ?2)",
+                rusqlite::params![role, content],
+            )
+            .unwrap();
+        }
+        drop(conn);
+
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let mut rows = vec![serde_json::json!({
+            "id": "s1",
+            "preview": "[CONTEXT COMPACTION — REFERENCE ONLY]"
+        })];
+        enrich_session_previews_from_local_db(&state, &mut rows).unwrap();
+
+        assert_eq!(rows[0]["preview"], "new answer");
+    }
+
     #[tokio::test]
     async fn session_search_uses_api_server_list_endpoint_without_state_db() {
         use std::collections::HashMap;

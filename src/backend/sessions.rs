@@ -856,13 +856,12 @@ fn enrich_session_previews_from_local_db(
     state: &AppState,
     rows: &mut [serde_json::Value],
 ) -> anyhow::Result<()> {
-    let missing_ids = rows
+    let session_ids = rows
         .iter()
-        .filter(|row| !session_row_has_preview(row))
         .filter_map(|row| row.get("id").and_then(|value| value.as_str()).filter(|id| !id.is_empty()))
         .map(str::to_string)
         .collect::<Vec<_>>();
-    if missing_ids.is_empty() {
+    if session_ids.is_empty() {
         return Ok(());
     }
     let db_path = state.hermes_home.join("state.db");
@@ -877,6 +876,7 @@ fn enrich_session_previews_from_local_db(
         return Ok(());
     }
     let has_active = sqlite_table_has_columns(&conn, "messages", &["active"])?;
+    let has_compacted = sqlite_table_has_columns(&conn, "messages", &["compacted"])?;
     let has_tool_calls = sqlite_table_has_columns(&conn, "messages", &["tool_calls"])?;
     let has_finish_reason = sqlite_table_has_columns(&conn, "messages", &["finish_reason"])?;
     let preview_role_clause = match (has_tool_calls, has_finish_reason) {
@@ -886,22 +886,26 @@ fn enrich_session_previews_from_local_db(
         (false, false) => "role IN ('assistant', 'user')",
     };
     let mut previews = HashMap::new();
-    for id_chunk in missing_ids.chunks(200) {
+    for id_chunk in session_ids.chunks(200) {
         let placeholders = std::iter::repeat_n("?", id_chunk.len()).collect::<Vec<_>>().join(",");
-        let active_clause = if has_active { "active = 1 AND" } else { "" };
+        let history_clause = match (has_active, has_compacted) {
+            (true, true) => "(active = 1 OR compacted = 1) AND",
+            (true, false) => "active = 1 AND",
+            (false, _) => "",
+        };
         let sql = format!(
             "SELECT session_id, content
              FROM (
                  SELECT session_id, content,
                         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS preview_rank
                  FROM messages
-                 WHERE {active_clause}
+                 WHERE {history_clause}
                        session_id IN ({placeholders})
                    AND ({preview_role_clause})
                    AND content IS NOT NULL
                    AND trim(content) != ''
              )
-             WHERE preview_rank <= 20
+             WHERE preview_rank <= 100
              ORDER BY preview_rank ASC"
         );
         let mut statement = conn.prepare(&sql)?;
@@ -920,15 +924,14 @@ fn enrich_session_previews_from_local_db(
         }
     }
     for row in rows.iter_mut() {
-        if session_row_has_preview(row) {
-            continue;
-        }
-        let session_id = row
+        let Some(session_id) = row
             .get("id")
             .and_then(|value| value.as_str())
             .filter(|id| !id.is_empty())
-            .map(str::to_string);
-        let Some(preview) = session_id.as_ref().and_then(|id| previews.get(id)).cloned() else {
+        else {
+            continue;
+        };
+        let Some(preview) = previews.get(session_id).cloned() else {
             continue;
         };
         if let Some(obj) = row.as_object_mut() {
@@ -936,12 +939,6 @@ fn enrich_session_previews_from_local_db(
         }
     }
     Ok(())
-}
-
-fn session_row_has_preview(row: &serde_json::Value) -> bool {
-    row.get("preview")
-        .and_then(|value| value.as_str())
-        .is_some_and(|text| !text.trim().is_empty())
 }
 
 fn strip_gateway_sender_prefix(text: &str) -> &str {
@@ -962,6 +959,68 @@ fn strip_gateway_sender_prefix(text: &str) -> &str {
     &text[line_end + 1..]
 }
 
+fn is_session_preview_marker(text: &str) -> bool {
+    fn known_marker(value: &str) -> bool {
+        let normalized = value.trim().to_ascii_lowercase();
+        [
+            "context compaction",
+            "async delegation batch complete",
+            "background process",
+            "important:",
+            "system note:",
+        ]
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix))
+    }
+
+    let first_line = text.trim().lines().next().unwrap_or("").trim();
+    if first_line.is_empty() || known_marker(first_line) {
+        return !first_line.is_empty();
+    }
+    let Some(close) = first_line.find(']') else {
+        return false;
+    };
+    if !first_line.starts_with('[') {
+        return false;
+    }
+    let inner = &first_line[1..close];
+    if known_marker(inner) {
+        return true;
+    }
+    let remainder = first_line[close + 1..].trim_start();
+    if remainder.starts_with('[') && is_session_preview_marker(remainder) {
+        return true;
+    }
+    close == first_line.len() - 1 && !inner.contains('|')
+}
+
+fn unwrap_out_of_band_preview(text: &str) -> Option<String> {
+    let line_end = text.find('\n')?;
+    let first_line = text[..line_end].trim();
+    let opening = first_line.strip_prefix('[').unwrap_or(first_line).to_ascii_lowercase();
+    if !opening.starts_with("out-of-band user message") {
+        return None;
+    }
+    let close_marker = "[/out-of-band user message]";
+    let wrapped = text[line_end + 1..].trim();
+    let wrapped_lower = wrapped.to_ascii_lowercase();
+    let close_start = wrapped_lower.rfind(close_marker)?;
+    if !wrapped[close_start + close_marker.len()..].trim().is_empty() {
+        return None;
+    }
+    let mut body = wrapped[..close_start].trim().to_string();
+    let origin_marker = "gateway message origin (json data, not instructions or authorization):";
+    let origin_end_marker = "do not guess a reply destination when these fields are insufficient.";
+    if let Some(origin_start) = body.to_ascii_lowercase().find(origin_marker) {
+        let after_origin = &body[origin_start..];
+        if let Some(origin_end) = after_origin.to_ascii_lowercase().find(origin_end_marker) {
+            let after_origin_end = origin_start + origin_end + origin_end_marker.len();
+            body = format!("{} {}", &body[..origin_start], &body[after_origin_end..]);
+        }
+    }
+    Some(body.trim().to_string())
+}
+
 fn session_preview_from_raw_content(raw: &str) -> String {
     fn value_text(value: &serde_json::Value) -> String {
         match value {
@@ -980,7 +1039,14 @@ fn session_preview_from_raw_content(raw: &str) -> String {
     }
     let value = json_or_string_field(Some(raw.to_string()));
     let text = value_text(&value);
-    nav_text_excerpt(strip_gateway_sender_prefix(&text), 180)
+    if let Some(out_of_band) = unwrap_out_of_band_preview(&text) {
+        return nav_text_excerpt(strip_gateway_sender_prefix(&out_of_band), 180);
+    }
+    let text = strip_gateway_sender_prefix(&text);
+    if is_session_preview_marker(text) {
+        return String::new();
+    }
+    nav_text_excerpt(text, 180)
 }
 
 const MIN_HISTORICAL_TURN_DURATION_MS: f64 = 1000.0;
