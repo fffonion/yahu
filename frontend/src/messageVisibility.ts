@@ -2,6 +2,7 @@ export type MessageVisibilityInput = {
   id?: string;
   role: string;
   content?: string | null;
+  interrupted?: boolean;
   reasoning?: string | null;
   pending?: boolean;
   toolName?: string | null;

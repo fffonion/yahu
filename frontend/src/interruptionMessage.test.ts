@@ -110,6 +110,27 @@ nihao
     });
   });
 
+  test('folds a bracketed async delegation notice after a platform sender prefix', () => {
+    const message = normalizeChatMessage({
+      id: 'async-delegation-inline-1',
+      role: 'user',
+      content: '[Alliumcepa Triplef|1698432746] [ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147] A background fan-out has finished.',
+    }, 'fallback', 'telegram');
+
+    expect(message).toMatchObject({
+      role: 'user',
+      content: '[ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147] A background fan-out has finished.',
+      platformSenderName: 'Alliumcepa Triplef',
+      platformSenderId: '1698432746',
+    });
+    expect(isSessionStateMessage(message)).toBe(true);
+    expect(parseSessionStateMessage(message.content)).toMatchObject({
+      notice: 'ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147',
+      collapsible: true,
+      details: 'A background fan-out has finished.',
+    });
+  });
+
   test('renders an interruption icon on the user message metadata row', () => {
     expect(transcript()).toContain('className="msg-interruption-icon"');
     expect(transcript()).toContain('message.interrupted');

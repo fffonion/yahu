@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { markdownText } from './markdown';
-import { parseSessionStateMessage } from './sessionStateMessage';
+import { isSessionStateMessage, parseSessionStateMessage } from './sessionStateMessage';
 
 describe('session state message formatting', () => {
   test('parses the preserved task list notice and checkbox states', () => {
@@ -11,6 +11,7 @@ describe('session state message formatting', () => {
 - [x] inspect. Inspect the source (completed)
 - [-] obsolete. Remove old work (cancelled)`)).toEqual({
       notice: 'Your active task list was preserved across context compression',
+      collapsible: true,
       tasks: [
         { id: 'verify', description: 'Build and deploy', status: 'in_progress' },
         { id: 'ship', description: 'Commit and push', status: 'pending' },
@@ -24,6 +25,7 @@ describe('session state message formatting', () => {
     expect(parseSessionStateMessage('[Session state restored]')).toEqual({
       notice: 'Session state restored',
       tasks: [],
+      collapsible: true,
     });
   });
 
@@ -48,6 +50,15 @@ A background fan-out has finished.
     });
   });
 
+  test('parses background process completion with inline details', () => {
+    expect(parseSessionStateMessage('[IMPORTANT: Background process proc_6a53982948ff completed normally (exit code 0).] Command: set -e')).toEqual({
+      notice: 'Background process proc_6a53982948ff completed normally',
+      tasks: [],
+      collapsible: true,
+      details: 'Command: set -e',
+    });
+  });
+
   test('parses context compaction as a collapsed system notice', () => {
     expect(parseSessionStateMessage('[CONTEXT COMPACTION -- REFERENCE ONLY]\nsummary from the gateway')).toEqual({
       notice: 'CONTEXT COMPACTION -- REFERENCE ONLY',
@@ -57,21 +68,47 @@ A background fan-out has finished.
     });
   });
 
-  test('renders async delegation completion as a collapsed details block', () => {
+  test('parses async delegation completion with inline details as a collapsed notice', () => {
+    expect(parseSessionStateMessage('[ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147] A background fan-out unit was completed.')).toEqual({
+      notice: 'ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147',
+      tasks: [],
+      collapsible: true,
+      details: 'A background fan-out unit was completed.',
+    });
+  });
+
+  test('collapses generic Hermes user notices with task or detail content', () => {
+    expect(parseSessionStateMessage('[Session state restored]')).toMatchObject({ collapsible: true });
+    expect(parseSessionStateMessage('[Your active task list was preserved across context compression]\n- [ ] check. Verify')).toMatchObject({ collapsible: true });
+    expect(parseSessionStateMessage('[Continuing toward your standing goal]\n- first item')).toMatchObject({ collapsible: true });
+  });
+
+  test('renders every session-state notice through the collapsed details block', () => {
     const transcriptSource = readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8');
     const stylesSource = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     expect(transcriptSource).toContain('className="session-state-message session-state-collapsible"');
     expect(transcriptSource).toContain('<summary className="session-state-summary">');
     expect(stylesSource).toContain('.session-state-collapsible[open] .session-state-arrow');
   });
+  test('keeps out-of-band messages out of session-state rendering even when their body matches a notice', () => {
+    expect(isSessionStateMessage({
+      role: 'user',
+      interrupted: true,
+      content: 'ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147',
+    })).toBe(false);
+  });
 
-  test('formats every exact bracketed first line while leaving sender prefixes and inline prose alone', () => {
+  test('formats known special notices with inline details while leaving ordinary inline prose alone', () => {
     expect(parseSessionStateMessage('[Sender|123]\nhello')).toBeNull();
-    expect(parseSessionStateMessage('[Note]\nordinary prose')).toEqual({ notice: 'Note', tasks: [], details: 'ordinary prose' });
+    expect(parseSessionStateMessage('[Note]\nordinary prose')).toEqual({ notice: 'Note', tasks: [], collapsible: true, details: 'ordinary prose' });
     expect(parseSessionStateMessage('ordinary [Note] prose')).toBeNull();
-    expect(parseSessionStateMessage('[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0] human follow-up')).toBeNull();
-    expect(parseSessionStateMessage(' [ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toBeNull();
-    expect(parseSessionStateMessage('\n[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toBeNull();
+    expect(parseSessionStateMessage('[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0] human follow-up')).toMatchObject({
+      notice: 'ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0',
+      collapsible: true,
+      details: 'human follow-up',
+    });
+    expect(parseSessionStateMessage(' [ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toMatchObject({ collapsible: true, details: 'details' });
+    expect(parseSessionStateMessage('\n[ASYNC DELEGATION BATCH COMPLETE -- deleg_89bc41f0]\ndetails')).toMatchObject({ collapsible: true, details: 'details' });
   });
 
   test('formats the standing-goal notice and preserves the following markdown list', () => {
@@ -79,6 +116,7 @@ A background fan-out has finished.
     expect(parsed).toEqual({
       notice: 'Continuing toward your standing goal',
       tasks: [],
+      collapsible: true,
       details: '- first item\n- second item',
     });
     expect(markdownText(parsed?.details || '')).toContain('<ul><li>first item</li><li>second item</li></ul>');
