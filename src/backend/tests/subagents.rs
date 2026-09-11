@@ -33,10 +33,11 @@
     }
 
     #[test]
-    fn subagent_projection_keeps_original_task_after_compaction_marker() {
+    fn subagent_projection_prefers_creation_goal_over_compaction_and_follow_up() {
         let session = serde_json::json!({
             "id": "child-compacted",
             "parent_session_id": "parent-1",
+            "goal": "Creation-time delegation goal",
             "started_at": 100.0,
             "message_count": 3
         });
@@ -53,14 +54,62 @@
             }),
             serde_json::json!({
                 "role": "user",
-                "content": "Recover and finish the original subagent task.",
+                "content": "A later user message must not rename the subagent.",
                 "timestamp": 202.0
             }),
         ];
 
         let projected = project_subagent_session(Path::new("/nonexistent"), &session, &messages).unwrap();
 
-        assert_eq!(projected.task, "Recover and finish the original subagent task.");
+        assert_eq!(projected.task, "Creation-time delegation goal");
+    }
+
+    #[test]
+    fn subagent_projection_recovers_first_user_from_compacted_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                timestamp REAL NOT NULL
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, role, content, timestamp) VALUES
+                (1, 'child-history', 'user', 'Creation-time user goal', 100.0),
+                (2, 'child-history', 'user', '[CONTEXT COMPACTION — REFERENCE ONLY] summary', 200.0),
+                (3, 'child-history', 'user', 'A later user message', 201.0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let session = serde_json::json!({
+            "id": "child-history",
+            "parent_session_id": "parent-1",
+            "started_at": 100.0,
+            "message_count": 2
+        });
+        let messages = vec![
+            serde_json::json!({
+                "role": "user",
+                "content": "[CONTEXT COMPACTION — REFERENCE ONLY] summary",
+                "timestamp": 200.0
+            }),
+            serde_json::json!({
+                "role": "user",
+                "content": "A later user message",
+                "timestamp": 201.0
+            }),
+        ];
+
+        let projected = project_subagent_session(temp.path(), &session, &messages).unwrap();
+
+        assert_eq!(projected.task, "Creation-time user goal");
     }
 
     #[test]

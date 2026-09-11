@@ -998,18 +998,91 @@ fn is_subagent_task_marker(text: &str) -> bool {
         || first_line.contains("active task list was preserved across context compression")
 }
 
+fn valid_subagent_user_text(message: &Value) -> Option<String> {
+    if message.get("role").and_then(Value::as_str) != Some("user") {
+        return None;
+    }
+    let text = message.get("content").map(content_text)?;
+    let text = text.trim();
+    if text.is_empty() || is_subagent_task_marker(text) {
+        return None;
+    }
+    Some(text.to_string())
+}
+
+fn first_subagent_user_text(messages: &[Value]) -> Option<String> {
+    let mut candidates = messages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, message)| Some((index, message, valid_subagent_user_text(message)?)))
+        .collect::<Vec<_>>();
+    candidates.sort_by(|(left_index, left, _), (right_index, right, _)| {
+        number_field(left, "timestamp")
+            .unwrap_or(f64::INFINITY)
+            .total_cmp(&number_field(right, "timestamp").unwrap_or(f64::INFINITY))
+            .then_with(|| left_index.cmp(right_index))
+    });
+    candidates.into_iter().next().map(|(_, _, text)| text)
+}
+
+fn persisted_subagent_content_text(raw: String) -> String {
+    serde_json::from_str::<Value>(&raw)
+        .ok()
+        .filter(|value| value.is_array() || value.is_object())
+        .map(|value| content_text(&value))
+        .unwrap_or(raw)
+}
+
+fn load_initial_subagent_user(hermes_home: &Path, session_id: &str) -> Option<String> {
+    let db_path = hermes_home.join("state.db");
+    if !db_path.exists() {
+        return None;
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    let mut statement = conn
+        .prepare(
+            "SELECT content FROM messages
+             WHERE session_id = ?1 AND role = 'user' AND content IS NOT NULL
+             ORDER BY timestamp, id",
+        )
+        .ok()?;
+    let rows = statement
+        .query_map(rusqlite::params![session_id], |row| row.get::<_, String>(0))
+        .ok()?;
+    for raw in rows.flatten() {
+        let text = persisted_subagent_content_text(raw);
+        if !text.trim().is_empty() && !is_subagent_task_marker(&text) {
+            return Some(text.trim().to_string());
+        }
+    }
+    None
+}
+
+fn subagent_creation_goal(hermes_home: &Path, session: &Value, messages: &[Value]) -> String {
+    string_field(session, "goal")
+        .filter(|text| !is_subagent_task_marker(text))
+        .or_else(|| {
+            session
+                .get("model_config")
+                .and_then(|config| string_field(config, "goal"))
+                .filter(|text| !is_subagent_task_marker(text))
+        })
+        .or_else(|| {
+            string_field(session, "id")
+                .and_then(|session_id| load_initial_subagent_user(hermes_home, &session_id))
+        })
+        .or_else(|| first_subagent_user_text(messages))
+        .unwrap_or_else(|| "Subagent".to_string())
+}
+
 fn project_subagent_session(hermes_home: &Path, session: &Value, messages: &[Value]) -> Option<SubagentProjection> {
     let session_id = string_field(session, "id")?;
     let parent_session_id = string_field(session, "parent_session_id").unwrap_or_default();
-    let task = string_field(session, "title")
-        .or_else(|| {
-            messages
-                .iter()
-                .filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
-                .filter_map(|message| message.get("content").map(content_text))
-                .find(|text| !is_subagent_task_marker(text))
-        })
-        .unwrap_or_else(|| "Subagent".to_string());
+    let task = subagent_creation_goal(hermes_home, session, messages);
     let context = number_field(session, "started_at").and_then(|started_at| {
         load_subagent_context(hermes_home, &parent_session_id, started_at, &task)
     });
