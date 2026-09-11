@@ -172,6 +172,11 @@ export function buildTurnDetailItems<T extends MessageVisibilityInput>(
   };
 
   const flushBufferAsMessages = () => {
+    if (buffer.length && buffer.every(({ message }) => isToolLikeMessage(message) && !isAssistantToolPreludeMessage(message))) {
+      flushBufferAsDetailGroup();
+      resetTurn();
+      return;
+    }
     for (const entry of buffer) items.push({ kind: 'message', message: entry.message, sourceIndexes: [entry.index] });
     resetTurn();
   };

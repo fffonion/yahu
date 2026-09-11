@@ -134,6 +134,18 @@ describe('turn detail grouping', () => {
     expect(items[2].messages.map((message) => message.id)).toEqual(['t1']);
   });
 
+  test('wraps blank tool-only details before the next user when a history page cuts off the final answer', () => {
+    const truncatedTool = { ...tool, id: 't-truncated', content: '' };
+    const secondTruncatedTool = { ...secondTool, id: 't-second-truncated', content: '' };
+    const nextUser: Msg = { id: 'u2', role: 'user', content: 'continue' };
+    const items = buildTurnDetailItems([user, truncatedTool, secondTruncatedTool, nextUser]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'detailGroup', 'message']);
+    if (items[1].kind !== 'detailGroup') throw new Error('expected truncated detail group');
+    expect(items[1].id).toBe('turn-details:u1');
+    expect(items[1].messages.map((message) => message.id)).toEqual(['t-truncated', 't-second-truncated']);
+  });
+
   test('completed final-answer detail groups stay closed by default', () => {
     const items = buildTurnDetailItems([user, prelude, tool, final]);
 
@@ -311,6 +323,18 @@ describe('turn detail grouping', () => {
     expect(items.map((item) => item.kind)).toEqual(['message', 'specialContextGroup']);
     if (items[1].kind !== 'specialContextGroup') throw new Error('expected special context group');
     expect(items[1].messages.map((message) => message.id)).toEqual(['ctx2']);
+  });
+
+  test('folds a context compaction block arriving as a user message', () => {
+    const compaction: Msg = {
+      id: 'ctx-user',
+      role: 'user',
+      content: '[CONTEXT COMPACTION -- REFERENCE ONLY]\nsummary from the gateway',
+    };
+    const items = buildTurnDetailItems([user, compaction]);
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'sessionState']);
+    expect(items[1]).toMatchObject({ kind: 'sessionState', id: 'session-state:ctx-user' });
   });
 
   test('does not treat normal assistant replies that quote context markers as special context', () => {
