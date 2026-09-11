@@ -373,14 +373,34 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
     )? {
         return Ok(None);
     }
+    // Keep this local fallback aligned with Hermes' _LISTABLE_CHILD_SQL:
+    // roots plus branch/reset children, excluding compression continuations.
     let mut statement = conn.prepare(
         "SELECT id, source, model, model_config, billing_provider,
                 started_at, ended_at, message_count, title
-         FROM sessions
-         WHERE parent_session_id IS NULL
-           AND COALESCE(archived, 0) = 0
-           AND (source IS NULL OR source NOT IN ('tool', 'cron', 'cli', 'alp-worker', 'turtle-soup', 'turtle-bench'))
-         ORDER BY started_at DESC
+         FROM sessions AS s
+         WHERE COALESCE(archived, 0) = 0
+           AND (
+                s.parent_session_id IS NULL
+                OR json_extract(COALESCE(s.model_config, '{}'), '$._branched_from') IS NOT NULL
+                OR EXISTS (
+                    SELECT 1 FROM sessions p
+                    WHERE p.id = s.parent_session_id
+                      AND p.end_reason = 'branched'
+                      AND s.started_at >= p.ended_at
+                )
+                OR json_extract(COALESCE(s.model_config, '{}'), '$._reset_from') IS NOT NULL
+                OR EXISTS (
+                    SELECT 1 FROM sessions p
+                    WHERE p.id = s.parent_session_id
+                      AND p.end_reason IN ('session_reset', 'session_switch', 'idle', 'daily', 'suspended', 'resume_pending_expired')
+                      AND s.session_key IS NOT NULL
+                      AND s.session_key != ''
+                      AND s.session_key = p.session_key
+                )
+           )
+           AND (s.source IS NULL OR s.source NOT IN ('tool', 'subagent', 'cron', 'cli', 'alp-worker', 'turtle-soup', 'turtle-bench'))
+         ORDER BY s.started_at DESC
          LIMIT ?1",
     )?;
     let mapped = statement.query_map([API_SESSION_SOURCE_FILTER_SCAN_LIMIT as i64], |row| {

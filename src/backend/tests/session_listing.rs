@@ -312,6 +312,68 @@
         assert_eq!(rows[0]["preview"], "latest final answer");
     }
 
+    #[test]
+    fn local_filtered_sidebar_keeps_listable_lineage_children() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );
+             CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                source TEXT,
+                model TEXT,
+                model_config TEXT,
+                billing_provider TEXT,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                message_count INTEGER,
+                title TEXT,
+                archived INTEGER,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+            );
+            INSERT INTO sessions (id, source, started_at, end_reason, archived)
+                VALUES ('branch-parent', 'telegram', 1.0, 'branched', 0);
+            INSERT INTO sessions (id, source, model_config, parent_session_id, started_at, archived)
+                VALUES ('branch-child', 'telegram', '{\"_branched_from\":\"branch-parent\"}', 'branch-parent', 2.0, 0);
+            INSERT INTO sessions (id, source, started_at, end_reason, session_key, archived)
+                VALUES ('reset-parent', 'weixin', 3.0, 'session_reset', 'same-key', 0);
+            INSERT INTO sessions (id, source, model_config, parent_session_id, started_at, session_key, archived)
+                VALUES ('reset-child', 'weixin', '{\"_reset_from\":\"reset-parent\"}', 'reset-parent', 4.0, 'same-key', 0);
+            INSERT INTO sessions (id, source, started_at, end_reason, archived)
+                VALUES ('compression-parent', 'telegram', 5.0, 'compression', 0);
+            INSERT INTO sessions (id, source, parent_session_id, started_at, archived)
+                VALUES ('compression-child', 'telegram', 'compression-parent', 6.0, 0);
+            INSERT INTO sessions (id, source, parent_session_id, model_config, started_at, archived)
+                VALUES ('subagent-child', 'subagent', 'branch-parent', '{\"_delegate_from\":\"branch-parent\"}', 7.0, 0);",
+        )
+        .unwrap();
+        let state = test_app_state("http://127.0.0.1:9".to_string(), temp.path());
+
+        let rows = fetch_filtered_sidebar_sessions_from_local_db(&state, 80)
+            .unwrap()
+            .unwrap();
+        let ids = rows
+            .iter()
+            .filter_map(|row| row.get("id").and_then(|value| value.as_str()))
+            .collect::<Vec<_>>();
+
+        assert!(ids.contains(&"branch-child"));
+        assert!(ids.contains(&"reset-child"));
+        assert!(!ids.contains(&"compression-child"));
+        assert!(!ids.contains(&"subagent-child"));
+    }
+
     #[tokio::test]
     async fn pinned_session_outside_recent_window_is_appended_and_deduplicated() {
         let temp = tempfile::tempdir().unwrap();
