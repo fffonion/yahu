@@ -293,6 +293,8 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.header-toolstrip>button,.header-toolstrip>.header-theme-control>button{margin-left:-1px;border:1px solid var(--border);border-radius:0;background:var(--surface-2)}');
     expect(styles).toContain('.header-toolstrip-with-leading>button:first-child,.header-toolstrip:not(.header-toolstrip-with-leading)>.header-theme-control>.mobile-header-terminal-btn{margin-left:0;border-radius:var(--radius-md) 0 0 var(--radius-md)}');
     expect(styles).toContain('.header-toolstrip>.header-theme-control>.mobile-header-settings-btn{border-radius:var(--radius-md)}');
+    expect(styles).toContain('.header-toolstrip-with-leading>.header-theme-control>.mobile-header-settings-btn{border-radius:0 var(--radius-md) var(--radius-md) 0}');
+    expect(styles).toContain('.header-toolstrip:not(.header-toolstrip-with-leading)>.header-theme-control>.mobile-header-settings-btn{margin-left:0;border:1px solid var(--border);border-radius:var(--radius-md)}');
   });
 
   test('mobile insights keeps charts readable and avoids horizontal overflow', () => {

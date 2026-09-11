@@ -144,7 +144,7 @@ describe('provider usage view', () => {
     expect(source).toContain('ProviderUsageAccountSkeleton');
     expect(source).toContain("const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows, Date.now() / 1000, quotaWallPercent));");
     expect(source).not.toContain("'\\\\u00a0'");
-    expect(css()).toContain('.header-toolstrip-with-leading .mobile-header-settings-btn{border-top-left-radius:0;border-bottom-left-radius:0}');
+    expect(css()).toContain('.header-toolstrip-with-leading>.header-theme-control>.mobile-header-settings-btn{border-radius:0 var(--radius-md) var(--radius-md) 0}');
     expect(source).toContain('usagePercentTone');
     expect(source).toContain('progressPercent !== null &&');
     expect(source).not.toContain('const ageLabel = updatedAgo(section?.captured_at)');
