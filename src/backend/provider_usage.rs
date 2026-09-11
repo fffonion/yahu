@@ -25,6 +25,7 @@ const GROK_WEB_CREDITS_URL: &str =
 const XAI_OAUTH_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
 const XAI_OAUTH_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 const ZED_CLOUD_ME_URL: &str = "https://cloud.zed.dev/client/users/me";
+const ZED_BILLING_USAGE_URL: &str = "https://cloud.zed.dev/frontend/billing/usage";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct ProviderUsageRow {
@@ -278,6 +279,8 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
     let codex_pool = !auth_json_credential_pool(hermes_home, "openai-codex").is_empty();
     let grok_pool = !auth_json_credential_pool(hermes_home, "xai-oauth").is_empty();
     let zed_pro_pool = !auth_json_credential_pool(hermes_home, "zed-pro").is_empty();
+    let zed_session_cookie = !provider_env_value(hermes_home, "ZED_SESSION_COOKIE").is_empty();
+    let zed_configured = zed_pro_pool || zed_session_cookie;
     let entries = [
         (
             "openrouter",
@@ -388,10 +391,10 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         (
             "zed-pro",
             "Zed Pro 用量",
-            zed_pro_pool,
-            zed_pro_pool,
-            "auth.json credential_pool.zed-pro",
-            "配置 auth.json 的 credential_pool.zed-pro，保留 access_token 与 user_id；通过 Hermes 的 Zed 登录流程获取账号凭据。",
+            zed_configured,
+            zed_configured,
+            "ZED_SESSION_COOKIE 或 auth.json credential_pool.zed-pro",
+            "Hosted AI token spend 使用浏览器 Cookie 中的 zed.session；仅在运行时注入 ZED_SESSION_COOKIE。auth.json 的 zed-pro 凭据继续提供套餐和账期信息。",
         ),
     ];
     entries
@@ -3056,10 +3059,11 @@ async fn grok_query_account(
 fn zed_plan_label(raw: &str) -> String {
     match raw.trim().to_ascii_lowercase().as_str() {
         "" => String::new(),
-        "zed_student" => "Student".into(),
-        "zed_pro" => "Pro".into(),
-        "zed_pro_trial" => "Pro Trial".into(),
-        "zed_free" => "Free".into(),
+        "zed_student" | "token_based_zed_student" => "Student".into(),
+        "zed_pro" | "token_based_zed_pro" => "Pro".into(),
+        "zed_pro_trial" | "token_based_zed_pro_trial" => "Pro Trial".into(),
+        "zed_business" | "token_based_zed_business" => "Business".into(),
+        "zed_free" | "token_based_zed_free" => "Free".into(),
         other => other
             .strip_prefix("zed_")
             .unwrap_or(other)
@@ -3139,6 +3143,16 @@ fn zed_plan_name(payload: &Value) -> String {
     zed_plan_label(raw)
 }
 
+fn zed_subscription_reset(payload: &Value) -> (Option<String>, Option<i64>) {
+    let reset_at = payload
+        .get("plan")
+        .and_then(|plan| plan.get("subscription_period"))
+        .and_then(|period| period.get("ended_at"))
+        .and_then(|value| zed_iso_timestamp(Some(value)));
+    let reset = reset_at.map(provider_reset_text_local);
+    (reset, reset_at)
+}
+
 fn zed_account_snapshot(
     payload: &Value,
 ) -> Result<(String, Vec<ProviderUsageWindow>), String> {
@@ -3151,8 +3165,7 @@ fn zed_account_snapshot(
         .get("subscription_period")
         .cloned()
         .unwrap_or(Value::Null);
-    let reset_at = zed_iso_timestamp(period.get("ended_at"));
-    let reset = reset_at.map(provider_reset_text_local);
+    let (reset, reset_at) = zed_subscription_reset(payload);
     let usage = plan.get("usage").cloned().unwrap_or(Value::Null);
     let model_requests = usage.get("model_requests").cloned().unwrap_or(Value::Null);
     let edit_predictions = usage
@@ -3218,6 +3231,116 @@ async fn zed_query_account(
     provider_http_get_json(&state.client, ZED_CLOUD_ME_URL, &headers).await
 }
 
+fn zed_session_cookie_header(raw: &str) -> Option<String> {
+    let value = raw
+        .trim()
+        .strip_prefix("Cookie:")
+        .map(str::trim)
+        .unwrap_or(raw.trim());
+    if value.is_empty() {
+        return None;
+    }
+    if value.starts_with("zed.session=") || value.contains(';') {
+        Some(value.to_string())
+    } else {
+        Some(format!("zed.session={value}"))
+    }
+}
+
+async fn zed_query_billing_usage(state: &AppState, raw_cookie: &str) -> Result<Value, String> {
+    let cookie = zed_session_cookie_header(raw_cookie)
+        .ok_or_else(|| "缺少 ZED_SESSION_COOKIE".to_string())?;
+    let headers = [
+        ("Accept".into(), "application/json".into()),
+        ("Content-Type".into(), "application/json".into()),
+        ("Origin".into(), "https://dashboard.zed.dev".into()),
+        ("Referer".into(), "https://dashboard.zed.dev/".into()),
+        ("User-Agent".into(), "yahu/zed-pro".into()),
+        ("Cookie".into(), cookie),
+    ];
+    provider_http_get_json(&state.client, ZED_BILLING_USAGE_URL, &headers).await
+}
+
+fn zed_billing_snapshot(
+    payload: &Value,
+) -> Result<(String, Option<ProviderUsageWindow>), String> {
+    let current_usage = payload
+        .get("current_usage")
+        .ok_or_else(|| "返回内容缺少 current_usage".to_string())?;
+    let token_spend = current_usage.get("token_spend");
+    let used = token_spend
+        .and_then(|value| value.get("spend_in_cents"))
+        .and_then(provider_number)
+        .or_else(|| {
+            current_usage
+                .get("token_spend_in_cents")
+                .and_then(provider_number)
+        })
+        .or_else(|| payload.get("token_spend_in_cents").and_then(provider_number))
+        .ok_or_else(|| "返回内容缺少 token spend".to_string())?;
+    let limit = token_spend
+        .and_then(|value| value.get("limit_in_cents"))
+        .and_then(provider_number)
+        .or_else(|| {
+            current_usage
+                .get("token_spend_limit_in_cents")
+                .and_then(provider_number)
+        })
+        .or_else(|| payload.get("limit_in_cents").and_then(provider_number));
+    let plan = payload
+        .get("plan")
+        .and_then(Value::as_str)
+        .map(zed_plan_label)
+        .filter(|value| !value.is_empty());
+    let mut details = Vec::new();
+    if let Some(plan) = plan {
+        details.push(plan);
+    }
+    let spend_text = if let Some(limit) = limit.filter(|value| value.is_finite() && *value >= 0.0) {
+        format!(
+            "余额 **{}/{}**",
+            fmt_provider_money(used / 100.0, '$'),
+            fmt_provider_money(limit / 100.0, '$')
+        )
+    } else {
+        format!("余额 **{}**", fmt_provider_money(used / 100.0, '$'))
+    };
+    details.push(spend_text);
+    if let Some(limit) = limit.filter(|value| value.is_finite() && *value > 0.0) {
+        details.push(if used > limit {
+            "超额：是".into()
+        } else {
+            "超额：否".into()
+        });
+    }
+    let window = limit
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .and_then(|limit| {
+            let percent = used / limit * 100.0;
+            percent.is_finite().then(|| ProviderUsageWindow {
+                window: "Hosted AI 月额度".into(),
+                used: Some(format!("{percent:.1}%")),
+                reset: None,
+                reset_at: None,
+            })
+        });
+    Ok((details.join(" · "), window))
+}
+
+fn zed_merge_billing_description(existing: &str, billing: &str) -> String {
+    let mut parts = Vec::new();
+    for part in billing
+        .split(" · ")
+        .chain(existing.split(" · ").filter(|part| !part.trim_start().starts_with("余额 **")))
+    {
+        let part = part.trim();
+        if !part.is_empty() && !parts.iter().any(|previous| previous == part) {
+            parts.push(part.to_string());
+        }
+    }
+    parts.join(" · ")
+}
+
 async fn fetch_zed_pro_usage(
     state: &AppState,
     cached_section: Option<&ProviderUsageSection>,
@@ -3229,8 +3352,11 @@ async fn fetch_zed_pro_usage(
         ..Default::default()
     };
     let accounts = auth_json_credential_entries(&state.hermes_home, "zed-pro");
-    if accounts.is_empty() {
-        section.errors.push("未找到 zed-pro 账号凭据".into());
+    let session_cookie = provider_env_value(&state.hermes_home, "ZED_SESSION_COOKIE");
+    if accounts.is_empty() && session_cookie.is_empty() {
+        section
+            .errors
+            .push("未找到 zed-pro 账号凭据或 ZED_SESSION_COOKIE".into());
         return section;
     }
     let now = chrono::Utc::now().timestamp();
@@ -3268,33 +3394,70 @@ async fn fetch_zed_pro_usage(
             section.description = cached.description;
         }
     }
+    let mut subscription_reset = None;
+    let mut subscription_reset_at = None;
     for (label, result) in fetched {
         match result {
-            Ok(payload) => match zed_account_snapshot(&payload) {
-                Ok((description, windows)) => {
-                    for window in windows {
-                        section.windows.push(ProviderUsageWindow {
-                            window: if multi_account {
-                                format!("{label} {}", window.window)
-                            } else {
-                                window.window
-                            },
-                            used: window.used,
-                            reset: window.reset,
-                            reset_at: window.reset_at,
-                        });
-                    }
-                    if section.description.is_empty() && !description.is_empty() {
-                        section.description = if multi_account {
-                            format!("{label} {description}")
-                        } else {
-                            description
-                        };
-                    }
+            Ok(payload) => {
+                let (account_reset, account_reset_at) = zed_subscription_reset(&payload);
+                if subscription_reset.is_none() {
+                    subscription_reset = account_reset;
+                    subscription_reset_at = account_reset_at;
                 }
-                Err(err) => section.errors.push(format!("{label}：{err}")),
-            },
+                match zed_account_snapshot(&payload) {
+                    Ok((description, windows)) => {
+                        for window in windows {
+                            section.windows.push(ProviderUsageWindow {
+                                window: if multi_account {
+                                    format!("{label} {}", window.window)
+                                } else {
+                                    window.window
+                                },
+                                used: window.used,
+                                reset: window.reset,
+                                reset_at: window.reset_at,
+                            });
+                        }
+                        if section.description.is_empty() && !description.is_empty() {
+                            section.description = if multi_account {
+                                format!("{label} {description}")
+                            } else {
+                                description
+                            };
+                        }
+                    }
+                    Err(err) => section.errors.push(format!("{label}：{err}")),
+                }
+            }
             Err(err) => section.errors.push(format!("{label}：查询失败：{err}")),
+        }
+    }
+    if session_cookie.is_empty() {
+        section
+            .errors
+            .push("Hosted AI token spend：缺少 ZED_SESSION_COOKIE".into());
+    } else {
+        match zed_query_billing_usage(state, &session_cookie).await {
+            Ok(payload) => match zed_billing_snapshot(&payload) {
+                Ok((description, window)) => {
+                    section
+                        .windows
+                        .retain(|window| window.window != "Hosted AI 月额度");
+                    if let Some(mut window) = window {
+                        window.reset = subscription_reset.clone();
+                        window.reset_at = subscription_reset_at;
+                        section.windows.push(window);
+                    }
+                    section.description =
+                        zed_merge_billing_description(&section.description, &description);
+                }
+                Err(err) => section
+                    .errors
+                    .push(format!("Hosted AI token spend：{err}")),
+            },
+            Err(err) => section
+                .errors
+                .push(format!("Hosted AI token spend：查询失败：{err}")),
         }
     }
     section

@@ -463,4 +463,69 @@ mod provider_usage_tests {
         let source = include_str!("../provider_usage.rs");
         assert!(source.contains("let (credits_result, subscription_result) = tokio::join!("));
     }
+
+    #[test]
+    fn zed_session_cookie_header_accepts_value_or_cookie_header() {
+        assert_eq!(
+            zed_session_cookie_header("[REDACTED]"),
+            Some("zed.session=[REDACTED]".into())
+        );
+        assert_eq!(
+            zed_session_cookie_header("zed.session=[REDACTED]"),
+            Some("zed.session=[REDACTED]".into())
+        );
+        assert_eq!(
+            zed_session_cookie_header("Cookie: zed.session=[REDACTED]; __cf_bm=[REDACTED]"),
+            Some("zed.session=[REDACTED]; __cf_bm=[REDACTED]".into())
+        );
+    }
+
+    #[test]
+    fn zed_billing_snapshot_parses_student_token_spend() {
+        let payload = serde_json::json!({
+            "plan": "token_based_zed_student",
+            "current_usage": {
+                "token_spend": {
+                    "spend_in_cents": 7,
+                    "limit_in_cents": 1000
+                }
+            },
+            "portal_url": "https://example.test/portal?token=[REDACTED]"
+        });
+        let (description, window) = zed_billing_snapshot(&payload).unwrap();
+        assert_eq!(
+            description,
+            "Student · 余额 **$0.07/$10.00** · 超额：否"
+        );
+        let window = window.unwrap();
+        assert_eq!(window.window, "Hosted AI 月额度");
+        assert_eq!(window.used.as_deref(), Some("0.7%"));
+        assert!(window.reset.is_none());
+    }
+
+    #[test]
+    fn zed_billing_snapshot_marks_overage() {
+        let payload = serde_json::json!({
+            "plan": "token_based_zed_student",
+            "current_usage": {
+                "token_spend_in_cents": 1200,
+                "token_spend_limit_in_cents": 1000
+            }
+        });
+        let (description, window) = zed_billing_snapshot(&payload).unwrap();
+        assert!(description.contains("超额：是"));
+        assert_eq!(window.unwrap().used.as_deref(), Some("120.0%"));
+    }
+
+    #[test]
+    fn zed_billing_description_replaces_stale_balance() {
+        let merged = zed_merge_billing_description(
+            "Student · 余额 **$0.06/$10.00** · 账期 9/1–10/1",
+            "Student · 余额 **$0.07/$10.00** · 超额：否",
+        );
+        assert_eq!(
+            merged,
+            "Student · 余额 **$0.07/$10.00** · 超额：否 · 账期 9/1–10/1"
+        );
+    }
 }
