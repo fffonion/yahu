@@ -39,6 +39,24 @@ A background fan-out has finished.
     });
   });
 
+  test('parses background process completion as a collapsed system notice', () => {
+    expect(parseSessionStateMessage(`[IMPORTANT: Background process proc_6a53982948ff completed normally (exit code 0).\nCommand: set -e`)).toEqual({
+      notice: 'Background process proc_6a53982948ff completed normally',
+      tasks: [],
+      collapsible: true,
+      details: 'Command: set -e',
+    });
+  });
+
+  test('parses context compaction as a collapsed system notice', () => {
+    expect(parseSessionStateMessage('[CONTEXT COMPACTION -- REFERENCE ONLY]\nsummary from the gateway')).toEqual({
+      notice: 'CONTEXT COMPACTION -- REFERENCE ONLY',
+      tasks: [],
+      collapsible: true,
+      details: 'summary from the gateway',
+    });
+  });
+
   test('renders async delegation completion as a collapsed details block', () => {
     const transcriptSource = readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8');
     const stylesSource = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');

@@ -187,6 +187,7 @@ function sameSubagentMessage(previous: SubagentMessage, incoming: SubagentMessag
     && previous.tokenCount === incoming.tokenCount
     && previous.model === incoming.model
     && previous.provider === incoming.provider
+    && previous.interrupted === incoming.interrupted
     && previous.platformSenderName === incoming.platformSenderName
     && previous.platformSenderId === incoming.platformSenderId
     && sameSubagentMessageField(previous.structuredContent, incoming.structuredContent)

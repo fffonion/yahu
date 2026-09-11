@@ -55,7 +55,7 @@ describe('platform sender labels in chat bubbles', () => {
     expect(source).toContain('const senderLabel = messageSenderLabel(message, assistantName);');
     expect(source).toContain('className="msg-sender-name"');
     expect(source).toContain('className="msg-sender-id"');
-    expect(source).toContain('parsePlatformSenderMessage(parts.content, platformSourceUsesNameOnlySenderPrefix(platformSource))');
+    expect(source).toContain('parsePlatformSenderMessage(unwrapped.content, platformSourceUsesNameOnlySenderPrefix(platformSource))');
     expect(styles).toContain('.msg-sender-id{font-size:11px;color:var(--muted);font-weight:400;margin-left:4px}');
   });
 });

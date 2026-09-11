@@ -15,6 +15,8 @@ export type SessionStateContent = {
 
 const taskLine = /^-\s+\[([ xX>~-])\]\s+(.+?)(?:\s+\((pending|in_progress|completed|cancelled)\))?\s*$/;
 const asyncDelegationCompleteNotice = /^ASYNC DELEGATION BATCH COMPLETE\s*(?:--|—)\s*deleg_[A-Za-z0-9]+$/i;
+const contextCompactionNotice = /^CONTEXT COMPACTION\s*(?:--|—)\s*REFERENCE ONLY$/i;
+const backgroundProcessNotice = /^\[IMPORTANT:\s*Background process\s+(\S+)\s+(.+?)(?:\s+\(exit code\s+[^)]*\))?\.\]?[ \t]*(?:\r?\n|$)([\s\S]*)$/i;
 
 function statusFromMarker(marker: string): SessionTaskStatus {
   if (marker === '>') return 'in_progress';
@@ -23,13 +25,37 @@ function statusFromMarker(marker: string): SessionTaskStatus {
   return 'pending';
 }
 
+function parseBackgroundProcessNotice(content: string): SessionStateContent | null {
+  const match = content.match(backgroundProcessNotice);
+  if (!match) return null;
+  const processId = match[1].trim();
+  const status = match[2].trim();
+  const details = String(match[3] || '').replace(/\s*\]\s*$/, '').trim();
+  return {
+    notice: `Background process ${processId} ${status}`,
+    tasks: [],
+    collapsible: true,
+    ...(details ? { details } : {}),
+  };
+}
+
+export function isBackgroundProcessNotice(content: string): boolean {
+  return backgroundProcessNotice.test(content);
+}
+
 export function parseSessionStateMessage(content: string): SessionStateContent | null {
-  const lines = String(content || '').replace(/\r\n?/g, '\n').split('\n');
-  const noticeMatch = lines[0]?.match(/^\[([^\]\r\n]+)\]$/);
+  const normalizedContent = String(content || '').replace(/\r\n?/g, '\n');
+  const backgroundProcess = parseBackgroundProcessNotice(normalizedContent);
+  if (backgroundProcess) return backgroundProcess;
+  const lines = normalizedContent.split('\n');
+  const firstLine = lines[0] || '';
+  const details = lines.slice(1).join('\n').trim();
+  if (asyncDelegationCompleteNotice.test(firstLine)) return { notice: firstLine, tasks: [], collapsible: true, ...(details ? { details } : {}) };
+  const noticeMatch = firstLine.match(/^\[([^\]\r\n]+)\]$/);
   if (!noticeMatch || noticeMatch[1].includes('|')) return null;
   const notice = noticeMatch[1].trim();
-  const details = lines.slice(1).join('\n').trim();
   if (asyncDelegationCompleteNotice.test(notice)) return { notice, tasks: [], collapsible: true, ...(details ? { details } : {}) };
+  if (contextCompactionNotice.test(notice)) return { notice, tasks: [], collapsible: true, ...(details ? { details } : {}) };
 
   const tasks: SessionTaskItem[] = [];
   for (const line of lines.slice(1)) {
@@ -49,5 +75,5 @@ export function parseSessionStateMessage(content: string): SessionStateContent |
 }
 
 export function isSessionStateMessage(message: { role?: string | null; content?: string | null }): boolean {
-  return message.role === 'user' && parseSessionStateMessage(String(message.content || '')) !== null;
+  return (message.role === 'user' || message.role === 'system') && parseSessionStateMessage(String(message.content || '')) !== null;
 }

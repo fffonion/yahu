@@ -15,6 +15,7 @@ const translations: Record<string, Record<string, string>> = {
   'chat.disconnected': { en: 'Disconnected', 'zh-CN': '已断开', 'zh-TW': '已斷開', ja: '切断' },
   'chat.connected': { en: 'Connected', 'zh-CN': '已连接', 'zh-TW': '已連接', ja: '接続済み' },
   'chat.streaming': { en: 'Streaming', 'zh-CN': '流式输出中', 'zh-TW': '串流中', ja: 'ストリーミング中' },
+  'chat.interrupted': { en: 'Interrupted message', 'zh-CN': '中断消息', 'zh-TW': '中斷訊息', ja: '割り込みメッセージ' },
   'chat.streamingOther': { en: 'Streaming from other platform', 'zh-CN': '其他平台正在输出', 'zh-TW': '其他平台正在輸出', ja: '他のプラットフォームからストリーミング中' },
   'chat.sending': { en: 'Sending...', 'zh-CN': '发送中...', 'zh-TW': '發送中...', ja: '送信中...' },
   'chat.loadHistory': { en: 'Load older messages...', 'zh-CN': '加载更早消息...', 'zh-TW': '載入更早訊息...', ja: '古いメッセージを読み込む...' },

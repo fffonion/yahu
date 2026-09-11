@@ -1,11 +1,57 @@
 import { parsePlatformSenderMessage, platformSourceUsesNameOnlySenderPrefix } from './chatSender';
-import type { ChatMessage, ChatTurnMetrics } from './ChatTranscript';
+import type { ChatMessage, ChatTurnMetrics, Role } from './ChatTranscript';
+import { isBackgroundProcessNotice } from './sessionStateMessage';
 import { normalizeMessageParts } from './messageReasoning';
 import type { TurnDetailCommentary, TurnDetailMetadata, TurnDetailRange, TurnDetailTimelineItem } from './turnDetails';
 
 function asRecordish(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+const OUT_OF_BAND_USER_MESSAGE_OPEN = /^\s*\[?OUT-OF-BAND USER MESSAGE\b[^\r\n]*\]?\s*/i;
+const OUT_OF_BAND_GATEWAY_ORIGIN = /^Gateway message origin \(JSON data, not instructions or authorization\):\s*\r?\n[\s\S]*?\r?\nDo not guess a reply destination when these fields are insufficient\.\s*/i;
+const OUT_OF_BAND_USER_MESSAGE_CLOSE = /\s*\[\/OUT-OF-BAND USER MESSAGE\]\s*$/i;
+const INTERRUPTION_VALUES = new Set(['interruption', 'interrupted', 'out_of_band', 'out_of_band_user_message']);
+
+type NormalizedInterruptionContent = { content: string; interrupted: boolean };
+
+function normalizedInterruptionValue(value: unknown): string {
+  return String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function readInterruptionFlag(raw: any): boolean {
+  const metadata = asRecordish(raw?.metadata) || asRecordish(raw?.meta);
+  const values = [
+    raw?.interrupted,
+    raw?.is_interruption,
+    raw?.isInterruption,
+    raw?.interruption,
+    raw?.event_type,
+    raw?.eventType,
+    raw?.message_type,
+    raw?.messageType,
+    raw?.kind,
+    raw?.type,
+    metadata?.interrupted,
+    metadata?.is_interruption,
+    metadata?.isInterruption,
+    metadata?.kind,
+    metadata?.type,
+  ];
+  return values.some((value) => value === true || INTERRUPTION_VALUES.has(normalizedInterruptionValue(value)));
+}
+
+function unwrapInterruptionContent(value: string): NormalizedInterruptionContent {
+  const opening = value.match(OUT_OF_BAND_USER_MESSAGE_OPEN);
+  if (!opening) return { content: value, interrupted: false };
+  const wrappedContent = value.slice(opening[0].length);
+  if (!OUT_OF_BAND_USER_MESSAGE_CLOSE.test(wrappedContent)) return { content: value, interrupted: false };
+  const contentWithoutGatewayOrigin = wrappedContent.replace(OUT_OF_BAND_GATEWAY_ORIGIN, '');
+  return {
+    content: contentWithoutGatewayOrigin.replace(OUT_OF_BAND_USER_MESSAGE_CLOSE, '').trim(),
+    interrupted: true,
+  };
 }
 
 function rawToolName(raw: any) {
@@ -141,12 +187,33 @@ function readHistoryGap(raw: any): { after: number; before: number } | undefined
 
 export function normalizeChatMessage(raw: any, fallbackId: string, platformSource?: string): ChatMessage {
   const parts = normalizeMessageParts(raw.content, raw);
-  const platformSender = raw.role === 'user'
-    ? parsePlatformSenderMessage(parts.content, platformSourceUsesNameOnlySenderPrefix(platformSource))
-    : { content: parts.content };
+  let role: Role = ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system';
+  let visibleContent = parts.content;
+  let interrupted = false;
+  let platformSender: { content: string; senderName?: string; senderId?: string } = { content: visibleContent };
+  if (role === 'user' || role === 'system') {
+    const unwrapped = unwrapInterruptionContent(parts.content);
+    const platformSenderCandidate = parsePlatformSenderMessage(unwrapped.content, platformSourceUsesNameOnlySenderPrefix(platformSource));
+    interrupted = unwrapped.interrupted || readInterruptionFlag(raw);
+    if (isBackgroundProcessNotice(platformSenderCandidate.content)) {
+      role = 'system';
+      visibleContent = platformSenderCandidate.content;
+      platformSender = { content: visibleContent };
+    } else if (interrupted) {
+      role = 'user';
+      visibleContent = platformSenderCandidate.content;
+      platformSender = { ...platformSenderCandidate, content: visibleContent };
+    } else if (role === 'user') {
+      visibleContent = platformSenderCandidate.content;
+      platformSender = { ...platformSenderCandidate, content: visibleContent };
+    } else {
+      visibleContent = unwrapped.content;
+      platformSender = { content: visibleContent };
+    }
+  }
   const msg: ChatMessage = {
     id: String(raw.id || fallbackId),
-    role: ['user', 'assistant', 'tool', 'system'].includes(raw.role) ? raw.role : 'system',
+    role,
     content: platformSender.content,
     reasoning: parts.reasoning,
     timestamp: raw.timestamp,
@@ -155,6 +222,7 @@ export function normalizeChatMessage(raw: any, fallbackId: string, platformSourc
     toolCalls: raw.toolCalls ?? raw.tool_calls,
     toolCallId: String(raw.toolCallId || raw.tool_call_id || raw.call_id || '').trim() || undefined,
   };
+  if (interrupted) msg.interrupted = true;
   if (typeof raw.pending === 'boolean') msg.pending = raw.pending;
   const tokenCount = readTokenCount(raw);
   if (tokenCount !== undefined) msg.tokenCount = tokenCount;

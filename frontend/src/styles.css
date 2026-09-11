@@ -555,3 +555,6 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 
 .tool-patch-result,.tool-source-content,.tool-detail-wide .tool-code-block{width:100%;min-width:0;max-width:100%}.tool-patch-result .tool-code-block,.tool-source-content .tool-code-block{width:100%;min-width:0;max-width:100%}.tool-detail-wide .tool-detail-section{width:100%;min-width:0}.tool-field-code{grid-template-columns:minmax(0,1fr);gap:4px}.tool-field-code .tool-key{width:auto;min-width:0;max-width:none}
 @media(max-width:760px){.mobile-compact-chat .tool-detail.tool-detail-wide{padding-left:0}.mobile-compact-chat .tool-detail-wide .tool-field:has(.tool-patch-result){grid-template-columns:minmax(0,1fr);gap:4px}.mobile-compact-chat .tool-detail-wide .tool-patch-result{width:100%;min-width:0}}
+
+.msg-interruption-icon{display:inline-flex;align-items:center;justify-content:center;margin-left:5px;color:var(--danger,var(--accent-2));vertical-align:-.16em}
+.msg-interruption-icon svg{width:13px;height:13px;stroke-width:2.25}

@@ -5,6 +5,7 @@ import {
   CheckSquare,
   ChevronRight,
   CircleHelp,
+  CircleStop,
   Code,
   Eye,
   FileText,
@@ -53,7 +54,7 @@ import {
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool';
 export type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number; costUsd?: number };
-export type ChatMessage = { id: string; role: Role; content: string; structuredContent?: { value: unknown }; reasoning?: string; timestamp?: string | number; pending?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; historyGap?: { after: number; before: number }; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+export type ChatMessage = { id: string; role: Role; content: string; structuredContent?: { value: unknown }; reasoning?: string; timestamp?: string | number; pending?: boolean; interrupted?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; historyGap?: { after: number; before: number }; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 
 type LoadTurnDetails = (detail: TurnDetailMetadata) => Promise<ChatMessage[]>;
 
@@ -397,7 +398,7 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
   return <article className={`msg-row ${message.role}${isPending ? ' pending' : ''}${isToolPrelude ? ' tool-prelude' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content">
       <div className="msg-meta">
-        <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}</span>
+        <span className="msg-sender-name">{senderLabel.name}{senderLabel.id && <small className="msg-sender-id">{senderLabel.id}</small>}{message.interrupted && <span className="msg-interruption-icon" role="img" aria-label={t('chat.interrupted')} title={t('chat.interrupted')}><CircleStop aria-hidden="true" /></span>}</span>
         <time>{formatChatMessageTime(message.timestamp)}</time>
         {isPending && <span className="stream-state" aria-label={t('chat.streaming')}><span className="stream-dots"><i /><i /><i /></span></span>}
       </div>
