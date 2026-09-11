@@ -902,6 +902,60 @@
     }
 
     #[test]
+    fn subagent_projection_excludes_non_subagent_sessions_in_the_same_lineage() {
+        let sessions = vec![
+            serde_json::json!({
+                "id": "telegram-continuation",
+                "parent_session_id": "parent",
+                "source": "telegram",
+                "started_at": 900.0,
+                "ended_at": null,
+            }),
+            serde_json::json!({
+                "id": "real-subagent",
+                "parent_session_id": "parent",
+                "source": "subagent",
+                "started_at": 901.0,
+                "ended_at": null,
+            }),
+        ];
+
+        let visible = select_visible_subagent_sessions("parent", &sessions, 1_000.0);
+
+        assert_eq!(
+            visible
+                .iter()
+                .filter_map(|session| string_field(session, "id"))
+                .collect::<Vec<_>>(),
+            vec!["real-subagent"],
+        );
+    }
+
+    #[test]
+    fn subagent_projection_does_not_cross_a_non_subagent_continuation() {
+        let sessions = vec![
+            serde_json::json!({
+                "id": "telegram-continuation",
+                "parent_session_id": "parent",
+                "source": "telegram",
+                "started_at": 900.0,
+                "ended_at": null,
+            }),
+            serde_json::json!({
+                "id": "nested-subagent",
+                "parent_session_id": "telegram-continuation",
+                "source": "subagent",
+                "started_at": 901.0,
+                "ended_at": null,
+            }),
+        ];
+
+        let visible = select_visible_subagent_sessions("parent", &sessions, 1_000.0);
+
+        assert!(visible.is_empty());
+    }
+
+    #[test]
     fn subagent_websocket_uses_api_unauthorized_response_path() {
         let auth_source = include_str!("../auth.rs");
         assert!(auth_source.contains("path.starts_with(\"/chat/subagents\")"));

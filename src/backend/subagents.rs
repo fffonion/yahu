@@ -799,8 +799,9 @@ async fn resolve_missing_subagent_ancestors(
     let mut candidate_ids = sessions
         .iter()
         .filter(|session| {
-            number_field(session, "started_at")
-                .is_some_and(|started| started >= window_start && started <= window_end)
+            is_subagent_session(session)
+                && number_field(session, "started_at")
+                    .is_some_and(|started| started >= window_start && started <= window_end)
         })
         .filter_map(|session| string_field(session, "id"))
         .collect::<Vec<_>>();
@@ -858,6 +859,10 @@ fn subagent_membership_or_missing(
         let Some(session) = sessions_by_id.get(&current) else {
             return Err(current);
         };
+        if current != session_id && !is_subagent_session(session) {
+            // A normal conversation continuation ends the subagent lineage.
+            return Ok(false);
+        }
         if let Some(lineage_root) = string_field(session, "_lineage_root_id") {
             return Ok(lineage_root == parent_session_id);
         }
@@ -870,6 +875,14 @@ fn subagent_membership_or_missing(
         current = parent;
     }
     Ok(false)
+}
+
+fn is_subagent_session(session: &Value) -> bool {
+    // The API query includes descendants when include_children=true, so it may
+    // return ordinary channel sessions from the same parent lineage as well.
+    // Older API fixtures can omit source; keep those records for compatibility.
+    string_field(session, "source")
+        .is_none_or(|source| source == "subagent")
 }
 
 fn session_activity_time(session: &Value) -> Option<f64> {
@@ -920,19 +933,19 @@ fn select_visible_subagent_sessions(
     window_end: f64,
 ) -> Vec<Value> {
     let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
-    let parent_by_id = sessions
+    let session_by_id = sessions
         .iter()
-        .filter_map(|session| {
-            Some((
-                string_field(session, "id")?,
-                string_field(session, "parent_session_id")?,
-            ))
-        })
+        .filter_map(|session| Some((string_field(session, "id")?, session)))
         .collect::<HashMap<_, _>>();
 
     let mut visible = sessions
         .iter()
         .filter(|session| {
+            // include_children=true can return ordinary channel sessions from
+            // the same lineage; only actual subagent sessions belong here.
+            if !is_subagent_session(session) {
+                return false;
+            }
             let Some(started_at) = number_field(session, "started_at") else {
                 return false;
             };
@@ -948,13 +961,22 @@ fn select_visible_subagent_sessions(
             };
             let mut seen = HashSet::new();
             while seen.insert(current.clone()) {
-                let Some(parent) = parent_by_id.get(&current) else {
+                let Some(session) = session_by_id.get(&current) else {
+                    return false;
+                };
+                if !is_subagent_session(session) {
+                    return false;
+                }
+                if string_field(session, "_lineage_root_id").as_deref() == Some(parent_session_id) {
+                    return true;
+                }
+                let Some(parent) = string_field(session, "parent_session_id") else {
                     return false;
                 };
                 if parent == parent_session_id {
                     return true;
                 }
-                current = parent.clone();
+                current = parent;
             }
             false
         })
