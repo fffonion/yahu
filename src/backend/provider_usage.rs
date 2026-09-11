@@ -90,6 +90,8 @@ struct CommandCodeAccountCache {
     total_cost: Option<f64>,
 }
 
+type CommandCodeFetchedAccount = (String, Result<(Value, CommandCodeAccountCache), String>);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CommandCodeCachePlan {
     refresh_whoami: bool,
@@ -1680,10 +1682,11 @@ async fn fetch_mimo_usage(state: &AppState) -> ProviderUsageSection {
             (!configured.is_empty()).then_some(configured)
         })
         .unwrap_or_default();
-    if cookie.is_empty() && !provider_env_value(&state.hermes_home, "MIMO_PASSTOKEN").is_empty() {
-        if let Ok(refreshed) = refresh_mimo_service_cookie(state).await {
-            cookie = refreshed;
-        }
+    if cookie.is_empty()
+        && !provider_env_value(&state.hermes_home, "MIMO_PASSTOKEN").is_empty()
+        && let Ok(refreshed) = refresh_mimo_service_cookie(state).await
+    {
+        cookie = refreshed;
     }
     if cookie.is_empty() {
         section.errors.push("缺少 MiMo 认证信息".into());
@@ -2226,27 +2229,27 @@ async fn fetch_commandcode_usage(
             let token_matches = account_cache
                 .as_ref()
                 .is_none_or(|cache| cache.token_fingerprint == token_fingerprint);
-            if token_matches {
-                if let Some(cached) = cached_section.and_then(|section| {
+            if token_matches
+                && let Some(cached) = cached_section.and_then(|section| {
                     provider_cached_account_section(section, &label, multi_account, now)
-                }) {
-                    if account_cache.is_none() {
-                        cached_account_metadata.insert(
-                            label.clone(),
-                            CommandCodeAccountCache {
-                                token_fingerprint,
-                                ..Default::default()
-                            },
-                        );
-                    }
-                    skipped_accounts.push((label, cached));
-                    return None;
+                })
+            {
+                if account_cache.is_none() {
+                    cached_account_metadata.insert(
+                        label.clone(),
+                        CommandCodeAccountCache {
+                            token_fingerprint,
+                            ..Default::default()
+                        },
+                    );
                 }
+                skipped_accounts.push((label, cached));
+                return None;
             }
             Some((label, token, account_cache))
         })
         .collect::<Vec<_>>();
-    let mut fetched: Vec<(String, Result<(Value, CommandCodeAccountCache), String>)> =
+    let mut fetched: Vec<CommandCodeFetchedAccount> =
         futures_util::future::join_all(
             live_accounts
                 .iter()
@@ -2492,12 +2495,11 @@ fn codex_backend_prefix(base_url: &str) -> String {
     if normalized.ends_with("/codex") {
         normalized.truncate(normalized.len() - "/codex".len());
     }
-    let prefix = if normalized.contains("/backend-api") {
+    if normalized.contains("/backend-api") {
         format!("{normalized}/wham")
     } else {
         format!("{normalized}/api/codex")
-    };
-    prefix
+    }
 }
 
 fn codex_backend_reset_credits_url(base_url: &str) -> String {
