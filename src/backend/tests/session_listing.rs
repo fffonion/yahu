@@ -290,6 +290,15 @@
     }
 
     #[test]
+    fn local_preview_uses_session_index_ranges_instead_of_global_window_scan() {
+        let source = include_str!("../sessions.rs");
+
+        assert!(source.contains("session_id = ?1"));
+        assert!(source.contains("ORDER BY id DESC\n         LIMIT 100"));
+        assert!(!source.contains("ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC)"));
+    }
+
+    #[test]
     fn local_filtered_sidebar_query_excludes_sources_and_enriches_previews() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");

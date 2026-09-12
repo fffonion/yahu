@@ -1123,35 +1123,30 @@ fn enrich_session_previews_from_local_db(
             }
         }
     }
-    let mut previews = HashMap::new();
-    for id_chunk in all_entry_ids.chunks(200) {
-        let placeholders = std::iter::repeat_n("?", id_chunk.len()).collect::<Vec<_>>().join(",");
-        let history_clause = match (has_active, has_compacted) {
-            (true, true) => "(active = 1 OR compacted = 1) AND",
-            (true, false) => "active = 1 AND",
-            (false, _) => "",
-        };
-        let sql = format!(
-            "SELECT id, session_id, content
-             FROM (
-                 SELECT id, session_id, content,
-                        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS preview_rank
-                 FROM messages
-                 WHERE {history_clause}
-                       session_id IN ({placeholders})
-                   AND ({preview_role_clause})
-                   AND content IS NOT NULL
-                   AND trim(content) != ''
-             )
-             WHERE preview_rank <= 100
-             ORDER BY id DESC"
-        );
-        let mut statement = conn.prepare(&sql)?;
-        let candidates = statement.query_map(rusqlite::params_from_iter(id_chunk.iter()), |row| {
+    let mut previews = HashMap::<String, (i64, String)>::new();
+    let history_clause = match (has_active, has_compacted) {
+        (true, true) => "(active = 1 OR compacted = 1) AND",
+        (true, false) => "active = 1 AND",
+        (false, _) => "",
+    };
+    let sql = format!(
+        "SELECT id, session_id, content
+         FROM messages
+         WHERE {history_clause}
+               session_id = ?1
+           AND ({preview_role_clause})
+           AND content IS NOT NULL
+           AND trim(content) != ''
+         ORDER BY id DESC
+         LIMIT 100"
+    );
+    let mut statement = conn.prepare(&sql)?;
+    for entry_id in &all_entry_ids {
+        let candidates = statement.query_map([entry_id], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
         })?;
         for candidate in candidates {
-            let (_message_id, entry_id, content) = candidate?;
+            let (message_id, entry_id, content) = candidate?;
             let preview = session_preview_from_raw_content(&content);
             if preview.is_empty() {
                 continue;
@@ -1160,7 +1155,12 @@ fn enrich_session_previews_from_local_db(
                 continue;
             };
             for row_id in row_ids {
-                previews.entry(row_id.clone()).or_insert_with(|| preview.clone());
+                let is_newer = previews
+                    .get(row_id)
+                    .is_none_or(|(known_message_id, _)| message_id > *known_message_id);
+                if is_newer {
+                    previews.insert(row_id.clone(), (message_id, preview.clone()));
+                }
             }
         }
     }
@@ -1172,7 +1172,7 @@ fn enrich_session_previews_from_local_db(
         else {
             continue;
         };
-        let Some(preview) = previews.get(session_id).cloned() else {
+        let Some((_, preview)) = previews.get(session_id).cloned() else {
             continue;
         };
         if let Some(obj) = row.as_object_mut() {
