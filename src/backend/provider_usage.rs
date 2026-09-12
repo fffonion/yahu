@@ -331,7 +331,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         ),
         (
             "openrouter",
-            "OpenRouter API 用量",
+            "OpenRouter 用量",
             any_provider_env_value(hermes_home, &["OPENROUTER_API_KEY", "OPENROUTER_MANAGEMENT_KEY"])
                 || any_custom_provider_api_key(hermes_home, &["openrouter"]),
             !provider_env_value(hermes_home, "OPENROUTER_MANAGEMENT_KEY").is_empty(),

@@ -547,6 +547,16 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn openrouter_catalog_title_omits_api_suffix() {
+        let temp = tempfile::tempdir().unwrap();
+        let provider = provider_usage_catalog(temp.path())
+            .into_iter()
+            .find(|item| item.provider == "openrouter")
+            .unwrap();
+        assert_eq!(provider.title, "OpenRouter 用量");
+    }
+
+    #[test]
     fn agentrouter_usage_rows_convert_newapi_quota_to_dollars() {
         let records = vec![
             NewApiUsageRecord {
