@@ -6,8 +6,8 @@ const SUBAGENT_SESSION_SCAN_LIMIT: usize = 10_000;
 const SUBAGENT_API_PAGE_BYTE_LIMIT: usize = 2 * 1024 * 1024;
 const SUBAGENT_API_DETAIL_BYTE_LIMIT: usize = 4 * 1024 * 1024;
 const SUBAGENT_ANCESTOR_RESOLUTION_LIMIT: usize = 200;
-const SUBAGENT_VISIBLE_LIMIT: usize = 10;
-const SUBAGENT_LOOKBACK_SECONDS: f64 = 43_200.0;
+const SUBAGENT_VISIBLE_LIMIT: usize = 100;
+const SUBAGENT_LOOKBACK_SECONDS: f64 = 48.0 * 60.0 * 60.0;
 const SUBAGENT_STALE_RUNNING_SECONDS: f64 = 900.0;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
 const SUBAGENT_SUMMARY_LIMIT: usize = 600;
@@ -739,8 +739,12 @@ async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::R
     let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
     let mut offset = 0usize;
     loop {
+        // `source=subagent` only matches the legacy child source. Current Hermes
+        // children inherit the parent's source and carry `_delegate_from` in
+        // model_config, so fetch the bounded activity window and classify rows
+        // locally with `is_subagent_session`.
         let url = format!(
-            "{}/api/sessions?source=subagent&include_children=true&limit={}&offset={}",
+            "{}/api/sessions?include_children=true&limit={}&offset={}",
             state.api_url.trim_end_matches('/'),
             SUBAGENT_PAGE_SIZE,
             offset,
@@ -877,12 +881,28 @@ fn subagent_membership_or_missing(
     Ok(false)
 }
 
+fn has_delegate_marker(session: &Value) -> bool {
+    let Some(model_config) = session.get("model_config") else {
+        return false;
+    };
+    match model_config {
+        Value::Object(config) => config
+            .get("_delegate_from")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty()),
+        Value::String(raw) => serde_json::from_str::<Value>(raw)
+            .ok()
+            .and_then(|config| config.get("_delegate_from").and_then(Value::as_str).map(str::to_string))
+            .is_some_and(|value| !value.trim().is_empty()),
+        _ => false,
+    }
+}
+
 fn is_subagent_session(session: &Value) -> bool {
-    // The API query includes descendants when include_children=true, so it may
-    // return ordinary channel sessions from the same parent lineage as well.
-    // Older API fixtures can omit source; keep those records for compatibility.
-    string_field(session, "source")
-        .is_none_or(|source| source == "subagent")
+    // Current Hermes children inherit the parent's source and carry the stable
+    // `_delegate_from` creation marker. Keep accepting source=subagent for old
+    // rows and API fixtures.
+    string_field(session, "source").is_none_or(|source| source == "subagent") || has_delegate_marker(session)
 }
 
 fn session_activity_time(session: &Value) -> Option<f64> {

@@ -621,6 +621,43 @@
     }
 
     #[test]
+    fn delegate_marker_identifies_children_that_inherit_parent_source() {
+        let object_config = serde_json::json!({
+            "source": "telegram",
+            "model_config": {"_delegate_from": "parent"},
+        });
+        let encoded_config = serde_json::json!({
+            "source": "telegram",
+            "model_config": "{\"_delegate_from\":\"parent\"}",
+        });
+        let ordinary_session = serde_json::json!({"source": "telegram"});
+
+        assert!(is_subagent_session(&object_config));
+        assert!(is_subagent_session(&encoded_config));
+        assert!(!is_subagent_session(&ordinary_session));
+    }
+
+    #[test]
+    fn visible_subagent_sessions_include_a_batch_larger_than_the_legacy_limit() {
+        let window_end = 500_000.0;
+        let sessions = (0..44)
+            .map(|index| {
+                serde_json::json!({
+                    "id": format!("batch-{index}"),
+                    "source": "subagent",
+                    "parent_session_id": "parent",
+                    "started_at": window_end - f64::from(index),
+                    "ended_at": window_end - f64::from(index) + 0.5,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let visible = select_visible_subagent_sessions("parent", &sessions, window_end);
+
+        assert_eq!(visible.len(), 44);
+    }
+
+    #[test]
     fn visible_subagent_sessions_keep_an_old_running_child_visible() {
         let window_end = 200_000.0;
         let sessions = vec![serde_json::json!({
@@ -637,8 +674,8 @@
     }
 
     #[test]
-    fn visible_subagent_sessions_follow_the_backward_twelve_hour_window_and_limit_ten() {
-        assert_eq!(SUBAGENT_LOOKBACK_SECONDS, 43_200.0);
+    fn visible_subagent_sessions_follow_the_backward_48_hour_window_without_a_ten_item_cap() {
+        assert_eq!(SUBAGENT_LOOKBACK_SECONDS, 172_800.0);
         let window_end = 200_000.0;
         let mut sessions = (0..12)
             .map(|index| serde_json::json!({
@@ -651,6 +688,7 @@
         sessions.extend([
             serde_json::json!({"id": "nested", "parent_session_id": "root-0", "started_at": window_end - 25.0, "ended_at": window_end - 10.0}),
             serde_json::json!({"id": "future", "parent_session_id": "parent", "started_at": window_end + 0.1, "ended_at": null}),
+            serde_json::json!({"id": "old-completed", "parent_session_id": "parent", "started_at": window_end - 13.0 * 60.0 * 60.0, "ended_at": window_end - 12.0 * 60.0 * 60.0}),
             serde_json::json!({"id": "too-old", "parent_session_id": "parent", "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS - 0.1, "ended_at": window_end}),
             serde_json::json!({"id": "other", "parent_session_id": "another", "started_at": window_end - 1.0, "ended_at": null}),
         ]);
@@ -661,9 +699,10 @@
             .filter_map(|item| item.get("id").and_then(Value::as_str))
             .collect::<Vec<_>>();
 
-        assert_eq!(visible.len(), SUBAGENT_VISIBLE_LIMIT);
+        assert_eq!(visible.len(), 14);
         assert_eq!(ids[0], "root-0");
         assert_eq!(ids[1], "nested");
+        assert!(ids.contains(&"old-completed"));
         assert!(!ids.contains(&"future"));
         assert!(!ids.contains(&"too-old"));
         assert!(!ids.contains(&"other"));
@@ -768,6 +807,8 @@
             Query(query): Query<HashMap<String, String>>,
         ) -> Json<Value> {
             let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+            assert!(!query.contains_key("source"));
+            assert_eq!(query.get("include_children").map(String::as_str), Some("true"));
             requested_offsets.lock().unwrap().push(offset);
             if offset == 0 {
                 let data = (0..2).map(|index| serde_json::json!({
