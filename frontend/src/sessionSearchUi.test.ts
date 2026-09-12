@@ -90,11 +90,26 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain("const sessionProvider = String(sessionModelOverride?.provider ?? (props.activeSessionId === DRAFT_SESSION_ID ? props.selectedModelProvider : apiSessionProvider)).trim();");
   });
 
+  test('session list refreshes previews while the chat sidebar remains open', () => {
+    const app = source();
+    expect(app).toContain("const SESSION_LIST_REFRESH_INTERVAL_MS = 3000;");
+    expect(app).toContain("if (mode !== 'chat') return;");
+    expect(app).toContain('const timer = window.setInterval(() => { void loadSessions(filter); }, SESSION_LIST_REFRESH_INTERVAL_MS);');
+    expect(app).toContain('return () => window.clearInterval(timer);');
+  });
+
+  test('session polling keeps an in-flight assistant preview over a stale API row', () => {
+    const app = source();
+    expect(app).toContain("const livePreview = streamingSessionIdRef.current === session.id ? latestSessionPreviewFromMessages(messagesRef.current) : '';" );
+    expect(app).toContain("const sessionForList = livePreview ? { ...session, preview: livePreview } : session;" );
+    expect(app).toContain('sessionWithPreservedMessageCount(sessionForList, old.find((existing) => existing.id === session.id))');
+  });
+
   test('opened session header delays stitched totals until the minimap response arrives', () => {
     const app = source();
     expect(app).toContain('const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {');
     expect(app).toContain('sessionWithPreservedMessageCount(detail, old)');
-    expect(app).toContain('sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id))');
+    expect(app).toContain('sessionWithPreservedMessageCount(sessionForList, old.find((existing) => existing.id === session.id))');
     expect(app).toContain('updateSessionMessageCount(sessionId, page.total);');
     expect(app).toContain('updateSessionMessageCount(sessionId, body.total);');
     expect(app).toContain('if (Number.isFinite(total) && total >= 0) setHistoryTotal(Math.trunc(total));');

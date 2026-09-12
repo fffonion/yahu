@@ -112,6 +112,7 @@ const PROVIDER_USAGE_ORDER_KEY = 'yahu.provider-usage.order.v1';
 const PROVIDER_USAGE_AUTO_REFRESH_KEY = 'yahu.provider-usage.auto-refresh.v1';
 const PROVIDER_USAGE_AUTO_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const PROVIDER_USAGE_AUTO_REFRESH_SECONDS = 3 * 60 * 60;
+const SESSION_LIST_REFRESH_INTERVAL_MS = 3000;
 
 const CHAT_VIEW_STATE_KEY = 'yahu.chat.view.v1';
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
@@ -1085,7 +1086,9 @@ export default function App() {
       const list: Session[] = body.data || [];
       setSessions((old) => list.map((rawSession) => {
         const session = applyRenamedSessionTitleOverride(rawSession);
-        return sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id));
+        const livePreview = streamingSessionIdRef.current === session.id ? latestSessionPreviewFromMessages(messagesRef.current) : '';
+        const sessionForList = livePreview ? { ...session, preview: livePreview } : session;
+        return sessionWithPreservedMessageCount(sessionForList, old.find((existing) => existing.id === session.id));
       }));
       if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
@@ -1680,6 +1683,11 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [mode, loadProviderUsageProvider, providerUsage, providerUsageAutoRefresh, providerUsageEnabled]);
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
+  useEffect(() => {
+    if (mode !== 'chat') return;
+    const timer = window.setInterval(() => { void loadSessions(filter); }, SESSION_LIST_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [filter, loadSessions, mode]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
   useEffect(() => { if (mode === 'cron' && cronEditingId) loadCronOutput(cronEditingId); else setCronOutput(null); }, [mode, cronEditingId, loadCronOutput]);
   useEffect(() => { if (mode === 'skills') loadSkills(); }, [mode, loadSkills]);

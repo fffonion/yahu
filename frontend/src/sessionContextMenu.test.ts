@@ -35,7 +35,7 @@ describe('session right-click context menu', () => {
     expect(source).toContain('if (titleOverride && String(session.title || \'\').trim() !== titleOverride) return { ...session, title: titleOverride };');
     expect(source).toContain('const detail = applyRenamedSessionTitleOverride((body.data || body.session || body) as Session);');
     expect(source).toContain('const session = applyRenamedSessionTitleOverride(rawSession);');
-    expect(source).toContain('return sessionWithPreservedMessageCount(session, old.find((existing) => existing.id === session.id));');
+    expect(source).toContain('return sessionWithPreservedMessageCount(sessionForList, old.find((existing) => existing.id === session.id));');
     expect(source).toContain('renamedSessionTitlesRef.current = { ...renamedSessionTitlesRef.current, ...titles };');
   });
 
