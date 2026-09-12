@@ -294,8 +294,17 @@
         let source = include_str!("../sessions.rs");
 
         assert!(source.contains("session_id = ?1"));
-        assert!(source.contains("ORDER BY id DESC\n         LIMIT 100"));
+        assert!(source.contains("ORDER BY id DESC\n         LIMIT 1 OFFSET ?2"));
         assert!(!source.contains("ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC)"));
+    }
+
+    #[test]
+    fn local_preview_stops_after_first_real_candidate_per_entry() {
+        let source = include_str!("../sessions.rs");
+
+        assert!(source.contains("LIMIT 1 OFFSET ?2"));
+        assert!(source.contains("for offset in 0..100_i64"));
+        assert!(!source.contains("LIMIT 100\""));
     }
 
     #[test]

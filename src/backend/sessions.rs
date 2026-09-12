@@ -1138,15 +1138,19 @@ fn enrich_session_previews_from_local_db(
            AND content IS NOT NULL
            AND trim(content) != ''
          ORDER BY id DESC
-         LIMIT 100"
+         LIMIT 1 OFFSET ?2"
     );
     let mut statement = conn.prepare(&sql)?;
     for entry_id in &all_entry_ids {
-        let candidates = statement.query_map([entry_id], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-        })?;
-        for candidate in candidates {
-            let (message_id, entry_id, content) = candidate?;
+        for offset in 0..100_i64 {
+            let candidate = statement
+                .query_row(rusqlite::params![entry_id, offset], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+                })
+                .optional()?;
+            let Some((message_id, entry_id, content)) = candidate else {
+                break;
+            };
             let preview = session_preview_from_raw_content(&content);
             if preview.is_empty() {
                 continue;
@@ -1162,6 +1166,7 @@ fn enrich_session_previews_from_local_db(
                     previews.insert(row_id.clone(), (message_id, preview.clone()));
                 }
             }
+            break;
         }
     }
     for row in rows.iter_mut() {
