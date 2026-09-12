@@ -1096,6 +1096,22 @@ export default function App() {
     if (!sessionId) return;
     if (sessionId === DRAFT_SESSION_ID) return;
     try {
+      const canonicalRes = await fetch(`/sessions/${encodeURIComponent(sessionId)}/canonical`, { cache: 'no-store' });
+      if (canonicalRes.ok) {
+        const canonicalBody = await canonicalRes.json() as { id?: unknown; canonical_id?: unknown };
+        const canonicalId = String(canonicalBody.canonical_id || canonicalBody.id || '').trim();
+        if (canonicalId && canonicalId !== sessionId && activeSessionIdRef.current === sessionId) {
+          messageRequestRef.current += 1;
+          userNavRequestRef.current += 1;
+          contextWindowRequestRef.current += 1;
+          activeSessionIdRef.current = canonicalId;
+          setActiveSessionId(canonicalId);
+          setActiveSessionDetail(null);
+          setSessions((old) => old.filter((session) => session.id !== sessionId));
+          window.history.replaceState({ yahuRoute: { mode: 'chat', sessionId: canonicalId } }, '', buildHashRoute({ mode: 'chat', sessionId: canonicalId }));
+          return;
+        }
+      }
       const [res, reasoningRes] = await Promise.all([
         fetch(`/hermes/api/sessions/${encodeURIComponent(sessionId)}`),
         fetch(`/sessions/${encodeURIComponent(sessionId)}/reasoning`),

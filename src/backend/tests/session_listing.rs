@@ -397,6 +397,10 @@
             INSERT INTO sessions (id, source, model_config, parent_session_id, started_at, session_key, archived)
                 VALUES ('reset-child', 'weixin', '{\"_reset_from\":\"reset-parent\"}', 'reset-parent', 4.0, 'same-key', 0);
             INSERT INTO sessions (id, source, started_at, end_reason, archived)
+                VALUES ('switch-parent', 'telegram', 8.0, 'session_switch', 0);
+            INSERT INTO sessions (id, source, parent_session_id, started_at, archived)
+                VALUES ('switch-child', 'telegram', 'switch-parent', 9.0, 0);
+            INSERT INTO sessions (id, source, started_at, end_reason, archived)
                 VALUES ('compression-parent', 'telegram', 5.0, 'compression', 0);
             INSERT INTO sessions (id, source, parent_session_id, started_at, archived)
                 VALUES ('compression-child', 'telegram', 'compression-parent', 6.0, 0);
@@ -416,6 +420,8 @@
 
         assert!(ids.contains(&"branch-child"));
         assert!(ids.contains(&"reset-child"));
+        assert!(ids.contains(&"switch-parent"));
+        assert!(!ids.contains(&"switch-child"));
         assert!(!ids.contains(&"compression-child"));
         assert!(!ids.contains(&"subagent-child"));
     }
@@ -524,16 +530,51 @@
         ).unwrap();
         conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('old',NULL,'GFS路径过短原因 #1',1,10,'session_reset','telegram','agent:main:telegram:dm:1698432746','1698432746',NULL)", []).unwrap();
         conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('current',NULL,'GFS路径过短原因',10.007,NULL,NULL,'telegram','agent:main:telegram:dm:1698432746','1698432746',NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('switch-root',NULL,'原会话标题',20,30,'session_switch','telegram','same-key','chat',NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('switch-child','switch-root','错误的新会话标题',31,NULL,NULL,'telegram','same-key','chat',NULL)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('switch-root','assistant','旧消息',1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('switch-child','assistant','continuation 最新消息',1)", []).unwrap();
         drop(conn);
         let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
         let rows = vec![
             serde_json::json!({"id":"current","source":"telegram","title":"GFS路径过短原因","started_at":10.007,"ended_at":null}),
             serde_json::json!({"id":"old","source":"telegram","title":"GFS路径过短原因 #1","started_at":1.0,"ended_at":10.0,"end_reason":"session_reset"}),
+            serde_json::json!({"id":"switch-child","source":"telegram","title":"错误的新会话标题","started_at":31.0,"ended_at":null}),
+            serde_json::json!({"id":"switch-root","source":"telegram","title":"原会话标题","started_at":20.0,"ended_at":30.0,"end_reason":"session_switch"}),
         ];
 
         let rows = session_rows_with_local_previews(&state, rows);
 
-        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["current"]);
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["current", "switch-root"]);
+        assert_eq!(rows[1]["title"], "原会话标题");
+        assert_eq!(rows[1]["preview"], "continuation 最新消息");
+    }
+
+    #[test]
+    fn canonical_session_id_follows_same_source_session_switch_parent() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );
+             INSERT INTO sessions VALUES ('root',NULL,'session_switch','telegram','same-key','chat','topic');
+             INSERT INTO sessions VALUES ('continuation','root',NULL,'telegram','same-key','chat','topic');
+             INSERT INTO sessions VALUES ('branch','root',NULL,'telegram','other-key','chat','topic');",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        assert_eq!(local_session_switch_root_id(&state, "continuation").unwrap(), Some("root".to_string()));
+        assert_eq!(local_session_switch_root_id(&state, "branch").unwrap(), None);
+        assert_eq!(local_session_switch_root_id(&state, "root").unwrap(), None);
     }
 
     #[tokio::test]

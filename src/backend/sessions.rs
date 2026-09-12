@@ -27,6 +27,7 @@ async fn sessions_search(
     match data {
         Ok(data) => {
             let data = append_pinned_session_rows(&state, data, &pinned_ids).await;
+            let data = session_rows_with_local_previews(&state, data);
             Json(serde_json::json!({
                 "object": "list",
                 "data": data,
@@ -376,8 +377,30 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
     // Keep this local fallback aligned with Hermes' _LISTABLE_CHILD_SQL:
     // roots plus branch/reset children, excluding compression continuations.
     let mut statement = conn.prepare(
-        "SELECT id, source, model, model_config, billing_provider,
-                started_at, ended_at, message_count, title
+        "WITH RECURSIVE session_switch_chain(root_id, session_id) AS (
+             SELECT id, id FROM sessions
+             UNION
+             SELECT chain.root_id, child.id
+             FROM session_switch_chain AS chain
+             JOIN sessions AS parent ON parent.id = chain.session_id
+             JOIN sessions AS child ON child.parent_session_id = parent.id
+             WHERE parent.end_reason = 'session_switch'
+               AND child.source IS parent.source
+               AND child.session_key IS parent.session_key
+               AND child.chat_id IS parent.chat_id
+               AND child.thread_id IS parent.thread_id
+         )
+         SELECT s.id, s.source, s.model, s.model_config, s.billing_provider,
+                s.started_at, s.ended_at, s.message_count, s.title,
+                COALESCE(
+                    (
+                        SELECT MAX(member.started_at)
+                        FROM session_switch_chain AS chain
+                        JOIN sessions AS member ON member.id = chain.session_id
+                        WHERE chain.root_id = s.id
+                    ),
+                    s.started_at
+                ) AS last_active
          FROM sessions AS s
          WHERE COALESCE(archived, 0) = 0
            AND (
@@ -393,14 +416,14 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
                 OR EXISTS (
                     SELECT 1 FROM sessions p
                     WHERE p.id = s.parent_session_id
-                      AND p.end_reason IN ('session_reset', 'session_switch', 'idle', 'daily', 'suspended', 'resume_pending_expired')
+                      AND p.end_reason IN ('session_reset', 'idle', 'daily', 'suspended', 'resume_pending_expired')
                       AND s.session_key IS NOT NULL
                       AND s.session_key != ''
                       AND s.session_key = p.session_key
                 )
            )
            AND (s.source IS NULL OR s.source NOT IN ('tool', 'subagent', 'cron', 'cli', 'alp-worker', 'turtle-soup', 'turtle-bench'))
-         ORDER BY s.started_at DESC
+         ORDER BY last_active DESC
          LIMIT ?1",
     )?;
     let mapped = statement.query_map([API_SESSION_SOURCE_FILTER_SCAN_LIMIT as i64], |row| {
@@ -425,6 +448,7 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
             "ended_at": row.get::<_, Option<f64>>(6)?,
             "message_count": row.get::<_, Option<i64>>(7)?.unwrap_or_default(),
             "title": row.get::<_, Option<String>>(8)?,
+            "last_active": row.get::<_, Option<f64>>(9)?,
         }))
     })?;
     let mut rows = mapped.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -717,11 +741,145 @@ fn sanitize_session_row_previews(rows: &mut [serde_json::Value]) {
     }
 }
 
+fn local_session_switch_parent_from_metadata<'a>(
+    current: &LocalSessionListMetadata,
+    sessions: &'a [LocalSessionListMetadata],
+) -> Option<&'a LocalSessionListMetadata> {
+    let parent_id = current.parent_session_id.as_deref()?;
+    let parent = sessions.iter().find(|session| session.id == parent_id)?;
+    if parent.end_reason.as_deref() != Some("session_switch")
+        || parent.source != current.source
+        || parent.session_key != current.session_key
+        || parent.chat_id != current.chat_id
+        || parent.thread_id != current.thread_id
+    {
+        return None;
+    }
+    Some(parent)
+}
+
+fn merge_session_switch_row(
+    target: &mut serde_json::Value,
+    parent: &LocalSessionListMetadata,
+    child: &LocalSessionListMetadata,
+) {
+    let Some(obj) = target.as_object_mut() else {
+        return;
+    };
+    obj.insert("id".to_string(), serde_json::json!(parent.id));
+    obj.insert("started_at".to_string(), serde_json::json!(parent.started_at));
+    obj.insert("ended_at".to_string(), serde_json::Value::Null);
+    if let Some(title) = parent.title.as_deref().filter(|title| !title.trim().is_empty()) {
+        obj.insert("title".to_string(), serde_json::json!(title));
+    }
+    let current_activity = obj
+        .get("last_active")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(f64::NEG_INFINITY);
+    if child.started_at > current_activity {
+        obj.insert("last_active".to_string(), serde_json::json!(child.started_at));
+    }
+}
+
+fn local_session_switch_root_id(state: &AppState, session_id: &str) -> anyhow::Result<Option<String>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(
+        &conn,
+        "sessions",
+        &[
+            "id",
+            "parent_session_id",
+            "end_reason",
+            "source",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let mut current_id = session_id.to_string();
+    let mut visited = HashSet::new();
+    while visited.insert(current_id.clone()) {
+        let current = conn
+            .query_row(
+                "SELECT parent_session_id, source, session_key, chat_id, thread_id
+                 FROM sessions
+                 WHERE id = ?1",
+                [&current_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((Some(parent_id), source, session_key, chat_id, thread_id)) = current else {
+            break;
+        };
+        let parent = conn
+            .query_row(
+                "SELECT end_reason, source, session_key, chat_id, thread_id
+                 FROM sessions
+                 WHERE id = ?1",
+                [&parent_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((Some(end_reason), parent_source, parent_session_key, parent_chat_id, parent_thread_id)) = parent else {
+            break;
+        };
+        if end_reason != "session_switch"
+            || source != parent_source
+            || session_key != parent_session_key
+            || chat_id != parent_chat_id
+            || thread_id != parent_thread_id
+        {
+            break;
+        }
+        current_id = parent_id;
+    }
+    Ok((current_id != session_id).then_some(current_id))
+}
+
+async fn session_canonical(
+    State(state): State<Arc<AppState>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response<Body> {
+    match local_session_switch_root_id(&state, &session_id) {
+        Ok(canonical_id) => Json(serde_json::json!({
+            "id": canonical_id.as_deref().unwrap_or(&session_id),
+            "canonical_id": canonical_id,
+        }))
+        .into_response(),
+        Err(err) => json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("cannot resolve session identity: {err}")),
+    }
+}
+
 fn filter_session_rows_shadowed_by_local_successors(
     state: &AppState,
     rows: &mut Vec<serde_json::Value>,
 ) -> anyhow::Result<()> {
-    if rows.len() <= 1 {
+    if rows.is_empty() {
         return Ok(());
     }
     let db_path = state.hermes_home.join("state.db");
@@ -745,6 +903,7 @@ fn filter_session_rows_shadowed_by_local_successors(
             "session_key",
             "chat_id",
             "thread_id",
+            "title",
         ],
     )? {
         return Ok(());
@@ -755,7 +914,7 @@ fn filter_session_rows_shadowed_by_local_successors(
         .map(str::to_string)
         .collect::<HashSet<_>>();
     let mut statement = conn.prepare(
-        "SELECT id, started_at, ended_at, end_reason, session_key, source, chat_id, thread_id
+        "SELECT id, parent_session_id, started_at, ended_at, end_reason, session_key, source, chat_id, thread_id, title
          FROM sessions
          ORDER BY started_at ASC",
     )?;
@@ -763,41 +922,84 @@ fn filter_session_rows_shadowed_by_local_successors(
         .query_map([], |row| {
             Ok(LocalSessionListMetadata {
                 id: row.get(0)?,
-                started_at: row.get(1)?,
-                ended_at: row.get(2)?,
-                end_reason: row.get(3)?,
-                session_key: row.get(4)?,
-                source: row.get(5)?,
-                chat_id: row.get(6)?,
-                thread_id: row.get(7)?,
+                parent_session_id: row.get(1)?,
+                started_at: row.get(2)?,
+                ended_at: row.get(3)?,
+                end_reason: row.get(4)?,
+                session_key: row.get(5)?,
+                source: row.get(6)?,
+                chat_id: row.get(7)?,
+                thread_id: row.get(8)?,
+                title: row.get(9)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let metadata_by_id = metadata
         .iter()
-        .enumerate()
-        .map(|(index, session)| (session.id.as_str(), index))
+        .map(|session| (session.id.as_str(), session))
         .collect::<HashMap<_, _>>();
-    let hidden = row_ids
+    let reset_hidden = row_ids
         .iter()
         .filter(|session_id| {
-            let Some(index) = metadata_by_id.get(session_id.as_str()) else {
+            let Some(current) = metadata_by_id.get(session_id.as_str()) else {
                 return false;
             };
-            local_session_reset_successor_from_metadata(&metadata[*index], &metadata)
+            local_session_reset_successor_from_metadata(current, &metadata)
                 .is_some_and(|successor_id| row_ids.contains(successor_id))
         })
         .cloned()
         .collect::<HashSet<_>>();
-    if hidden.is_empty() {
-        return Ok(());
+    let switch_parent_by_child = metadata
+        .iter()
+        .filter_map(|current| {
+            local_session_switch_parent_from_metadata(current, &metadata)
+                .map(|parent| (current.id.clone(), parent.id.clone()))
+        })
+        .collect::<HashMap<_, _>>();
+
+    let mut grouped = Vec::with_capacity(rows.len());
+    let mut grouped_indices = HashMap::<String, usize>::new();
+    for row in rows.drain(..) {
+        let Some(raw_id) = row
+            .get("id")
+            .and_then(|value| value.as_str())
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+        else {
+            grouped.push(row);
+            continue;
+        };
+        if reset_hidden.contains(&raw_id) {
+            continue;
+        }
+        let canonical_id = switch_parent_by_child
+            .get(&raw_id)
+            .cloned()
+            .unwrap_or_else(|| raw_id.clone());
+        let mut row = row;
+        if canonical_id != raw_id
+            && let (Some(parent), Some(child)) = (metadata_by_id.get(canonical_id.as_str()), metadata_by_id.get(raw_id.as_str()))
+        {
+            merge_session_switch_row(&mut row, parent, child);
+        }
+        if let Some(existing_index) = grouped_indices.get(&canonical_id).copied() {
+            if canonical_id != raw_id
+                && let (Some(parent), Some(child)) = (metadata_by_id.get(canonical_id.as_str()), metadata_by_id.get(raw_id.as_str()))
+            {
+                merge_session_switch_row(&mut grouped[existing_index], parent, child);
+            }
+            continue;
+        }
+        grouped_indices.insert(canonical_id, grouped.len());
+        grouped.push(row);
     }
-    rows.retain(|row| row.get("id").and_then(|value| value.as_str()).is_none_or(|id| !hidden.contains(id)));
+    *rows = grouped;
     Ok(())
 }
 
 struct LocalSessionListMetadata {
     id: String,
+    parent_session_id: Option<String>,
     started_at: f64,
     ended_at: Option<f64>,
     end_reason: Option<String>,
@@ -805,6 +1007,7 @@ struct LocalSessionListMetadata {
     source: Option<String>,
     chat_id: Option<String>,
     thread_id: Option<String>,
+    title: Option<String>,
 }
 
 fn local_session_reset_successor_from_metadata<'a>(
@@ -885,8 +1088,38 @@ fn enrich_session_previews_from_local_db(
         (false, true) => "(role = 'user' OR (role = 'assistant' AND (finish_reason IS NULL OR lower(trim(finish_reason)) NOT IN ('tool_calls', 'function_call'))))",
         (false, false) => "role IN ('assistant', 'user')",
     };
+    let has_session_lineage = sqlite_table_has_columns(
+        &conn,
+        "sessions",
+        &["id", "parent_session_id", "started_at", "end_reason", "source"],
+    )?;
+    let mut entry_to_rows = HashMap::<String, Vec<String>>::new();
+    let mut all_entry_ids = Vec::new();
+    let mut known_entry_ids = HashSet::new();
+    for session_id in &session_ids {
+        let mut entry_ids = if has_session_lineage {
+            local_session_history_entries(&conn, session_id)?
+                .into_iter()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        if entry_ids.is_empty() {
+            entry_ids.push(session_id.clone());
+        }
+        for entry_id in entry_ids {
+            entry_to_rows
+                .entry(entry_id.clone())
+                .or_default()
+                .push(session_id.clone());
+            if known_entry_ids.insert(entry_id.clone()) {
+                all_entry_ids.push(entry_id);
+            }
+        }
+    }
     let mut previews = HashMap::new();
-    for id_chunk in session_ids.chunks(200) {
+    for id_chunk in all_entry_ids.chunks(200) {
         let placeholders = std::iter::repeat_n("?", id_chunk.len()).collect::<Vec<_>>().join(",");
         let history_clause = match (has_active, has_compacted) {
             (true, true) => "(active = 1 OR compacted = 1) AND",
@@ -894,9 +1127,9 @@ fn enrich_session_previews_from_local_db(
             (false, _) => "",
         };
         let sql = format!(
-            "SELECT session_id, content
+            "SELECT id, session_id, content
              FROM (
-                 SELECT session_id, content,
+                 SELECT id, session_id, content,
                         ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS preview_rank
                  FROM messages
                  WHERE {history_clause}
@@ -906,20 +1139,23 @@ fn enrich_session_previews_from_local_db(
                    AND trim(content) != ''
              )
              WHERE preview_rank <= 100
-             ORDER BY preview_rank ASC"
+             ORDER BY id DESC"
         );
         let mut statement = conn.prepare(&sql)?;
         let candidates = statement.query_map(rusqlite::params_from_iter(id_chunk.iter()), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
         })?;
         for candidate in candidates {
-            let (session_id, content) = candidate?;
-            if previews.contains_key(&session_id) {
+            let (_message_id, entry_id, content) = candidate?;
+            let preview = session_preview_from_raw_content(&content);
+            if preview.is_empty() {
                 continue;
             }
-            let preview = session_preview_from_raw_content(&content);
-            if !preview.is_empty() {
-                previews.insert(session_id, preview);
+            let Some(row_ids) = entry_to_rows.get(&entry_id) else {
+                continue;
+            };
+            for row_id in row_ids {
+                previews.entry(row_id.clone()).or_insert_with(|| preview.clone());
             }
         }
     }

@@ -366,6 +366,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/terminal/ws", get(web_terminal_websocket))
         .route("/models-cache", get(models_cached))
         .route("/sessions/search", get(sessions_search))
+        .route("/sessions/{session_id}/canonical", get(session_canonical))
         .route(
             "/sessions/{session_id}/reasoning",
             get(session_reasoning_effort),
