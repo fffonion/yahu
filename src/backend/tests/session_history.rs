@@ -359,6 +359,94 @@
     }
 
     #[tokio::test]
+    async fn chat_history_includes_same_source_session_switch_successor() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id,parent_session_id,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id)
+             VALUES ('root',NULL,1,2,'session_switch','telegram','same-key','chat','topic')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source,session_key,chat_id,thread_id)
+             VALUES ('successor','root',2,NULL,'telegram','same-key','chat','topic')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source)
+             VALUES ('subagent','root',2,NULL,'subagent')",
+            [],
+        )
+        .unwrap();
+        for (id, session_id, content, timestamp) in [
+            (1i64, "root", "root message", 1.0f64),
+            (2, "successor", "latest message", 3.0),
+            (3, "subagent", "must stay hidden", 4.0),
+        ] {
+            conn.execute(
+                "INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES (?1,?2,'user',?3,?4,1)",
+                rusqlite::params![id, session_id, content, timestamp],
+            )
+            .unwrap();
+        }
+        drop(conn);
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let messages = fetch_session_history_messages(&state, "root").await.unwrap();
+        let ids: Vec<_> = messages.iter().map(|message| message["session_id"].as_str().unwrap()).collect();
+        assert_eq!(ids, vec!["root", "successor"]);
+        assert_eq!(messages.last().unwrap()["content"], "latest message");
+
+        let response = chat_messages_page(
+            State(state),
+            AxumPath("root".to_string()),
+            Query(ChatMessagesQuery {
+                before: None,
+                after: None,
+                around: None,
+                limit: Some(2),
+                view: Some("latest".to_string()),
+            }),
+        )
+        .await;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(page["data"].as_array().unwrap().last().unwrap()["session_id"], "successor");
+        assert_eq!(page["data"].as_array().unwrap().last().unwrap()["content"], "latest message");
+    }
+
+    #[tokio::test]
     async fn chat_history_includes_compacted_messages_without_context_window_counting_them() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");

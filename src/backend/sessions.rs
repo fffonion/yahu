@@ -1364,6 +1364,36 @@ fn detail_range_messages(messages: &[serde_json::Value], query: &ChatMessagesQue
     (messages[page_start..end].to_vec(), page_start > start, false, total)
 }
 
+fn local_history_entry_ids(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Vec<String>> {
+    let entries = local_session_history_entries(conn, session_id)?;
+    if entries.is_empty() {
+        return Ok(vec![session_id.to_string()]);
+    }
+    Ok(entries.into_iter().map(|entry| entry.id).collect())
+}
+
+fn session_id_placeholders(ids: &[String]) -> String {
+    ids.iter()
+        .enumerate()
+        .map(|(index, _)| format!("?{}", index + 1))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn session_id_values(ids: &[String]) -> Vec<rusqlite::types::Value> {
+    ids.iter()
+        .cloned()
+        .map(rusqlite::types::Value::Text)
+        .collect()
+}
+
+fn optional_i64_value(value: Option<i64>) -> rusqlite::types::Value {
+    value.map_or(rusqlite::types::Value::Null, rusqlite::types::Value::Integer)
+}
+
 fn fetch_local_active_message_tail(
     state: &AppState,
     session_id: &str,
@@ -1378,13 +1408,21 @@ fn fetch_local_active_message_tail(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let entry_ids = local_history_entry_ids(&conn, session_id)?;
+    if entry_ids.is_empty() {
+        return Ok(None);
+    }
+    let placeholders = session_id_placeholders(&entry_ids);
+    let limit_param = entry_ids.len() + 1;
     let sql = format!(
         "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} \
-         FROM messages WHERE session_id = ?1 AND active = 1 ORDER BY id DESC LIMIT ?2"
+         FROM messages WHERE session_id IN ({placeholders}) AND active = 1 ORDER BY id DESC LIMIT ?{limit_param}"
     );
+    let mut params = session_id_values(&entry_ids);
+    params.push(rusqlite::types::Value::Integer(i64::try_from(limit.saturating_add(1))?));
     let mut stmt = conn.prepare(&sql)?;
     let mut messages = stmt
-        .query_map(rusqlite::params![session_id, i64::try_from(limit.saturating_add(1))?], row_to_session_message)?
+        .query_map(rusqlite::params_from_iter(params), row_to_session_message)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if messages.is_empty() {
         return Ok(None);
@@ -1404,11 +1442,14 @@ fn fetch_local_active_message_tail(
             && first_role != "system"
             && !messages.first().is_some_and(is_completed_final_assistant_message);
         if starts_inside_detail {
+            let anchor_param = entry_ids.len() + 1;
             let anchor_sql = format!(
-                "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id = ?1 AND active = 1 AND id < ?2 AND role IN ('user', 'system') ORDER BY id DESC LIMIT 1"
+                "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND active = 1 AND id < ?{anchor_param} AND role IN ('user', 'system') ORDER BY id DESC LIMIT 1"
             );
+            let mut anchor_params = session_id_values(&entry_ids);
+            anchor_params.push(rusqlite::types::Value::Integer(first_id));
             if let Some(anchor) = conn
-                .query_row(&anchor_sql, rusqlite::params![session_id, first_id], row_to_session_message)
+                .query_row(&anchor_sql, rusqlite::params_from_iter(anchor_params), row_to_session_message)
                 .optional()?
             {
                 messages.insert(0, anchor);
@@ -1435,20 +1476,33 @@ fn fetch_local_message_window_around(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let entry_ids = local_history_entry_ids(&conn, session_id)?;
+    if entry_ids.is_empty() {
+        return Ok(None);
+    }
+    let placeholders = session_id_placeholders(&entry_ids);
+    let cursor_param = entry_ids.len() + 1;
+    let limit_param = entry_ids.len() + 2;
     let select = |order: &str| {
         format!(
-            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id = ?1 AND active = 1 AND id {order} ?2 ORDER BY id DESC LIMIT ?3"
+            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND active = 1 AND id {order} ?{cursor_param} ORDER BY id DESC LIMIT ?{limit_param}"
         )
     };
     let left_limit = (limit / 2).max(1);
     let right_limit = limit.saturating_sub(left_limit).max(1);
+    let mut left_params = session_id_values(&entry_ids);
+    left_params.push(rusqlite::types::Value::Integer(around));
+    left_params.push(rusqlite::types::Value::Integer(i64::try_from(left_limit + 1)?));
     let mut left = conn
         .prepare(&select("<="))?
-        .query_map(rusqlite::params![session_id, around, left_limit + 1], row_to_session_message)?
+        .query_map(rusqlite::params_from_iter(left_params), row_to_session_message)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut right_params = session_id_values(&entry_ids);
+    right_params.push(rusqlite::types::Value::Integer(around));
+    right_params.push(rusqlite::types::Value::Integer(i64::try_from(right_limit + 1)?));
     let mut right = conn
         .prepare(&select(">"))?
-        .query_map(rusqlite::params![session_id, around, right_limit + 1], row_to_session_message)?
+        .query_map(rusqlite::params_from_iter(right_params), row_to_session_message)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if left.is_empty() && right.is_empty() {
         return Ok(None);
@@ -2327,24 +2381,80 @@ fn local_session_rename_entries(
     Ok(entries)
 }
 
+fn append_local_session_switch_successors(
+    conn: &rusqlite::Connection,
+    entries: &mut Vec<SessionLineageEntry>,
+) -> rusqlite::Result<()> {
+    const MAX_SESSION_SWITCH_DEPTH: usize = 100;
+    if entries.is_empty() || !sqlite_table_has_columns(conn, "sessions", &["source", "started_at"])? {
+        return Ok(());
+    }
+    let mut known = entries
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<HashSet<_>>();
+    while entries.len() < MAX_SESSION_SWITCH_DEPTH {
+        let Some(previous) = entries.last() else {
+            break;
+        };
+        if previous.end_reason.as_deref() != Some("session_switch") {
+            break;
+        }
+        let source: Option<String> = conn
+            .query_row(
+                "SELECT source FROM sessions WHERE id = ?1",
+                [&previous.id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(successor) = conn
+            .query_row(
+                "SELECT id, parent_session_id, end_reason
+                 FROM sessions
+                 WHERE parent_session_id = ?1
+                   AND source IS ?2
+                 ORDER BY started_at, id
+                 LIMIT 1",
+                rusqlite::params![previous.id, source],
+                |row| {
+                    Ok(SessionLineageEntry {
+                        id: row.get(0)?,
+                        parent_session_id: row.get(1)?,
+                        end_reason: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?
+        else {
+            break;
+        };
+        if !known.insert(successor.id.clone()) {
+            break;
+        }
+        entries.push(successor);
+    }
+    Ok(())
+}
+
 fn local_session_history_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> rusqlite::Result<Vec<SessionLineageEntry>> {
-    let entries = local_session_lineage_entries(conn, session_id)?;
+    let mut entries = local_session_lineage_entries(conn, session_id)?;
     let Some(root) = entries.first() else {
         return Ok(entries);
     };
-    let Some(predecessor_id) = local_session_reset_predecessor_id(conn, &root.id)? else {
-        return Ok(entries);
-    };
-    let mut predecessor = local_session_lineage_entries(conn, &predecessor_id)?;
-    let known = predecessor
-        .iter()
-        .map(|entry| entry.id.clone())
-        .collect::<HashSet<_>>();
-    predecessor.extend(entries.into_iter().filter(|entry| !known.contains(&entry.id)));
-    Ok(predecessor)
+    if let Some(predecessor_id) = local_session_reset_predecessor_id(conn, &root.id)? {
+        let mut predecessor = local_session_lineage_entries(conn, &predecessor_id)?;
+        let known = predecessor
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect::<HashSet<_>>();
+        predecessor.extend(entries.into_iter().filter(|entry| !known.contains(&entry.id)));
+        entries = predecessor;
+    }
+    append_local_session_switch_successors(conn, &mut entries)?;
+    Ok(entries)
 }
 
 fn local_reasoning_select_columns(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
@@ -3169,18 +3279,35 @@ fn fetch_local_detail_range(
     )?;
     let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
     let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let entry_ids = local_history_entry_ids(&conn, session_id)?;
+    if entry_ids.is_empty() {
+        return Ok(None);
+    }
+    let placeholders = session_id_placeholders(&entry_ids);
+    let after_param = entry_ids.len() + 1;
+    let before_param = entry_ids.len() + 2;
     let count_sql = format!(
-        "SELECT COUNT(*) FROM messages WHERE {message_filter} AND session_id = ?1 AND (?2 IS NULL OR id > ?2) AND (?3 IS NULL OR id < ?3)"
+        "SELECT COUNT(*) FROM messages WHERE {message_filter} AND session_id IN ({placeholders}) AND (?{after_param} IS NULL OR id > ?{after_param}) AND (?{before_param} IS NULL OR id < ?{before_param})"
     );
-    let total: usize = conn.query_row(&count_sql, rusqlite::params![session_id, after, before], |row| row.get::<_, i64>(0))?.try_into()?;
+    let mut count_params = session_id_values(&entry_ids);
+    count_params.push(optional_i64_value(after));
+    count_params.push(optional_i64_value(before));
+    let total: usize = conn
+        .query_row(&count_sql, rusqlite::params_from_iter(count_params), |row| row.get::<_, i64>(0))?
+        .try_into()?;
     if total == 0 {
         return Ok(None);
     }
+    let limit_param = entry_ids.len() + 3;
     let page_sql = format!(
-        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE {message_filter} AND session_id = ?1 AND (?2 IS NULL OR id > ?2) AND (?3 IS NULL OR id < ?3) ORDER BY id DESC LIMIT ?4"
+        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE {message_filter} AND session_id IN ({placeholders}) AND (?{after_param} IS NULL OR id > ?{after_param}) AND (?{before_param} IS NULL OR id < ?{before_param}) ORDER BY id DESC LIMIT ?{limit_param}"
     );
+    let mut page_params = session_id_values(&entry_ids);
+    page_params.push(optional_i64_value(after));
+    page_params.push(optional_i64_value(before));
+    page_params.push(rusqlite::types::Value::Integer(i64::try_from(limit)?));
     let mut stmt = conn.prepare(&page_sql)?;
-    let rows = stmt.query_map(rusqlite::params![session_id, after, before, i64::try_from(limit)?], row_to_session_message)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(page_params), row_to_session_message)?;
     let mut page = rows.collect::<rusqlite::Result<Vec<_>>>()?;
     page.reverse();
     Ok(Some((page, total > limit, total)))
