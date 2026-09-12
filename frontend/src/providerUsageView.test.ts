@@ -190,6 +190,13 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-title-row{display:flex;align-items:center;justify-content:space-between');
   });
 
+  test('AgentRouter uses the compact today-and-balance subtitle path', () => {
+    const source = app();
+    expect(source).toContain("const tableOnly = provider.provider === 'agentrouter'");
+    expect(source).toContain("const tableOnly = ['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
+    expect(source).toContain("provider-usage-agentrouter-desc");
+  });
+
   test('mobile provider long press owns pointer movement and auto-scrolls at screen edges', () => {
     const source = app();
     expect(source).toContain('const providerUsageBodyRef = useRef<HTMLElement | null>(null);');

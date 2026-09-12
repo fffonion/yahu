@@ -71,6 +71,13 @@ pub struct NewApiStatus {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct NewApiUser {
+    pub quota: f64,
+    pub used_quota: f64,
+    pub request_count: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NewApiUsageRecord {
     pub model_name: String,
     pub count: f64,
@@ -126,6 +133,11 @@ impl<'a> NewApiClient<'a> {
         parse_status_payload(&payload)
     }
 
+    pub async fn fetch_user(&self) -> Result<NewApiUser, String> {
+        let payload = self.get_json("/api/user/self", None).await?;
+        parse_user_payload(&payload)
+    }
+
     pub async fn fetch_usage(
         &self,
         range: &NewApiTimeRange,
@@ -175,6 +187,15 @@ pub fn parse_status_payload(payload: &Value) -> Result<NewApiStatus, String> {
     Ok(NewApiStatus { quota_per_unit })
 }
 
+pub fn parse_user_payload(payload: &Value) -> Result<NewApiUser, String> {
+    let data = response_data(payload)?;
+    Ok(NewApiUser {
+        quota: numeric(data.get("quota")),
+        used_quota: numeric(data.get("used_quota")),
+        request_count: numeric(data.get("request_count")),
+    })
+}
+
 pub fn parse_usage_payload(payload: &Value) -> Result<Vec<NewApiUsageRecord>, String> {
     let data = response_data(payload)?;
     let rows = data
@@ -222,6 +243,7 @@ mod tests {
 
     use super::{
         NewApiAuth, NewApiTimeRange, aggregate_usage, parse_status_payload, parse_usage_payload,
+        parse_user_payload,
     };
 
     #[test]
@@ -253,6 +275,22 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(status.quota_per_unit, 500_000.0);
+    }
+
+    #[test]
+    fn user_parser_reads_remaining_and_used_quota() {
+        let user = parse_user_payload(&json!({
+            "success": true,
+            "data": {
+                "quota": 62_004_855,
+                "used_quota": 495_145,
+                "request_count": 77
+            }
+        }))
+        .unwrap();
+        assert_eq!(user.quota, 62_004_855.0);
+        assert_eq!(user.used_quota, 495_145.0);
+        assert_eq!(user.request_count, 77.0);
     }
 
     #[test]

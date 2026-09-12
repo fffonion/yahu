@@ -565,7 +565,8 @@ fn fmt_provider_int(value: f64) -> String {
 }
 
 fn fmt_provider_money(value: f64, currency: char) -> String {
-    format!("{currency}{:.2}", value)
+    let value = if value.abs() < 0.0005 { 0.0 } else { value };
+    format!("{currency}{value:.2}")
 }
 
 fn provider_reset_duration(seconds: f64) -> String {
@@ -3643,16 +3644,39 @@ async fn fetch_grok_usage(
     section
 }
 
+fn is_same_shanghai_day(timestamp: i64, now: chrono::DateTime<chrono::Utc>) -> bool {
+    let timezone = chrono::FixedOffset::east_opt(8 * 60 * 60).expect("valid Shanghai offset");
+    let Some(timestamp) = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0) else {
+        return false;
+    };
+    timestamp.with_timezone(&timezone).date_naive() == now.with_timezone(&timezone).date_naive()
+}
+
 fn agentrouter_usage_section(
     records: &[NewApiUsageRecord],
     quota_per_unit: f64,
+    remaining_quota: f64,
+    used_quota: f64,
+    now: chrono::DateTime<chrono::Utc>,
 ) -> ProviderUsageSection {
     let aggregates = aggregate_usage(records);
-    let total_count: f64 = aggregates.iter().map(|row| row.count).sum();
-    let total_quota: f64 = aggregates.iter().map(|row| row.quota).sum();
-    let total_tokens: f64 = aggregates.iter().map(|row| row.token_used).sum();
-    let total_cost = if quota_per_unit > 0.0 {
-        fmt_provider_money(total_quota / quota_per_unit, '$')
+    let today_quota: f64 = records
+        .iter()
+        .filter(|record| is_same_shanghai_day(record.created_at, now))
+        .map(|record| record.quota)
+        .sum();
+    let balance = if quota_per_unit > 0.0 {
+        fmt_provider_money(remaining_quota / quota_per_unit, '$')
+    } else {
+        "-".to_string()
+    };
+    let used = if quota_per_unit > 0.0 {
+        fmt_provider_money(used_quota / quota_per_unit, '$')
+    } else {
+        "-".to_string()
+    };
+    let today_cost = if quota_per_unit > 0.0 {
+        fmt_provider_money(today_quota / quota_per_unit, '$')
     } else {
         "-".to_string()
     };
@@ -3670,13 +3694,14 @@ fn agentrouter_usage_section(
     ProviderUsageSection {
         provider: "agentrouter".into(),
         title: "AgenRouter 用量".into(),
-        description: format!(
-            "近 7 日：{} 次请求 / {} token / 配额 **{}**",
-            fmt_provider_int(total_count),
-            fmt_provider_int(total_tokens),
-            total_cost
-        ),
+        description: format!("余额 **{balance}**；累计已用 **{used}**"),
         rows,
+        windows: vec![ProviderUsageWindow {
+            window: "今日用量/费用".into(),
+            used: Some(today_cost),
+            reset: None,
+            reset_at: None,
+        }],
         ..Default::default()
     }
 }
@@ -3736,10 +3761,24 @@ async fn fetch_agentrouter_usage(state: &AppState) -> ProviderUsageSection {
             }
         }
     };
-    let range = NewApiTimeRange::shanghai_days(chrono::Utc::now(), 7);
+    let user = match client.fetch_user().await {
+        Ok(user) => Some(user),
+        Err(err) => {
+            section.errors.push(format!("账户余额查询失败：{err}"));
+            None
+        }
+    };
+    let now_utc = chrono::Utc::now();
+    let range = NewApiTimeRange::shanghai_days(now_utc, 7);
     match client.fetch_usage(&range).await {
         Ok(records) => {
-            let mut usage = agentrouter_usage_section(&records, quota_per_unit.unwrap_or(0.0));
+            let mut usage = agentrouter_usage_section(
+                &records,
+                quota_per_unit.unwrap_or(0.0),
+                user.as_ref().map(|user| user.quota).unwrap_or(0.0),
+                user.as_ref().map(|user| user.used_quota).unwrap_or(0.0),
+                now_utc,
+            );
             usage.errors = section.errors;
             usage
         }

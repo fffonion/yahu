@@ -557,4 +557,6 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 @media(max-width:760px){.mobile-compact-chat .tool-detail.tool-detail-wide{padding-left:0}.mobile-compact-chat .tool-detail-wide .tool-field:has(.tool-patch-result){grid-template-columns:minmax(0,1fr);gap:4px}.mobile-compact-chat .tool-detail-wide .tool-patch-result{width:100%;min-width:0}}
 
 .msg-interruption-icon{display:inline-flex;align-items:center;justify-content:center;margin-left:5px;color:var(--danger,var(--accent-2));vertical-align:-.16em}
+
+.provider-usage-agentrouter-desc{font-size:10px!important;line-height:1.35}
 .msg-interruption-icon svg{width:13px;height:13px;stroke-width:2.25}

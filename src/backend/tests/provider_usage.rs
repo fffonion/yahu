@@ -553,15 +553,23 @@ mod provider_usage_tests {
                 count: 5.0,
                 quota: 4_000.0,
                 token_used: 300.0,
-                ..Default::default()
+                created_at: chrono::Utc::now().timestamp() - 2 * 24 * 60 * 60,
             },
         ];
-        let section = agentrouter_usage_section(&records, 500_000.0);
+        let section = agentrouter_usage_section(
+            &records,
+            500_000.0,
+            62_004_855.0,
+            495_145.0,
+            chrono::Utc::now(),
+        );
         assert_eq!(section.provider, "agentrouter");
         assert_eq!(section.rows[0].input.as_deref(), Some("300"));
         assert_eq!(section.rows[0].output.as_deref(), Some("5"));
         assert_eq!(section.rows[0].cost_or_pct.as_deref(), Some("$0.01"));
-        assert!(section.description.contains("$0.01"));
+        assert_eq!(section.description, "余额 **$124.01**；累计已用 **$0.99**");
+        assert_eq!(section.windows[0].window, "今日用量/费用");
+        assert_eq!(section.windows[0].used.as_deref(), Some("$0.00"));
     }
 
     #[test]
