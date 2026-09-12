@@ -27,7 +27,6 @@ async fn sessions_search(
     match data {
         Ok(data) => {
             let data = append_pinned_session_rows(&state, data, &pinned_ids).await;
-            let data = session_rows_with_local_previews(&state, data);
             Json(serde_json::json!({
                 "object": "list",
                 "data": data,
@@ -303,9 +302,9 @@ async fn fetch_sessions_from_api_server(
             .take_while(|page_offset| *page_offset < max_scan)
             .collect::<Vec<_>>();
         if offsets.is_empty() {
-            let mut visible_rows = session_rows_with_local_previews(state, rows);
+            let mut visible_rows = session_rows_with_local_lineage(state, rows);
             visible_rows.truncate(limit);
-            return Ok(visible_rows);
+            return Ok(enrich_session_rows_with_local_previews(state, visible_rows));
         }
         let pages = futures_util::future::join_all(offsets.iter().map(|page_offset| {
             fetch_api_session_page(state, page_size, *page_offset, trimmed)
@@ -320,10 +319,10 @@ async fn fetch_sessions_from_api_server(
                     rows.push(row);
                 }
             }
-            let mut visible_rows = session_rows_with_local_previews(state, rows.clone());
+            let mut visible_rows = session_rows_with_local_lineage(state, rows.clone());
             if visible_rows.len() >= limit {
                 visible_rows.truncate(limit);
-                return Ok(visible_rows);
+                return Ok(enrich_session_rows_with_local_previews(state, visible_rows));
             }
 
             offset = page_offset.saturating_add(page_size);
@@ -333,7 +332,7 @@ async fn fetch_sessions_from_api_server(
                 || offset >= max_scan
             {
                 visible_rows.truncate(limit);
-                return Ok(visible_rows);
+                return Ok(enrich_session_rows_with_local_previews(state, visible_rows));
             }
         }
     }
@@ -389,20 +388,19 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
                AND child.session_key IS parent.session_key
                AND child.chat_id IS parent.chat_id
                AND child.thread_id IS parent.thread_id
+         ),
+         session_switch_activity(root_id, last_active) AS (
+             SELECT chain.root_id, MAX(member.started_at)
+             FROM session_switch_chain AS chain
+             JOIN sessions AS member ON member.id = chain.session_id
+             GROUP BY chain.root_id
          )
          SELECT s.id, s.source, s.model, s.model_config, s.billing_provider,
                 s.started_at, s.ended_at, s.message_count, s.title,
-                COALESCE(
-                    (
-                        SELECT MAX(member.started_at)
-                        FROM session_switch_chain AS chain
-                        JOIN sessions AS member ON member.id = chain.session_id
-                        WHERE chain.root_id = s.id
-                    ),
-                    s.started_at
-                ) AS last_active
+                COALESCE(activity.last_active, s.started_at) AS last_active
          FROM sessions AS s
-         WHERE COALESCE(archived, 0) = 0
+         LEFT JOIN session_switch_activity AS activity ON activity.root_id = s.id
+         WHERE COALESCE(s.archived, 0) = 0
            AND (
                 s.parent_session_id IS NULL
                 OR json_extract(COALESCE(s.model_config, '{}'), '$._branched_from') IS NOT NULL
@@ -709,13 +707,20 @@ fn is_client_visible_session(row: &serde_json::Value, hide_cron_cli: bool) -> bo
         .unwrap_or(true)
 }
 
-fn session_rows_with_local_previews(
+fn session_rows_with_local_lineage(
     state: &AppState,
     mut rows: Vec<serde_json::Value>,
 ) -> Vec<serde_json::Value> {
     if let Err(err) = filter_session_rows_shadowed_by_local_successors(state, &mut rows) {
         warn!(error = %err, "cannot filter stitched predecessor sessions from local metadata");
     }
+    rows
+}
+
+fn enrich_session_rows_with_local_previews(
+    state: &AppState,
+    mut rows: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
     if let Err(err) = enrich_session_previews_from_local_db(state, &mut rows) {
         warn!(error = %err, "cannot enrich session list previews from local message history");
     }
@@ -743,10 +748,10 @@ fn sanitize_session_row_previews(rows: &mut [serde_json::Value]) {
 
 fn local_session_switch_parent_from_metadata<'a>(
     current: &LocalSessionListMetadata,
-    sessions: &'a [LocalSessionListMetadata],
+    metadata_by_id: &'a HashMap<&str, &'a LocalSessionListMetadata>,
 ) -> Option<&'a LocalSessionListMetadata> {
     let parent_id = current.parent_session_id.as_deref()?;
-    let parent = sessions.iter().find(|session| session.id == parent_id)?;
+    let parent = metadata_by_id.get(parent_id).copied()?;
     if parent.end_reason.as_deref() != Some("session_switch")
         || parent.source != current.source
         || parent.session_key != current.session_key
@@ -952,7 +957,7 @@ fn filter_session_rows_shadowed_by_local_successors(
     let switch_parent_by_child = metadata
         .iter()
         .filter_map(|current| {
-            local_session_switch_parent_from_metadata(current, &metadata)
+            local_session_switch_parent_from_metadata(current, &metadata_by_id)
                 .map(|parent| (current.id.clone(), parent.id.clone()))
         })
         .collect::<HashMap<_, _>>();

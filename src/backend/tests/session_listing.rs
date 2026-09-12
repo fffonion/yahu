@@ -266,6 +266,30 @@
     }
 
     #[test]
+    fn local_filtered_sidebar_preaggregates_session_switch_activity_once() {
+        let source = include_str!("../sessions.rs");
+
+        assert!(source.contains("session_switch_activity(root_id, last_active)"));
+        assert!(source.contains("GROUP BY chain.root_id"));
+        assert!(!source.contains("WHERE chain.root_id = s.id"));
+    }
+
+    #[test]
+    fn session_search_does_not_reprocess_already_enriched_rows() {
+        let source = include_str!("../sessions.rs");
+
+        assert!(!source.contains("let data = session_rows_with_local_previews(&state, data);"));
+    }
+
+    #[test]
+    fn session_scan_checks_lineage_without_preview_work_between_pages() {
+        let source = include_str!("../sessions.rs");
+
+        assert!(source.contains("session_rows_with_local_lineage(state, rows.clone())"));
+        assert!(!source.contains("session_rows_with_local_previews(state, rows.clone())"));
+    }
+
+    #[test]
     fn local_filtered_sidebar_query_excludes_sources_and_enriches_previews() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");
@@ -543,7 +567,8 @@
             serde_json::json!({"id":"switch-root","source":"telegram","title":"原会话标题","started_at":20.0,"ended_at":30.0,"end_reason":"session_switch"}),
         ];
 
-        let rows = session_rows_with_local_previews(&state, rows);
+        let rows = session_rows_with_local_lineage(&state, rows);
+        let rows = enrich_session_rows_with_local_previews(&state, rows);
 
         assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["current", "switch-root"]);
         assert_eq!(rows[1]["title"], "原会话标题");
