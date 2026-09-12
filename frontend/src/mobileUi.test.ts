@@ -108,6 +108,15 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.settings-content{padding:16px 16px calc(96px + env(safe-area-inset-bottom,0px));min-height:0;overflow:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}');
   });
 
+  test('mobile settings keeps the mobile bottom menu configuration visible', () => {
+    const source = app();
+    const styles = css();
+
+    expect(source).toContain('<fieldset className="settings-mobile-nav">');
+    expect(styles).toContain('.settings-mobile-nav{display:block');
+    expect(styles).not.toContain('.settings-mobile-nav{display:none');
+  });
+
   test('mobile composer bottom padding matches the rendered bottom nav height without an extra gap', () => {
     const styles = css();
     const navHeight = Number(styles.match(/--mobile-bottom-nav-height:(\d+)px/)?.[1]);
