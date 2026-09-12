@@ -621,6 +621,55 @@
     }
 
     #[test]
+    fn api_transcript_discovers_batch_children_without_model_config() {
+        let known_ids = ["parent", "child-a", "child-b", "child-c", "proc-id"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<HashSet<_>>();
+        let messages = vec![
+            serde_json::json!({
+                "session_id": "parent",
+                "role": "assistant",
+                "tool_calls": [{"id": "call-1", "function": {"name": "delegate_task"}}]
+            }),
+            serde_json::json!({
+                "session_id": "parent",
+                "role": "tool",
+                "tool_call_id": "call-1",
+                "content": "{\"results\":[{\"session_id\":\"child-a\"}],\"process\":{\"session_id\":\"proc-id\"},\"subagent_ids\":[\"child-c\"]}"
+            }),
+            serde_json::json!({
+                "session_id": "parent",
+                "role": "assistant",
+                "content": "{\"results\":[{\"session_id\":\"child-b\"}]}"
+            }),
+        ];
+
+        let child_ids = delegate_child_ids_from_messages(&messages, &known_ids, "parent");
+
+        assert_eq!(
+            child_ids,
+            HashSet::from(["child-a".to_string(), "child-b".to_string(), "child-c".to_string()])
+        );
+    }
+
+    #[test]
+    fn api_discovered_child_lineage_marks_only_descendants() {
+        let mut sessions = vec![
+            serde_json::json!({"id": "child", "source": "telegram", "parent_session_id": "parent"}),
+            serde_json::json!({"id": "grandchild", "source": "telegram", "parent_session_id": "child"}),
+            serde_json::json!({"id": "ordinary", "source": "telegram", "parent_session_id": "parent"}),
+        ];
+        let direct_ids = HashSet::from(["child".to_string()]);
+
+        mark_api_discovered_subagents(&mut sessions, &direct_ids);
+
+        assert!(is_subagent_session(&sessions[0]));
+        assert!(is_subagent_session(&sessions[1]));
+        assert!(!is_subagent_session(&sessions[2]));
+    }
+
+    #[test]
     fn delegate_marker_identifies_children_that_inherit_parent_source() {
         let object_config = serde_json::json!({
             "source": "telegram",

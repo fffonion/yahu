@@ -5,8 +5,11 @@ const SUBAGENT_PAGE_SIZE: usize = 200;
 const SUBAGENT_SESSION_SCAN_LIMIT: usize = 10_000;
 const SUBAGENT_API_PAGE_BYTE_LIMIT: usize = 2 * 1024 * 1024;
 const SUBAGENT_API_DETAIL_BYTE_LIMIT: usize = 4 * 1024 * 1024;
+const SUBAGENT_PARENT_MESSAGE_PAGE_SIZE: usize = 500;
+const SUBAGENT_PARENT_MESSAGE_SCAN_LIMIT: usize = 20_000;
 const SUBAGENT_ANCESTOR_RESOLUTION_LIMIT: usize = 200;
 const SUBAGENT_VISIBLE_LIMIT: usize = 100;
+const API_DISCOVERED_SUBAGENT_FIELD: &str = "_yahu_api_discovered_subagent";
 const SUBAGENT_LOOKBACK_SECONDS: f64 = 48.0 * 60.0 * 60.0;
 const SUBAGENT_STALE_RUNNING_SECONDS: f64 = 900.0;
 const SUBAGENT_ACTIVITY_LIMIT: usize = 8;
@@ -662,6 +665,14 @@ async fn fetch_subagent_projection_snapshot(
     cache: &mut HashMap<String, CachedSubagentProjection>,
 ) -> anyhow::Result<Vec<SubagentProjection>> {
     let mut sessions = fetch_subagent_sessions(state, window_end).await?;
+    let api_child_ids = match fetch_api_delegate_child_ids(state, parent_session_id, &sessions).await {
+        Ok(ids) => ids,
+        Err(err) => {
+            warn!(error = %err, parent_session_id, "cannot discover delegated child ids from API transcript");
+            HashSet::new()
+        }
+    };
+    mark_api_discovered_subagents(&mut sessions, &api_child_ids);
     resolve_missing_subagent_ancestors(state, &mut sessions, parent_session_id, window_end).await?;
     let visible = select_visible_subagent_sessions(parent_session_id, &sessions, window_end);
     let visible_ids = visible
@@ -899,10 +910,15 @@ fn has_delegate_marker(session: &Value) -> bool {
 }
 
 fn is_subagent_session(session: &Value) -> bool {
-    // Current Hermes children inherit the parent's source and carry the stable
-    // `_delegate_from` creation marker. Keep accepting source=subagent for old
-    // rows and API fixtures.
-    string_field(session, "source").is_none_or(|source| source == "subagent") || has_delegate_marker(session)
+    // API Server strips model_config, so the caller adds an internal marker after
+    // discovering child ids from the parent transcript. Keep raw source/marker
+    // support for legacy rows and direct unit/API fixtures.
+    session
+        .get(API_DISCOVERED_SUBAGENT_FIELD)
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || string_field(session, "source").is_none_or(|source| source == "subagent")
+        || has_delegate_marker(session)
 }
 
 fn session_activity_time(session: &Value) -> Option<f64> {
@@ -924,6 +940,140 @@ async fn fetch_session_messages(state: &AppState, session_id: &str) -> anyhow::R
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default())
+}
+
+async fn fetch_all_session_messages(state: &AppState, session_id: &str) -> anyhow::Result<Vec<Value>> {
+    let mut messages = Vec::new();
+    let mut offset = 0usize;
+    loop {
+        let url = format!(
+            "{}/api/sessions/{}/messages?order=oldest&limit={}&offset={}",
+            state.api_url.trim_end_matches('/'),
+            path_segment(session_id),
+            SUBAGENT_PARENT_MESSAGE_PAGE_SIZE,
+            offset,
+        );
+        let body = fetch_api_json(state, url, SUBAGENT_API_DETAIL_BYTE_LIMIT).await?;
+        let page = body
+            .get("messages")
+            .or_else(|| body.get("data"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let count = page.len();
+        messages.extend(page);
+        if count < SUBAGENT_PARENT_MESSAGE_PAGE_SIZE {
+            break;
+        }
+        if messages.len() >= SUBAGENT_PARENT_MESSAGE_SCAN_LIMIT {
+            messages.truncate(SUBAGENT_PARENT_MESSAGE_SCAN_LIMIT);
+            break;
+        }
+        offset = offset.saturating_add(count);
+    }
+    Ok(messages)
+}
+
+fn collect_known_session_ids(value: &Value, known_ids: &HashSet<String>, out: &mut HashSet<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, child) in object {
+                if matches!(key.as_str(), "process" | "process_notes" | "live_transcript" | "live_transcripts") {
+                    continue;
+                }
+                if key == "session_id"
+                    && child
+                        .as_str()
+                        .is_some_and(|session_id| known_ids.contains(session_id))
+                    && let Some(session_id) = child.as_str()
+                {
+                    out.insert(session_id.to_string());
+                }
+                if key == "subagent_ids"
+                    && let Some(ids) = child.as_array()
+                {
+                    out.extend(
+                        ids.iter()
+                            .filter_map(Value::as_str)
+                            .filter(|id| known_ids.contains(*id))
+                            .map(str::to_owned),
+                    );
+                }
+                collect_known_session_ids(child, known_ids, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_known_session_ids(item, known_ids, out);
+            }
+        }
+        Value::String(raw) => {
+            if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
+                collect_known_session_ids(&parsed, known_ids, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn delegate_child_ids_from_messages(
+    messages: &[Value],
+    known_ids: &HashSet<String>,
+    parent_session_id: &str,
+) -> HashSet<String> {
+    let mut child_ids = HashSet::new();
+    for message in messages {
+        collect_known_session_ids(message, known_ids, &mut child_ids);
+    }
+    child_ids.remove(parent_session_id);
+    child_ids
+}
+
+async fn fetch_api_delegate_child_ids(
+    state: &AppState,
+    parent_session_id: &str,
+    sessions: &[Value],
+) -> anyhow::Result<HashSet<String>> {
+    let known_ids = sessions
+        .iter()
+        .filter_map(|session| string_field(session, "id"))
+        .collect::<HashSet<_>>();
+    let messages = fetch_all_session_messages(state, parent_session_id).await?;
+    Ok(delegate_child_ids_from_messages(&messages, &known_ids, parent_session_id))
+}
+
+fn mark_api_discovered_subagents(sessions: &mut [Value], direct_child_ids: &HashSet<String>) {
+    let parents = sessions
+        .iter()
+        .filter_map(|session| {
+            Some((string_field(session, "id")?, string_field(session, "parent_session_id")))
+        })
+        .collect::<HashMap<_, _>>();
+    let mut known = direct_child_ids.clone();
+    loop {
+        let mut added = false;
+        for session in sessions.iter_mut() {
+            let Some(id) = string_field(session, "id") else {
+                continue;
+            };
+            let is_direct = direct_child_ids.contains(&id);
+            let is_descendant = parents
+                .get(&id)
+                .and_then(Option::as_ref)
+                .is_some_and(|parent| known.contains(parent));
+            if is_direct || is_descendant {
+                if known.insert(id.clone()) {
+                    added = true;
+                }
+                if let Some(object) = session.as_object_mut() {
+                    object.insert(API_DISCOVERED_SUBAGENT_FIELD.to_string(), Value::Bool(true));
+                }
+            }
+        }
+        if !added {
+            break;
+        }
+    }
 }
 
 async fn fetch_api_json(state: &AppState, url: String, max_bytes: usize) -> anyhow::Result<Value> {
@@ -1089,6 +1239,10 @@ fn subagent_creation_goal(hermes_home: &Path, session: &Value, messages: &[Value
             session
                 .get("model_config")
                 .and_then(|config| string_field(config, "goal"))
+                .filter(|text| !is_subagent_task_marker(text))
+        })
+        .or_else(|| {
+            string_field(session, "preview")
                 .filter(|text| !is_subagent_task_marker(text))
         })
         .or_else(|| {
