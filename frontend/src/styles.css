@@ -558,5 +558,4 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 
 .msg-interruption-icon{display:inline-flex;align-items:center;justify-content:center;margin-left:5px;color:var(--danger,var(--accent-2));vertical-align:-.16em}
 
-.provider-usage-agentrouter-desc{font-size:10px!important;line-height:1.35}
 .msg-interruption-icon svg{width:13px;height:13px;stroke-width:2.25}

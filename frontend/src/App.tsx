@@ -2976,7 +2976,7 @@ function ProviderUsageAccountSkeleton({ count }: { count: number }) {
 
 function ProviderUsageSectionView({ section, loading = false }: { section: ProviderUsageSection; loading?: boolean }) {
   const tableOnly = ['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider);
-  const description = tableOnly && section.provider !== 'agentrouter' ? '' : providerDescriptionText(section.description, section.provider);
+  const description = tableOnly ? '' : providerDescriptionText(section.description, section.provider);
   const accountTones = new Map<string, number>();
   let nextAccountTone = 0;
   const rowTone = (label: string) => {
@@ -3008,8 +3008,8 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
   const minimaxRows = section.rows.filter((row) => ['日用量', '周额度', '月额度'].includes(row.label));
   const tableRows = section.provider === 'minimax' ? minimaxRows : section.rows;
   return <div className="provider-usage-data">
-    {description && <p className={`provider-usage-desc${section.provider === 'agentrouter' ? ' provider-usage-agentrouter-desc' : ''}`} dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
-    {section.windows.length > 0 && !['openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (accountGroups.length > 0
+    {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
+    {section.windows.length > 0 && !['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (accountGroups.length > 0
       ? <div className="provider-usage-account-groups">{accountGroups.map(([account, windows], groupIndex) => {
         const visibleWindows = section.provider === 'commandcode'
           ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')

@@ -543,6 +543,7 @@ mod provider_usage_tests {
             .unwrap();
         assert!(provider.configured);
         assert!(provider.query_ready);
+        assert_eq!(provider.title, "AgentRouter 用量");
     }
 
     #[test]

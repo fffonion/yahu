@@ -323,7 +323,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
     let entries = [
         (
             "agentrouter",
-            "AgenRouter 用量",
+            "AgentRouter 用量",
             agentrouter_configured,
             agentrouter_query_ready,
             "AGENTROUTER_SESSION_COOKIE + AGENTROUTER_USER_ID",
