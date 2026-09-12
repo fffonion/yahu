@@ -9,7 +9,7 @@ use std::{
     net::IpAddr,
     path::{Component, Path, PathBuf},
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -399,6 +399,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/update/apply", post(apply_update))
         .route("/insights/usage", get(insights_usage))
         .route("/provider-usage", get(provider_usage_handler))
+        .route("/provider-icons/agentrouter.png", get(agentrouter_logo))
         .route("/chat/watch/{session_id}", get(chat_watch))
         .route("/chat/subagents/{session_id}/ws", get(subagent_websocket))
         .route("/image-api/images", get(list_images))

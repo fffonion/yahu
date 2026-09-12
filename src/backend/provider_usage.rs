@@ -3998,6 +3998,99 @@ fn merge_provider_usage_payload(
     cached
 }
 
+const AGENTROUTER_LOGO_URL: &str = "https://agentrouter.org/logo.png";
+const AGENTROUTER_LOGO_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const MAX_AGENTROUTER_LOGO_BODY: usize = 4 * 1024 * 1024;
+
+#[derive(Clone)]
+struct AgentRouterLogoCacheEntry {
+    body: Vec<u8>,
+    content_type: String,
+    fetched_at: Instant,
+}
+
+static AGENTROUTER_LOGO_CACHE: OnceLock<Mutex<Option<AgentRouterLogoCacheEntry>>> = OnceLock::new();
+
+fn agentrouter_logo_cache() -> &'static Mutex<Option<AgentRouterLogoCacheEntry>> {
+    AGENTROUTER_LOGO_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn agentrouter_logo_response(entry: &AgentRouterLogoCacheEntry, cache_status: &'static str) -> Response<Body> {
+    let mut response = Response::new(Body::from(entry.body.clone()));
+    *response.status_mut() = StatusCode::OK;
+    let headers = response.headers_mut();
+    if let Ok(value) = HeaderValue::from_str(&entry.content_type) {
+        headers.insert(header::CONTENT_TYPE, value);
+    }
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("x-yahu-cache"),
+        HeaderValue::from_static(cache_status),
+    );
+    response
+}
+
+async fn agentrouter_logo(State(state): State<Arc<AppState>>) -> Response<Body> {
+    let cache = agentrouter_logo_cache();
+    let mut cached = cache.lock().await;
+    if let Some(entry) = cached.as_ref()
+        && entry.fetched_at.elapsed() < AGENTROUTER_LOGO_CACHE_TTL
+    {
+        return agentrouter_logo_response(entry, "HIT");
+    }
+
+    let response = match state
+        .client
+        .get(AGENTROUTER_LOGO_URL)
+        .timeout(Duration::from_secs(15))
+        .header(header::ACCEPT, "image/png,image/*")
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("AgentRouter logo proxy failed: {err}"),
+            );
+        }
+    };
+    if !response.status().is_success() {
+        return json_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("AgentRouter logo proxy returned {}", response.status()),
+        );
+    }
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| value.starts_with("image/"))
+        .unwrap_or("image/png")
+        .to_string();
+    let body = match response.bytes().await {
+        Ok(body) if body.len() <= MAX_AGENTROUTER_LOGO_BODY => body.to_vec(),
+        Ok(_) => {
+            return json_error(StatusCode::BAD_GATEWAY, "AgentRouter logo is too large");
+        }
+        Err(err) => {
+            return json_error(
+                StatusCode::BAD_GATEWAY,
+                &format!("AgentRouter logo response failed: {err}"),
+            );
+        }
+    };
+    *cached = Some(AgentRouterLogoCacheEntry {
+        body,
+        content_type,
+        fetched_at: Instant::now(),
+    });
+    agentrouter_logo_response(cached.as_ref().expect("logo cache populated"), "MISS")
+}
+
 async fn provider_usage_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ProviderUsageQuery>,

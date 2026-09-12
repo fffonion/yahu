@@ -2565,8 +2565,8 @@ function providerTodayLabel(section: ProviderUsageSection | undefined): string {
 }
 
 function providerBrandFavicon(provider: string): string {
+  if (provider === 'agentrouter') return '/provider-icons/agentrouter.png';
   const domains: Record<string, string> = {
-    agentrouter: 'agentrouter.org',
     openrouter: 'openrouter.ai',
     deepseek: 'deepseek.com',
     atlascloud: 'atlascloud.ai',

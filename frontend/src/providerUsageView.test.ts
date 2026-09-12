@@ -193,8 +193,9 @@ describe('provider usage view', () => {
   test('AgentRouter uses the compact today-and-balance subtitle path', () => {
     const source = app();
     expect(source).toContain("const tableOnly = provider.provider === 'agentrouter'");
-    expect(source).toContain("agentrouter: 'agentrouter.org'");
+    expect(source).toContain("if (provider === 'agentrouter') return '/provider-icons/agentrouter.png'");
     expect(source).toContain("const description = tableOnly ? '' : providerDescriptionText(section.description, section.provider)");
+    expect(backendRoutes()).toContain('.route("/provider-icons/agentrouter.png", get(agentrouter_logo))');
     expect(source).toContain("section.windows.length > 0 && !['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
     expect(source).not.toContain("provider-usage-agentrouter-desc");
   });
