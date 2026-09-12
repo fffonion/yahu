@@ -3805,7 +3805,7 @@ async fn fetch_provider_usage_section(
     force: bool,
 ) -> ProviderUsageSection {
     let account_scoped = matches!(provider, "commandcode" | "codex" | "grok" | "zed-pro");
-    if !account_scoped {
+    if !force && !account_scoped {
         let now = chrono::Utc::now().timestamp();
         if let Some(mut cached) = cached_section.and_then(|section| provider_cached_section(section, now)) {
             cached.captured_at = unix_now_seconds();
