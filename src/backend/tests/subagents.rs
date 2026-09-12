@@ -654,6 +654,40 @@
     }
 
     #[test]
+    fn api_goal_preview_discovers_an_inherited_source_child_without_crossing_continuations() {
+        let messages = vec![serde_json::json!({
+            "role": "assistant",
+            "timestamp": 100.0,
+            "tool_calls": [{
+                "id": "call-1",
+                "function": {
+                    "name": "delegate_task",
+                    "arguments": "{\"goal\":\"Review WebRTC session listing\"}"
+                }
+            }]
+        })];
+        let sessions = vec![
+            serde_json::json!({"id": "parent", "source": "telegram"}),
+            serde_json::json!({
+                "id": "inherited-child",
+                "source": "telegram",
+                "parent_session_id": "parent",
+                "preview": "Review WebRTC session listing"
+            }),
+            serde_json::json!({
+                "id": "ordinary-continuation",
+                "source": "telegram",
+                "parent_session_id": "parent",
+                "preview": "Continue the conversation"
+            }),
+        ];
+
+        let child_ids = delegate_child_ids_from_goal_previews(&messages, &sessions, "parent");
+
+        assert_eq!(child_ids, HashSet::from(["inherited-child".to_string()]));
+    }
+
+    #[test]
     fn api_discovered_child_lineage_marks_only_descendants() {
         let mut sessions = vec![
             serde_json::json!({"id": "child", "source": "telegram", "parent_session_id": "parent"}),

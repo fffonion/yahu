@@ -1029,6 +1029,115 @@ fn delegate_child_ids_from_messages(
     child_ids
 }
 
+fn collect_delegate_goal_texts(value: &Value, out: &mut HashSet<String>) {
+    match value {
+        Value::Object(object) => {
+            if object
+                .get("function")
+                .and_then(Value::as_object)
+                .and_then(|function| function.get("name"))
+                .and_then(Value::as_str)
+                == Some("delegate_task")
+                && let Some(arguments) = object
+                    .get("function")
+                    .and_then(Value::as_object)
+                    .and_then(|function| function.get("arguments"))
+            {
+                collect_delegate_goal_payload(arguments, out);
+            }
+            for child in object.values() {
+                collect_delegate_goal_texts(child, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_delegate_goal_texts(item, out);
+            }
+        }
+        Value::String(raw) => {
+            if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
+                collect_delegate_goal_texts(&parsed, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_delegate_goal_payload(value: &Value, out: &mut HashSet<String>) {
+    match value {
+        Value::Object(object) => {
+            if let Some(goal) = object.get("goal").and_then(Value::as_str)
+                && !goal.trim().is_empty()
+            {
+                out.insert(normalize_api_match_text(goal));
+            }
+            for key in ["goals", "tasks"] {
+                if let Some(items) = object.get(key).and_then(Value::as_array) {
+                    for item in items {
+                        if let Some(goal) = item.as_str() {
+                            if !goal.trim().is_empty() {
+                                out.insert(normalize_api_match_text(goal));
+                            }
+                        } else {
+                            collect_delegate_goal_payload(item, out);
+                        }
+                    }
+                }
+            }
+        }
+        Value::String(raw) => {
+            if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
+                collect_delegate_goal_payload(&parsed, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_api_match_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+fn preview_matches_delegate_goal(preview: &str, goals: &HashSet<String>) -> bool {
+    let preview = normalize_api_match_text(preview);
+    if preview.len() < 8 {
+        return false;
+    }
+    goals.iter().any(|goal| {
+        goal == &preview
+            || (goal.len() >= 8 && (goal.contains(&preview) || preview.contains(goal)))
+    })
+}
+
+fn delegate_child_ids_from_goal_previews(
+    messages: &[Value],
+    sessions: &[Value],
+    parent_session_id: &str,
+) -> HashSet<String> {
+    let mut goals = HashSet::new();
+    for message in messages {
+        collect_delegate_goal_texts(message, &mut goals);
+    }
+    if goals.is_empty() {
+        return HashSet::new();
+    }
+    let parent_source = sessions
+        .iter()
+        .find(|session| string_field(session, "id") == Some(parent_session_id.to_string()))
+        .and_then(|session| string_field(session, "source"));
+    sessions
+        .iter()
+        .filter(|session| string_field(session, "parent_session_id") == Some(parent_session_id.to_string()))
+        .filter(|session| {
+            parent_source.as_deref() == string_field(session, "source").as_deref()
+        })
+        .filter_map(|session| {
+            let preview = string_field(session, "preview")?;
+            preview_matches_delegate_goal(&preview, &goals).then(|| string_field(session, "id"))?
+        })
+        .collect()
+}
+
 async fn fetch_api_delegate_child_ids(
     state: &AppState,
     parent_session_id: &str,
@@ -1039,7 +1148,13 @@ async fn fetch_api_delegate_child_ids(
         .filter_map(|session| string_field(session, "id"))
         .collect::<HashSet<_>>();
     let messages = fetch_all_session_messages(state, parent_session_id).await?;
-    Ok(delegate_child_ids_from_messages(&messages, &known_ids, parent_session_id))
+    let mut child_ids = delegate_child_ids_from_messages(&messages, &known_ids, parent_session_id);
+    child_ids.extend(delegate_child_ids_from_goal_previews(
+        &messages,
+        sessions,
+        parent_session_id,
+    ));
+    Ok(child_ids)
 }
 
 fn mark_api_discovered_subagents(sessions: &mut [Value], direct_child_ids: &HashSet<String>) {
