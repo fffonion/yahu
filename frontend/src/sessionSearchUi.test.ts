@@ -94,7 +94,8 @@ describe('session search and composer session model UI', () => {
     const app = source();
     expect(app).toContain("const SESSION_LIST_REFRESH_INTERVAL_MS = 3000;");
     expect(app).toContain("if (mode !== 'chat') return;");
-    expect(app).toContain('const timer = window.setInterval(() => { void loadSessions(filter); }, SESSION_LIST_REFRESH_INTERVAL_MS);');
+    expect(app).toContain('const timer = window.setInterval(() => {');
+    expect(app).toContain('void loadSessions(filter);');
     expect(app).toContain('return () => window.clearInterval(timer);');
   });
 
@@ -103,6 +104,14 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain("const livePreview = streamingSessionIdRef.current === session.id ? latestSessionPreviewFromMessages(messagesRef.current) : '';" );
     expect(app).toContain("const sessionForList = livePreview ? { ...session, preview: livePreview } : session;" );
     expect(app).toContain('sessionWithPreservedMessageCount(sessionForList, old.find((existing) => existing.id === session.id))');
+  });
+
+  test('session polling skips a tick while any list request is still running', () => {
+    const app = source();
+    expect(app).toContain('const sessionListRequestCountRef = useRef(0);');
+    expect(app).toContain('sessionListRequestCountRef.current += 1;');
+    expect(app).toContain('sessionListRequestCountRef.current = Math.max(0, sessionListRequestCountRef.current - 1);');
+    expect(app).toContain('if (sessionListRequestCountRef.current > 0) return;');
   });
 
   test('opened session header delays stitched totals until the minimap response arrives', () => {

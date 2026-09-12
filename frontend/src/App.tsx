@@ -676,6 +676,7 @@ export default function App() {
   const hasNewerRef = useRef(false);
   const activeSessionIdRef = useRef(activeSessionId);
   const searchVersionRef = useRef(0);
+  const sessionListRequestCountRef = useRef(0);
   const modelsRef = useRef<ModelOption[]>(models);
   const modelRef = useRef(model);
   const providerRef = useRef(selectedModelProvider);
@@ -1074,6 +1075,7 @@ export default function App() {
 
   const loadSessions = useCallback(async (query = filter) => {
     const version = ++searchVersionRef.current;
+    sessionListRequestCountRef.current += 1;
     try {
       const params = new URLSearchParams({ limit: '80', _: String(Date.now()) });
       if (query.trim()) params.set('q', query.trim());
@@ -1093,6 +1095,7 @@ export default function App() {
       if (!activeSessionIdRef.current && list.length) switchActiveSession(list[0].id);
       setStatus(t('chat.connected'));
     } catch (err) { setStatus(tf('status.sessionsUnavailable', errorMessage(err))); }
+    finally { sessionListRequestCountRef.current = Math.max(0, sessionListRequestCountRef.current - 1); }
   }, [filter, hideCronSessions, pinnedIds, headers, switchActiveSession, applyRenamedSessionTitleOverride]);
 
   const loadSessionDetail = useCallback(async (sessionId: string) => {
@@ -1685,7 +1688,10 @@ export default function App() {
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
   useEffect(() => {
     if (mode !== 'chat') return;
-    const timer = window.setInterval(() => { void loadSessions(filter); }, SESSION_LIST_REFRESH_INTERVAL_MS);
+    const timer = window.setInterval(() => {
+      if (sessionListRequestCountRef.current > 0) return;
+      void loadSessions(filter);
+    }, SESSION_LIST_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [filter, loadSessions, mode]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
