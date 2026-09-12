@@ -432,6 +432,7 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+mod newapi;
 include!("auth.rs");
 include!("assets.rs");
 include!("proxy.rs");

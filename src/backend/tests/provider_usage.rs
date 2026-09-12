@@ -455,7 +455,7 @@ mod provider_usage_tests {
         let providers = json["providers"].as_array().unwrap();
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0]["provider"], "openrouter");
-        assert_eq!(providers.len(), 11);
+        assert_eq!(providers.len(), 12);
     }
 
     #[test]
@@ -526,6 +526,52 @@ mod provider_usage_tests {
         assert_eq!(
             merged,
             "Student · 余额 **$0.07/$10.00** · 超额：否 · 账期 9/1–10/1"
+        );
+    }
+
+    #[test]
+    fn agentrouter_catalog_requires_newapi_user_and_session_cookie() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(".env"),
+            "AGENTROUTER_SESSION_COOKIE=Cookie: session=[REDACTED]\nAGENTROUTER_USER_ID=641019\n",
+        )
+        .unwrap();
+        let provider = provider_usage_catalog(temp.path())
+            .into_iter()
+            .find(|item| item.provider == "agentrouter")
+            .unwrap();
+        assert!(provider.configured);
+        assert!(provider.query_ready);
+    }
+
+    #[test]
+    fn agentrouter_usage_rows_convert_newapi_quota_to_dollars() {
+        let records = vec![
+            NewApiUsageRecord {
+                model_name: "gpt-a".into(),
+                count: 5.0,
+                quota: 4_000.0,
+                token_used: 300.0,
+                ..Default::default()
+            },
+        ];
+        let section = agentrouter_usage_section(&records, 500_000.0);
+        assert_eq!(section.provider, "agentrouter");
+        assert_eq!(section.rows[0].input.as_deref(), Some("300"));
+        assert_eq!(section.rows[0].output.as_deref(), Some("5"));
+        assert_eq!(section.rows[0].cost_or_pct.as_deref(), Some("$0.01"));
+        assert!(section.description.contains("$0.01"));
+    }
+
+    #[test]
+    fn agentrouter_quota_per_unit_cache_survives_reload() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        save_newapi_quota_per_unit(&state, "agentrouter", 500_000.0, 1_800_000_000.0);
+        assert_eq!(
+            cached_newapi_quota_per_unit(&state, "agentrouter", 1_800_000_001.0),
+            Some(500_000.0)
         );
     }
 }

@@ -4,7 +4,12 @@
 
 use sha2::Digest;
 
+use newapi::{
+    NewApiAuth, NewApiClient, NewApiTimeRange, NewApiUsageRecord, aggregate_usage,
+};
+
 const PROVIDER_USAGE_TTL: Duration = Duration::from_secs(30 * 60);
+const NEWAPI_STATUS_CACHE_TTL_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 const PROVIDER_USAGE_TIMEOUT: Duration = Duration::from_secs(15);
 
 const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
@@ -64,10 +69,18 @@ struct SharedProviderCacheEntry {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
+struct NewApiQuotaCacheEntry {
+    quota_per_unit: f64,
+    cached_at: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
 struct SharedProviderCacheFile {
     entries: HashMap<String, SharedProviderCacheEntry>,
     #[serde(default)]
     commandcode_accounts: HashMap<String, CommandCodeAccountCache>,
+    #[serde(default)]
+    newapi_quota_per_unit: HashMap<String, NewApiQuotaCacheEntry>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -145,6 +158,13 @@ fn provider_env_value(hermes_home: &Path, key: &str) -> String {
         }
     }
     String::new()
+}
+
+fn first_provider_env_value(hermes_home: &Path, keys: &[&str]) -> String {
+    keys.iter()
+        .map(|key| provider_env_value(hermes_home, key))
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
 }
 
 fn strip_env_quotes(value: &str) -> String {
@@ -283,7 +303,32 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
     let zed_pro_pool = !auth_json_credential_pool(hermes_home, "zed-pro").is_empty();
     let zed_session_cookie = !provider_env_value(hermes_home, "ZED_SESSION_COOKIE").is_empty();
     let zed_configured = zed_pro_pool || zed_session_cookie;
+    let agentrouter_user_id = first_provider_env_value(
+        hermes_home,
+        &["AGENTROUTER_USER_ID", "AGENTROUTER_NEWAPI_USER_ID"],
+    );
+    let agentrouter_cookie = first_provider_env_value(
+        hermes_home,
+        &["AGENTROUTER_SESSION_COOKIE", "AGENTROUTER_COOKIE"],
+    );
+    let agentrouter_token = first_provider_env_value(
+        hermes_home,
+        &["AGENTROUTER_ACCESS_TOKEN", "AGENTROUTER_TOKEN"],
+    );
+    let agentrouter_configured = !agentrouter_user_id.is_empty()
+        || !agentrouter_cookie.is_empty()
+        || !agentrouter_token.is_empty();
+    let agentrouter_query_ready = !agentrouter_user_id.is_empty()
+        && (!agentrouter_cookie.is_empty() || !agentrouter_token.is_empty());
     let entries = [
+        (
+            "agentrouter",
+            "AgenRouter 用量",
+            agentrouter_configured,
+            agentrouter_query_ready,
+            "AGENTROUTER_SESSION_COOKIE + AGENTROUTER_USER_ID",
+            "也支持 AGENTROUTER_ACCESS_TOKEN + AGENTROUTER_USER_ID；凭据写入 ~/.hermes/.env。",
+        ),
         (
             "openrouter",
             "OpenRouter API 用量",
@@ -3598,6 +3643,113 @@ async fn fetch_grok_usage(
     section
 }
 
+fn agentrouter_usage_section(
+    records: &[NewApiUsageRecord],
+    quota_per_unit: f64,
+) -> ProviderUsageSection {
+    let aggregates = aggregate_usage(records);
+    let total_count: f64 = aggregates.iter().map(|row| row.count).sum();
+    let total_quota: f64 = aggregates.iter().map(|row| row.quota).sum();
+    let total_tokens: f64 = aggregates.iter().map(|row| row.token_used).sum();
+    let total_cost = if quota_per_unit > 0.0 {
+        fmt_provider_money(total_quota / quota_per_unit, '$')
+    } else {
+        "-".to_string()
+    };
+    let rows = aggregates
+        .into_iter()
+        .map(|row| ProviderUsageRow {
+            label: row.model_name,
+            input: Some(fmt_provider_int(row.token_used)),
+            output: Some(fmt_provider_int(row.count)),
+            cost_or_pct: (quota_per_unit > 0.0)
+                .then(|| fmt_provider_money(row.quota / quota_per_unit, '$')),
+            ..Default::default()
+        })
+        .collect();
+    ProviderUsageSection {
+        provider: "agentrouter".into(),
+        title: "AgenRouter 用量".into(),
+        description: format!(
+            "近 7 日：{} 次请求 / {} token / 配额 **{}**",
+            fmt_provider_int(total_count),
+            fmt_provider_int(total_tokens),
+            total_cost
+        ),
+        rows,
+        ..Default::default()
+    }
+}
+
+async fn fetch_agentrouter_usage(state: &AppState) -> ProviderUsageSection {
+    let mut section = ProviderUsageSection {
+        provider: "agentrouter".into(),
+        title: "AgenRouter 用量".into(),
+        ..Default::default()
+    };
+    let user_id = first_provider_env_value(
+        &state.hermes_home,
+        &["AGENTROUTER_USER_ID", "AGENTROUTER_NEWAPI_USER_ID"],
+    );
+    let cookie = first_provider_env_value(
+        &state.hermes_home,
+        &["AGENTROUTER_SESSION_COOKIE", "AGENTROUTER_COOKIE"],
+    );
+    let token = first_provider_env_value(
+        &state.hermes_home,
+        &["AGENTROUTER_ACCESS_TOKEN", "AGENTROUTER_TOKEN"],
+    );
+    if user_id.is_empty() || (cookie.is_empty() && token.is_empty()) {
+        section.errors.push(
+            "缺少 AGENTROUTER_USER_ID 与 AGENTROUTER_SESSION_COOKIE（或 AGENTROUTER_ACCESS_TOKEN）"
+                .into(),
+        );
+        return section;
+    }
+    let auth = if !cookie.is_empty() {
+        NewApiAuth::SessionCookie { cookie, user_id }
+    } else {
+        NewApiAuth::Bearer { token, user_id }
+    };
+    let base_url = first_provider_env_value(
+        &state.hermes_home,
+        &["AGENTROUTER_BASE_URL", "AGENTROUTER_NEWAPI_BASE_URL"],
+    );
+    let base_url = if base_url.is_empty() {
+        "https://agentrouter.org".to_string()
+    } else {
+        base_url
+    };
+    let client = NewApiClient::new(&state.client, base_url, auth);
+    let now = unix_now_seconds();
+    let quota_per_unit = if let Some(cached) = cached_newapi_quota_per_unit(state, "agentrouter", now) {
+        Some(cached)
+    } else {
+        match client.fetch_status().await {
+            Ok(status) => {
+                save_newapi_quota_per_unit(state, "agentrouter", status.quota_per_unit, now);
+                Some(status.quota_per_unit)
+            }
+            Err(err) => {
+                section.errors.push(format!("status 查询失败：{err}"));
+                None
+            }
+        }
+    };
+    let range = NewApiTimeRange::shanghai_days(chrono::Utc::now(), 7);
+    match client.fetch_usage(&range).await {
+        Ok(records) => {
+            let mut usage = agentrouter_usage_section(&records, quota_per_unit.unwrap_or(0.0));
+            usage.errors = section.errors;
+            usage
+        }
+        Err(err) => {
+            section.errors.push(format!("用量查询失败：{err}"));
+            section
+        }
+    }
+}
+
 fn provider_setup_section(meta: &ProviderUsageProvider) -> ProviderUsageSection {
     ProviderUsageSection {
         provider: meta.provider.clone(),
@@ -3622,6 +3774,7 @@ async fn fetch_provider_usage_section(
         }
     }
     let mut section = match provider {
+        "agentrouter" => fetch_agentrouter_usage(state).await,
         "openrouter" => fetch_openrouter_usage(state).await,
         "deepseek" => fetch_deepseek_usage(state).await,
         "atlascloud" => fetch_atlascloud_usage(state).await,
@@ -3664,6 +3817,40 @@ async fn collect_provider_usage_for(
 
 fn shared_provider_cache_path(state: &AppState) -> std::path::PathBuf {
     state.hermes_home.join("state/token_usage_cache.json")
+}
+
+fn cached_newapi_quota_per_unit(
+    state: &AppState,
+    provider: &str,
+    now: f64,
+) -> Option<f64> {
+    let cache = read_shared_provider_cache(state);
+    let entry = cache.newapi_quota_per_unit.get(provider)?;
+    (entry.quota_per_unit > 0.0
+        && entry.cached_at > 0.0
+        && now >= entry.cached_at
+        && now - entry.cached_at < NEWAPI_STATUS_CACHE_TTL_SECONDS)
+        .then_some(entry.quota_per_unit)
+}
+
+fn save_newapi_quota_per_unit(
+    state: &AppState,
+    provider: &str,
+    quota_per_unit: f64,
+    cached_at: f64,
+) {
+    if quota_per_unit <= 0.0 || cached_at <= 0.0 {
+        return;
+    }
+    let mut cache = read_shared_provider_cache(state);
+    cache.newapi_quota_per_unit.insert(
+        provider.to_string(),
+        NewApiQuotaCacheEntry {
+            quota_per_unit,
+            cached_at,
+        },
+    );
+    write_shared_provider_cache(state, &cache);
 }
 
 fn read_shared_provider_cache(state: &AppState) -> SharedProviderCacheFile {
