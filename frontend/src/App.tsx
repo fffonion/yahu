@@ -39,6 +39,7 @@ import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from
 import { getInsightsSessionStorage, readInsightsSessionCache, writeInsightsSessionCache } from './insightsCache';
 import { SubagentProgressCard } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
+import { currentNavigatorId } from './chatUserNavigator';
 import { WorkspaceEntryIcon } from './workspaceIcons';
 
 type Theme = 'hermes-light' | 'hermes-dark' | 'vscode-light-plus' | 'vscode-dark-plus' | 'monokai' | 'nord' | 'catppuccin-latte' | 'catppuccin-mocha' | 'nous' | 'gruvbox-material' | 'github-dark-dimmed' | 'codex-light' | 'codex-dark' | 'claude-code-light' | 'claude-code-dark';
@@ -3514,17 +3515,17 @@ function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: 
   });
   if (!rows.length) return active;
   const visibleIds = new Set(rows.map((row) => row.getAttribute('data-message-id') || '').filter(Boolean));
-  for (const item of items) if (visibleIds.has(item.id)) active.add(item.id);
+  const currentId = currentNavigatorId(items, visibleIds);
+  if (currentId) return new Set([currentId]);
+
   const visibleNumbers = rows.map((row) => numericMessageId(row.getAttribute('data-message-id'))).filter((value): value is number => value !== null);
   if (!visibleNumbers.length) return active;
   const start = Math.min(...visibleNumbers);
-  const end = Math.max(...visibleNumbers);
-  const numericItems = items.map((item) => ({ item, numeric: numericMessageId(item.id) })).filter((entry): entry is { item: UserMessageNavItem; numeric: number } => entry.numeric !== null);
-  numericItems.forEach((entry, index) => {
-    const itemNumeric = entry.numeric;
-    const nextNumeric = numericItems[index + 1]?.numeric ?? Infinity;
-    if (itemNumeric <= end && nextNumeric > start) active.add(entry.item.id);
-  });
+  const numericItems = items
+    .map((item) => ({ item, numeric: numericMessageId(item.id) }))
+    .filter((entry): entry is { item: UserMessageNavItem; numeric: number } => entry.numeric !== null);
+  const current = [...numericItems].reverse().find((entry) => entry.numeric <= start) || numericItems[0];
+  if (current) active.add(current.item.id);
   return active;
 }
 

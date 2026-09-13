@@ -59,8 +59,8 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('.user-minimap-track::-webkit-scrollbar{display:none;width:0;height:0}');
 
     expect(styles).toContain('.user-minimap-hit{position:relative;width:54px;height:8px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:flex-start;pointer-events:auto;cursor:pointer;flex-shrink:0}');
-    expect(styles).toContain('.user-minimap-bar{width:6px;');
-    expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar,.user-minimap-hit:focus-visible .user-minimap-bar{width:21px;');
+    expect(styles).toContain('.user-minimap-bar{width:6px;height:2px;border-radius:999px;background:color-mix(in srgb,var(--border) 72%,transparent);opacity:.9;');
+    expect(styles).toContain('.user-minimap-hit.active .user-minimap-bar{background:var(--text);opacity:1}');
     expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit:hover) .user-minimap-bar{width:17px;');
     expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit+ .user-minimap-hit:hover) .user-minimap-bar{width:13px;');
     expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit+.user-minimap-hit+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit+ .user-minimap-hit+ .user-minimap-hit:hover) .user-minimap-bar{width:9px;');
@@ -74,7 +74,10 @@ describe('chat user message navigator', () => {
 
     expect(source).toContain('const [activeNavigatorIds, setActiveNavigatorIds] = useState<Set<string>>(() => new Set());');
     expect(source).toContain('function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: UserMessageNavItem[]): Set<string>');
-    expect(source).toContain('if (itemNumeric <= end && nextNumeric > start) active.add(entry.item.id);');
+    expect(source).toContain('const currentId = currentNavigatorId(items, visibleIds);');
+    expect(source).toContain('if (currentId) return new Set([currentId]);');
+    expect(source).toContain('const current = [...numericItems].reverse().find((entry) => entry.numeric <= start) || numericItems[0];');
+    expect(source).not.toContain('if (itemNumeric <= end && nextNumeric > start) active.add(entry.item.id);');
     expect(source).toContain('activeIds={activeNavigatorIds}');
     expect(source).toContain('setUserMessageNav(Array.isArray(body.data) ? body.data : []);');
   });
