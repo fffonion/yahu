@@ -51,6 +51,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('formatSubagentFinalMessages(messages)');
     expect(source).toContain('structuredContent: parseSubagentFinalStructuredContent(node.summary)');
 
+    expect(source).toContain('const displayTree = useMemo(() => latestSubagentRows(tree), [tree]);');
     expect(source).toContain('<SubagentProgressNode key={node.sessionId}');
     expect(source).not.toContain('subagent-progress-children');
     expect(css()).not.toContain('.subagent-progress-children');

@@ -7,10 +7,12 @@ import {
   goalElapsedMinutes,
   latestSubagent,
   isSubagentDetailNearBottom,
+  latestSubagentRows,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
   parseSubagentFinalStructuredContent,
   previewSubagent,
+  SUBAGENT_DISPLAY_LIMIT,
   subagentBeforeTimeForMessages,
   subagentIteration,
   subagentMessagesUrl,
@@ -199,6 +201,26 @@ describe('subagent progress websocket projection', () => {
 
     expect(tree.map((item) => item.sessionId)).toEqual(['child-new', 'child-old', 'new', 'middle', 'old']);
     expect(tree.every((item) => item.children.length === 0)).toBe(true);
+  });
+
+  test('selects only the ten newest rows from the current time-bounded snapshot', () => {
+    const snapshot = normalizeSubagentSnapshot({
+      type: 'subagents.snapshot',
+      session_id: 'parent',
+      subagents: Array.from({ length: 12 }, (_, index) => ({
+        session_id: `child-${index}`,
+        parent_session_id: 'parent',
+        task: `Child ${index}`,
+        status: 'completed',
+        started_at: 1_000 - index,
+      })),
+    }, 'parent')!;
+    const tree = buildSubagentTree(snapshot.subagents, 'parent');
+
+    expect(SUBAGENT_DISPLAY_LIMIT).toBe(10);
+    expect(latestSubagentRows(tree).map((item) => item.sessionId)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `child-${index}`),
+    );
   });
 
   test('selects the latest subagent for the collapsed panel preview', () => {

@@ -68,6 +68,8 @@ export type SubagentProgressSnapshot = {
 
 export type SubagentTreeNode = SubagentProgress & { children: SubagentTreeNode[] };
 
+export const SUBAGENT_DISPLAY_LIMIT = 10;
+
 type WebSocketLocation = Pick<Location, 'protocol' | 'host'>;
 
 export function createSubagentSnapshotGuard() {
@@ -263,6 +265,11 @@ export function buildSubagentTree(subagents: SubagentProgress[], _parentSessionI
   return subagents
     .map((subagent) => ({ ...subagent, children: [] }))
     .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+}
+
+/** Keep the newest rows from the snapshot already bounded by the session viewport. */
+export function latestSubagentRows(nodes: SubagentTreeNode[], limit = SUBAGENT_DISPLAY_LIMIT): SubagentTreeNode[] {
+  return nodes.slice(0, Math.max(0, limit));
 }
 
 export function subagentElapsedSeconds(subagent: SubagentProgress, nowSeconds: number): number {

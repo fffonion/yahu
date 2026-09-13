@@ -23,7 +23,8 @@ describe('streaming subagent detail identity', () => {
   test('keeps the floating panel title pinned to the selected node and hides sibling entries', () => {
     const card = readFileSync(new URL('./SubagentProgressCard.tsx', import.meta.url), 'utf8');
     expect(card).toContain('const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);');
-    expect(card).toContain('const visibleTree = selectedNode ? [selectedNode] : tree;');
+    expect(card).toContain('const displayTree = useMemo(() => latestSubagentRows(tree), [tree]);');
+    expect(card).toContain('const visibleTree = selectedNode ? [selectedNode] : displayTree;');
     expect(card).toContain("{selectedNode?.task || t('subagents.title')}");
     expect(card).toContain('setSelectedNodeId(null);');
   });

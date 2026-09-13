@@ -9,6 +9,7 @@ import {
   formatSubagentFinalMessages,
   goalElapsedMinutes,
   isSubagentDetailNearBottom,
+  latestSubagentRows,
   mergeSubagentMessages,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
@@ -177,8 +178,9 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   }, [liveGoal, running]);
 
   const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
-  const selectedNode = useMemo(() => findSubagentTreeNode(tree, selectedNodeId), [selectedNodeId, tree]);
-  const visibleTree = selectedNode ? [selectedNode] : tree;
+  const displayTree = useMemo(() => latestSubagentRows(tree), [tree]);
+  const selectedNode = useMemo(() => findSubagentTreeNode(displayTree, selectedNodeId), [displayTree, selectedNodeId]);
+  const visibleTree = selectedNode ? [selectedNode] : displayTree;
   if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;
 
   const goal = snapshot.goal;
