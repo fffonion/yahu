@@ -35,7 +35,7 @@ describe('chat user message navigator', () => {
     expect(source).toContain('formatNavigatorTime(popup.item.timestamp)');
     expect(styles).toContain('.user-minimap-bar{width:6px;');
     expect(styles).toContain('.user-minimap-hit:hover .user-minimap-bar');
-    expect(styles).toContain('transition:width .18s ease,opacity .18s ease,background .18s ease');
+    expect(styles).toContain('transition:width .18s ease');
     expect(styles).toContain('.user-minimap-popup{position:absolute;left:29px;');
     expect(styles).toContain('display:grid;gap:7px;text-align:left;opacity:1;pointer-events:none;z-index:1;');
 
@@ -59,7 +59,7 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('.user-minimap-track::-webkit-scrollbar{display:none;width:0;height:0}');
 
     expect(styles).toContain('.user-minimap-hit{position:relative;width:54px;height:8px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:flex-start;pointer-events:auto;cursor:pointer;flex-shrink:0}');
-    expect(styles).toContain('.user-minimap-bar{width:6px;height:2px;border-radius:999px;background:color-mix(in srgb,var(--border) 72%,transparent);opacity:.9;');
+    expect(styles).toContain('.user-minimap-bar{width:6px;height:2px;border-radius:999px;background:color-mix(in srgb,var(--border) 72%,transparent);opacity:.9;transition:width .18s ease}');
     expect(styles).toContain('.user-minimap-hit.active .user-minimap-bar{background:var(--text);opacity:1}');
     expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit:hover) .user-minimap-bar{width:17px;');
     expect(styles).toContain('.user-minimap-hit:hover+.user-minimap-hit+.user-minimap-hit .user-minimap-bar,.user-minimap-hit:has(+ .user-minimap-hit+ .user-minimap-hit:hover) .user-minimap-bar{width:13px;');
