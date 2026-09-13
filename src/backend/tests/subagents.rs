@@ -1,3 +1,35 @@
+    #[tokio::test]
+    async fn child_message_fetches_are_bounded_and_parallel() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use tokio::time::{Duration, sleep};
+
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let items = (0..8).collect::<Vec<_>>();
+        let active_for_fetch = active.clone();
+        let maximum_for_fetch = maximum.clone();
+        let fetched = fetch_child_messages_bounded(items, move |item| {
+            let active = active_for_fetch.clone();
+            let maximum = maximum_for_fetch.clone();
+            async move {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                maximum.fetch_max(current, Ordering::SeqCst);
+                sleep(Duration::from_millis(20)).await;
+                active.fetch_sub(1, Ordering::SeqCst);
+                Ok::<_, anyhow::Error>(vec![serde_json::json!({"item": item})])
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(fetched.len(), 8);
+        assert!(maximum.load(Ordering::SeqCst) > 1);
+        assert!(maximum.load(Ordering::SeqCst) <= SUBAGENT_SNAPSHOT_CONCURRENCY);
+    }
+
     #[test]
     fn subagent_projection_reports_task_current_tool_todos_and_summary() {
         let session = serde_json::json!({

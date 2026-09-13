@@ -658,6 +658,30 @@ fn fetch_local_goal_todo_messages(
     Ok(Some(rows.collect::<rusqlite::Result<Vec<_>>>()?))
 }
 
+async fn fetch_child_messages_bounded<T, F, Fut>(
+    items: Vec<T>,
+    fetch: F,
+) -> anyhow::Result<Vec<(T, Vec<Value>)>>
+where
+    T: Clone,
+    F: Fn(T) -> Fut + Clone,
+    Fut: std::future::Future<Output = anyhow::Result<Vec<Value>>>,
+{
+    futures_util::stream::iter(items.into_iter().map(|item| {
+        let fetch = fetch.clone();
+        let request_item = item.clone();
+        async move {
+            let messages = fetch(request_item.clone()).await?;
+            Ok::<_, anyhow::Error>((request_item, messages))
+        }
+    }))
+    .buffer_unordered(SUBAGENT_SNAPSHOT_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await
+    .into_iter()
+    .collect()
+}
+
 async fn fetch_subagent_projection_snapshot(
     state: &AppState,
     parent_session_id: &str,
@@ -681,8 +705,11 @@ async fn fetch_subagent_projection_snapshot(
         .collect::<HashSet<_>>();
     cache.retain(|session_id, _| visible_ids.contains(session_id));
 
-    let mut out = Vec::with_capacity(visible.len());
-    for session in visible {
+    let mut resolved = (0..visible.len())
+        .map(|_| None::<CachedSubagentProjection>)
+        .collect::<Vec<_>>();
+    let mut pending = Vec::new();
+    for (index, session) in visible.into_iter().enumerate() {
         let Some(session_id) = string_field(&session, "id") else {
             continue;
         };
@@ -694,26 +721,42 @@ async fn fetch_subagent_projection_snapshot(
             && cached.ended_at == ended_at
             && cached.last_active == last_active
         {
-            let projection = mark_stale_running_subagent(cached.projection.clone(), last_active, window_end);
-            out.push(mark_subagent_omitted_ancestry(projection, &visible_ids, parent_session_id));
-            continue;
+            resolved[index] = Some(cached.clone());
+        } else {
+            pending.push((index, session, session_id, message_count, ended_at, last_active));
         }
+    }
 
-        let messages = fetch_session_messages(state, &session_id).await?;
+    let fetched = fetch_child_messages_bounded(pending, |item| async move {
+        fetch_session_messages(state, &item.2).await
+    })
+    .await?;
+    for ((index, session, _session_id, message_count, ended_at, last_active), messages) in fetched {
         let Some(projection) = project_subagent_session(&state.hermes_home, &session, &messages) else {
             continue;
         };
-        cache.insert(
-            session_id,
-            CachedSubagentProjection {
-                message_count,
-                ended_at,
-                last_active,
-                projection: projection.clone(),
-            },
+        resolved[index] = Some(CachedSubagentProjection {
+            message_count,
+            ended_at,
+            last_active,
+            projection,
+        });
+    }
+
+    let mut out = Vec::with_capacity(resolved.len());
+    for cached in resolved.into_iter().flatten() {
+        let session_id = cached.projection.session_id.clone();
+        let projection = mark_stale_running_subagent(
+            cached.projection.clone(),
+            cached.last_active,
+            window_end,
         );
-        let projection = mark_stale_running_subagent(projection, last_active, window_end);
-        out.push(mark_subagent_omitted_ancestry(projection, &visible_ids, parent_session_id));
+        cache.insert(session_id, cached);
+        out.push(mark_subagent_omitted_ancestry(
+            projection,
+            &visible_ids,
+            parent_session_id,
+        ));
     }
     Ok(out)
 }
