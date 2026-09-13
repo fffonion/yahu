@@ -31,6 +31,17 @@
     }
 
     #[test]
+    fn subagent_candidate_sources_include_parent_source_and_legacy_children() {
+        assert_eq!(
+            subagent_candidate_sources(Some("telegram")),
+            vec!["subagent".to_string(), "telegram".to_string()]
+        );
+        assert_eq!(
+            subagent_candidate_sources(Some("subagent")),
+            vec!["subagent".to_string()]
+        );
+        assert_eq!(subagent_candidate_sources(None), vec!["subagent".to_string()]);
+    }    #[test]
     fn subagent_projection_reports_task_current_tool_todos_and_summary() {
         let session = serde_json::json!({
             "id": "child-1",

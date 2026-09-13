@@ -688,7 +688,7 @@ async fn fetch_subagent_projection_snapshot(
     window_end: f64,
     cache: &mut HashMap<String, CachedSubagentProjection>,
 ) -> anyhow::Result<Vec<SubagentProjection>> {
-    let mut sessions = fetch_subagent_sessions(state, window_end).await?;
+    let mut sessions = fetch_subagent_sessions_for_parent(state, parent_session_id, window_end).await?;
     let api_child_ids = match fetch_api_delegate_child_ids(state, parent_session_id, &sessions).await {
         Ok(ids) => ids,
         Err(err) => {
@@ -788,57 +788,106 @@ fn mark_stale_running_subagent(
     projection
 }
 
+async fn fetch_subagent_sessions_for_parent(
+    state: &AppState,
+    parent_session_id: &str,
+    window_end: f64,
+) -> anyhow::Result<Vec<Value>> {
+    let url = format!(
+        "{}/api/sessions/{}",
+        state.api_url.trim_end_matches('/'),
+        path_segment(parent_session_id),
+    );
+    let body = fetch_api_json(state, url, SUBAGENT_API_PAGE_BYTE_LIMIT).await?;
+    let session = body.get("session").unwrap_or(&body);
+    let parent_source = string_field(session, "source");
+    let sources = subagent_candidate_sources(parent_source.as_deref());
+    fetch_subagent_sessions_from_sources(state, window_end, &sources).await
+}
+
+fn subagent_candidate_sources(parent_source: Option<&str>) -> Vec<String> {
+    let mut sources = vec!["subagent".to_string()];
+    if let Some(source) = parent_source
+        .map(str::trim)
+        .filter(|source| !source.is_empty() && *source != "subagent")
+    {
+        sources.push(source.to_string());
+    }
+    sources
+}
+
+#[cfg(test)]
 async fn fetch_subagent_sessions(state: &AppState, window_end: f64) -> anyhow::Result<Vec<Value>> {
+    fetch_subagent_sessions_from_sources(state, window_end, &[]).await
+}
+
+async fn fetch_subagent_sessions_from_sources(
+    state: &AppState,
+    window_end: f64,
+    sources: &[String],
+) -> anyhow::Result<Vec<Value>> {
     let mut sessions = HashMap::<String, Value>::new();
     let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
-    let mut offset = 0usize;
-    loop {
-        // `source=subagent` only matches the legacy child source. Current Hermes
-        // children inherit the parent's source and carry `_delegate_from` in
-        // model_config, so fetch the bounded activity window and classify rows
-        // locally with `is_subagent_session`.
-        let url = format!(
-            "{}/api/sessions?include_children=true&limit={}&offset={}",
-            state.api_url.trim_end_matches('/'),
-            SUBAGENT_PAGE_SIZE,
-            offset,
-        );
-        let body = fetch_api_json(state, url, SUBAGENT_API_PAGE_BYTE_LIMIT).await?;
-        let data = body
-            .get("sessions")
-            .or_else(|| body.get("data"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let has_more = body.get("has_more").and_then(Value::as_bool).unwrap_or(false);
-        let count = data.len();
-        let reached_window_start = data
-            .last()
-            .and_then(session_activity_time)
-            .is_some_and(|time| time < window_start);
-        let mut new_ids = 0usize;
-        for session in data {
-            let Some(id) = string_field(&session, "id") else {
-                continue;
-            };
-            if let std::collections::hash_map::Entry::Vacant(entry) = sessions.entry(id) {
-                entry.insert(session);
-                new_ids += 1;
+    let source_filters = if sources.is_empty() {
+        vec![None]
+    } else {
+        sources.iter().map(Some).collect::<Vec<_>>()
+    };
+
+    for source in source_filters {
+        let mut offset = 0usize;
+        loop {
+            // `source=subagent` only matches the legacy child source. The parent
+            // source is queried alongside it because current Hermes children may
+            // inherit that source; transcript and lineage checks still classify
+            // the rows locally.
+            let source_query = source
+                .map(|value| format!("&source={}", utf8_percent_encode(value, NON_ALPHANUMERIC)))
+                .unwrap_or_default();
+            let url = format!(
+                "{}/api/sessions?include_children=true&limit={}&offset={}{}",
+                state.api_url.trim_end_matches('/'),
+                SUBAGENT_PAGE_SIZE,
+                offset,
+                source_query,
+            );
+            let body = fetch_api_json(state, url, SUBAGENT_API_PAGE_BYTE_LIMIT).await?;
+            let data = body
+                .get("sessions")
+                .or_else(|| body.get("data"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let has_more = body.get("has_more").and_then(Value::as_bool).unwrap_or(false);
+            let count = data.len();
+            let reached_window_start = data
+                .last()
+                .and_then(session_activity_time)
+                .is_some_and(|time| time < window_start);
+            let mut new_ids = 0usize;
+            for session in data {
+                let Some(id) = string_field(&session, "id") else {
+                    continue;
+                };
+                if let std::collections::hash_map::Entry::Vacant(entry) = sessions.entry(id) {
+                    entry.insert(session);
+                    new_ids += 1;
+                }
             }
+            if !has_more || reached_window_start {
+                break;
+            }
+            if count == 0 || new_ids == 0 {
+                anyhow::bail!("subagent session pagination made no progress");
+            }
+            let next_offset = offset.saturating_add(count);
+            if sessions.len() >= SUBAGENT_SESSION_SCAN_LIMIT
+                || next_offset >= SUBAGENT_SESSION_SCAN_LIMIT
+            {
+                anyhow::bail!("subagent session scan exceeded the in-memory safety limit");
+            }
+            offset = next_offset;
         }
-        if !has_more || reached_window_start {
-            break;
-        }
-        if count == 0 || new_ids == 0 {
-            anyhow::bail!("subagent session pagination made no progress");
-        }
-        let next_offset = offset.saturating_add(count);
-        if sessions.len() >= SUBAGENT_SESSION_SCAN_LIMIT
-            || next_offset >= SUBAGENT_SESSION_SCAN_LIMIT
-        {
-            anyhow::bail!("subagent session scan exceeded the in-memory safety limit");
-        }
-        offset = next_offset;
     }
     Ok(sessions.into_values().collect())
 }
