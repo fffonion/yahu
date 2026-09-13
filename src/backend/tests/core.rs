@@ -156,6 +156,18 @@
             ),
             "",
         );
+        assert_eq!(
+            session_preview_from_raw_content(
+                "[Alliumcepa Triplef] [IMPORTANT: Background process proc_d7d7ff6091cd completed normally (exit code 0).\nCommand: bash run-final-python-suite.sh\nOK\n]",
+            ),
+            "",
+        );
+        assert_eq!(
+            session_preview_from_raw_content(
+                "[Alliumcepa Triplef] [IMPORTANT: 2 background processes completed for this session.\nTreat these results as one completion batch.",
+            ),
+            "",
+        );
     }
 
     #[test]

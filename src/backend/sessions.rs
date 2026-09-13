@@ -1223,6 +1223,11 @@ fn is_session_preview_marker(text: &str) -> bool {
     if first_line.is_empty() || known_marker(first_line) {
         return !first_line.is_empty();
     }
+    if let Some(bracketed) = first_line.strip_prefix('[')
+        && known_marker(bracketed)
+    {
+        return true;
+    }
     let Some(close) = first_line.find(']') else {
         return false;
     };
