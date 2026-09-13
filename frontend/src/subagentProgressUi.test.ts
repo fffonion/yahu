@@ -37,6 +37,7 @@ describe('subagent progress UI', () => {
     expect(app()).toContain('subagentPrecedingFallbackIds(rows.map((row) => {');
     expect(app()).toContain('scheduleSubagentWindowUpdate();');
     expect(app()).toContain('new ResizeObserver(scheduleSubagentWindowUpdate)');
+    expect(app()).toContain('window.setTimeout(() => { updateActiveNavigatorIds(); updateSubagentWindow(); }, 360);');
     expect(app()).toContain('observer.observe(scroller);');
     expect(app()).toContain('}, 150);');
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');

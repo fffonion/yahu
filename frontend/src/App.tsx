@@ -3940,7 +3940,8 @@ function ChatMain(props: ChatMainProps) {
     const raf = requestAnimationFrame(updateActiveNavigatorIds);
     const windowRaf = requestAnimationFrame(updateSubagentWindow);
     const timer = window.setTimeout(() => { updateActiveNavigatorIds(); updateSubagentWindow(); }, 80);
-    return () => { cancelAnimationFrame(raf); cancelAnimationFrame(windowRaf); window.clearTimeout(timer); };
+    const delayedTimer = window.setTimeout(() => { updateActiveNavigatorIds(); updateSubagentWindow(); }, 360);
+    return () => { cancelAnimationFrame(raf); cancelAnimationFrame(windowRaf); window.clearTimeout(timer); window.clearTimeout(delayedTimer); };
   }, [visibleMessages.length, props.activeSessionId, props.userMessageNav, props.showReasoning, props.showToolCalls, updateActiveNavigatorIds, updateSubagentWindow]);
   useLayoutEffect(() => {
     const scroller = props.chatScrollRef.current;

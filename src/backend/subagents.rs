@@ -963,13 +963,14 @@ fn subagent_membership_or_missing(
     let mut current = session_id.to_string();
     let mut seen = HashSet::new();
     while seen.insert(current.clone()) {
+        if current == parent_session_id {
+            return Ok(true);
+        }
         let Some(session) = sessions_by_id.get(&current) else {
             return Err(current);
         };
-        if current != session_id && !is_subagent_session(session) {
-            // A normal conversation continuation ends the subagent lineage.
-            return Ok(false);
-        }
+        // A source-inherited child may use ordinary continuation sessions as
+        // parents; resolve the full chain before deciding membership.
         if let Some(lineage_root) = string_field(session, "_lineage_root_id") {
             return Ok(lineage_root == parent_session_id);
         }
@@ -1347,9 +1348,9 @@ fn select_visible_subagent_sessions(
                 let Some(session) = session_by_id.get(&current) else {
                     return false;
                 };
-                if !is_subagent_session(session) {
-                    return false;
-                }
+                // Inherited-source children can be nested below ordinary
+                // conversation continuations; only the candidate itself must
+                // be a subagent, while the chain still has to reach the root.
                 if string_field(session, "_lineage_root_id").as_deref() == Some(parent_session_id) {
                     return true;
                 }

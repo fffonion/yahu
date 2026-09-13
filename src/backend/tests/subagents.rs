@@ -1152,7 +1152,7 @@
     }
 
     #[test]
-    fn subagent_projection_does_not_cross_a_non_subagent_continuation() {
+    fn subagent_projection_follows_a_subagent_through_a_non_subagent_continuation() {
         let sessions = vec![
             serde_json::json!({
                 "id": "telegram-continuation",
@@ -1172,7 +1172,13 @@
 
         let visible = select_visible_subagent_sessions("parent", &sessions, 1_000.0);
 
-        assert!(visible.is_empty());
+        assert_eq!(
+            visible
+                .iter()
+                .filter_map(|session| string_field(session, "id"))
+                .collect::<Vec<_>>(),
+            vec!["nested-subagent"],
+        );
     }
 
     #[test]
