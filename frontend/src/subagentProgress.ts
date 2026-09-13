@@ -272,10 +272,6 @@ export function latestSubagentRows(nodes: SubagentTreeNode[], limit = SUBAGENT_D
   return nodes.slice(0, Math.max(0, limit));
 }
 
-export function shouldAutoExpandSubagentPanel(sessionId: string, autoExpandedSessionId: string, subagentCount: number): boolean {
-  return Boolean(sessionId) && sessionId !== autoExpandedSessionId && subagentCount > 1;
-}
-
 export function subagentElapsedSeconds(subagent: SubagentProgress, nowSeconds: number): number {
   if (!subagent.startedAt) return 0;
   return Math.max(0, Math.round((subagent.endedAt || nowSeconds) - subagent.startedAt));

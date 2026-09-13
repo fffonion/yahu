@@ -20,7 +20,6 @@ import {
   subagentMessagesUrl,
   subagentSnapshotUrl,
   subagentWebSocketUrl,
-  shouldAutoExpandSubagentPanel,
   type PersistentGoal,
   type PersistentGoalStatus,
   type SubagentProgress,
@@ -44,7 +43,6 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
   const detailTreeRef = useRef<HTMLDivElement>(null);
   const followLatestDetailRef = useRef(true);
-  const autoExpandedSessionRef = useRef('');
 
   const scrollToLatestDetail = useCallback((force: boolean) => {
     if (force) followLatestDetailRef.current = true;
@@ -84,7 +82,6 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     setOpenNodeIds(new Set());
     setDetailCache({});
     followLatestDetailRef.current = true;
-    autoExpandedSessionRef.current = '';
   }, [sessionId]);
 
   useEffect(() => {
@@ -169,13 +166,6 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       socket?.close();
     };
   }, [beforeTime, sessionId]);
-
-  useEffect(() => {
-    const subagentCount = snapshot?.subagents.length || 0;
-    if (!snapshot || snapshot.sessionId !== sessionId || !shouldAutoExpandSubagentPanel(sessionId, autoExpandedSessionRef.current, subagentCount)) return;
-    autoExpandedSessionRef.current = sessionId;
-    setExpanded(true);
-  }, [sessionId, snapshot?.sessionId, snapshot?.subagents.length]);
 
   const runningCount = snapshot?.subagents.filter((item) => item.status === 'running').length || 0;
   const running = runningCount > 0;
