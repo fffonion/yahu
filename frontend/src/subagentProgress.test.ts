@@ -3,6 +3,8 @@ import * as subagentProgressModule from './subagentProgress';
 import {
   buildSubagentTree,
   createSubagentSnapshotGuard,
+  formatSubagentCompletionAge,
+  formatSubagentDurationCompact,
   formatSubagentFinalMessages,
   goalElapsedMinutes,
   latestSubagent,
@@ -221,6 +223,13 @@ describe('subagent progress websocket projection', () => {
     expect(latestSubagentRows(tree).map((item) => item.sessionId)).toEqual(
       Array.from({ length: 10 }, (_, index) => `child-${index}`),
     );
+  });
+
+  test('formats completed time and duration in the compact subtitle form', () => {
+    expect(formatSubagentCompletionAge(2 * 60 * 60 + 12)).toBe('2h');
+    expect(formatSubagentCompletionAge(23 * 60 + 8)).toBe('23m');
+    expect(formatSubagentDurationCompact(23 * 60 + 8)).toBe('23m8s');
+    expect(formatSubagentDurationCompact(2 * 60 * 60 + 3 * 60 + 8)).toBe('2h3m8s');
   });
 
   test('selects the latest subagent for the collapsed panel preview', () => {

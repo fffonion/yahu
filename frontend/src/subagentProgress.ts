@@ -293,6 +293,27 @@ export function formatSubagentElapsed(seconds: number): string {
   return `${rest}s`;
 }
 
+export function formatSubagentCompletionAge(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(whole / 86_400);
+  if (days > 0) return `${days}d`;
+  const hours = Math.floor(whole / 3_600);
+  if (hours > 0) return `${hours}h`;
+  const minutes = Math.floor(whole / 60);
+  if (minutes > 0) return `${minutes}m`;
+  return `${whole}s`;
+}
+
+export function formatSubagentDurationCompact(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(whole / 3_600);
+  const minutes = Math.floor((whole % 3_600) / 60);
+  const rest = whole % 60;
+  if (hours > 0) return `${hours}h${minutes}m${rest}s`;
+  if (minutes > 0) return `${minutes}m${rest}s`;
+  return `${rest}s`;
+}
+
 function normalizeGoalMilestone(value: unknown): GoalMilestone | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;

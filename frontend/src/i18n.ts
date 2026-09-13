@@ -81,6 +81,7 @@ const translations: Record<string, Record<string, string>> = {
   'subagents.todoProgress': { en: '{0}/{1} tasks', 'zh-CN': '{0}/{1} 任务', 'zh-TW': '{0}/{1} 任務', ja: 'タスク {0}/{1}' },
   'subagents.finished': { en: 'Finished', 'zh-CN': '已结束', 'zh-TW': '已結束', ja: '完了' },
   'subagents.completed': { en: 'Completed', 'zh-CN': '已完成', 'zh-TW': '完了', ja: '完了' },
+  'subagents.completedAgo': { en: '{0} ago', 'zh-CN': '{0}前', 'zh-TW': '{0}前', ja: '{0}前' },
   'subagents.failed': { en: 'Failed', 'zh-CN': '失败', 'zh-TW': '失敗', ja: '失敗' },
   'subagents.interrupted': { en: 'Interrupted', 'zh-CN': '已中断', 'zh-TW': '已中斷', ja: '中断' },
   'subagents.timeout': { en: 'Timed out', 'zh-CN': '已超时', 'zh-TW': '已逾時', ja: 'タイムアウト' },

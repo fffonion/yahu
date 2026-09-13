@@ -61,6 +61,16 @@ describe('subagent progress UI', () => {
     expect(source).toContain('assistantName={node.model}');
   });
 
+  test('shows completion age and duration before the model for completed subagents', () => {
+    const source = card();
+    expect(source).toContain('formatSubagentCompletionAge');
+    expect(source).toContain('formatSubagentDurationCompact');
+    expect(source).toContain('function completedSubagentSubtitle(node: SubagentProgress, nowSeconds: number)');
+    expect(source).toContain("if (node.status !== 'completed') return '';");
+    expect(source).toContain('completedSubagentSubtitle(node, nowSeconds)');
+    expect(i18n()).toContain("'subagents.completedAgo': { en: '{0} ago', 'zh-CN': '{0}前', 'zh-TW': '{0}前', ja: '{0}前' }");
+  });
+
   test('lazy-loads full conversation detail while keeping only one child expanded across snapshot replacements', () => {
     const source = card();
     expect(source).toContain("const [openNodeIds, setOpenNodeIds] = useState<Set<string>>(() => new Set());");
