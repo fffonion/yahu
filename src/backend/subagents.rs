@@ -8,7 +8,7 @@ const SUBAGENT_API_DETAIL_BYTE_LIMIT: usize = 4 * 1024 * 1024;
 const SUBAGENT_PARENT_MESSAGE_PAGE_SIZE: usize = 500;
 const SUBAGENT_PARENT_MESSAGE_SCAN_LIMIT: usize = 20_000;
 const SUBAGENT_ANCESTOR_RESOLUTION_LIMIT: usize = 200;
-const SUBAGENT_VISIBLE_LIMIT: usize = 100;
+const SUBAGENT_VISIBLE_LIMIT: usize = 10;
 const API_DISCOVERED_SUBAGENT_FIELD: &str = "_yahu_api_discovered_subagent";
 const SUBAGENT_LOOKBACK_SECONDS: f64 = 48.0 * 60.0 * 60.0;
 const SUBAGENT_STALE_RUNNING_SECONDS: f64 = 900.0;
@@ -1195,9 +1195,15 @@ fn preview_matches_delegate_goal(preview: &str, goals: &HashSet<String>) -> bool
     if preview.len() < 8 {
         return false;
     }
+    let truncated_prefix = preview
+        .strip_suffix("...")
+        .or_else(|| preview.strip_suffix('…'))
+        .map(str::trim_end)
+        .filter(|prefix| prefix.chars().count() >= 24);
     goals.iter().any(|goal| {
         goal == &preview
             || (goal.len() >= 8 && (goal.contains(&preview) || preview.contains(goal)))
+            || truncated_prefix.is_some_and(|prefix| goal.starts_with(prefix))
     })
 }
 

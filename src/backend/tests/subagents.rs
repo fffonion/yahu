@@ -697,7 +697,9 @@
     }
 
     #[test]
-    fn api_goal_preview_discovers_an_inherited_source_child_without_crossing_continuations() {
+    fn api_goal_preview_discovers_a_truncated_inherited_source_child_without_crossing_continuations() {
+        let goal = "Implement the already-RED authority-safe ChannelData PendPush/EngineChannelWrite internal executor now, update tests, verify and commit. No broad survey, no production activation, no push.";
+        let preview = format!("{}...", &goal[..60]);
         let messages = vec![serde_json::json!({
             "role": "assistant",
             "timestamp": 100.0,
@@ -705,7 +707,7 @@
                 "id": "call-1",
                 "function": {
                     "name": "delegate_task",
-                    "arguments": "{\"goal\":\"Review WebRTC session listing\"}"
+                    "arguments": serde_json::json!({"goal": goal}).to_string()
                 }
             }]
         })];
@@ -715,7 +717,7 @@
                 "id": "inherited-child",
                 "source": "telegram",
                 "parent_session_id": "parent",
-                "preview": "Review WebRTC session listing"
+                "preview": preview
             }),
             serde_json::json!({
                 "id": "ordinary-continuation",
@@ -764,7 +766,7 @@
     }
 
     #[test]
-    fn visible_subagent_sessions_include_a_batch_larger_than_the_legacy_limit() {
+    fn visible_subagent_sessions_apply_the_ten_item_display_limit() {
         let window_end = 500_000.0;
         let sessions = (0..44)
             .map(|index| {
@@ -780,7 +782,7 @@
 
         let visible = select_visible_subagent_sessions("parent", &sessions, window_end);
 
-        assert_eq!(visible.len(), 44);
+        assert_eq!(visible.len(), 10);
     }
 
     #[test]
@@ -800,7 +802,7 @@
     }
 
     #[test]
-    fn visible_subagent_sessions_follow_the_backward_48_hour_window_without_a_ten_item_cap() {
+    fn visible_subagent_sessions_follow_the_backward_48_hour_window_with_a_ten_item_cap() {
         assert_eq!(SUBAGENT_LOOKBACK_SECONDS, 172_800.0);
         let window_end = 200_000.0;
         let mut sessions = (0..12)
@@ -825,10 +827,12 @@
             .filter_map(|item| item.get("id").and_then(Value::as_str))
             .collect::<Vec<_>>();
 
-        assert_eq!(visible.len(), 14);
-        assert_eq!(ids[0], "root-0");
-        assert_eq!(ids[1], "nested");
-        assert!(ids.contains(&"old-completed"));
+        assert_eq!(visible.len(), 10);
+        assert_eq!(
+            ids,
+            vec!["root-0", "nested", "root-1", "root-2", "root-3", "root-4", "root-5", "root-6", "root-7", "root-8"],
+        );
+        assert!(!ids.contains(&"old-completed"));
         assert!(!ids.contains(&"future"));
         assert!(!ids.contains(&"too-old"));
         assert!(!ids.contains(&"other"));
