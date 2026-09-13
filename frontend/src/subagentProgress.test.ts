@@ -166,24 +166,23 @@ describe('subagent progress websocket projection', () => {
     expect(parseSubagentFinalStructuredContent('null')).toEqual({ value: null });
   });
 
-  test('builds a nested tree from parent session ids', () => {
+  test('keeps every subagent as a flat row even when lineage has parent ids', () => {
     const snapshot = normalizeSubagentSnapshot({
       type: 'subagents.snapshot',
       session_id: 'parent',
       subagents: [
-        { session_id: 'root', parent_session_id: 'parent', task: 'Root', status: 'completed' },
-        { session_id: 'leaf', parent_session_id: 'root', task: 'Leaf', status: 'running' },
+        { session_id: 'root', parent_session_id: 'parent', task: 'Root', status: 'completed', started_at: 10 },
+        { session_id: 'leaf', parent_session_id: 'root', task: 'Leaf', status: 'running', started_at: 20 },
       ],
     }, 'parent')!;
 
     const tree = buildSubagentTree(snapshot.subagents, 'parent');
 
-    expect(tree).toHaveLength(1);
-    expect(tree[0].sessionId).toBe('root');
-    expect(tree[0].children.map((item) => item.sessionId)).toEqual(['leaf']);
+    expect(tree.map((item) => item.sessionId)).toEqual(['leaf', 'root']);
+    expect(tree.every((item) => item.children.length === 0)).toBe(true);
   });
 
-  test('orders recent root and nested subagent lists newest first', () => {
+  test('orders all flat subagent rows newest first', () => {
     const snapshot = normalizeSubagentSnapshot({
       type: 'subagents.snapshot',
       session_id: 'parent',
@@ -198,8 +197,8 @@ describe('subagent progress websocket projection', () => {
 
     const tree = buildSubagentTree(snapshot.subagents, 'parent');
 
-    expect(tree.map((item) => item.sessionId)).toEqual(['new', 'middle', 'old']);
-    expect(tree[0].children.map((item) => item.sessionId)).toEqual(['child-new', 'child-old']);
+    expect(tree.map((item) => item.sessionId)).toEqual(['child-new', 'child-old', 'new', 'middle', 'old']);
+    expect(tree.every((item) => item.children.length === 0)).toBe(true);
   });
 
   test('selects the latest subagent for the collapsed panel preview', () => {

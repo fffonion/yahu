@@ -51,7 +51,9 @@ describe('subagent progress UI', () => {
     expect(source).toContain('formatSubagentFinalMessages(messages)');
     expect(source).toContain('structuredContent: parseSubagentFinalStructuredContent(node.summary)');
 
-    expect(source).toContain('<SubagentProgressNode key={child.sessionId}');
+    expect(source).toContain('<SubagentProgressNode key={node.sessionId}');
+    expect(source).not.toContain('subagent-progress-children');
+    expect(css()).not.toContain('.subagent-progress-children');
 
     expect(source).toContain('className="subagent-progress-model"');
     expect(source).toContain('assistantName={node.model}');

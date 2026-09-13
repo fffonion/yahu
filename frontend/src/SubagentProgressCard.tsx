@@ -365,7 +365,6 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
         {detailMessages.length > 0 && <div className="subagent-progress-messages"><ChatTranscript messages={detailMessages} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} assistantName={node.model} /></div>}
       </div>
     </details>
-    {node.children.length > 0 && <div className="subagent-progress-children">{node.children.map((child) => <SubagentProgressNode key={child.sessionId} node={child} openNodeIds={openNodeIds} onOpenChange={onOpenChange} detailCache={detailCache} onMessagesLoaded={onMessagesLoaded} nowSeconds={nowSeconds} depth={depth + 1} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={onDetailOpen} onDetailContentChange={onDetailContentChange} />)}</div>}
   </div>;
 }
 

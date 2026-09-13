@@ -259,22 +259,10 @@ export function isSubagentDetailNearBottom(metrics: Pick<HTMLElement, 'scrollTop
   return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= thresholdPx;
 }
 
-export function buildSubagentTree(subagents: SubagentProgress[], parentSessionId: string): SubagentTreeNode[] {
-  const nodes = new Map<string, SubagentTreeNode>();
-  for (const subagent of subagents) nodes.set(subagent.sessionId, { ...subagent, children: [] });
-
-  const roots: SubagentTreeNode[] = [];
-  for (const node of nodes.values()) {
-    const parent = nodes.get(node.parentSessionId);
-    if (parent && parent !== node) parent.children.push(node);
-    else if (node.parentSessionId === parentSessionId || !parent) roots.push(node);
-  }
-  const sortTree = (items: SubagentTreeNode[]) => {
-    items.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
-    items.forEach((item) => sortTree(item.children));
-  };
-  sortTree(roots);
-  return roots;
+export function buildSubagentTree(subagents: SubagentProgress[], _parentSessionId: string): SubagentTreeNode[] {
+  return subagents
+    .map((subagent) => ({ ...subagent, children: [] }))
+    .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
 }
 
 export function subagentElapsedSeconds(subagent: SubagentProgress, nowSeconds: number): number {
