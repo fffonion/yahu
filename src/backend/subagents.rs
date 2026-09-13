@@ -974,6 +974,15 @@ fn subagent_membership_or_missing(
         if let Some(lineage_root) = string_field(session, "_lineage_root_id") {
             return Ok(lineage_root == parent_session_id);
         }
+        if is_session_switch_continuation(
+            session,
+            string_field(session, "parent_session_id")
+                .and_then(|parent_id| sessions_by_id.get(&parent_id)),
+        ) {
+            // A delegated child that became the conversation continuation is a
+            // parent session, never a subagent row.
+            return Ok(false);
+        }
         let Some(parent) = string_field(session, "parent_session_id") else {
             return Ok(false);
         };
@@ -983,6 +992,17 @@ fn subagent_membership_or_missing(
         current = parent;
     }
     Ok(false)
+}
+
+/// A same-source child whose parent ended with `session_switch` is a transcript
+/// continuation of that parent, not a subagent. Pure in-memory check over rows
+/// already fetched from the session list; adds no I/O and no retained state.
+fn is_session_switch_continuation(child: &Value, parent: Option<&Value>) -> bool {
+    let Some(parent) = parent else {
+        return false;
+    };
+    string_field(parent, "end_reason").as_deref() == Some("session_switch")
+        && string_field(child, "source") == string_field(parent, "source")
 }
 
 fn has_delegate_marker(session: &Value) -> bool {
@@ -1344,6 +1364,7 @@ fn select_visible_subagent_sessions(
                 return false;
             };
             let mut seen = HashSet::new();
+            let mut first_hop = true;
             while seen.insert(current.clone()) {
                 let Some(session) = session_by_id.get(&current) else {
                     return false;
@@ -1354,6 +1375,18 @@ fn select_visible_subagent_sessions(
                 if string_field(session, "_lineage_root_id").as_deref() == Some(parent_session_id) {
                     return true;
                 }
+                if first_hop
+                    && is_session_switch_continuation(
+                        session,
+                        string_field(session, "parent_session_id")
+                            .and_then(|parent_id| session_by_id.get(&parent_id).copied()),
+                    )
+                {
+                    // A delegated child that became the conversation
+                    // continuation is a parent session, never a subagent row.
+                    return false;
+                }
+                first_hop = false;
                 let Some(parent) = string_field(session, "parent_session_id") else {
                     return false;
                 };

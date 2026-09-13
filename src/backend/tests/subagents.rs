@@ -1152,6 +1152,49 @@
     }
 
     #[test]
+    fn subagent_projection_excludes_session_switch_continuations_marked_as_delegates() {
+        // Regression: a delegated child that inherits the parent source becomes the
+        // conversation continuation after the parent ends with session_switch.
+        // Goal-preview delegate markers must not render it as a subagent row.
+        let sessions = vec![
+            serde_json::json!({
+                "id": "root",
+                "parent_session_id": null,
+                "source": "telegram",
+                "end_reason": "session_switch",
+                "started_at": 100.0,
+                "ended_at": 150.0,
+            }),
+            serde_json::json!({
+                "id": "delegate-continuation",
+                "parent_session_id": "root",
+                "source": "telegram",
+                "end_reason": "session_switch",
+                "started_at": 900.0,
+                "ended_at": null,
+                "_yahu_api_discovered_subagent": true,
+            }),
+            serde_json::json!({
+                "id": "real-subagent",
+                "parent_session_id": "delegate-continuation",
+                "source": "subagent",
+                "started_at": 901.0,
+                "ended_at": null,
+            }),
+        ];
+
+        let visible = select_visible_subagent_sessions("root", &sessions, 1_000.0);
+
+        assert_eq!(
+            visible
+                .iter()
+                .filter_map(|session| string_field(session, "id"))
+                .collect::<Vec<_>>(),
+            vec!["real-subagent"],
+        );
+    }
+
+    #[test]
     fn subagent_projection_follows_a_subagent_through_a_non_subagent_continuation() {
         let sessions = vec![
             serde_json::json!({
