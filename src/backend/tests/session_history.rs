@@ -179,6 +179,52 @@
     }
 
     #[tokio::test]
+    async fn session_history_excludes_reset_child_of_a_live_parent() {
+        // A /new reset child whose parent stayed open is a separate user-visible
+        // conversation; stitching the parent's transcript into the child's view
+        // duplicates the parent session in the chat UI.
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        // Parent never ended (end_reason NULL): the user /new'd a side session,
+        // chatted there, then resumed back into the parent.
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('live-parent',NULL,1,NULL,'telegram')", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('reset-child','live-parent',2,NULL,'telegram')", []).unwrap();
+        for (sid, content) in [("live-parent", "parent message"), ("reset-child", "child message")] {
+            conn.execute(
+                "INSERT INTO messages (session_id,role,content,timestamp,active) VALUES (?1,'user',?2,1,1)",
+                rusqlite::params![sid, content],
+            ).unwrap();
+        }
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        let messages = fetch_all_session_messages_for_context(&state, "reset-child").await.unwrap();
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["session_id"], "reset-child");
+        assert_eq!(messages[0]["content"], "child message");
+    }
+
+    #[tokio::test]
     async fn chat_history_includes_reset_predecessor_for_same_thread() {
         async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
             Json(serde_json::json!({

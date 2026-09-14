@@ -684,7 +684,11 @@
              );",
         )
         .unwrap();
-        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,source) VALUES ('s0',NULL,1,'telegram')", []).unwrap();
+        // s0 ended at a reset boundary: s1 is its reset successor, so the
+        // stitched lineage (s0 + s1) is one user-visible conversation. A live
+        // parent (resume-back shape) is covered by
+        // session_history_excludes_reset_child_of_a_live_parent.
+        conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,end_reason,source) VALUES ('s0',NULL,1,'session_reset','telegram')", []).unwrap();
         conn.execute("INSERT INTO sessions (id,parent_session_id,started_at,source) VALUES ('s1','s0',2,'telegram')", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,timestamp,active) VALUES ('s0','user','prompt',1,1)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,tool_calls,timestamp,active) VALUES ('s1','assistant','working','[{\"id\":\"call-1\"}]',2,1)", []).unwrap();

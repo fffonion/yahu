@@ -594,6 +594,53 @@
     }
 
     #[test]
+    fn session_list_hides_dead_switch_child_under_resumed_reset_parent() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                title TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                model_config TEXT
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        // The parent was reset away from, then resumed back (both end fields cleared).
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id,model_config) VALUES ('resumed-parent',NULL,'阅读连裤袜',1,NULL,NULL,'telegram','same-key','chat',NULL,'{}')", []).unwrap();
+        // The reset child was chatted with briefly, then switched away from for good.
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id,model_config) VALUES ('dead-switch-child','resumed-parent','友好问候 #3',2,3,'session_switch','telegram','same-key','chat',NULL,'{\"_reset_from\":\"resumed-parent\"}')", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('resumed-parent','assistant','main transcript',1)", []).unwrap();
+        conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('dead-switch-child','assistant','greeting',1)", []).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let rows = vec![
+            serde_json::json!({"id":"dead-switch-child","source":"telegram","title":"友好问候 #3","started_at":2.0,"ended_at":3.0,"end_reason":"session_switch"}),
+            serde_json::json!({"id":"resumed-parent","source":"telegram","title":"阅读连裤袜","started_at":1.0,"ended_at":null}),
+        ];
+
+        let rows = session_rows_with_local_lineage(&state, rows);
+        let rows = enrich_session_rows_with_local_previews(&state, rows);
+
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["resumed-parent"]);
+        assert_eq!(rows[0]["preview"], "main transcript");
+    }
+
+    #[test]
     fn canonical_session_id_follows_same_source_session_switch_parent() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");

@@ -918,11 +918,17 @@ fn filter_session_rows_shadowed_by_local_successors(
         .filter_map(|row| row.get("id").and_then(|value| value.as_str()).filter(|id| !id.is_empty()))
         .map(str::to_string)
         .collect::<HashSet<_>>();
-    let mut statement = conn.prepare(
-        "SELECT id, parent_session_id, started_at, ended_at, end_reason, session_key, source, chat_id, thread_id, title
+    let has_model_config = sqlite_table_has_columns(&conn, "sessions", &["model_config"])?;
+    let reset_from_select = if has_model_config {
+        "json_extract(COALESCE(model_config, '{}'), '$._reset_from') AS reset_from"
+    } else {
+        "NULL AS reset_from"
+    };
+    let mut statement = conn.prepare(&format!(
+        "SELECT id, parent_session_id, started_at, ended_at, end_reason, session_key, source, chat_id, thread_id, title, {reset_from_select}
          FROM sessions
          ORDER BY started_at ASC",
-    )?;
+    ))?;
     let metadata = statement
         .query_map([], |row| {
             Ok(LocalSessionListMetadata {
@@ -936,6 +942,7 @@ fn filter_session_rows_shadowed_by_local_successors(
                 chat_id: row.get(7)?,
                 thread_id: row.get(8)?,
                 title: row.get(9)?,
+                reset_from: row.get(10)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -961,6 +968,57 @@ fn filter_session_rows_shadowed_by_local_successors(
                 .map(|parent| (current.id.clone(), parent.id.clone()))
         })
         .collect::<HashMap<_, _>>();
+    let mut parents_with_children = HashSet::<&str>::new();
+    for session in &metadata {
+        if let Some(parent_id) = session
+            .parent_session_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            parents_with_children.insert(parent_id);
+        }
+    }
+    let switch_dead_end_hidden = row_ids
+        .iter()
+        .filter(|session_id| {
+            let Some(current) = metadata_by_id.get(session_id.as_str()) else {
+                return false;
+            };
+            if current.end_reason.as_deref() != Some("session_switch") {
+                return false;
+            }
+            let Some(parent_id) = current
+                .parent_session_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            else {
+                return false;
+            };
+            // Only explicit reset children; the resume-back flow keeps this marker so the child
+            // stays listable after the parent clears its end fields.
+            if current.reset_from.as_deref().map(str::trim) != Some(parent_id) {
+                return false;
+            }
+            let Some(parent) = metadata_by_id.get(parent_id) else {
+                return false;
+            };
+            // The parent must be live again and present in this list.
+            if parent.end_reason.is_some() || parent.ended_at.is_some() || !row_ids.contains(parent_id) {
+                return false;
+            }
+            if current.source != parent.source
+                || current.session_key.is_none()
+                || current.session_key != parent.session_key
+                || current.chat_id != parent.chat_id
+                || current.thread_id != parent.thread_id
+            {
+                return false;
+            }
+            // A dead end: nothing continues the conversation from this child.
+            !parents_with_children.contains(session_id.as_str())
+        })
+        .cloned()
+        .collect::<HashSet<_>>();
 
     let mut grouped = Vec::with_capacity(rows.len());
     let mut grouped_indices = HashMap::<String, usize>::new();
@@ -974,7 +1032,7 @@ fn filter_session_rows_shadowed_by_local_successors(
             grouped.push(row);
             continue;
         };
-        if reset_hidden.contains(&raw_id) {
+        if reset_hidden.contains(&raw_id) || switch_dead_end_hidden.contains(&raw_id) {
             continue;
         }
         let canonical_id = switch_parent_by_child
@@ -1013,6 +1071,7 @@ struct LocalSessionListMetadata {
     chat_id: Option<String>,
     thread_id: Option<String>,
     title: Option<String>,
+    reset_from: Option<String>,
 }
 
 fn local_session_reset_successor_from_metadata<'a>(
@@ -2354,6 +2413,25 @@ fn parsed_json_string_field(value: Option<String>) -> serde_json::Value {
     }
 }
 
+/// True when the session row carries an explicit parent link (a /new or /branch
+/// child); such rows know their real predecessor and must not use the same-key
+/// time-window heuristic.
+fn has_parent_session_link(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<bool> {
+    let parent: Option<Option<String>> = conn
+        .query_row(
+            "SELECT parent_session_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(parent
+        .flatten()
+        .is_some_and(|value| !value.trim().is_empty()))
+}
+
 fn local_session_lineage_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -2379,15 +2457,57 @@ fn local_session_lineage_entries(
             }
             break;
         };
+        let entry_id = id.clone();
         entries.push(SessionLineageEntry {
             id,
             parent_session_id: parent.clone().filter(|value| !value.trim().is_empty()),
             end_reason,
         });
-        current = parent.filter(|value| !value.trim().is_empty());
+        let Some(parent) = parent.filter(|value| !value.trim().is_empty()) else {
+            break;
+        };
+        if !lineage_parent_ended_or_branched(conn, &entry_id, &parent)? {
+            // A live parent (e.g. a /new side session the user later resumed
+            // away from) means this child is a separate user-visible
+            // conversation; its transcript must not stitch the parent in.
+            break;
+        }
+        current = Some(parent);
     }
     entries.reverse();
     Ok(entries)
+}
+
+/// The lineage walk may only cross into a parent that ended at a conversation
+/// boundary (reset/switch/compression/...), or whose child is an explicit
+/// /branch fork that intentionally shares the parent's history.
+fn lineage_parent_ended_or_branched(
+    conn: &rusqlite::Connection,
+    child_id: &str,
+    parent_id: &str,
+) -> rusqlite::Result<bool> {
+    let parent_ended: Option<Option<String>> = conn
+        .query_row(
+            "SELECT end_reason FROM sessions WHERE id = ?1",
+            [parent_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if parent_ended.flatten().is_some() {
+        return Ok(true);
+    }
+    if !sqlite_table_has_columns(conn, "sessions", &["model_config"])? {
+        return Ok(false);
+    }
+    let branched: Option<i64> = conn
+        .query_row(
+            "SELECT json_extract(COALESCE(model_config, '{}'), '$._branched_from') IS NOT NULL
+             FROM sessions WHERE id = ?1",
+            [child_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(branched.unwrap_or(0) != 0)
 }
 
 fn sqlite_table_has_columns(
@@ -2428,6 +2548,13 @@ fn local_session_reset_predecessor_id(
     )? {
         return Ok(None);
     }
+    if has_parent_session_link(conn, session_id)? {
+        // A reset child knows its actual parent row. When that parent stayed
+        // live (reopened by a resume-back) this child is an independent /new
+        // side session with no stitched predecessor; the time-window heuristic
+        // below would otherwise graft an older same-key conversation onto it.
+        return Ok(None);
+    }
     let row: Option<SessionResetLookupRow> = conn
         .query_row(
             "SELECT started_at, session_key, source, chat_id, thread_id FROM sessions WHERE id = ?1",
@@ -2438,6 +2565,13 @@ fn local_session_reset_predecessor_id(
     let Some((started_at, session_key, source, chat_id, thread_id)) = row else {
         return Ok(None);
     };
+    if has_parent_session_link(conn, session_id)? {
+        // A reset child knows its actual parent row. When that parent stayed
+        // live (reopened by a resume-back) this child is an independent /new
+        // side session with no stitched predecessor; the time-window heuristic
+        // below would otherwise graft an older same-key conversation onto it.
+        return Ok(None);
+    }
     if let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) {
         return conn
             .query_row(
@@ -3886,6 +4020,10 @@ async fn fetch_context_window_messages(
 
 async fn session_history_entries(state: &AppState, session_id: &str) -> Vec<SessionLineageEntry> {
     let mut entries = session_lineage_entries(state, session_id).await;
+    // The API-backed parent walk cannot see whether a parent row stayed live
+    // (reopened by a resume-back), so a /new side session would drag its
+    // parent's transcript along. Trim the same live-parent links locally.
+    trim_live_parent_links(state, &mut entries);
     match fetch_local_history_entries(state, session_id) {
         Ok(Some(local_entries)) if local_entries.len() > entries.len() => {
             entries = local_entries;
@@ -3894,6 +4032,39 @@ async fn session_history_entries(state: &AppState, session_id: &str) -> Vec<Sess
         Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local session history metadata"),
     }
     entries
+}
+
+/// Drop lineage links whose parent row is still live (no end boundary) unless
+/// the child is an explicit /branch fork. Mirrors the guard in
+/// `local_session_lineage_entries` for entry lists built outside state.db.
+fn trim_live_parent_links(state: &AppState, entries: &mut Vec<SessionLineageEntry>) {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() || entries.len() < 2 {
+        return;
+    }
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return;
+    };
+    if !sqlite_table_has_columns(&conn, "sessions", &["end_reason", "model_config"]).unwrap_or(false) {
+        return;
+    }
+    for index in (1..entries.len()).rev() {
+        let keep = lineage_parent_ended_or_branched(
+            &conn,
+            &entries[index].id,
+            &entries[index - 1].id,
+        )
+        .unwrap_or(true);
+        if !keep {
+            // The requested session is the newest entry; a bad link detaches it
+            // from its ancestors, so drop the ancestor side entirely.
+            entries.drain(..index);
+            break;
+        }
+    }
 }
 
 async fn fetch_session_history_context_messages(
