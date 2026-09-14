@@ -1229,6 +1229,7 @@
             milestones: Vec::new(),
             last_reason: None,
             paused_reason: None,
+            source_session_id: "parent".to_string(),
         };
         assert_eq!(
             subagent_poll_delay(&[projection("completed")], Some(&active_goal), SUBAGENT_EMPTY_FAST_POLLS),
@@ -1350,4 +1351,61 @@
     fn subagent_websocket_uses_api_unauthorized_response_path() {
         let auth_source = include_str!("../auth.rs");
         assert!(auth_source.contains("path.starts_with(\"/chat/subagents\")"));
+    }
+
+    #[test]
+    fn persistent_goal_prefers_the_newest_family_incarnation() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE state_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('root',NULL,1,2,'session_switch','telegram','same-key','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('tip','root',10,NULL,NULL,'telegram','same-key','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('other',NULL,11,NULL,NULL,'telegram','other-key','chat','other')", []).unwrap();
+        for (key, goal, status, created) in [
+            ("goal:root", "stale paused plan", "paused", 100.0),
+            ("goal:tip", "current running plan", "active", 900.0),
+            ("goal:other", "unrelated chat plan", "active", 999.0),
+        ] {
+            conn.execute(
+                "INSERT INTO state_meta (key, value) VALUES (?1, ?2)",
+                rusqlite::params![
+                    key,
+                    serde_json::json!({"goal": goal, "status": status, "created_at": created}).to_string()
+                ],
+            )
+            .unwrap();
+        }
+        drop(conn);
+
+        let goal = load_persistent_goal(temp.path(), "root").unwrap().unwrap();
+        assert_eq!(goal.text, "current running plan");
+        assert_eq!(goal.status, "active");
+        assert_eq!(goal.created_at, 900.0);
+        assert_eq!(goal.source_session_id, "tip");
+
+        // The newest incarnation finishing the goal hides the whole family goal
+        // instead of resurrecting the older paused record.
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute(
+            "UPDATE state_meta SET value = ?1 WHERE key = 'goal:tip'",
+            rusqlite::params![
+                serde_json::json!({"goal": "current running plan", "status": "done", "created_at": 900.0}).to_string()
+            ],
+        )
+        .unwrap();
+        drop(conn);
+        assert!(load_persistent_goal(temp.path(), "root").unwrap().is_none());
     }

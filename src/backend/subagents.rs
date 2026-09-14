@@ -78,6 +78,8 @@ struct PersistentGoalProjection {
     last_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     paused_reason: Option<String>,
+    #[serde(skip_serializing)]
+    source_session_id: String,
 }
 
 #[derive(Serialize)]
@@ -164,12 +166,14 @@ async fn subagent_snapshot(
         }
     };
     if let Some(goal) = goal.as_mut() {
+        let goal_session_id = goal.source_session_id.clone();
+        let goal_created_at = goal.created_at;
         match timeout(
             SUBAGENT_POLL_TIMEOUT,
             fetch_parent_session_todos(
                 &state,
-                &session_id,
-                goal.created_at,
+                &goal_session_id,
+                goal_created_at,
                 &mut parent_todo_cache,
             ),
         )
@@ -358,12 +362,14 @@ async fn run_subagent_feed(
             }
         }
         if let Some(goal) = current_goal.as_mut() {
+            let goal_session_id = goal.source_session_id.clone();
+            let goal_created_at = goal.created_at;
             match timeout(
                 SUBAGENT_POLL_TIMEOUT,
                 fetch_parent_session_todos(
                     &state,
-                    &session_id,
-                    goal.created_at,
+                    &goal_session_id,
+                    goal_created_at,
                     &mut parent_todo_cache,
                 ),
             )
@@ -418,6 +424,62 @@ async fn run_subagent_feed(
     }
 }
 
+type GoalCandidateKeyRow = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Session ids whose `goal:` records may belong to the same visible chat:
+/// the requested id plus every segment sharing its session key.
+fn load_goal_candidate_session_ids(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let mut candidates = vec![session_id.to_string()];
+    if !sqlite_table_has_columns(
+        conn,
+        "sessions",
+        &["id", "started_at", "source", "session_key", "chat_id", "thread_id"],
+    )? {
+        return Ok(candidates);
+    }
+    let row: Option<GoalCandidateKeyRow> = conn
+        .query_row(
+            "SELECT source, session_key, chat_id, thread_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((source, session_key, chat_id, thread_id)) = row else {
+        return Ok(candidates);
+    };
+    let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) else {
+        return Ok(candidates);
+    };
+    let mut statement = conn.prepare(
+        "SELECT id FROM sessions
+         WHERE session_key = ?1
+           AND source IS ?2
+           AND chat_id IS ?3
+           AND thread_id IS ?4
+           AND COALESCE(source, '') != 'subagent'
+         ORDER BY started_at, id
+         LIMIT 200",
+    )?;
+    let ids = statement
+        .query_map(
+            rusqlite::params![session_key, source, chat_id, thread_id],
+            |row| row.get::<_, String>(0),
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !ids.is_empty() {
+        candidates = ids;
+    }
+    Ok(candidates)
+}
+
 fn load_persistent_goal(
     hermes_home: &Path,
     session_id: &str,
@@ -436,29 +498,57 @@ fn load_persistent_goal(
     if !sqlite_table_has_columns(&conn, "state_meta", &["key", "value"])? {
         return Ok(None);
     }
-    let raw = conn
-        .query_row(
-            "SELECT value FROM state_meta WHERE key = ?1",
-            [format!("goal:{session_id}")],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    let Some(raw) = raw else {
+    // The goal manager persists one record per session incarnation, so a chat
+    // that continued through compression/switch epochs keeps its live goal on
+    // the newest incarnation, not on the canonical (oldest) session id.
+    let candidate_ids = load_goal_candidate_session_ids(&conn, session_id)?;
+    let mut best: Option<(f64, f64, String, Value)> = None;
+    for candidate in &candidate_ids {
+        let raw = conn
+            .query_row(
+                "SELECT value FROM state_meta WHERE key = ?1",
+                [format!("goal:{candidate}")],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(raw) = raw else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        if string_field(&value, "goal").is_none() {
+            continue;
+        }
+        let candidate_created = number_field(&value, "created_at").unwrap_or_default();
+        let candidate_turn = number_field(&value, "last_turn_at").unwrap_or_default();
+        let replace = match best.as_ref() {
+            None => true,
+            Some((best_created, best_turn, _, _)) => candidate_created
+                .total_cmp(best_created)
+                .then_with(|| candidate_turn.total_cmp(best_turn))
+                == std::cmp::Ordering::Greater,
+        };
+        if replace {
+            best = Some((candidate_created, candidate_turn, candidate.clone(), value));
+        }
+    }
+    let Some((created_at, _rank_turn, goal_source_id, value)) = best else {
         return Ok(None);
     };
-    let value = serde_json::from_str::<Value>(&raw)?;
-    let Some(text) = string_field(&value, "goal") else {
-        return Ok(None);
-    };
+    // The newest record decides: a completed or cleared goal shows nothing —
+    // never fall back to an older incarnation's stale goal.
     let raw_status = string_field(&value, "status").unwrap_or_else(|| "active".to_string());
     if matches!(raw_status.as_str(), "done" | "cleared") {
         return Ok(None);
     }
+    let Some(text) = string_field(&value, "goal") else {
+        return Ok(None);
+    };
     let status = match raw_status.as_str() {
         "paused" => raw_status,
         _ => "active".to_string(),
     };
-    let created_at = number_field(&value, "created_at").unwrap_or_default();
     let subgoals = value
         .get("subgoals")
         .and_then(Value::as_array)
@@ -490,7 +580,7 @@ fn load_persistent_goal(
             })
         })
         .collect::<Vec<_>>();
-    let milestone_cache_key = format!("yahu:goal_milestones:{session_id}");
+    let milestone_cache_key = format!("yahu:goal_milestones:{goal_source_id}");
     let milestone_cache_raw = conn
         .query_row(
             "SELECT value FROM state_meta WHERE key = ?1",
@@ -561,6 +651,7 @@ fn load_persistent_goal(
             .map(|item| truncate_chars(item.trim(), 1_000)),
         paused_reason: string_field(&value, "paused_reason")
             .map(|item| truncate_chars(item.trim(), 500)),
+        source_session_id: goal_source_id,
     }))
 }
 
