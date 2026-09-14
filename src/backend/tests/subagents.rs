@@ -1204,13 +1204,17 @@
             }
         }
 
-        assert_eq!(subagent_poll_delay(&[], None), SUBAGENT_POLL_INTERVAL);
+        assert_eq!(subagent_poll_delay(&[], None, 0), SUBAGENT_POLL_INTERVAL);
         assert_eq!(
-            subagent_poll_delay(&[projection("running")], None),
+            subagent_poll_delay(&[], None, SUBAGENT_EMPTY_FAST_POLLS),
+            SUBAGENT_IDLE_POLL_INTERVAL
+        );
+        assert_eq!(
+            subagent_poll_delay(&[projection("running")], None, SUBAGENT_EMPTY_FAST_POLLS),
             SUBAGENT_POLL_INTERVAL
         );
         assert_eq!(
-            subagent_poll_delay(&[projection("completed")], None),
+            subagent_poll_delay(&[projection("completed")], None, 0),
             SUBAGENT_IDLE_POLL_INTERVAL
         );
         let active_goal = PersistentGoalProjection {
@@ -1227,7 +1231,7 @@
             paused_reason: None,
         };
         assert_eq!(
-            subagent_poll_delay(&[projection("completed")], Some(&active_goal)),
+            subagent_poll_delay(&[projection("completed")], Some(&active_goal), SUBAGENT_EMPTY_FAST_POLLS),
             SUBAGENT_POLL_INTERVAL
         );
     }
