@@ -21,7 +21,7 @@ describe('sidebar visual behavior', () => {
     expect(source).toContain('reorderPinned={reorderPinned}');
     expect(styles).toContain('.session-drag-handle{display:inline-flex');
     expect(styles).toContain('.session-item.pinned{grid-template-columns:18px 22px minmax(0,1fr) 28px}');
-    expect(styles).toContain(".session-item.drop-target::before{content:'';position:absolute;left:8px;right:8px;top:-2px;height:2px;border-radius:1px;background:var(--accent);pointer-events:none}");
+    expect(styles).toContain(".session-item.drop-target::before{content:'';position:absolute;left:8px;right:8px;top:-6px;height:2px;border-radius:1px;background:var(--accent);pointer-events:none}");
     expect(styles).not.toContain('.session-item.drop-target{border-color:var(--accent)');
     expect(styles).not.toContain('inset 0 2px 0 var(--accent)');
   });

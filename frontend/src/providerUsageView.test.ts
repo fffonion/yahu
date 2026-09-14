@@ -125,7 +125,7 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-provider-card.is-dragging');
     expect(css()).toContain('.provider-usage-provider-card.is-touch-dragging{pointer-events:none}');
     expect(css()).not.toContain('.provider-usage-provider-card.is-dragging{opacity:.58;pointer-events:none');
-    expect(css()).toContain(".provider-usage-provider-card.is-drag-over::before{content:'';position:absolute;left:10px;right:10px;top:-7.5px;height:3px;border-radius:2px;background:var(--accent);pointer-events:none}");
+    expect(css()).toContain(".provider-usage-provider-card.is-drag-over::before{content:'';position:absolute;left:10px;right:10px;top:-8.5px;height:3px;border-radius:2px;background:var(--accent);pointer-events:none}");
     expect(css()).toContain('.provider-usage-provider-card.is-drag-over{position:relative;overflow:clip;overflow-clip-margin:12px}');
     expect(css()).not.toContain('inset 0 3px 0 var(--accent)');
     expect(source).toContain('rowTone(row.label)');
