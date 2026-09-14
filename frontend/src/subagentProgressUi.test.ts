@@ -46,6 +46,17 @@ describe('subagent progress UI', () => {
     expect(card()).not.toContain('subagent-progress-omitted-ancestry');
   });
 
+  test('status sheets stack square-topped with a subtle bottom shadow', () => {
+    const styles = css();
+    expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:0;pointer-events:none;box-sizing:border-box}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel,.subagent-progress-stack>.subagent-progress-card{border-radius:0 0 var(--radius-card) var(--radius-card)}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel{z-index:2}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-progress-card{z-index:1}');
+    expect(styles).toContain('box-shadow:0 3px 8px rgba(0,0,0,.10)');
+    expect(styles).not.toContain('0 12px 34px rgba(0,0,0,.09)');
+    expect(styles).not.toContain('0 8px 24px rgba(0,0,0,.07)');
+  });
+
   test('keeps todos and shared conversation detail while showing model identity', () => {
     const source = card();
     expect(source).toContain('className="subagent-progress-tree"');
@@ -190,7 +201,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain("aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}");
     expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));
     expect(source).toContain("<span className=\"subagent-progress-heading\"><strong>{selectedNode?.task || t('subagents.title')}</strong>");
-    expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:6px;pointer-events:none;');
+    expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:0;pointer-events:none;');
     expect(styles).toContain('.subagent-goal-panel{--subagent-goal-accent:var(--accent-2);width:100%;flex:0 0 auto;pointer-events:auto;');
     expect(styles).toContain('color:var(--subagent-goal-accent)');
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-chevron{transform:rotate(90deg)}');
