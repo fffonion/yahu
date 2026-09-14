@@ -977,3 +977,48 @@
 
         assert_eq!(entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(), vec!["legacy_reset", "legacy_next", "current"]);
     }
+
+    #[test]
+    fn session_list_merges_detached_chat_key_epoch_into_one_row() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                title TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                model_config TEXT
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('fresh',NULL,'yahu!',10,NULL,NULL,'telegram','same-key','chat','topic','{}')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('detour',NULL,'yahu! #11',2,9,'session_switch','telegram','same-key','chat','topic','{}')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('side','fresh','side note',11,NULL,NULL,'telegram','same-key','chat','topic','{}')", []).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let rows = vec![
+            serde_json::json!({"id":"fresh","source":"telegram","title":"yahu!","started_at":10.0,"ended_at":null,"last_active":100.0}),
+            serde_json::json!({"id":"detour","source":"telegram","title":"yahu! #11","started_at":2.0,"ended_at":9.0,"end_reason":"session_switch","last_active":50.0}),
+            serde_json::json!({"id":"side","source":"telegram","title":"side note","started_at":11.0,"ended_at":null,"last_active":120.0}),
+        ];
+
+        let rows = session_rows_with_local_lineage(&state, rows);
+        let ids = rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["fresh", "side"]);
+        assert_eq!(rows[0]["last_active"], 100.0);
+    }

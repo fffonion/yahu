@@ -1057,7 +1057,128 @@ fn filter_session_rows_shadowed_by_local_successors(
         grouped.push(row);
     }
     *rows = grouped;
+    merge_session_rows_by_chat_family(rows, &metadata);
     Ok(())
+}
+
+/// Legacy switch/reset flows can leave several rows of one chat key without a
+/// parent edge into the current incarnation (for example a chat the user
+/// switched back into). Collapse every remaining same-family row set into the
+/// newest row so each conversation is listed once, carrying the family's
+/// latest activity. Rows for independent side conversations (segments forked
+/// from a live parent) stay separate.
+fn merge_session_rows_by_chat_family(
+    rows: &mut Vec<serde_json::Value>,
+    metadata: &[LocalSessionListMetadata],
+) {
+    let mut family_by_id = HashMap::<&str, String>::new();
+    let mut live_ids = HashSet::<&str>::new();
+    for session in metadata {
+        if session.end_reason.is_none() && session.ended_at.is_none() {
+            live_ids.insert(session.id.as_str());
+        }
+    }
+    let mut side_ids = HashSet::<&str>::new();
+    for session in metadata {
+        let Some(parent_id) = session.parent_session_id.as_deref().filter(|value| !value.trim().is_empty()) else {
+            continue;
+        };
+        if live_ids.contains(parent_id) {
+            side_ids.insert(session.id.as_str());
+        }
+    }
+    for session in metadata {
+        let Some(key) = session
+            .session_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if session.source.as_deref() == Some("subagent") {
+            continue;
+        }
+        let family = if side_ids.contains(session.id.as_str()) {
+            format!("side:{}", session.id)
+        } else {
+            format!(
+                "{}|{}|{}|{}",
+                session.source.as_deref().unwrap_or(""),
+                key,
+                session.chat_id.as_deref().unwrap_or(""),
+                session.thread_id.as_deref().unwrap_or("")
+            )
+        };
+        family_by_id.insert(session.id.as_str(), family);
+    }
+    if family_by_id.is_empty() {
+        return;
+    }
+    let mut grouped = HashMap::<String, Vec<(usize, f64)>>::new();
+    for (index, row) in rows.iter().enumerate() {
+        let Some(id) = row.get("id").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let Some(family) = family_by_id.get(id) else {
+            continue;
+        };
+        let started_at = row
+            .get("started_at")
+            .and_then(|value| value.as_f64())
+            .unwrap_or(f64::NEG_INFINITY);
+        grouped
+            .entry(family.clone())
+            .or_default()
+            .push((index, started_at));
+    }
+    let mut removed = HashSet::<usize>::new();
+    let mut activity_bumps = Vec::<(usize, f64)>::new();
+    for entries in grouped.values() {
+        if entries.len() < 2 {
+            continue;
+        }
+        let mut chosen = entries[0].0;
+        let mut chosen_started = entries[0].1;
+        for &(index, started_at) in &entries[1..] {
+            if started_at > chosen_started {
+                chosen = index;
+                chosen_started = started_at;
+            }
+        }
+        let mut merged_activity = rows[chosen]
+            .get("last_active")
+            .and_then(|value| value.as_f64())
+            .unwrap_or(f64::NEG_INFINITY);
+        for &(index, _) in entries {
+            if index == chosen {
+                continue;
+            }
+            removed.insert(index);
+            merged_activity = merged_activity.max(
+                rows[index]
+                    .get("last_active")
+                    .and_then(|value| value.as_f64())
+                    .unwrap_or(f64::NEG_INFINITY),
+            );
+        }
+        activity_bumps.push((chosen, merged_activity));
+    }
+    if removed.is_empty() {
+        return;
+    }
+    for (index, activity) in activity_bumps {
+        if let Some(object) = rows.get_mut(index).and_then(|row| row.as_object_mut()) {
+            object.insert("last_active".to_string(), serde_json::json!(activity));
+        }
+    }
+    let mut keep = Vec::with_capacity(rows.len().saturating_sub(removed.len()));
+    for (index, row) in std::mem::take(rows).into_iter().enumerate() {
+        if !removed.contains(&index) {
+            keep.push(row);
+        }
+    }
+    *rows = keep;
 }
 
 struct LocalSessionListMetadata {
@@ -1162,7 +1283,7 @@ fn enrich_session_previews_from_local_db(
     let mut known_entry_ids = HashSet::new();
     for session_id in &session_ids {
         let mut entry_ids = if has_session_lineage {
-            local_session_history_entries(&conn, session_id)?
+            local_session_chat_view_entries(&conn, session_id)?
                 .into_iter()
                 .map(|entry| entry.id)
                 .collect::<Vec<_>>()
@@ -1678,7 +1799,7 @@ fn local_history_entry_ids(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> rusqlite::Result<Vec<String>> {
-    let entries = local_session_history_entries(conn, session_id)?;
+    let entries = local_session_chat_view_entries(conn, session_id)?;
     if entries.is_empty() {
         return Ok(vec![session_id.to_string()]);
     }
@@ -2124,7 +2245,7 @@ fn fetch_local_user_nav_messages(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    let entries = local_session_history_entries(&conn, session_id)?;
+    let entries = local_session_chat_view_entries(&conn, session_id)?;
     if entries.is_empty() {
         return Ok(None);
     }
@@ -2792,25 +2913,43 @@ fn append_local_session_switch_successors(
                 |row| row.get(0),
             )
             .optional()?;
-        let Some(successor) = conn
-            .query_row(
+        // Children can fork into several branches (retries, brief side
+        // sessions). Prefer the branch that actually continues the
+        // conversation; only fall back to an earlier dead end when no
+        // candidate extends further.
+        let mut candidates = conn
+            .prepare(
                 "SELECT id, parent_session_id, end_reason
                  FROM sessions
                  WHERE parent_session_id = ?1
                    AND source IS ?2
-                 ORDER BY started_at, id
-                 LIMIT 1",
-                rusqlite::params![previous.id, source],
-                |row| {
-                    Ok(SessionLineageEntry {
-                        id: row.get(0)?,
-                        parent_session_id: row.get(1)?,
-                        end_reason: row.get(2)?,
-                    })
-                },
-            )
-            .optional()?
-        else {
+                 ORDER BY started_at, id",
+            )?
+            .query_map(rusqlite::params![previous.id, source], |row| {
+                Ok(SessionLineageEntry {
+                    id: row.get(0)?,
+                    parent_session_id: row.get(1)?,
+                    end_reason: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        candidates.retain(|candidate| !known.contains(&candidate.id));
+        if candidates.is_empty() {
+            break;
+        }
+        let mut best: Option<(usize, SessionLineageEntry)> = None;
+        for candidate in candidates {
+            let depth = local_switch_continuation_depth(
+                conn,
+                &candidate,
+                source.as_deref(),
+                MAX_SESSION_SWITCH_DEPTH,
+            );
+            if best.as_ref().is_none_or(|(best_depth, _)| depth > *best_depth) {
+                best = Some((depth, candidate));
+            }
+        }
+        let Some((_, successor)) = best else {
             break;
         };
         if !known.insert(successor.id.clone()) {
@@ -2819,6 +2958,59 @@ fn append_local_session_switch_successors(
         entries.push(successor);
     }
     Ok(())
+}
+
+/// How far a switch-successor candidate continues the conversation:
+/// a terminal (live) session scores 1, a switch-ended node with children
+/// scores `1 + max(child scores)`, and a switch-ended dead end scores 0.
+fn local_switch_continuation_depth(
+    conn: &rusqlite::Connection,
+    entry: &SessionLineageEntry,
+    source: Option<&str>,
+    budget: usize,
+) -> usize {
+    if entry.end_reason.as_deref() != Some("session_switch") || budget == 0 {
+        return 1;
+    }
+    let children = conn
+        .prepare(
+            "SELECT id, parent_session_id, end_reason FROM sessions
+             WHERE parent_session_id = ?1 AND source IS ?2",
+        )
+        .and_then(|mut stmt| {
+            stmt.query_map(rusqlite::params![entry.id, source], |row| {
+                Ok(SessionLineageEntry {
+                    id: row.get(0)?,
+                    parent_session_id: row.get(1)?,
+                    end_reason: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()
+        });
+    let Ok(children) = children else {
+        return 1;
+    };
+    if children.is_empty() {
+        return 0;
+    }
+    1 + children
+        .iter()
+        .map(|child| local_switch_continuation_depth(conn, child, source, budget - 1))
+        .max()
+        .unwrap_or(0)
+}
+
+/// Entries backing the browsable chat transcript: keyed chats resolve to the
+/// whole visible family of segments, everything else falls back to the
+/// walk-based lineage chain.
+fn local_session_chat_view_entries(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Vec<SessionLineageEntry>> {
+    if let Some(entries) = local_session_key_group_entries(conn, session_id)? {
+        return Ok(entries);
+    }
+    local_session_history_entries(conn, session_id)
 }
 
 fn local_session_history_entries(
@@ -2840,6 +3032,121 @@ fn local_session_history_entries(
     }
     append_local_session_switch_successors(conn, &mut entries)?;
     Ok(entries)
+}
+
+/// Chat keys identify one visible conversation across every compression and
+/// session-switch incarnation. When a key is present, the merged transcript is
+/// the full set of same-key segments in start order, so a session the chat
+/// later "switched back" to (for example after an overnight detour through an
+/// older incarnation) still shows the whole conversation. Segments that were
+/// forked from a *live* parent are independent side conversations and are
+/// excluded; when the requested session is itself such a side conversation, it
+/// stands alone.
+type ChatKeyRow = (Option<String>, Option<String>, Option<String>, Option<String>);
+
+fn local_session_key_group_entries(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Option<Vec<SessionLineageEntry>>> {
+    const MAX_CHAT_KEY_GROUP: usize = 200;
+    if !sqlite_table_has_columns(
+        conn,
+        "sessions",
+        &[
+            "id",
+            "parent_session_id",
+            "end_reason",
+            "started_at",
+            "source",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let row: Option<ChatKeyRow> = conn
+        .query_row(
+            "SELECT source, session_key, chat_id, thread_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((source, session_key, chat_id, thread_id)) = row else {
+        return Ok(None);
+    };
+    let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let mut statement = conn.prepare(
+        "SELECT id, parent_session_id, end_reason
+         FROM sessions
+         WHERE session_key = ?1
+           AND source IS ?2
+           AND chat_id IS ?3
+           AND thread_id IS ?4
+           AND COALESCE(source, '') != 'subagent'
+         ORDER BY started_at, id
+         LIMIT ?5",
+    )?;
+    let entries = statement
+        .query_map(
+            rusqlite::params![
+                session_key,
+                source,
+                chat_id,
+                thread_id,
+                MAX_CHAT_KEY_GROUP as i64
+            ],
+            |row| {
+                Ok(SessionLineageEntry {
+                    id: row.get(0)?,
+                    parent_session_id: row.get(1)?,
+                    end_reason: row.get(2)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if entries.is_empty() || !entries.iter().any(|entry| entry.id == session_id) {
+        return Ok(None);
+    }
+    let member_ids = entries
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<HashSet<_>>();
+    let live_parents = entries
+        .iter()
+        .filter(|entry| entry.end_reason.is_none())
+        .map(|entry| entry.id.as_str())
+        .collect::<HashSet<_>>();
+    let side_segment_ids = entries
+        .iter()
+        .filter(|entry| {
+            entry
+                .parent_session_id
+                .as_deref()
+                .filter(|parent| member_ids.contains(parent))
+                .is_some_and(|parent| live_parents.contains(parent))
+        })
+        .map(|entry| entry.id.clone())
+        .collect::<HashSet<String>>();
+    if side_segment_ids.contains(session_id) {
+        let requested = entries
+            .iter()
+            .find(|entry| entry.id == session_id)
+            .expect("requested session is a member");
+        return Ok(Some(vec![SessionLineageEntry {
+            id: requested.id.clone(),
+            parent_session_id: requested.parent_session_id.clone(),
+            end_reason: requested.end_reason.clone(),
+        }]));
+    }
+    Ok(Some(
+        entries
+            .into_iter()
+            .filter(|entry| !side_segment_ids.contains(&entry.id))
+            .collect(),
+    ))
 }
 
 fn local_reasoning_select_columns(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
@@ -3719,12 +4026,22 @@ fn fetch_local_skeleton_page(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    let entries = local_session_history_entries(&conn, session_id)?;
+    let entries = local_session_chat_view_entries(&conn, session_id)?;
     if entries.is_empty() {
         return Ok(None);
     }
     let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
     let reasoning_columns = local_skeleton_reasoning_select_columns(&conn)?;
+    let entry_ids = entries
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+    let placeholders = session_id_placeholders(&entry_ids);
+    let cursor_param = entry_ids.len() + 1;
+    let limit_param = entry_ids.len() + 2;
+    // Family members can interleave in message-id order (overlapping forks,
+    // resumed epochs), so the page is one id-ordered slice across every
+    // member session rather than a per-entry walk.
     let select = format!(
         "SELECT id, session_id, role, \
          CASE WHEN role IN ('user', 'assistant', 'system') THEN content END AS content, \
@@ -3734,69 +4051,36 @@ fn fetch_local_skeleton_page(
          timestamp, token_count, \
          CASE WHEN role = 'assistant' THEN finish_reason END AS finish_reason, \
          {reasoning_columns} \
-         FROM messages WHERE {message_filter} AND session_id = ?1 AND id {} ?2 ORDER BY id {} LIMIT ?3",
+         FROM messages WHERE {message_filter} AND session_id IN ({placeholders}) AND id {} ?{cursor_param} ORDER BY id {} LIMIT ?{limit_param}",
         if before.is_some() { "<" } else { ">" },
         if before.is_some() { "DESC" } else { "ASC" },
     );
-    let mut selected_parts = Vec::new();
-    let mut selected_len = 0usize;
-    let indices: Vec<usize> = if before.is_some() {
-        (0..entries.len()).rev().collect()
-    } else {
-        (0..entries.len()).collect()
-    };
-    for index in indices {
-        let remaining_plus_one = limit.saturating_sub(selected_len).saturating_add(1);
-        let mut stmt = conn.prepare(&select)?;
-        let part = stmt
-            .query_map(
-                rusqlite::params![
-                    entries[index].id,
-                    cursor,
-                    i64::try_from(remaining_plus_one)?
-                ],
-                row_to_session_message,
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if part.is_empty() {
-            continue;
-        }
-        selected_len = selected_len.saturating_add(part.len());
-        selected_parts.push((index, part));
-        if selected_len > limit {
-            break;
-        }
-    }
-    if selected_parts.is_empty() {
-        return Ok(None);
-    }
-    let has_more = selected_len > limit;
-    if before.is_some() {
-        selected_parts.reverse();
-    }
-    let mut messages = Vec::new();
-    let mut seen = HashSet::new();
-    for (index, mut part) in selected_parts {
-        if before.is_some() {
-            part.reverse();
-        }
-        trim_compression_carryover_prefix(
-            &mut part,
-            index.checked_sub(1).and_then(|previous| entries.get(previous)),
-            SessionMessageJoinMode::VisibleHistory,
-        );
-        for message in part {
-            if let Some(id) = nav_message_id(&message)
-                && !seen.insert(id)
-            {
-                continue;
-            }
-            messages.push(message);
-        }
-    }
-    messages.truncate(limit);
+    let mut params = session_id_values(&entry_ids);
+    params.push(rusqlite::types::Value::Integer(cursor));
+    params.push(rusqlite::types::Value::Integer(i64::try_from(
+        limit.saturating_add(1),
+    )?));
+    let mut messages = conn
+        .prepare(&select)?
+        .query_map(
+            rusqlite::params_from_iter(params),
+            row_to_session_message,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     if messages.is_empty() {
         return Ok(None);
+    }
+    let has_more = messages.len() > limit;
+    if before.is_some() {
+        messages.reverse();
+    }
+    if messages.len() > limit {
+        let drop_count = messages.len() - limit;
+        if before.is_some() {
+            messages.drain(0..drop_count);
+        } else {
+            messages.drain(messages.len() - drop_count..);
+        }
     }
     if before.is_some() {
         Ok(Some((messages, has_more, true)))

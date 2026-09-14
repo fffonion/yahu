@@ -786,3 +786,68 @@
             "next real prompt",
         ]);
     }
+
+    #[test]
+    fn chat_history_merges_resume_epochs_of_the_same_chat_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('old-root',NULL,1,2,'compression','telegram','same-key','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('old-tip','old-root',2,3,'session_switch','telegram','same-key','chat','topic')", []).unwrap();
+        // The current session was resumed back into after a detour through an
+        // older incarnation; the detour has no parent edge in either direction.
+        conn.execute("INSERT INTO sessions VALUES ('resumed',NULL,3,NULL,NULL,'telegram','same-key','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('detour',NULL,5,9,'session_switch','telegram','same-key','chat','topic')", []).unwrap();
+        // A side conversation forked from the live parent must stand alone.
+        conn.execute("INSERT INTO sessions VALUES ('side','resumed',6,NULL,NULL,'telegram','same-key','chat','topic')", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('sub', 'resumed', 7, NULL, NULL, 'subagent', NULL, NULL, NULL)", []).unwrap();
+
+        let entries = local_session_chat_view_entries(&conn, "resumed").unwrap();
+        let ids = entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["old-root", "old-tip", "resumed", "detour"]);
+
+        let side_entries = local_session_chat_view_entries(&conn, "side").unwrap();
+        let side_ids = side_entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(side_ids, vec!["side"]);
+    }
+
+    #[test]
+    fn switch_walk_prefers_the_continuing_fork_over_a_dead_end() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+             );",
+        ).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('root',NULL,1,2,'session_switch','telegram',NULL,NULL,NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('dead','root',3,4,'session_switch','telegram',NULL,NULL,NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('cont','root',5,6,'session_switch','telegram',NULL,NULL,NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions VALUES ('tail','cont',7,NULL,NULL,'telegram',NULL,NULL,NULL)", []).unwrap();
+
+        let entries = local_session_history_entries(&conn, "root").unwrap();
+        let ids = entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["root", "cont", "tail"]);
+    }
