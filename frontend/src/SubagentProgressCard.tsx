@@ -232,8 +232,8 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
       {(expanded || !preview) && <>
         <span className="subagent-progress-mark"><Bot aria-hidden="true" /></span>
-        <span className="subagent-progress-heading"><strong>{selectedNode?.task || t('subagents.title')}</strong><small>{selectedNode ? `${statusLabel(selectedNode.status)} · ${formatSubagentElapsed(subagentElapsedSeconds(selectedNode, nowSeconds))}` : projectionPending ? t('subagents.refreshing') : running ? t('subagents.running') : t('subagents.finished')}</small></span>
-        {!selectedNode && !projectionPending && <span className="subagent-progress-count">{finished}/{total}</span>}
+        <span className="subagent-progress-heading"><strong>{selectedNode?.task || t('subagents.title')}</strong><small>{selectedNode ? `${statusLabel(selectedNode.status)} · ${formatSubagentElapsed(subagentElapsedSeconds(selectedNode, nowSeconds))}` : projectionPending || total === 0 ? t('subagents.refreshing') : running ? t('subagents.running') : t('subagents.finished')}</small></span>
+        {!selectedNode && !projectionPending && total > 0 && <span className="subagent-progress-count">{finished}/{total}</span>}
         <ChevronRight className="subagent-progress-panel-chevron" aria-hidden="true" />
       </>}
     </button>

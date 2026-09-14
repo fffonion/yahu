@@ -7,6 +7,7 @@ const SUBAGENT_API_PAGE_BYTE_LIMIT: usize = 2 * 1024 * 1024;
 const SUBAGENT_API_DETAIL_BYTE_LIMIT: usize = 4 * 1024 * 1024;
 const SUBAGENT_PARENT_MESSAGE_PAGE_SIZE: usize = 500;
 const SUBAGENT_PARENT_MESSAGE_SCAN_LIMIT: usize = 20_000;
+const SUBAGENT_CHILD_MESSAGE_LIMIT: usize = 200;
 const SUBAGENT_ANCESTOR_RESOLUTION_LIMIT: usize = 200;
 const SUBAGENT_VISIBLE_LIMIT: usize = 10;
 const API_DISCOVERED_SUBAGENT_FIELD: &str = "_yahu_api_discovered_subagent";
@@ -688,8 +689,11 @@ async fn fetch_subagent_projection_snapshot(
     window_end: f64,
     cache: &mut HashMap<String, CachedSubagentProjection>,
 ) -> anyhow::Result<Vec<SubagentProjection>> {
+    let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
     let mut sessions = fetch_subagent_sessions_for_parent(state, parent_session_id, window_end).await?;
-    let api_child_ids = match fetch_api_delegate_child_ids(state, parent_session_id, &sessions).await {
+    let api_child_ids =
+        match fetch_api_delegate_child_ids(state, parent_session_id, &sessions, window_start).await
+        {
         Ok(ids) => ids,
         Err(err) => {
             warn!(error = %err, parent_session_id, "cannot discover delegated child ids from API transcript");
@@ -728,7 +732,7 @@ async fn fetch_subagent_projection_snapshot(
     }
 
     let fetched = fetch_child_messages_bounded(pending, |item| async move {
-        fetch_session_messages(state, &item.2).await
+        fetch_session_messages_tail(state, &item.2, SUBAGENT_CHILD_MESSAGE_LIMIT).await
     })
     .await?;
     for ((index, session, _session_id, message_count, ended_at, last_active), messages) in fetched {
@@ -921,6 +925,11 @@ async fn resolve_missing_subagent_ancestors(
     let mut matched = 0usize;
     let mut resolved = 0usize;
     for candidate_id in candidate_ids {
+        let candidate_discovered = by_id
+            .get(&candidate_id)
+            .and_then(|session| session.get(API_DISCOVERED_SUBAGENT_FIELD))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         loop {
             match subagent_membership_or_missing(&candidate_id, &by_id, parent_session_id) {
                 Ok(true) => {
@@ -929,6 +938,12 @@ async fn resolve_missing_subagent_ancestors(
                 }
                 Ok(false) => break,
                 Err(missing_id) => {
+                    if !candidate_discovered {
+                        // Only transcript-discovered candidates justify ancestor network
+                        // fetches; foreign candidates resolve in-memory, so one snapshot
+                        // no longer chains API calls for unrelated children.
+                        break;
+                    }
                     if resolved >= SUBAGENT_ANCESTOR_RESOLUTION_LIMIT {
                         anyhow::bail!("subagent ancestor resolution exceeded the safety limit");
                     }
@@ -1055,12 +1070,42 @@ async fn fetch_session_messages(state: &AppState, session_id: &str) -> anyhow::R
         .unwrap_or_default())
 }
 
-async fn fetch_all_session_messages(state: &AppState, session_id: &str) -> anyhow::Result<Vec<Value>> {
+/// Bounded tail read for projection snapshots. The projector only reads recent
+/// activity (todos, tool trail, latest assistant text), so fetching a long child
+/// transcript in full was pure cost.
+async fn fetch_session_messages_tail(
+    state: &AppState,
+    session_id: &str,
+    limit: usize,
+) -> anyhow::Result<Vec<Value>> {
+    let url = format!(
+        "{}/api/sessions/{}/messages?order=latest&limit={}",
+        state.api_url.trim_end_matches('/'),
+        path_segment(session_id),
+        limit,
+    );
+    let body = fetch_api_json(state, url, SUBAGENT_API_DETAIL_BYTE_LIMIT).await?;
+    Ok(body
+        .get("messages")
+        .or_else(|| body.get("data"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Fetch the parent transcript newest-page-first, stopping at the lookback boundary.
+/// Delegation discovery only needs the current window; scanning a huge transcript
+/// from its oldest row cost dozens of pages and starved the snapshot timeout.
+async fn fetch_recent_parent_messages(
+    state: &AppState,
+    session_id: &str,
+    window_start: f64,
+) -> anyhow::Result<Vec<Value>> {
     let mut messages = Vec::new();
     let mut offset = 0usize;
     loop {
         let url = format!(
-            "{}/api/sessions/{}/messages?order=oldest&limit={}&offset={}",
+            "{}/api/sessions/{}/messages?order=latest&limit={}&offset={}",
             state.api_url.trim_end_matches('/'),
             path_segment(session_id),
             SUBAGENT_PARENT_MESSAGE_PAGE_SIZE,
@@ -1074,8 +1119,16 @@ async fn fetch_all_session_messages(state: &AppState, session_id: &str) -> anyho
             .cloned()
             .unwrap_or_default();
         let count = page.len();
+        let oldest_in_page = page
+            .first()
+            .and_then(|message| number_field(message, "timestamp"));
         messages.extend(page);
         if count < SUBAGENT_PARENT_MESSAGE_PAGE_SIZE {
+            break;
+        }
+        if window_start.is_finite()
+            && oldest_in_page.is_some_and(|timestamp| timestamp <= window_start)
+        {
             break;
         }
         if messages.len() >= SUBAGENT_PARENT_MESSAGE_SCAN_LIMIT {
@@ -1261,12 +1314,13 @@ async fn fetch_api_delegate_child_ids(
     state: &AppState,
     parent_session_id: &str,
     sessions: &[Value],
+    window_start: f64,
 ) -> anyhow::Result<HashSet<String>> {
     let known_ids = sessions
         .iter()
         .filter_map(|session| string_field(session, "id"))
         .collect::<HashSet<_>>();
-    let messages = fetch_all_session_messages(state, parent_session_id).await?;
+    let messages = fetch_recent_parent_messages(state, parent_session_id, window_start).await?;
     let mut child_ids = delegate_child_ids_from_messages(&messages, &known_ids, parent_session_id);
     child_ids.extend(delegate_child_ids_from_goal_previews(
         &messages,

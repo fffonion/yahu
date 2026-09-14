@@ -31,7 +31,8 @@ describe('subagent progress UI', () => {
     expect(cardSource).toContain('current ? { ...current, error: String(error) }');
 
     expect(cardSource).toContain('snapshot.subagents.length > 0 || snapshot.error');
-    expect(cardSource).toContain("projectionPending ? t('subagents.refreshing')");
+    expect(cardSource).toContain("projectionPending || total === 0 ? t('subagents.refreshing')");
+    expect(cardSource).toContain('!selectedNode && !projectionPending && total > 0 &&');
     expect(card()).toContain('}, [sessionId]);');
     expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer)');
     expect(app()).toContain('subagentPrecedingFallbackIds(rows.map((row) => {');

@@ -901,6 +901,7 @@
         let mut sessions = vec![serde_json::json!({
             "id": "nested-visible",
             "parent_session_id": "older-parent",
+            "_yahu_api_discovered_subagent": true,
             "started_at": 490_000.0,
             "last_active": 490_100.0
         })];
@@ -910,6 +911,123 @@
 
         assert_eq!(visible.len(), 1);
         assert_eq!(string_field(&visible[0], "id").as_deref(), Some("nested-visible"));
+    }
+
+    #[tokio::test]
+    async fn subagent_ancestor_resolution_skips_undiscovered_candidates() {
+        async fn api_session(
+            State(counter): State<Arc<std::sync::atomic::AtomicUsize>>,
+            AxumPath(id): AxumPath<String>,
+        ) -> Json<Value> {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Json(serde_json::json!({"session": {"id": id}}))
+        }
+
+        let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let app = Router::new().route("/api/sessions/{id}", get(api_session)).with_state(counter.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+        let mut sessions = vec![serde_json::json!({
+            "id": "undiscovered",
+            "parent_session_id": "missing-parent",
+            "started_at": 490_000.0,
+            "last_active": 490_100.0
+        })];
+
+        resolve_missing_subagent_ancestors(&state, &mut sessions, "parent", 500_000.0).await.unwrap();
+        let visible = select_visible_subagent_sessions("parent", &sessions, 500_000.0);
+
+        assert!(visible.is_empty());
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn parent_message_scan_pages_back_to_the_window_and_stops() {
+        async fn api_messages(
+            State(offsets): State<Arc<std::sync::Mutex<Vec<usize>>>>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<Value> {
+            assert_eq!(query.get("order").map(String::as_str), Some("latest"));
+            let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+            offsets.lock().unwrap().push(offset);
+            let data = if offset == 0 {
+                (0..SUBAGENT_PARENT_MESSAGE_PAGE_SIZE).map(|index| serde_json::json!({
+                    "id": 2_000 + index,
+                    "timestamp": 700_000.0 + index as f64
+                })).collect::<Vec<_>>()
+            } else {
+                (0..120).map(|index| serde_json::json!({
+                    "id": index,
+                    "timestamp": 400_000.0 + index as f64
+                })).collect::<Vec<_>>()
+            };
+            Json(serde_json::json!({"data": data}))
+        }
+
+        let offsets = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let app = Router::new().route("/api/sessions/{id}/messages", get(api_messages)).with_state(offsets.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let messages = fetch_recent_parent_messages(&state, "parent", 500_000.0).await.unwrap();
+
+        assert_eq!(*offsets.lock().unwrap(), vec![0, SUBAGENT_PARENT_MESSAGE_PAGE_SIZE]);
+        assert_eq!(messages.len(), SUBAGENT_PARENT_MESSAGE_PAGE_SIZE + 120);
+    }
+
+    #[tokio::test]
+    async fn parent_message_scan_stops_at_the_window_boundary() {
+        async fn api_messages(
+            State(offsets): State<Arc<std::sync::Mutex<Vec<usize>>>>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<Value> {
+            let offset = query.get("offset").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+            offsets.lock().unwrap().push(offset);
+            let data = (0..SUBAGENT_PARENT_MESSAGE_PAGE_SIZE).map(|index| serde_json::json!({
+                "id": 3_000 + index,
+                "timestamp": 450_000.0 + index as f64
+            })).collect::<Vec<_>>();
+            Json(serde_json::json!({"data": data}))
+        }
+
+        let offsets = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let app = Router::new().route("/api/sessions/{id}/messages", get(api_messages)).with_state(offsets.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let messages = fetch_recent_parent_messages(&state, "parent", 500_000.0).await.unwrap();
+
+        assert_eq!(*offsets.lock().unwrap(), vec![0]);
+        assert_eq!(messages.len(), SUBAGENT_PARENT_MESSAGE_PAGE_SIZE);
+    }
+
+    #[tokio::test]
+    async fn child_projection_messages_use_a_limited_latest_tail() {
+        async fn api_messages(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+            assert_eq!(query.get("order").map(String::as_str), Some("latest"));
+            assert_eq!(query.get("limit").map(String::as_str), Some("200"));
+            Json(serde_json::json!({"data": [{"id": 1, "timestamp": 1.0}]}))
+        }
+
+        let app = Router::new().route("/api/sessions/{id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let messages = fetch_session_messages_tail(&state, "child", SUBAGENT_CHILD_MESSAGE_LIMIT).await.unwrap();
+
+        assert_eq!(messages.len(), 1);
     }
 
     #[tokio::test]
