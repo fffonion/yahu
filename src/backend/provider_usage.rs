@@ -3999,23 +3999,56 @@ fn merge_provider_usage_payload(
 }
 
 const AGENTROUTER_LOGO_URL: &str = "https://agentrouter.org/logo.png";
-const AGENTROUTER_LOGO_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
-const MAX_AGENTROUTER_LOGO_BODY: usize = 4 * 1024 * 1024;
+const PROVIDER_ICON_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const MAX_PROVIDER_ICON_BODY: usize = 4 * 1024 * 1024;
 
 #[derive(Clone)]
-struct AgentRouterLogoCacheEntry {
+struct ProviderIconCacheEntry {
     body: Vec<u8>,
     content_type: String,
     fetched_at: Instant,
 }
 
-static AGENTROUTER_LOGO_CACHE: OnceLock<Mutex<Option<AgentRouterLogoCacheEntry>>> = OnceLock::new();
+static PROVIDER_ICON_CACHE: OnceLock<Mutex<HashMap<String, ProviderIconCacheEntry>>> = OnceLock::new();
 
-fn agentrouter_logo_cache() -> &'static Mutex<Option<AgentRouterLogoCacheEntry>> {
-    AGENTROUTER_LOGO_CACHE.get_or_init(|| Mutex::new(None))
+fn provider_icon_cache() -> &'static Mutex<HashMap<String, ProviderIconCacheEntry>> {
+    PROVIDER_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn agentrouter_logo_response(entry: &AgentRouterLogoCacheEntry, cache_status: &'static str) -> Response<Body> {
+fn provider_icon_url(provider: &str) -> Option<String> {
+    if provider == "agentrouter" {
+        return Some(AGENTROUTER_LOGO_URL.to_string());
+    }
+    let domains = [
+        ("openrouter", "openrouter.ai"),
+        ("deepseek", "deepseek.com"),
+        ("atlascloud", "atlascloud.ai"),
+        ("mimo", "mimo.xiaomi.com"),
+        ("minimax", "minimax.io"),
+        ("kimi", "kimi.com"),
+        ("opencode", "opencode.ai"),
+        ("commandcode", "commandcode.ai"),
+        ("codex", "openai.com"),
+        ("grok", "x.ai"),
+        ("zed-pro", "zed.dev"),
+    ];
+    let domain = domains
+        .iter()
+        .find_map(|(name, domain)| (*name == provider).then_some(*domain))
+        .unwrap_or(provider);
+    if domain.is_empty()
+        || !domain
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    {
+        return None;
+    }
+    Some(format!(
+        "https://www.google.com/s2/favicons?domain={domain}&sz=64"
+    ))
+}
+
+fn provider_icon_response(entry: &ProviderIconCacheEntry, cache_status: &'static str) -> Response<Body> {
     let mut response = Response::new(Body::from(entry.body.clone()));
     *response.status_mut() = StatusCode::OK;
     let headers = response.headers_mut();
@@ -4033,18 +4066,22 @@ fn agentrouter_logo_response(entry: &AgentRouterLogoCacheEntry, cache_status: &'
     response
 }
 
-async fn agentrouter_logo(State(state): State<Arc<AppState>>) -> Response<Body> {
-    let cache = agentrouter_logo_cache();
+async fn provider_icon(State(state): State<Arc<AppState>>, AxumPath(provider): AxumPath<String>) -> Response<Body> {
+    let provider = provider.to_ascii_lowercase();
+    let Some(upstream_url) = provider_icon_url(&provider) else {
+        return json_error(StatusCode::NOT_FOUND, "unknown provider icon");
+    };
+    let cache = provider_icon_cache();
     let mut cached = cache.lock().await;
-    if let Some(entry) = cached.as_ref()
-        && entry.fetched_at.elapsed() < AGENTROUTER_LOGO_CACHE_TTL
+    if let Some(entry) = cached.get(&provider)
+        && entry.fetched_at.elapsed() < PROVIDER_ICON_CACHE_TTL
     {
-        return agentrouter_logo_response(entry, "HIT");
+        return provider_icon_response(entry, "HIT");
     }
 
     let response = match state
         .client
-        .get(AGENTROUTER_LOGO_URL)
+        .get(upstream_url)
         .timeout(Duration::from_secs(15))
         .header(header::ACCEPT, "image/png,image/*")
         .send()
@@ -4054,14 +4091,14 @@ async fn agentrouter_logo(State(state): State<Arc<AppState>>) -> Response<Body> 
         Err(err) => {
             return json_error(
                 StatusCode::BAD_GATEWAY,
-                &format!("AgentRouter logo proxy failed: {err}"),
+                &format!("provider icon proxy failed: {err}"),
             );
         }
     };
     if !response.status().is_success() {
         return json_error(
             StatusCode::BAD_GATEWAY,
-            &format!("AgentRouter logo proxy returned {}", response.status()),
+            &format!("provider icon proxy returned {}", response.status()),
         );
     }
     let content_type = response
@@ -4072,23 +4109,30 @@ async fn agentrouter_logo(State(state): State<Arc<AppState>>) -> Response<Body> 
         .unwrap_or("image/png")
         .to_string();
     let body = match response.bytes().await {
-        Ok(body) if body.len() <= MAX_AGENTROUTER_LOGO_BODY => body.to_vec(),
+        Ok(body) if body.len() <= MAX_PROVIDER_ICON_BODY => body.to_vec(),
         Ok(_) => {
-            return json_error(StatusCode::BAD_GATEWAY, "AgentRouter logo is too large");
+            return json_error(StatusCode::BAD_GATEWAY, "provider icon is too large");
         }
         Err(err) => {
             return json_error(
                 StatusCode::BAD_GATEWAY,
-                &format!("AgentRouter logo response failed: {err}"),
+                &format!("provider icon response failed: {err}"),
             );
         }
     };
-    *cached = Some(AgentRouterLogoCacheEntry {
-        body,
-        content_type,
-        fetched_at: Instant::now(),
-    });
-    agentrouter_logo_response(cached.as_ref().expect("logo cache populated"), "MISS")
+    cached.insert(
+        provider.clone(),
+        ProviderIconCacheEntry {
+            body,
+            content_type,
+            fetched_at: Instant::now(),
+        },
+    );
+    provider_icon_response(cached.get(&provider).expect("icon cache populated"), "MISS")
+}
+
+async fn agentrouter_logo(State(state): State<Arc<AppState>>) -> Response<Body> {
+    provider_icon(State(state), AxumPath("agentrouter".to_string())).await
 }
 
 async fn provider_usage_handler(

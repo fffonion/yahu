@@ -2567,22 +2567,7 @@ function providerTodayLabel(section: ProviderUsageSection | undefined): string {
 }
 
 function providerBrandFavicon(provider: string): string {
-  if (provider === 'agentrouter') return '/provider-icons/agentrouter.png';
-  const domains: Record<string, string> = {
-    openrouter: 'openrouter.ai',
-    deepseek: 'deepseek.com',
-    atlascloud: 'atlascloud.ai',
-    mimo: 'mimo.xiaomi.com',
-    minimax: 'minimax.io',
-    kimi: 'kimi.com',
-    opencode: 'opencode.ai',
-    commandcode: 'commandcode.ai',
-    codex: 'openai.com',
-    grok: 'x.ai',
-    'zed-pro': 'zed.dev',
-  };
-  const domain = domains[provider] || provider;
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  return `/provider-icons/${encodeURIComponent(provider)}`;
 }
 
 function usagePercentTone(percent: number): string {

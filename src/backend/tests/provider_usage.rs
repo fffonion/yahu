@@ -3,6 +3,23 @@ mod provider_usage_tests {
     use super::*;
 
     #[test]
+    fn provider_icon_urls_proxy_agentrouter_and_gstatic_sources() {
+        assert_eq!(
+            provider_icon_url("agentrouter"),
+            Some("https://agentrouter.org/logo.png".to_string())
+        );
+        assert_eq!(
+            provider_icon_url("openrouter"),
+            Some("https://www.google.com/s2/favicons?domain=openrouter.ai&sz=64".to_string())
+        );
+        assert_eq!(
+            provider_icon_url("custom-provider"),
+            Some("https://www.google.com/s2/favicons?domain=custom-provider&sz=64".to_string())
+        );
+        assert!(provider_icon_url("../internal").is_none());
+    }
+
+    #[test]
     fn env_value_reads_hermes_env_file_without_leaking_secrets() {
         // provider_env_value prefers the process env; use a name that cannot
         // exist in the environment to exercise the .env fallback path.

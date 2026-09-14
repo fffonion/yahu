@@ -400,6 +400,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/insights/usage", get(insights_usage))
         .route("/provider-usage", get(provider_usage_handler))
         .route("/provider-icons/agentrouter.png", get(agentrouter_logo))
+        .route("/provider-icons/{provider}", get(provider_icon))
         .route("/chat/watch/{session_id}", get(chat_watch))
         .route("/chat/subagents/{session_id}/ws", get(subagent_websocket))
         .route("/image-api/images", get(list_images))
