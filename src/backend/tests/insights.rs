@@ -1,4 +1,19 @@
     #[test]
+    fn insights_load_window_matches_requested_period_plus_one_boundary_day() {
+        assert_eq!(insights_snapshot_load_days(1), 2);
+        assert_eq!(insights_snapshot_load_days(7), 8);
+        assert_eq!(insights_snapshot_load_days(30), 31);
+        assert_eq!(insights_snapshot_load_days(0), 2);
+        assert_eq!(insights_snapshot_load_days(90), 31);
+    }
+
+    #[test]
+    fn insights_heap_trim_only_runs_for_large_loaded_windows() {
+        assert!(!should_trim_insights_heap(2_047));
+        assert!(should_trim_insights_heap(2_048));
+    }
+
+    #[test]
     fn insights_aggregates_recent_api_session_rows_by_model_without_db() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()

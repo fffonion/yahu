@@ -718,17 +718,19 @@ fn load_insights_usage_rows(
             })
             .collect::<Vec<_>>()
     };
-    let fallback_rows = {
+    {
         let mut statement = conn.prepare("SELECT counters_json FROM insights_initial_baselines")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .filter_map(Result::ok)
-            .filter_map(|value| serde_json::from_str::<UsageCounter>(&value).ok())
-            .filter(|counter| counter.started_at >= min_timestamp && counter.has_delta())
-            .map(|counter| counter.to_event_json(counter.started_at))
-            .collect::<Vec<_>>()
-    };
-    usage_rows.extend(fallback_rows);
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        for value in rows.filter_map(Result::ok) {
+            let Some(counter) = serde_json::from_str::<UsageCounter>(&value)
+                .ok()
+                .filter(|counter| counter.started_at >= min_timestamp && counter.has_delta())
+            else {
+                continue;
+            };
+            usage_rows.push(counter.to_event_json(counter.started_at));
+        }
+    }
     Ok((usage_rows, coverage_started_at, latest_snapshot_at))
 }
 
@@ -1195,6 +1197,25 @@ fn normalize_insights_timezone_offset(value: Option<i32>) -> i32 {
     value.unwrap_or(0).clamp(-14 * 60, 14 * 60)
 }
 
+fn insights_snapshot_load_days(period_days: usize) -> usize {
+    period_days.clamp(1, INSIGHTS_MAX_DAYS).saturating_add(1)
+}
+
+fn should_trim_insights_heap(row_count: usize) -> bool {
+    row_count >= 2_048
+}
+
+fn trim_insights_heap(row_count: usize) {
+    if !should_trim_insights_heap(row_count) {
+        return;
+    }
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: glibc documents malloc_trim as process-wide and thread-safe.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
 async fn insights_usage(
     State(state): State<Arc<AppState>>,
     Query(query): Query<InsightsUsageQuery>,
@@ -1209,7 +1230,7 @@ async fn insights_usage(
         warn!("explicit insights snapshot refresh failed: {err}");
     }
     let snapshot_path = state.hermes_home.join(INSIGHTS_SNAPSHOT_DB);
-    let min_timestamp = now - (INSIGHTS_MAX_DAYS as f64 * 86_400.0);
+    let min_timestamp = now - (insights_snapshot_load_days(period_days) as f64 * 86_400.0);
     let snapshot_data = tokio::task::spawn_blocking(move || {
         load_insights_usage_rows(&snapshot_path, min_timestamp)
     })
@@ -1239,6 +1260,7 @@ async fn insights_usage(
             ModelPriceCatalog::new()
         }
     };
+    let loaded_row_count = rows.len();
     let mut body = aggregate_usage_insights_with_prices_at_offset(
         &rows,
         now,
@@ -1255,6 +1277,9 @@ async fn insights_usage(
             })),
         );
     }
+    drop(rows);
+    drop(prices);
+    trim_insights_heap(loaded_row_count);
     Json(body).into_response()
 }
 

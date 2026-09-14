@@ -1973,6 +1973,28 @@ async fn chat_messages_page(
             Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local paged skeleton window"),
         }
     }
+    if requested_view == "skeleton"
+        && query.before.is_none()
+        && query.after.is_none()
+        && query.around.is_none()
+    {
+        match fetch_local_active_message_tail(&state, &session_id, limit) {
+            Ok(Some((mut latest, has_older))) => {
+                inject_turn_durations(&mut latest);
+                let skeleton = history_skeleton_messages(&latest);
+                return Json(serde_json::json!({
+                    "object": "list",
+                    "data": skeleton,
+                    "has_older": has_older,
+                    "has_newer": false,
+                    "metadata_pending": true
+                }))
+                .into_response();
+            }
+            Ok(None) => {}
+            Err(err) => warn!(session_id = %session_id, error = %err, "cannot read local default skeleton window"),
+        }
+    }
     if query.around.is_some() && query.before.is_none() && query.after.is_none()
         && let Some(around) = query.around
     {

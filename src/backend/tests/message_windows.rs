@@ -185,6 +185,7 @@
         ).await;
         let default_body = axum::body::to_bytes(default_resp.into_body(), usize::MAX).await.unwrap();
         let default_page: serde_json::Value = serde_json::from_slice(&default_body).unwrap();
+        assert_eq!(default_page["metadata_pending"], true);
         let default_roles: Vec<_> = default_page["data"].as_array().unwrap().iter().map(|message| message["role"].as_str().unwrap_or("")).collect();
         assert_eq!(default_roles, skeleton_roles);
         assert_eq!(default_page["data"].as_array().unwrap()[1]["turn_details"]["count"], 2);
