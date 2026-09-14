@@ -564,6 +564,6 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .subagent-progress-stack>.subagent-progress-card{z-index:1}
 .subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card{margin-top:calc(-1 * var(--radius-card) - 2px);padding-top:calc(var(--radius-card) + 2px)}
 .subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.expanded{padding-top:calc(var(--radius-card) + 15px)}
-.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.collapsed .subagent-progress-panel-toggle{min-height:56px}
-.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{min-height:56px}
+.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.collapsed .subagent-progress-panel-toggle{min-height:48px}
+.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{min-height:48px}
 @media(max-width:760px){.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.expanded{padding-top:calc(var(--radius-card) + 12px)}}

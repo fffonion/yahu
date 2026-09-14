@@ -59,8 +59,8 @@ describe('subagent progress UI', () => {
     expect(styles).not.toContain('0 8px 24px rgba(0,0,0,.07)');
     expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card{margin-top:calc(-1 * var(--radius-card) - 2px);padding-top:calc(var(--radius-card) + 2px)}');
     expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.expanded{padding-top:calc(var(--radius-card) + 15px)}');
-    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.collapsed .subagent-progress-panel-toggle{min-height:56px}');
-    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{min-height:56px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.collapsed .subagent-progress-panel-toggle{min-height:48px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{min-height:48px}');
     expect(styles).not.toContain('overflow-clip-margin:18px');
   });
 
