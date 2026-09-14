@@ -41,7 +41,8 @@ describe('subagent progress UI', () => {
     expect(app()).toContain('observer.observe(scroller);');
     expect(app()).toContain('}, 150);');
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');
-    expect(card()).toContain("node.ancestryOmitted && <span className=\"subagent-progress-omitted-ancestry\" title={t('subagents.parentOmitted')}");
+    expect(card()).not.toContain('subagents.parentOmitted');
+    expect(card()).not.toContain('subagent-progress-omitted-ancestry');
   });
 
   test('keeps todos and shared conversation detail while showing model identity', () => {

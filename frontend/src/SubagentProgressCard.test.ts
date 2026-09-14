@@ -91,7 +91,7 @@ describe('SubagentProgressNode', () => {
     expect(css).toContain('.subagent-progress-actions{display:flex;justify-content:flex-end;padding-right:8px');
   });
 
-  test('keeps a completed omitted-parent marker neutral and inside the compact description line', () => {
+  test('omits any visible parent-omitted marker for completed children', () => {
     const node: SubagentTreeNode = {
       sessionId: 'child',
       parentSessionId: 'hidden-parent',
@@ -122,8 +122,9 @@ describe('SubagentProgressNode', () => {
       onDetailContentChange: () => {},
     }));
 
-    expect(html).toContain('Finished child<span class="subagent-progress-omitted-ancestry" title="parent omitted"> · parent omitted</span></strong>');
-    expect(html).not.toContain('outside window');
-    expect(html).not.toContain('<small class="subagent-progress-omitted-ancestry"');
+    expect(html).toContain('Finished child</strong>');
+    expect(html).not.toContain('parent omitted');
+    expect(html).not.toContain('父级未显示');
+    expect(html).not.toContain('subagent-progress-omitted-ancestry');
   });
 });

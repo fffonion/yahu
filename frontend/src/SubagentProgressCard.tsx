@@ -376,7 +376,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
       <summary className={completed ? 'completed' : undefined} onClick={(event) => { event.preventDefault(); const nextOpen = !open; onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(node.status === 'running'); }}>
         <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
         <span className="subagent-progress-goal">
-          <strong>{node.task}{node.ancestryOmitted && <span className="subagent-progress-omitted-ancestry" title={t('subagents.parentOmitted')}> · {t('subagents.parentOmitted')}</span>}</strong>
+          <strong>{node.task}</strong>
           {subtitle && <small className="subagent-progress-model" title={node.model || undefined}>{subtitle}</small>}
         </span>
         {!completed && <ChevronRight className="subagent-progress-chevron" aria-hidden="true" />}
