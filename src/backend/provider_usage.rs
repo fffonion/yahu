@@ -3998,7 +3998,10 @@ fn merge_provider_usage_payload(
     cached
 }
 
-const AGENTROUTER_LOGO_URL: &str = "https://agentrouter.org/logo.png";
+/// Providers that run the New API gateway software (github.com/Calcium-Ion/new-api)
+/// share its project logo. The bytes are embedded so no provider site is contacted.
+const NEWAPI_VARIANT_PROVIDERS: &[&str] = &["agentrouter"];
+const NEWAPI_LOGO_BYTES: &[u8] = include_bytes!("assets/newapi-logo.png");
 const PROVIDER_ICON_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_PROVIDER_ICON_BODY: usize = 4 * 1024 * 1024;
 
@@ -4016,8 +4019,8 @@ fn provider_icon_cache() -> &'static Mutex<HashMap<String, ProviderIconCacheEntr
 }
 
 fn provider_icon_url(provider: &str) -> Option<String> {
-    if provider == "agentrouter" {
-        return Some(AGENTROUTER_LOGO_URL.to_string());
+    if NEWAPI_VARIANT_PROVIDERS.contains(&provider) {
+        return None;
     }
     let domains = [
         ("openrouter", "openrouter.ai"),
@@ -4048,6 +4051,22 @@ fn provider_icon_url(provider: &str) -> Option<String> {
     ))
 }
 
+fn provider_icon_embedded() -> Response<Body> {
+    let mut response = Response::new(Body::from(NEWAPI_LOGO_BYTES));
+    *response.status_mut() = StatusCode::OK;
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("x-yahu-cache"),
+        HeaderValue::from_static("EMBEDDED"),
+    );
+    response
+}
+
 fn provider_icon_response(entry: &ProviderIconCacheEntry, cache_status: &'static str) -> Response<Body> {
     let mut response = Response::new(Body::from(entry.body.clone()));
     *response.status_mut() = StatusCode::OK;
@@ -4068,6 +4087,9 @@ fn provider_icon_response(entry: &ProviderIconCacheEntry, cache_status: &'static
 
 async fn provider_icon(State(state): State<Arc<AppState>>, AxumPath(provider): AxumPath<String>) -> Response<Body> {
     let provider = provider.to_ascii_lowercase();
+    if NEWAPI_VARIANT_PROVIDERS.contains(&provider.as_str()) {
+        return provider_icon_embedded();
+    }
     let Some(upstream_url) = provider_icon_url(&provider) else {
         return json_error(StatusCode::NOT_FOUND, "unknown provider icon");
     };

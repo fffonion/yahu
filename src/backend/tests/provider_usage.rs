@@ -3,11 +3,10 @@ mod provider_usage_tests {
     use super::*;
 
     #[test]
-    fn provider_icon_urls_proxy_agentrouter_and_gstatic_sources() {
-        assert_eq!(
-            provider_icon_url("agentrouter"),
-            Some("https://agentrouter.org/logo.png".to_string())
-        );
+    fn provider_icon_urls_embed_newapi_variants_and_proxy_gstatic_sources() {
+        assert!(NEWAPI_VARIANT_PROVIDERS.contains(&"agentrouter"));
+        assert!(NEWAPI_LOGO_BYTES.starts_with(&[0x89, b'P', b'N', b'G']));
+        assert_eq!(provider_icon_url("agentrouter"), None);
         assert_eq!(
             provider_icon_url("openrouter"),
             Some("https://www.google.com/s2/favicons?domain=openrouter.ai&sz=64".to_string())
