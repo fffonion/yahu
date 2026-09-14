@@ -170,7 +170,7 @@ describe('chat message visibility', () => {
     expect(source).toContain('const restored = restoreCachedMessageWindow(activeSessionId);');
     expect(source).toContain('setMessages(cached.messages);');
     expect(source).toContain('if (!restored) {\n      messagesRef.current = [];');
-    expect(source).toContain("loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchorId);");
+    expect(source).toContain("loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchor?.id);");
   });
 
   test('visibility toggles preserve a message scroll anchor instead of shifting the viewport', () => {

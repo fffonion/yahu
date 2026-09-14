@@ -179,12 +179,15 @@ const readFollowUpQueues = (): Record<string, FollowUpQueueItem[]> => {
     return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, Array.isArray(value) ? value.filter((item: any) => item && typeof item.text === 'string').map((item: any) => ({ id: String(item.id || uid('fu')), text: item.text, createdAt: Number(item.createdAt || Date.now()) })) : []]));
   } catch { return {}; }
 };
-const readChatViewState = (): { lastSessionId: string; positions: Record<string, number>; anchors: Record<string, string> } => {
+type StoredChatAnchor = { id: string; topOffset: number };
+const isStoredChatAnchor = (value: unknown): value is StoredChatAnchor =>
+  !!value && typeof value === 'object' && !Array.isArray(value) && typeof (value as { id?: unknown }).id === 'string' && Number.isFinite((value as { topOffset?: unknown }).topOffset);
+const readChatViewState = (): { lastSessionId: string; positions: Record<string, number>; anchors: Record<string, StoredChatAnchor> } => {
   try {
     const parsed = JSON.parse(localStorage.getItem(CHAT_VIEW_STATE_KEY) || 'null');
     if (!parsed || typeof parsed !== 'object') return { lastSessionId: '', positions: {}, anchors: {} };
     const anchors = parsed.anchors && typeof parsed.anchors === 'object' && !Array.isArray(parsed.anchors)
-      ? Object.fromEntries(Object.entries(parsed.anchors).filter(([sessionId, value]) => sessionId && String(value).trim()).map(([sessionId, value]) => [sessionId, String(value)]))
+      ? Object.fromEntries(Object.entries(parsed.anchors).filter(([sessionId, value]) => sessionId && isStoredChatAnchor(value)).map(([sessionId, value]) => [sessionId, { id: String((value as StoredChatAnchor).id).trim(), topOffset: Number((value as StoredChatAnchor).topOffset) || 0 }]))
       : {};
     const positions = parsed.positions && typeof parsed.positions === 'object' && !Array.isArray(parsed.positions)
       ? Object.fromEntries(Object.entries(parsed.positions).filter(([sessionId, value]) => sessionId && Number.isFinite(Number(value))).map(([sessionId, value]) => [sessionId, Math.max(0, Number(value))]))
@@ -192,13 +195,13 @@ const readChatViewState = (): { lastSessionId: string; positions: Record<string,
     return { lastSessionId: typeof parsed.lastSessionId === 'string' ? parsed.lastSessionId : '', positions, anchors };
   } catch { return { lastSessionId: '', positions: {}, anchors: {} }; }
 };
-const writeChatViewState = (sessionId: string, scrollTop?: number, anchorId?: string) => {
+const writeChatViewState = (sessionId: string, scrollTop?: number, anchor?: StoredChatAnchor | null) => {
   if (!sessionId || sessionId === DRAFT_SESSION_ID) return;
   try {
     const state = readChatViewState();
     state.lastSessionId = sessionId;
     if (Number.isFinite(scrollTop)) state.positions[sessionId] = Math.max(0, Number(scrollTop));
-    if (anchorId) state.anchors[sessionId] = anchorId;
+    if (anchor?.id) state.anchors[sessionId] = { id: anchor.id, topOffset: Number.isFinite(anchor.topOffset) ? anchor.topOffset : 0 };
     const keys = Object.keys(state.positions);
     if (keys.length > 80) keys.slice(0, keys.length - 80).forEach((key) => delete state.positions[key]);
     localStorage.setItem(CHAT_VIEW_STATE_KEY, JSON.stringify(state));
@@ -1730,7 +1733,8 @@ export default function App() {
       setHasOlder(false);
       setHasNewer(false);
     }
-    pendingHistoryScrollAnchorRef.current = null;
+    const savedAnchor = readChatViewAnchor(activeSessionId);
+    pendingHistoryScrollAnchorRef.current = savedAnchor ? { id: savedAnchor.id, topOffset: savedAnchor.topOffset } : null;
     setUserMessageNav([]);
     setContextWindowSnapshot(null);
     if (!restored) setHistoryTotal(null);
@@ -1738,9 +1742,8 @@ export default function App() {
     const isDraft = activeSessionId === DRAFT_SESSION_ID;
     setUserNavLoading(!isDraft);
     if (isDraft) return;
-    const savedAnchorId = readChatViewAnchor(activeSessionId);
     scrollLatestAfterRenderRef.current = 'restore';
-    loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchorId);
+    loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchor?.id);
   }, [activeSessionId]);
   useEffect(() => {
     if (!latestReadySessionId || latestReadySessionId !== activeSessionId) return;
@@ -1852,12 +1855,21 @@ export default function App() {
   }, [sessionMenu, skillMenu, skillFileMenu, workspaceMenu]);
   useLayoutEffect(() => {
     const scrollMode = scrollLatestAfterRenderRef.current;
-    if (!scrollMode) return;
-    scrollLatestAfterRenderRef.current = false;
+    if (scrollMode) scrollLatestAfterRenderRef.current = false;
     const scroller = chatScrollRef.current;
     if (!scroller) return;
+    const pendingAnchor = pendingHistoryScrollAnchorRef.current;
     const savedTop = readChatViewPosition(activeSessionId);
+    let attempts = 0;
     const restorePosition = () => {
+      attempts += 1;
+      // Try the saved anchor first; keep retrying across paint frames until it lands.
+      if (pendingAnchor && restoreMessageScrollAnchor(scroller, pendingAnchor)) {
+        pendingHistoryScrollAnchorRef.current = null;
+        return;
+      }
+      if (pendingAnchor && attempts < 6) return;
+      pendingHistoryScrollAnchorRef.current = null;
       if (scrollMode === 'follow') {
         scroller.scrollTop = scroller.scrollHeight;
       } else if (Number.isFinite(savedTop)) {
@@ -1881,17 +1893,6 @@ export default function App() {
     requestAnimationFrame(scrollTarget);
     window.setTimeout(scrollTarget, 60);
   }, [messages, activeSessionId]);
-  useLayoutEffect(() => {
-    const anchor = pendingHistoryScrollAnchorRef.current;
-    if (!anchor) return;
-    pendingHistoryScrollAnchorRef.current = null;
-    const scroller = chatScrollRef.current;
-    if (!scroller) return;
-    const restore = () => restoreMessageScrollAnchor(scroller, anchor);
-    restoreMessageScrollAnchor(scroller, anchor);
-    requestAnimationFrame(restore);
-    window.setTimeout(restore, 60);
-  }, [messages]);
 
   const onFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -3794,7 +3795,8 @@ function ChatMain(props: ChatMainProps) {
   const subagentBeforeTime = subagentWindow.sessionId === props.activeSessionId ? subagentWindow.beforeTime : null;
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
-    writeChatViewState(props.activeSessionId, el.scrollTop, captureMessageScrollAnchor(el)?.id);
+    const anchor = captureMessageScrollAnchor(el);
+    writeChatViewState(props.activeSessionId, el.scrollTop, anchor ? { id: anchor.id, topOffset: anchor.topOffset } : null);
     if (isCompactViewport && !props.composerRef.current?.contains(document.activeElement)) props.setComposerCompact(true);
     if (shouldLoadOlderFromScroll(el, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
     if (shouldLoadNewerFromScroll(el, props.hasNewer, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'newer');
