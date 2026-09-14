@@ -52,12 +52,16 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel,.subagent-progress-stack>.subagent-progress-card{border-radius:0 0 var(--radius-card) var(--radius-card)}');
     expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel{z-index:2}');
     expect(styles).toContain('.subagent-progress-stack>.subagent-progress-card{z-index:1}');
-    expect(styles).toContain('box-shadow:0 4px 10px rgba(0,0,0,.12)');
+    expect(styles).toContain('box-shadow:0 5px 14px rgba(0,0,0,.30)');
+    expect(styles).not.toContain('box-shadow:0 4px 10px rgba(0,0,0,.12)');
     expect(styles).not.toContain('box-shadow:0 3px 8px rgba(0,0,0,.10)');
     expect(styles).not.toContain('0 12px 34px rgba(0,0,0,.09)');
     expect(styles).not.toContain('0 8px 24px rgba(0,0,0,.07)');
-    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card{position:relative;overflow:clip;overflow-clip-margin:18px}');
-    expect(styles).toContain(".subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card::before{content:'';position:absolute;left:-1px;right:-1px;top:calc(-1 * var(--radius-card) - 2px);height:calc(var(--radius-card) + 1px);background:color-mix(in srgb,var(--accent) 9%,var(--surface))}");
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card{margin-top:calc(-1 * var(--radius-card) - 2px);padding-top:calc(var(--radius-card) + 2px)}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.expanded{padding-top:calc(var(--radius-card) + 15px)}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.collapsed .subagent-progress-panel-toggle{min-height:56px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{min-height:56px}');
+    expect(styles).not.toContain('overflow-clip-margin:18px');
   });
 
   test('keeps todos and shared conversation detail while showing model identity', () => {
