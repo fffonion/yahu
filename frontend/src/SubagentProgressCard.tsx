@@ -30,6 +30,7 @@ import {
   type SubagentTodo,
   type SubagentTreeNode,
 } from './subagentProgress';
+import { readCachedSubagentSnapshot, sameSubagentSnapshot, writeCachedSubagentSnapshot } from './subagentSnapshotCache';
 
 type SubagentDetailCache = Record<string, { messages: ChatMessage[]; loadedMessageCount: number }>;
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
@@ -75,8 +76,17 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     });
   }, []);
 
+  const publishSnapshot = useCallback((next: SubagentProgressSnapshot) => {
+    const cached = readCachedSubagentSnapshot(sessionId);
+    writeCachedSubagentSnapshot(next);
+    setSnapshot((current) => {
+      const currentForSession = current?.sessionId === sessionId ? current : cached;
+      return currentForSession && sameSubagentSnapshot(currentForSession, next) ? currentForSession : next;
+    });
+  }, [sessionId]);
+
   useEffect(() => {
-    setSnapshot(null);
+    setSnapshot(readCachedSubagentSnapshot(sessionId));
     setProjectionPending(false);
     setExpanded(false);
     setSelectedNodeId(null);
@@ -89,6 +99,12 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   useEffect(() => {
     if (!sessionId || sessionId === '__webui_draft_session__') return;
     let stopped = false;
+    const cached = readCachedSubagentSnapshot(sessionId);
+    const placeholder: SubagentProgressSnapshot = {
+      sessionId,
+      generatedAt: Date.now() / 1000,
+      subagents: [],
+    };
     if (beforeTime === null) {
       setProjectionPending(false);
       return;
@@ -96,13 +112,10 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     if (typeof beforeTime === 'number') {
       const controller = new AbortController();
       const requestGuard = createSubagentSnapshotGuard();
-      setProjectionPending(true);
-      setSnapshot((current) => current || {
-        type: 'subagents.snapshot',
-        sessionId,
-        generatedAt: Date.now() / 1000,
-        subagents: [],
-      });
+      if (!cached) {
+        setProjectionPending(true);
+        setSnapshot((current) => current?.sessionId === sessionId ? current : placeholder);
+      }
       fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })
         .then((response) => {
           if (!response.ok) throw new Error(`subagent snapshot failed (${response.status})`);
@@ -111,18 +124,15 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
         .then((payload) => {
           if (!requestGuard.isActive(controller.signal)) return;
           const next = normalizeSubagentSnapshot(payload, sessionId);
-          if (next) setSnapshot(next);
+          if (next) publishSnapshot(next);
           setProjectionPending(false);
         })
         .catch((error) => {
           if (!requestGuard.isActive(controller.signal)) return;
           setProjectionPending(false);
-          setSnapshot((current) => current ? { ...current, error: String(error) } : {
-            type: 'subagents.snapshot',
-            sessionId,
-            generatedAt: Date.now() / 1000,
-            subagents: [],
-            error: String(error),
+          setSnapshot((current) => {
+            const currentForSession = current?.sessionId === sessionId ? current : cached;
+            return currentForSession ? { ...currentForSession, error: String(error) } : { ...placeholder, error: String(error) };
           });
         });
       return () => { requestGuard.stop(); controller.abort(); };
@@ -130,13 +140,10 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     let socket: WebSocket | null = null;
     let reconnectTimer = 0;
     let reconnectDelay = 750;
-    setProjectionPending(true);
-    setSnapshot((current) => current ? { ...current, error: undefined } : {
-      type: 'subagents.snapshot',
-      sessionId,
-      generatedAt: Date.now() / 1000,
-      subagents: [],
-    });
+    if (!cached) {
+      setProjectionPending(true);
+      setSnapshot((current) => current?.sessionId === sessionId ? current : placeholder);
+    }
 
     const connect = () => {
       if (stopped) return;
@@ -147,7 +154,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
         try {
           const next = normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId);
           if (next) {
-            setSnapshot(next);
+            publishSnapshot(next);
             setProjectionPending(false);
           }
         } catch {
@@ -167,11 +174,13 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [beforeTime, sessionId]);
+  }, [beforeTime, publishSnapshot, sessionId]);
 
-  const runningCount = snapshot?.subagents.filter((item) => item.status === 'running').length || 0;
+  const cachedSnapshot = readCachedSubagentSnapshot(sessionId);
+  const visibleSnapshot = snapshot?.sessionId === sessionId ? snapshot : cachedSnapshot;
+  const runningCount = visibleSnapshot?.subagents.filter((item) => item.status === 'running').length || 0;
   const running = runningCount > 0;
-  const liveGoal = snapshot?.goal?.status === 'active';
+  const liveGoal = visibleSnapshot?.goal?.status === 'active';
   useEffect(() => {
     if (!running && !liveGoal) return;
     setNowSeconds(Date.now() / 1000);
@@ -179,14 +188,14 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     return () => window.clearInterval(timer);
   }, [liveGoal, running]);
 
-  const tree = useMemo(() => buildSubagentTree(snapshot?.subagents || [], sessionId), [snapshot?.subagents, sessionId]);
+  const tree = useMemo(() => buildSubagentTree(visibleSnapshot?.subagents || [], sessionId), [visibleSnapshot?.subagents, sessionId]);
   const displayTree = useMemo(() => latestSubagentRows(tree), [tree]);
   const selectedNode = useMemo(() => findSubagentTreeNode(displayTree, selectedNodeId), [displayTree, selectedNodeId]);
   const visibleTree = selectedNode ? [selectedNode] : displayTree;
-  if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;
+  if (!visibleSnapshot || visibleSnapshot.sessionId !== sessionId || (!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error)) return null;
 
-  const goal = snapshot.goal;
-  const preview = previewSubagent(snapshot.subagents);
+  const goal = visibleSnapshot.goal;
+  const preview = previewSubagent(visibleSnapshot.subagents);
   const completedGoalTodos = goal?.todos.filter((item) => item.status === 'completed').length || 0;
   const goalElapsed = goal ? goalElapsedMinutes(goal, nowSeconds) : undefined;
   const goalElapsedLabel = goalElapsed === undefined
@@ -200,8 +209,8 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns),
     goal.todos.length ? tf('subagents.todoProgress', completedGoalTodos, goal.todos.length) : '',
   ].filter(Boolean).join(' · ') : '';
-  const finished = snapshot.subagents.filter((item) => item.status !== 'running').length;
-  const total = snapshot.subagents.length;
+  const finished = visibleSnapshot.subagents.filter((item) => item.status !== 'running').length;
+  const total = visibleSnapshot.subagents.length;
   const completion = total ? Math.round((finished / total) * 100) : 0;
   return <div className="subagent-progress-stack">
     {goal && <details className="subagent-goal-panel" open={goalExpanded}>
@@ -220,7 +229,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       </div>
       <footer className="subagent-goal-footer">{goalMetadata}</footer>
     </details>}
-    {(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
+    {(visibleSnapshot.subagents.length > 0 || visibleSnapshot.error) && <section className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`} aria-label={t('subagents.title')}>
     <button type="button" className="subagent-progress-panel-toggle subagent-progress-header" aria-expanded={expanded} onClick={() => {
       if (selectedNodeId) {
         setSelectedNodeId(null);
@@ -239,7 +248,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     </button>
     {expanded && <div className="subagent-progress-panel-body">
       <div className="subagent-progress-track" aria-hidden="true"><span style={{ width: `${completion}%` }} /></div>
-      {snapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
+      {visibleSnapshot.error && <p className="subagent-progress-error">{t('subagents.unavailable')}</p>}
       <div className="subagent-progress-tree" ref={detailTreeRef} onScroll={(event) => { followLatestDetailRef.current = isSubagentDetailNearBottom(event.currentTarget); }}>{visibleTree.map((node) => <SubagentProgressNode key={node.sessionId} node={node} openNodeIds={openNodeIds} onOpenChange={setNodeOpen} detailCache={detailCache} onMessagesLoaded={cacheNodeMessages} nowSeconds={nowSeconds} depth={0} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} onDetailOpen={(runningNode) => { if (runningNode) startFollowingLatestDetail(); }} onDetailContentChange={followLatestDetail} />)}</div>
     </div>}
     </section>}

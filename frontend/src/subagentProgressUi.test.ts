@@ -18,7 +18,7 @@ describe('subagent progress UI', () => {
     expect(card()).toContain('fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })');
     expect(card()).toContain('return () => { requestGuard.stop(); controller.abort(); };');
     expect(card()).toContain('if (!requestGuard.isActive(controller.signal)) return;');
-    expect(card()).toContain("type: 'subagents.snapshot',");
+    expect(card()).toContain('const placeholder: SubagentProgressSnapshot = {');
     const cardSource = card();
     const historicalRefresh = cardSource.slice(
       cardSource.indexOf("if (typeof beforeTime === 'number')"),
@@ -27,10 +27,10 @@ describe('subagent progress UI', () => {
 
     expect(historicalRefresh).toContain('setProjectionPending(true);');
 
-    expect(cardSource).toContain('current ? { ...current, error: undefined }');
-    expect(cardSource).toContain('current ? { ...current, error: String(error) }');
+    expect(cardSource).toContain('const currentForSession = current?.sessionId === sessionId ? current : cached;');
+    expect(cardSource).toContain('currentForSession ? { ...currentForSession, error: String(error) }');
 
-    expect(cardSource).toContain('snapshot.subagents.length > 0 || snapshot.error');
+    expect(cardSource).toContain('visibleSnapshot.subagents.length > 0 || visibleSnapshot.error');
     expect(cardSource).toContain("projectionPending || total === 0 ? t('subagents.refreshing')");
     expect(cardSource).toContain('!selectedNode && !projectionPending && total > 0 &&');
     expect(card()).toContain('}, [sessionId]);');
@@ -44,6 +44,17 @@ describe('subagent progress UI', () => {
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');
     expect(card()).not.toContain('subagents.parentOmitted');
     expect(card()).not.toContain('subagent-progress-omitted-ancestry');
+  });
+
+  test('keeps cached status sheets visible while refreshing without replacing unchanged snapshots', () => {
+    const source = card();
+    expect(source).toContain("import { readCachedSubagentSnapshot, sameSubagentSnapshot, writeCachedSubagentSnapshot } from './subagentSnapshotCache';");
+    expect(source).toContain('setSnapshot(readCachedSubagentSnapshot(sessionId));');
+    expect(source).toContain('const visibleSnapshot = snapshot?.sessionId === sessionId ? snapshot : cachedSnapshot;');
+    expect(source).toContain('if (!cached) {');
+    expect(source).toContain('writeCachedSubagentSnapshot(next);');
+    expect(source).toContain('return currentForSession && sameSubagentSnapshot(currentForSession, next) ? currentForSession : next;');
+    expect(source).not.toContain('setSnapshot(null);');
   });
 
   test('status sheets stack square-topped with a subtle bottom shadow', () => {
@@ -166,7 +177,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('className="subagent-goal-panel" open={goalExpanded}');
     expect(source).toContain('<span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>');
 
-    expect(source).toContain('const goal = snapshot.goal;');
+    expect(source).toContain('const goal = visibleSnapshot.goal;');
 
     expect(source).toContain('<GoalMilestones goal={goal} />');
     expect(source).toContain("const milestones = [...goal.milestones].sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0) || right.turn - left.turn);");
@@ -177,7 +188,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('<SubagentTodoList todos={node.todos} />');
     expect(source).toContain("function SubagentTodoList({ todos, className = '' }");
 
-    expect(source).toContain('{(snapshot.subagents.length > 0 || snapshot.error) && <section className={`subagent-progress-card');
+    expect(source).toContain('{(visibleSnapshot.subagents.length > 0 || visibleSnapshot.error) && <section className={`subagent-progress-card');
     expect(styles).toContain('.subagent-goal-icon{color:var(--subagent-goal-accent);background:color-mix(in srgb,var(--subagent-goal-accent) 12%,transparent)}');
     expect(source).toContain('const goalMetadata = goal ? [');
     expect(source).toContain("tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns)");
@@ -187,7 +198,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain("tf('goals.elapsedMinutes', goalElapsed)");
     expect(source).toContain('className="subagent-goal-meta">{goalMetadata}</small>');
     expect(source).toContain('</div>\n      <footer className="subagent-goal-footer">{goalMetadata}</footer>');
-    expect(source).toContain("const liveGoal = snapshot?.goal?.status === 'active';");
+    expect(source).toContain("const liveGoal = visibleSnapshot?.goal?.status === 'active';");
     expect(styles).toContain('.subagent-goal-copy{min-width:0;display:grid;gap:3px}');
     expect(styles).toContain('.subagent-goal-meta{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-preview{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px}');
@@ -203,7 +214,7 @@ describe('subagent progress UI', () => {
     expect(i18n()).toContain("'goals.turnProgress': { en: '{0}/{1} turns', 'zh-CN': '{0}/{1} 轮'");
     expect(i18n()).toContain("'goals.elapsedMinutes': { en: '{0} min', 'zh-CN': '{0} 分钟'");
     expect(i18n()).toContain("'goals.elapsedHoursMinutes': { en: '{0} hr {1} min', 'zh-CN': '{0} 小时 {1} 分钟'");
-    expect(source).toContain("if (!snapshot || snapshot.sessionId !== sessionId || (!snapshot.goal && !snapshot.subagents.length && !snapshot.error)) return null;");
+    expect(source).toContain("if (!visibleSnapshot || visibleSnapshot.sessionId !== sessionId || (!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error)) return null;");
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
     expect(source).toContain("aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}");
     expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));
@@ -278,7 +289,7 @@ describe('subagent progress UI', () => {
     expect(overlayIndex).toBeGreaterThan(-1);
     expect(chatScrollIndex).toBeGreaterThan(overlayIndex);
     expect(cardSource).toContain('const [expanded, setExpanded] = useState(false);');
-    expect(cardSource).toContain('const preview = previewSubagent(snapshot.subagents);');
+    expect(cardSource).toContain('const preview = previewSubagent(visibleSnapshot.subagents);');
     expect(cardSource).toContain('aria-expanded={expanded}');
     expect(cardSource).toContain("className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`}");
     expect(cardSource).toContain('{!expanded && preview && <SubagentProgressPreview');
