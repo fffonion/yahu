@@ -193,7 +193,7 @@ struct AppState {
     active_chat_run_ids: Arc<RwLock<HashMap<String, String>>>,
     subagent_feeds: Arc<RwLock<HashMap<String, watch::Sender<String>>>>,
     model_cache: Arc<RwLock<ModelCache>>,
-    model_price_cache: Arc<RwLock<ModelCache>>,
+    model_price_cache: Arc<RwLock<ModelPriceCache>>,
     insights_snapshot_refresh: Arc<Mutex<()>>,
     provider_usage_cache: Arc<ProviderUsageCache>,
 }
@@ -326,7 +326,7 @@ pub async fn run() -> anyhow::Result<()> {
         active_chat_run_ids: Arc::new(RwLock::new(HashMap::new())),
         subagent_feeds: Arc::new(RwLock::new(HashMap::new())),
         model_cache: Arc::new(RwLock::new(ModelCache::default())),
-        model_price_cache: Arc::new(RwLock::new(ModelCache::default())),
+        model_price_cache: Arc::new(RwLock::new(ModelPriceCache::default())),
         insights_snapshot_refresh: Arc::new(Mutex::new(())),
         provider_usage_cache: Arc::new(ProviderUsageCache::default()),
     });

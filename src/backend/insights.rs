@@ -17,6 +17,12 @@ const INSIGHTS_USAGE_SCHEMA_VERSION: f64 = 3.0;
 
 type ModelPriceCatalog = HashMap<String, ModelPrice>;
 
+#[derive(Default)]
+struct ModelPriceCache {
+    fetched_at: Option<std::time::Instant>,
+    catalog: Option<Arc<ModelPriceCatalog>>,
+}
+
 fn default_provider() -> String {
     "unknown".to_string()
 }
@@ -386,46 +392,60 @@ fn backfill_snapshot_providers(snapshot_path: &Path, state_db_path: &Path) -> an
         ("insights_baselines", "counters_json"),
         ("insights_initial_baselines", "counters_json"),
     ] {
-        let query = format!("SELECT rowid, {column} FROM {table}");
-        let mut rows = tx.prepare(&query)?;
-        let values = rows
-            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
-        drop(rows);
+        let select = format!(
+            "SELECT rowid, {column} FROM {table} WHERE rowid > ?1 ORDER BY rowid LIMIT ?2"
+        );
         let update = format!("UPDATE {table} SET {column} = ?1 WHERE rowid = ?2");
-        for (rowid, raw_json) in values {
-            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw_json) else {
-                continue;
+        let mut last_rowid = 0_i64;
+        loop {
+            let values = {
+                let mut select_statement = tx.prepare(&select)?;
+                select_statement
+                    .query_map(rusqlite::params![last_rowid, 512_i64], |row| {
+                        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
             };
-            let Some(session_id) = value
-                .get("id")
-                .or_else(|| value.get("session_id"))
-                .and_then(serde_json::Value::as_str) else {
-                continue;
+            let Some((batch_last_rowid, _)) = values.last() else {
+                break;
             };
-            if value.get("root_session_id").is_some() {
-                continue;
+            last_rowid = *batch_last_rowid;
+            let mut update_statement = tx.prepare(&update)?;
+            for (rowid, raw_json) in values {
+                let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw_json) else {
+                    continue;
+                };
+                let Some(session_id) = value
+                    .get("id")
+                    .or_else(|| value.get("session_id"))
+                    .and_then(serde_json::Value::as_str)
+                else {
+                    continue;
+                };
+                if value.get("root_session_id").is_some() {
+                    continue;
+                }
+                let model = value
+                    .get("model")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown");
+                let provider = session_providers
+                    .get(session_id)
+                    .cloned()
+                    .or_else(|| {
+                        model_providers
+                            .get(model)
+                            .filter(|providers| providers.len() == 1)
+                            .and_then(|providers| providers.iter().next().cloned())
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
+                if value.get("provider").and_then(serde_json::Value::as_str) == Some(provider.as_str()) {
+                    continue;
+                }
+                value["provider"] = serde_json::Value::String(provider);
+                update_statement.execute(rusqlite::params![serde_json::to_string(&value)?, rowid])?;
+                changed += 1;
             }
-            let model = value
-                .get("model")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown");
-            let provider = session_providers
-                .get(session_id)
-                .cloned()
-                .or_else(|| {
-                    model_providers
-                        .get(model)
-                        .filter(|providers| providers.len() == 1)
-                        .and_then(|providers| providers.iter().next().cloned())
-                })
-                .unwrap_or_else(|| "unknown".to_string());
-            if value.get("provider").and_then(serde_json::Value::as_str) == Some(provider.as_str()) {
-                continue;
-            }
-            value["provider"] = serde_json::Value::String(provider);
-            tx.execute(&update, rusqlite::params![serde_json::to_string(&value)?, rowid])?;
-            changed += 1;
         }
     }
     tx.execute(
@@ -664,7 +684,7 @@ fn cleanup_deleted_insights_baselines(
 fn load_insights_usage_rows(
     path: &Path,
     min_timestamp: f64,
-) -> anyhow::Result<(Vec<serde_json::Value>, Option<f64>, Option<f64>)> {
+) -> anyhow::Result<(Vec<InsightsUsageRow>, Option<f64>, Option<f64>)> {
     if !path.exists() {
         return Ok((Vec::new(), None, None));
     }
@@ -712,9 +732,8 @@ fn load_insights_usage_rows(
             })?
             .filter_map(Result::ok)
             .filter_map(|(captured_at, value)| {
-                let mut value = serde_json::from_str::<serde_json::Value>(&value).ok()?;
-                value["captured_at"] = serde_json::Value::from(captured_at);
-                Some(value)
+                let value = serde_json::from_str::<serde_json::Value>(&value).ok()?;
+                Some(InsightsUsageRow::from_value(&value, captured_at))
             })
             .collect::<Vec<_>>()
     };
@@ -728,7 +747,7 @@ fn load_insights_usage_rows(
             else {
                 continue;
             };
-            usage_rows.push(counter.to_event_json(counter.started_at));
+            usage_rows.push(InsightsUsageRow::from_counter(&counter));
         }
     }
     Ok((usage_rows, coverage_started_at, latest_snapshot_at))
@@ -916,6 +935,154 @@ struct ModelPrice {
     cache_write_per_million: f64,
 }
 
+#[derive(Clone, Default)]
+struct InsightsUsageRow {
+    model: String,
+    provider: String,
+    source: String,
+    started_at: f64,
+    last_active: f64,
+    ended_at: f64,
+    captured_at: f64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_write_tokens: i64,
+    reasoning_tokens: i64,
+    api_call_count: i64,
+    tool_call_count: i64,
+    estimated_cost_usd: f64,
+    actual_cost_usd: f64,
+}
+
+impl InsightsUsageRow {
+    fn from_value(value: &serde_json::Value, captured_at: f64) -> Self {
+        Self {
+            model: value
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            provider: value
+                .get("provider")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            source: value
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            started_at: json_timestamp(value, "started_at"),
+            last_active: json_timestamp(value, "last_active"),
+            ended_at: json_timestamp(value, "ended_at"),
+            captured_at,
+            input_tokens: json_i64(value, "input_tokens"),
+            output_tokens: json_i64(value, "output_tokens"),
+            cache_read_tokens: json_i64(value, "cache_read_tokens"),
+            cache_write_tokens: json_i64(value, "cache_write_tokens"),
+            reasoning_tokens: json_i64(value, "reasoning_tokens"),
+            api_call_count: json_i64(value, "api_call_count"),
+            tool_call_count: json_i64(value, "tool_call_count"),
+            estimated_cost_usd: json_f64(value, "estimated_cost_usd"),
+            actual_cost_usd: json_f64(value, "actual_cost_usd"),
+        }
+    }
+
+    fn from_counter(counter: &UsageCounter) -> Self {
+        Self {
+            model: counter.model.clone(),
+            provider: counter.provider.clone(),
+            source: counter.source.clone(),
+            started_at: counter.started_at,
+            captured_at: counter.started_at,
+            input_tokens: counter.input_tokens,
+            output_tokens: counter.output_tokens,
+            cache_read_tokens: counter.cache_read_tokens,
+            cache_write_tokens: counter.cache_write_tokens,
+            reasoning_tokens: counter.reasoning_tokens,
+            api_call_count: counter.api_call_count,
+            tool_call_count: counter.tool_call_count,
+            estimated_cost_usd: counter.estimated_cost_usd,
+            actual_cost_usd: counter.actual_cost_usd,
+            ..Self::default()
+        }
+    }
+}
+
+trait InsightsUsageRowView {
+    fn usage_timestamp(&self) -> f64;
+    fn price_timestamp(&self) -> Option<f64>;
+    fn model_name(&self) -> &str;
+    fn provider_name(&self) -> &str;
+    fn source_name(&self) -> &str;
+    fn input_tokens(&self) -> i64;
+    fn output_tokens(&self) -> i64;
+    fn cache_read_tokens(&self) -> i64;
+    fn cache_write_tokens(&self) -> i64;
+    fn reasoning_tokens(&self) -> i64;
+    fn api_call_count(&self) -> i64;
+    fn tool_call_count(&self) -> i64;
+    fn estimated_cost_usd(&self) -> f64;
+    fn actual_cost_usd(&self) -> f64;
+}
+
+impl InsightsUsageRowView for InsightsUsageRow {
+    fn usage_timestamp(&self) -> f64 {
+        if self.started_at > 0.0 {
+            self.started_at
+        } else {
+            self.last_active.max(self.ended_at)
+        }
+    }
+
+    fn price_timestamp(&self) -> Option<f64> {
+        (self.captured_at > 0.0).then_some(self.captured_at).or_else(|| (self.started_at > 0.0).then_some(self.started_at))
+    }
+
+    fn model_name(&self) -> &str { &self.model }
+    fn provider_name(&self) -> &str { &self.provider }
+    fn source_name(&self) -> &str { &self.source }
+    fn input_tokens(&self) -> i64 { self.input_tokens }
+    fn output_tokens(&self) -> i64 { self.output_tokens }
+    fn cache_read_tokens(&self) -> i64 { self.cache_read_tokens }
+    fn cache_write_tokens(&self) -> i64 { self.cache_write_tokens }
+    fn reasoning_tokens(&self) -> i64 { self.reasoning_tokens }
+    fn api_call_count(&self) -> i64 { self.api_call_count }
+    fn tool_call_count(&self) -> i64 { self.tool_call_count }
+    fn estimated_cost_usd(&self) -> f64 { self.estimated_cost_usd }
+    fn actual_cost_usd(&self) -> f64 { self.actual_cost_usd }
+}
+
+impl InsightsUsageRowView for serde_json::Value {
+    fn usage_timestamp(&self) -> f64 { session_usage_timestamp(self) }
+
+    fn price_timestamp(&self) -> Option<f64> {
+        self.get("captured_at")
+            .or_else(|| self.get("started_at"))
+            .and_then(serde_json::Value::as_f64)
+    }
+
+    fn model_name(&self) -> &str {
+        self.get("model").and_then(serde_json::Value::as_str).unwrap_or_default()
+    }
+    fn provider_name(&self) -> &str {
+        self.get("provider").and_then(serde_json::Value::as_str).unwrap_or_default()
+    }
+    fn source_name(&self) -> &str {
+        self.get("source").and_then(serde_json::Value::as_str).unwrap_or_default()
+    }
+    fn input_tokens(&self) -> i64 { json_i64(self, "input_tokens") }
+    fn output_tokens(&self) -> i64 { json_i64(self, "output_tokens") }
+    fn cache_read_tokens(&self) -> i64 { json_i64(self, "cache_read_tokens") }
+    fn cache_write_tokens(&self) -> i64 { json_i64(self, "cache_write_tokens") }
+    fn reasoning_tokens(&self) -> i64 { json_i64(self, "reasoning_tokens") }
+    fn api_call_count(&self) -> i64 { json_i64(self, "api_call_count") }
+    fn tool_call_count(&self) -> i64 { json_i64(self, "tool_call_count") }
+    fn estimated_cost_usd(&self) -> f64 { json_f64(self, "estimated_cost_usd") }
+    fn actual_cost_usd(&self) -> f64 { json_f64(self, "actual_cost_usd") }
+}
+
 impl ModelPrice {
     fn estimate(&self, input: i64, output: i64, cache_read: i64, cache_write: i64) -> f64 {
         ((input.max(0) as f64 * self.input_per_million)
@@ -934,14 +1101,14 @@ impl ModelPrice {
 }
 
 impl UsageTotals {
-    fn add_row(&mut self, row: &serde_json::Value, prices: &ModelPriceCatalog) {
-        let input = json_i64(row, "input_tokens");
-        let output = json_i64(row, "output_tokens");
-        let cache_read = json_i64(row, "cache_read_tokens");
-        let cache_write = json_i64(row, "cache_write_tokens");
-        let reasoning = json_i64(row, "reasoning_tokens");
-        let actual_cost = json_f64(row, "actual_cost_usd");
-        let api_estimated_cost = json_f64(row, "estimated_cost_usd");
+    fn add_row<R: InsightsUsageRowView>(&mut self, row: &R, prices: &ModelPriceCatalog) {
+        let input = row.input_tokens();
+        let output = row.output_tokens();
+        let cache_read = row.cache_read_tokens();
+        let cache_write = row.cache_write_tokens();
+        let reasoning = row.reasoning_tokens();
+        let actual_cost = row.actual_cost_usd();
+        let api_estimated_cost = row.estimated_cost_usd();
         let catalog_estimated_cost = model_price_for_row(prices, row)
             .map(|price| price.estimate(input, output, cache_read, cache_write));
         let estimated_cost = catalog_estimated_cost.or((api_estimated_cost > 0.0).then_some(api_estimated_cost));
@@ -952,8 +1119,8 @@ impl UsageTotals {
         self.cache_read += cache_read;
         self.cache_write += cache_write;
         self.reasoning += reasoning;
-        self.api_calls += json_i64(row, "api_call_count");
-        self.tool_calls += json_i64(row, "tool_call_count");
+        self.api_calls += row.api_call_count();
+        self.tool_calls += row.tool_call_count();
         self.estimated_cost += estimated_cost.unwrap_or(0.0);
         self.actual_cost += actual_cost;
         self.cost += row_cost.unwrap_or(0.0);
@@ -1053,18 +1220,18 @@ fn model_price_for_model(catalog: &ModelPriceCatalog, model: &str) -> Option<Mod
     })
 }
 
-fn model_price_for_row(catalog: &ModelPriceCatalog, row: &serde_json::Value) -> Option<ModelPrice> {
-    let model = row.get("model").and_then(|value| value.as_str())?;
-    let captured_at = row
-        .get("captured_at")
-        .or_else(|| row.get("started_at"))
-        .and_then(serde_json::Value::as_f64);
-    if let Some(captured_at) = captured_at
+fn model_price_for_row<R: InsightsUsageRowView>(catalog: &ModelPriceCatalog, row: &R) -> Option<ModelPrice> {
+    let model = row.model_name().trim();
+    if model.is_empty() {
+        return None;
+    }
+    if let Some(captured_at) = row.price_timestamp()
         && let Some(price) = official_deepseek_price(model, captured_at)
     {
         return Some(price);
     }
-    if let Some(provider) = row.get("provider").and_then(|value| value.as_str()) {
+    let provider = row.provider_name().trim();
+    if !provider.is_empty() {
         let provider_model = format!("{provider}/{model}");
         if let Some(price) = model_price_for_model(catalog, &provider_model) {
             return Some(price);
@@ -1073,6 +1240,94 @@ fn model_price_for_row(catalog: &ModelPriceCatalog, row: &serde_json::Value) -> 
     model_price_for_model(catalog, model)
 }
 
+fn model_price_from_compact_model(model: &ModelsDevModel) -> Option<ModelPrice> {
+    let cost = model.cost.as_ref()?;
+    Some(ModelPrice {
+        input_per_million: cost.input.as_ref().map(ModelsDevScalar::as_f64).unwrap_or(0.0),
+        output_per_million: cost.output.as_ref().map(ModelsDevScalar::as_f64).unwrap_or(0.0),
+        cache_read_per_million: cost.cache_read.as_ref().map(ModelsDevScalar::as_f64).unwrap_or(0.0),
+        cache_write_per_million: cost.cache_write.as_ref().map(ModelsDevScalar::as_f64).unwrap_or(0.0),
+    })
+}
+
+#[derive(Default, Deserialize)]
+struct ModelsDevProvider {
+    #[serde(default)]
+    models: HashMap<String, ModelsDevModel>,
+}
+
+#[derive(Default, Deserialize)]
+struct ModelsDevModel {
+    id: Option<String>,
+    name: Option<String>,
+    cost: Option<ModelsDevCost>,
+}
+
+#[derive(Default, Deserialize)]
+struct ModelsDevCost {
+    input: Option<ModelsDevScalar>,
+    output: Option<ModelsDevScalar>,
+    cache_read: Option<ModelsDevScalar>,
+    cache_write: Option<ModelsDevScalar>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ModelsDevScalar {
+    Number(f64),
+    Text(String),
+}
+
+impl ModelsDevScalar {
+    fn as_f64(&self) -> f64 {
+        match self {
+            Self::Number(value) => *value,
+            Self::Text(value) => value.trim().trim_start_matches('$').parse().unwrap_or(0.0),
+        }
+    }
+}
+
+struct ModelPriceCatalogVisitor;
+
+impl<'de> serde::de::Visitor<'de> for ModelPriceCatalogVisitor {
+    type Value = ModelPriceCatalog;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a models.dev provider object")
+    }
+
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+    where
+        M: serde::de::MapAccess<'de>,
+    {
+        let mut catalog = ModelPriceCatalog::new();
+        while let Some((provider_id, provider)) = map.next_entry::<String, ModelsDevProvider>()? {
+            for (model_key, model) in provider.models {
+                let Some(price) = model_price_from_compact_model(&model) else {
+                    continue;
+                };
+                insert_model_price(&mut catalog, &model_key, price);
+                if let Some(model_id) = model.id.as_deref() {
+                    insert_model_price(&mut catalog, model_id, price);
+                    insert_model_price(&mut catalog, &format!("{provider_id}/{model_id}"), price);
+                    insert_model_price(&mut catalog, &format!("{provider_id}-{model_id}"), price);
+                }
+                if let Some(model_name) = model.name.as_deref() {
+                    insert_model_price(&mut catalog, model_name, price);
+                }
+            }
+        }
+        Ok(catalog)
+    }
+}
+
+fn model_price_catalog_from_models_dev_bytes(bytes: &[u8]) -> Result<ModelPriceCatalog, serde_json::Error> {
+    use serde::de::Deserializer as _;
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.deserialize_map(ModelPriceCatalogVisitor)
+}
+
+#[cfg(test)]
 fn model_price_catalog_from_models_dev(body: &serde_json::Value) -> ModelPriceCatalog {
     let mut catalog = ModelPriceCatalog::new();
     let Some(providers) = body.as_object() else { return catalog };
@@ -1133,6 +1388,7 @@ fn official_deepseek_price(model: &str, captured_at: f64) -> Option<ModelPrice> 
     }
 }
 
+#[cfg(test)]
 fn model_price_from_models_dev_model(model: &serde_json::Value) -> Option<ModelPrice> {
     let cost = model.get("cost")?;
     Some(ModelPrice {
@@ -1143,6 +1399,7 @@ fn model_price_from_models_dev_model(model: &serde_json::Value) -> Option<ModelP
     })
 }
 
+#[cfg(test)]
 fn json_cost_f64(row: &serde_json::Value, key: &str) -> f64 {
     match row.get(key) {
         Some(value) => value.as_f64().or_else(|| {
@@ -1257,7 +1514,7 @@ async fn insights_usage(
         Ok(prices) => prices,
         Err(err) => {
             warn!("models.dev price fetch failed: {err}");
-            ModelPriceCatalog::new()
+            Arc::new(ModelPriceCatalog::new())
         }
     };
     let loaded_row_count = rows.len();
@@ -1383,24 +1640,29 @@ async fn refresh_insights_snapshot_and_wait(
 async fn run_insights_snapshot_collector(state: Arc<AppState>) {
     let mut ticker = interval(INSIGHTS_SNAPSHOT_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    ticker.tick().await;
     loop {
         ticker.tick().await;
         start_insights_snapshot_refresh(state.clone(), unix_now_seconds());
     }
 }
 
-async fn fetch_models_dev_price_catalog(state: &AppState) -> anyhow::Result<ModelPriceCatalog> {
+async fn fetch_models_dev_price_catalog(state: &AppState) -> anyhow::Result<Arc<ModelPriceCatalog>> {
     fetch_models_dev_price_catalog_from_url(state, MODELS_DEV_API_URL).await
 }
 
 async fn fetch_models_dev_price_catalog_from_url(
     state: &AppState,
     url: &str,
-) -> anyhow::Result<ModelPriceCatalog> {
+) -> anyhow::Result<Arc<ModelPriceCatalog>> {
     {
         let cache = state.model_price_cache.read().await;
-        if let Some(body) = fresh_model_cache_body(&cache, MODEL_PRICE_CACHE_TTL) {
-            return Ok(model_price_catalog_from_models_dev(&body));
+        if cache
+            .fetched_at
+            .is_some_and(|fetched_at| fetched_at.elapsed() < MODEL_PRICE_CACHE_TTL)
+            && let Some(catalog) = &cache.catalog
+        {
+            return Ok(catalog.clone());
         }
     }
 
@@ -1417,25 +1679,27 @@ async fn fetch_models_dev_price_catalog_from_url(
         if !resp.status().is_success() {
             anyhow::bail!("models.dev price request failed: {}", resp.status());
         }
-        resp.json::<serde_json::Value>().await.map_err(Into::into)
+        let bytes = resp.bytes().await?;
+        model_price_catalog_from_models_dev_bytes(&bytes).map_err(Into::into)
     }
     .await;
 
     match fetch_result {
-        Ok(body) => {
+        Ok(catalog) => {
+            let catalog = Arc::new(catalog);
             let mut cache = state.model_price_cache.write().await;
             cache.fetched_at = Some(std::time::Instant::now());
-            cache.body = Some(body.clone());
-            Ok(model_price_catalog_from_models_dev(&body))
+            cache.catalog = Some(catalog.clone());
+            Ok(catalog)
         }
         Err(err) => {
-            let stale_body = {
+            let stale_catalog = {
                 let cache = state.model_price_cache.read().await;
-                cache.body.clone()
+                cache.catalog.clone()
             };
-            if let Some(body) = stale_body {
+            if let Some(catalog) = stale_catalog {
                 warn!("models.dev price refresh failed; using stale price cache: {err}");
-                return Ok(model_price_catalog_from_models_dev(&body));
+                return Ok(catalog);
             }
             Err(err)
         }
@@ -1534,8 +1798,17 @@ fn aggregate_usage_insights_with_prices(
     aggregate_usage_insights_with_prices_at_offset(rows, now, prices, period_days, 0)
 }
 
-fn aggregate_usage_insights_with_prices_at_offset(
-    rows: &[serde_json::Value],
+fn normalized_insights_label(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        "unknown".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn aggregate_usage_insights_with_prices_at_offset<R: InsightsUsageRowView>(
+    rows: &[R],
     now: f64,
     prices: &ModelPriceCatalog,
     period_days: usize,
@@ -1549,7 +1822,7 @@ fn aggregate_usage_insights_with_prices_at_offset(
     let mut sources: HashMap<String, UsageTotals> = HashMap::new();
 
     for row in rows {
-        let ts = session_usage_timestamp(row);
+        let ts = row.usage_timestamp();
         let Some(day) = usage_day_key_at_offset(ts, timezone_offset_minutes) else { continue };
         let hour = usage_hour_key_at_offset(ts, timezone_offset_minutes)
             .filter(|value| hour_keys.contains(value));
@@ -1565,27 +1838,9 @@ fn aggregate_usage_insights_with_prices_at_offset(
             day
         };
         totals.add_row(row, prices);
-        let model_name = row
-            .get("model")
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("unknown")
-            .to_string();
-        let provider_name = row
-            .get("provider")
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("unknown")
-            .to_string();
-        let source_name = row
-            .get("source")
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("unknown")
-            .to_string();
+        let model_name = normalized_insights_label(row.model_name());
+        let provider_name = normalized_insights_label(row.provider_name());
+        let source_name = normalized_insights_label(row.source_name());
         let model = models.entry((model_name.clone(), provider_name.clone())).or_insert_with(|| ModelUsage {
             model: model_name.clone(),
             provider: provider_name,
@@ -1672,7 +1927,7 @@ fn aggregate_usage_insights_with_prices_at_offset(
                 .collect();
             let mut period_sources: HashMap<String, UsageTotals> = HashMap::new();
             for row in rows {
-                let row_timestamp = session_usage_timestamp(row);
+                let row_timestamp = row.usage_timestamp();
                 let in_period = if period == 1 {
                     usage_hour_key_at_offset(row_timestamp, timezone_offset_minutes)
                         .is_some_and(|hour| hour_keys.contains(&hour))
@@ -1683,13 +1938,7 @@ fn aggregate_usage_insights_with_prices_at_offset(
                 if !in_period {
                     continue;
                 }
-                let source_name = row
-                    .get("source")
-                    .and_then(|value| value.as_str())
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or("unknown")
-                    .to_string();
+                let source_name = normalized_insights_label(row.source_name());
                 period_sources.entry(source_name).or_default().add_row(row, prices);
             }
             let source_rows = {

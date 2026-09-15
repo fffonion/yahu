@@ -2255,10 +2255,169 @@ fn build_user_message_nav(messages: &[serde_json::Value]) -> Vec<UserMessageNavI
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalNavRole {
+    User,
+    Assistant,
+    Other,
+}
+
+impl LocalNavRole {
+    fn from_str(value: &str) -> Self {
+        match value {
+            "user" => Self::User,
+            "assistant" => Self::Assistant,
+            _ => Self::Other,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct LocalNavRow {
+    id: i64,
+    role: LocalNavRole,
+    content: Option<String>,
+    timestamp: f64,
+}
+
+struct PendingUserMessageNav {
+    id: String,
+    content: String,
+    assistant_preview: Option<String>,
+    timestamp: Option<serde_json::Value>,
+    index: usize,
+}
+
+#[derive(Default)]
+struct LocalUserNavAccumulator {
+    index: usize,
+    pending: Option<PendingUserMessageNav>,
+    items: Vec<PendingUserMessageNav>,
+}
+
+impl LocalUserNavAccumulator {
+    fn finish_pending(&mut self) {
+        if let Some(item) = self.pending.take() {
+            self.items.push(item);
+        }
+    }
+
+    fn push(&mut self, row: LocalNavRow) {
+        match row.role {
+            LocalNavRole::User => {
+                self.finish_pending();
+                self.pending = Some(PendingUserMessageNav {
+                    id: row.id.to_string(),
+                    content: nav_text_excerpt(
+                        strip_platform_sender_prefix(row.content.as_deref().unwrap_or("")),
+                        160,
+                    ),
+                    assistant_preview: None,
+                    timestamp: Some(serde_json::json!(row.timestamp)),
+                    index: self.index,
+                });
+            }
+            LocalNavRole::Assistant => {
+                if let Some(item) = self.pending.as_mut() {
+                    let preview = nav_text_excerpt(row.content.as_deref().unwrap_or(""), 96);
+                    if !preview.is_empty() {
+                        item.assistant_preview = Some(preview);
+                    }
+                }
+            }
+            LocalNavRole::Other => {}
+        }
+        self.index += 1;
+    }
+
+    fn finish(mut self, total: usize) -> Vec<UserMessageNavItem> {
+        self.finish_pending();
+        let denom = total.saturating_sub(1).max(1) as f64;
+        self.items
+            .into_iter()
+            .map(|item| UserMessageNavItem {
+                id: item.id,
+                role: "user",
+                content: item.content,
+                assistant_preview: item.assistant_preview,
+                timestamp: item.timestamp,
+                position: item.index as f64 / denom,
+                index: item.index,
+                total,
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+fn build_compact_user_nav_items(rows: &[LocalNavRow], total: usize) -> Vec<UserMessageNavItem> {
+    let mut accumulator = LocalUserNavAccumulator::default();
+    for row in rows.iter().cloned() {
+        accumulator.push(row);
+    }
+    accumulator.finish(total)
+}
+
+#[derive(Clone, Copy)]
+struct LocalNavScanRow {
+    role: LocalNavRole,
+    timestamp: f64,
+}
+
+fn local_nav_compression_prefix_len(rows: &[LocalNavScanRow]) -> usize {
+    const CARRYOVER_BATCH_GAP_SECONDS: f64 = 2.0;
+    let Some(first) = rows.first() else {
+        return 0;
+    };
+    let mut batch_end = rows.len();
+    let mut previous_timestamp = first.timestamp;
+    let mut last_user_index = (first.role == LocalNavRole::User).then_some(0);
+    for (index, row) in rows.iter().enumerate().skip(1) {
+        if row.timestamp - previous_timestamp > CARRYOVER_BATCH_GAP_SECONDS {
+            batch_end = index;
+            break;
+        }
+        previous_timestamp = row.timestamp;
+        if row.role == LocalNavRole::User {
+            last_user_index = Some(index);
+        }
+    }
+    if rows[..batch_end]
+        .iter()
+        .filter(|row| row.role == LocalNavRole::User)
+        .take(2)
+        .count()
+        < 2
+    {
+        return 0;
+    }
+    last_user_index.map(|index| index + 1).unwrap_or(0)
+}
+
+fn local_nav_entry_compression_prefix_len(
+    conn: &rusqlite::Connection,
+    message_filter: &str,
+    entry_id: &str,
+) -> rusqlite::Result<usize> {
+    let sql = format!(
+        "SELECT role, timestamp FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY timestamp, id"
+    );
+    let mut statement = conn.prepare(&sql)?;
+    let rows = statement
+        .query_map([entry_id], |row| {
+            Ok(LocalNavScanRow {
+                role: LocalNavRole::from_str(row.get::<_, String>(0)?.as_str()),
+                timestamp: row.get(1)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(local_nav_compression_prefix_len(&rows))
+}
+
 fn fetch_local_user_nav_messages(
     state: &AppState,
     session_id: &str,
-) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+) -> anyhow::Result<Option<(Vec<UserMessageNavItem>, usize)>> {
     let db_path = state.hermes_home.join("state.db");
     if !db_path.exists() {
         return Ok(None);
@@ -2272,54 +2431,81 @@ fn fetch_local_user_nav_messages(
         return Ok(None);
     }
     let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
-    let context = messages_with_context_boundary_from_entries(
-        &entries,
-        SessionMessageJoinMode::VisibleHistory,
-        |entry_id| {
-            // The navigator needs ordering, user text, and assistant previews.  Keep
-            // tool rows as tiny structural placeholders so minimap positions and the
-            // total remain exact without deserializing tool output or reasoning blobs.
-            let sql = format!(
-                "SELECT id, session_id, role, \
-                 CASE WHEN role IN ('user', 'assistant') THEN content END, timestamp \
-                 FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY timestamp, id"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([entry_id], |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, i64>(0)?,
-                    "session_id": row.get::<_, String>(1)?,
-                    "role": row.get::<_, String>(2)?,
-                    "content": row.get::<_, Option<String>>(3)?,
-                    "timestamp": row.get::<_, f64>(4)?,
-                }))
-            })?;
-            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-        },
-    )?;
-    Ok(Some(context.messages))
+    let mut prefix_lengths = Vec::with_capacity(entries.len());
+    let mut seen = HashSet::new();
+    let mut total = 0usize;
+
+    for (index, entry) in entries.iter().enumerate() {
+        let prefix_len = if index > 0 && entries[index - 1].compression_ended() {
+            local_nav_entry_compression_prefix_len(&conn, message_filter, &entry.id)?
+        } else {
+            0
+        };
+        prefix_lengths.push(prefix_len);
+        let sql = format!(
+            "SELECT id FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY timestamp, id"
+        );
+        let mut statement = conn.prepare(&sql)?;
+        let rows = statement.query_map([entry.id.as_str()], |row| row.get::<_, i64>(0))?;
+        for (row_index, row) in rows.enumerate() {
+            let id = row?;
+            if row_index >= prefix_len && seen.insert(id) {
+                total += 1;
+            }
+        }
+    }
+
+    seen.clear();
+    let mut accumulator = LocalUserNavAccumulator::default();
+    for (entry_index, entry) in entries.iter().enumerate() {
+        let sql = format!(
+            "SELECT id, role, CASE WHEN role IN ('user', 'assistant') THEN content END, timestamp \
+             FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY timestamp, id"
+        );
+        let mut statement = conn.prepare(&sql)?;
+        let rows = statement.query_map([entry.id.as_str()], |row| {
+            Ok(LocalNavRow {
+                id: row.get(0)?,
+                role: LocalNavRole::from_str(row.get::<_, String>(1)?.as_str()),
+                content: row.get(2)?,
+                timestamp: row.get(3)?,
+            })
+        })?;
+        for (row_index, row) in rows.enumerate() {
+            let row = row?;
+            if row_index < prefix_lengths[entry_index] || !seen.insert(row.id) {
+                continue;
+            }
+            accumulator.push(row);
+        }
+    }
+    Ok(Some((accumulator.finish(total), total)))
 }
 
 async fn chat_user_nav(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Response<Body> {
-    let messages = match fetch_local_user_nav_messages(&state, &session_id) {
-        Ok(Some(messages)) => messages,
-        Ok(None) | Err(_) => match fetch_session_history_messages(&state, &session_id).await {
-            Ok(messages) => messages,
-            Err(err) => {
-                return json_error(
-                    StatusCode::BAD_GATEWAY,
-                    &format!("user message navigator request failed: {err}"),
-                );
-            }
-        },
+    let (items, total) = match fetch_local_user_nav_messages(&state, &session_id) {
+        Ok(Some(result)) => result,
+        Ok(None) | Err(_) => {
+            let messages = match fetch_session_history_messages(&state, &session_id).await {
+                Ok(messages) => messages,
+                Err(err) => {
+                    return json_error(
+                        StatusCode::BAD_GATEWAY,
+                        &format!("user message navigator request failed: {err}"),
+                    );
+                }
+            };
+            let total = messages.len();
+            (build_user_message_nav(&messages), total)
+        }
     };
     Json(serde_json::json!({
         "object": "list",
-        "data": build_user_message_nav(&messages),
-        "total": messages.len(),
+        "data": items,
+        "total": total,
     }))
     .into_response()
 }

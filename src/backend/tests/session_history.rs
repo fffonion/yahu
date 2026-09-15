@@ -1,4 +1,30 @@
     #[test]
+    fn compact_user_nav_preserves_indices_and_assistant_previews() {
+        let messages = vec![
+            serde_json::json!({"id": 1, "role": "session_meta", "content": "meta", "timestamp": 1.0}),
+            serde_json::json!({"id": 2, "role": "user", "content": "[Alice|42] first prompt", "timestamp": 2.0}),
+            serde_json::json!({"id": 3, "role": "tool", "content": "large tool output", "timestamp": 3.0}),
+            serde_json::json!({"id": 4, "role": "assistant", "content": "first answer", "timestamp": 4.0}),
+            serde_json::json!({"id": 5, "role": "assistant", "content": "latest answer", "timestamp": 5.0}),
+            serde_json::json!({"id": 6, "role": "user", "content": "second prompt", "timestamp": 6.0}),
+        ];
+        let rows = messages
+            .iter()
+            .map(|message| LocalNavRow {
+                id: message["id"].as_i64().unwrap(),
+                role: LocalNavRole::from_str(message["role"].as_str().unwrap()),
+                content: message["content"].as_str().map(ToString::to_string),
+                timestamp: message["timestamp"].as_f64().unwrap(),
+            })
+            .collect::<Vec<_>>();
+
+        let expected = build_user_message_nav(&messages);
+        let actual = build_compact_user_nav_items(&rows, messages.len());
+
+        assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(expected).unwrap());
+    }
+
+    #[test]
     fn internal_model_switch_messages_are_hidden_from_watch_and_history() {
         let items = session_message_items(&serde_json::json!({"data":[
             {"id":1,"role":"user","content":"/model gpt-5.5 --provider openai-codex --session"},

@@ -14,6 +14,21 @@
     }
 
     #[test]
+    fn compact_models_dev_parser_matches_price_values_from_generic_parser() {
+        let body = serde_json::json!({
+            "minimax": {"models": {"MiniMax-M3": {"id": "MiniMax-M3", "name": "M3", "cost": {"input": "0.6", "output": 2.4, "cache_read": "$0.12"}}}},
+            "openai": {"models": {"gpt-5.5": {"id": "gpt-5.5", "cost": {"input": 5.0, "output": 30.0}}}}
+        });
+        let generic = model_price_catalog_from_models_dev(&body);
+        let compact = model_price_catalog_from_models_dev_bytes(&serde_json::to_vec(&body).unwrap()).unwrap();
+        for key in ["minimax/m3", "openai/gpt-5.5"] {
+            let expected = model_price_for_model(&generic, key).unwrap();
+            let actual = model_price_for_model(&compact, key).unwrap();
+            assert!((expected.estimate(1_000_000, 100_000, 9_000_000, 0) - actual.estimate(1_000_000, 100_000, 9_000_000, 0)).abs() < 0.000001);
+        }
+    }
+
+    #[test]
     fn insights_aggregates_recent_api_session_rows_by_model_without_db() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()
@@ -546,16 +561,16 @@
         assert_eq!(usage_rows.len(), 2);
         let fallback = usage_rows
             .iter()
-            .find(|row| row["started_at"] == first - 172_800.0)
+            .find(|row| row.started_at == first - 172_800.0)
             .unwrap();
-        let event = usage_rows.iter().find(|row| row["started_at"] == second).unwrap();
-        assert_eq!(fallback["input_tokens"], 100);
-        assert_eq!(fallback["output_tokens"], 20);
-        assert_eq!(fallback["cache_read_tokens"], 1_000);
-        assert_eq!(event["input_tokens"], 50);
-        assert_eq!(event["output_tokens"], 5);
-        assert_eq!(event["cache_read_tokens"], 100);
-        assert_eq!(event["api_call_count"], 2);
+        let event = usage_rows.iter().find(|row| row.started_at == second).unwrap();
+        assert_eq!(fallback.input_tokens, 100);
+        assert_eq!(fallback.output_tokens, 20);
+        assert_eq!(fallback.cache_read_tokens, 1_000);
+        assert_eq!(event.input_tokens, 50);
+        assert_eq!(event.output_tokens, 5);
+        assert_eq!(event.cache_read_tokens, 100);
+        assert_eq!(event.api_call_count, 2);
 
         let body = aggregate_usage_insights_with_prices_at_offset(
             &usage_rows,
@@ -775,9 +790,9 @@
             load_insights_usage_rows(&snapshot_path, CURSOR - (45.0 * 86_400.0)).unwrap();
         let delta = rows
             .iter()
-            .find(|row| row["started_at"] == CURSOR + 300.0)
+            .find(|row| row.started_at == CURSOR + 300.0)
             .unwrap();
-        assert_eq!(delta["input_tokens"], 50);
+        assert_eq!(delta.input_tokens, 50);
         assert_eq!(latest_snapshot_at, Some(CURSOR + 300.0));
         assert_eq!(
             snapshot_conn
@@ -828,9 +843,9 @@
         let (rows, _, _) = load_insights_usage_rows(&path, START + (35.0 * 86_400.0)).unwrap();
         let delta = rows
             .iter()
-            .find(|row| row["started_at"] == resumed_at)
+            .find(|row| row.started_at == resumed_at)
             .unwrap();
-        assert_eq!(delta["input_tokens"], 50);
+        assert_eq!(delta.input_tokens, 50);
     }
 
     #[test]
@@ -942,7 +957,7 @@
         {
             let mut cache = state.model_price_cache.write().await;
             cache.fetched_at = Some(std::time::Instant::now());
-            cache.body = Some(serde_json::json!({
+            cache.catalog = Some(Arc::new(model_price_catalog_from_models_dev(&serde_json::json!({
                 "minimax": {
                     "id": "minimax",
                     "models": {
@@ -952,7 +967,7 @@
                         }
                     }
                 }
-            }));
+            }))));
         }
 
         let catalog = fetch_models_dev_price_catalog(&state).await.unwrap();
@@ -977,7 +992,7 @@
         {
             let mut cache = state.model_price_cache.write().await;
             cache.fetched_at = Some(std::time::Instant::now() - MODEL_PRICE_CACHE_TTL - Duration::from_secs(1));
-            cache.body = Some(serde_json::json!({
+            cache.catalog = Some(Arc::new(model_price_catalog_from_models_dev(&serde_json::json!({
                 "openai": {
                     "id": "openai",
                     "models": {
@@ -987,7 +1002,7 @@
                         }
                     }
                 }
-            }));
+            }))));
         }
 
         let catalog = fetch_models_dev_price_catalog_from_url(&state, &format!("http://{addr}/api.json")).await.unwrap();
@@ -1027,7 +1042,7 @@
         {
             let mut cache = state.model_price_cache.write().await;
             cache.fetched_at = Some(std::time::Instant::now());
-            cache.body = Some(serde_json::json!({}));
+            cache.catalog = Some(Arc::new(ModelPriceCatalog::new()));
         }
 
         let response = timeout(
@@ -1085,7 +1100,7 @@
         {
             let mut cache = state.model_price_cache.write().await;
             cache.fetched_at = Some(std::time::Instant::now());
-            cache.body = Some(serde_json::json!({}));
+            cache.catalog = Some(Arc::new(ModelPriceCatalog::new()));
         }
 
         let response = insights_usage(
@@ -1150,7 +1165,7 @@
         {
             let mut cache = state.model_price_cache.write().await;
             cache.fetched_at = Some(std::time::Instant::now());
-            cache.body = Some(serde_json::json!({}));
+            cache.catalog = Some(Arc::new(ModelPriceCatalog::new()));
         }
 
         let response = insights_usage(
@@ -1212,7 +1227,7 @@
         {
             let mut cache = state.model_price_cache.write().await;
             cache.fetched_at = Some(std::time::Instant::now());
-            cache.body = Some(serde_json::json!({}));
+            cache.catalog = Some(Arc::new(ModelPriceCatalog::new()));
         }
 
         let first = insights_usage(
