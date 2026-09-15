@@ -1,4 +1,12 @@
     #[test]
+    fn detail_history_initial_page_uses_a_local_tail_path() {
+        let source = include_str!("../sessions.rs");
+        assert!(source.contains("let initial_tail = after.is_none() && before.is_none();"));
+        assert!(source.contains("let reverse_page = before.is_some() || initial_tail;"));
+        assert!(!source.contains("if !db_path.exists() || (after.is_none() && before.is_none())"));
+    }
+
+    #[test]
     fn compact_user_nav_preserves_indices_and_assistant_previews() {
         let messages = vec![
             serde_json::json!({"id": 1, "role": "session_meta", "content": "meta", "timestamp": 1.0}),

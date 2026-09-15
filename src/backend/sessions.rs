@@ -4170,7 +4170,8 @@ fn fetch_local_detail_range(
     limit: usize,
 ) -> anyhow::Result<Option<(Vec<serde_json::Value>, bool, usize)>> {
     let db_path = state.hermes_home.join("state.db");
-    if !db_path.exists() || (after.is_none() && before.is_none()) {
+    let initial_tail = after.is_none() && before.is_none();
+    if !db_path.exists() {
         return Ok(None);
     }
     let conn = rusqlite::Connection::open_with_flags(
@@ -4200,7 +4201,8 @@ fn fetch_local_detail_range(
     }
     let limit_param = entry_ids.len() + 3;
     let page_sql = format!(
-        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE {message_filter} AND session_id IN ({placeholders}) AND (?{after_param} IS NULL OR id > ?{after_param}) AND (?{before_param} IS NULL OR id < ?{before_param}) ORDER BY id DESC LIMIT ?{limit_param}"
+        "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE {message_filter} AND session_id IN ({placeholders}) AND (?{after_param} IS NULL OR id > ?{after_param}) AND (?{before_param} IS NULL OR id < ?{before_param}) ORDER BY id {} LIMIT ?{limit_param}",
+        if before.is_some() || initial_tail { "DESC" } else { "ASC" },
     );
     let mut page_params = session_id_values(&entry_ids);
     page_params.push(optional_i64_value(after));
@@ -4209,7 +4211,10 @@ fn fetch_local_detail_range(
     let mut stmt = conn.prepare(&page_sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(page_params), row_to_session_message)?;
     let mut page = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-    page.reverse();
+    let reverse_page = before.is_some() || initial_tail;
+    if reverse_page {
+        page.reverse();
+    }
     Ok(Some((page, total > limit, total)))
 }
 
