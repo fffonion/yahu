@@ -1,4 +1,62 @@
     #[test]
+    fn insights_initial_capture_avoids_scanning_messages_for_session_rows() {
+        let temp = tempfile::tempdir().unwrap();
+        let state_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&state_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL);
+             CREATE TABLE sessions (
+                 id TEXT PRIMARY KEY,
+                 source TEXT NOT NULL,
+                 started_at REAL NOT NULL,
+                 archived INTEGER NOT NULL DEFAULT 0,
+                 end_reason TEXT,
+                 model TEXT,
+                 billing_provider TEXT,
+                 billing_base_url TEXT,
+                 model_config TEXT,
+                 input_tokens INTEGER NOT NULL DEFAULT 0,
+                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                 reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+                 api_call_count INTEGER NOT NULL DEFAULT 0,
+                 estimated_cost_usd REAL NOT NULL DEFAULT 0,
+                 actual_cost_usd REAL NOT NULL DEFAULT 0
+             );
+             CREATE TABLE session_model_usage (
+                 session_id TEXT NOT NULL,
+                 model TEXT NOT NULL,
+                 billing_provider TEXT NOT NULL DEFAULT '',
+                 billing_base_url TEXT NOT NULL DEFAULT '',
+                 billing_mode TEXT NOT NULL DEFAULT '',
+                 task TEXT NOT NULL DEFAULT '',
+                 input_tokens INTEGER NOT NULL DEFAULT 0,
+                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                 reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+                 api_call_count INTEGER NOT NULL DEFAULT 0,
+                 estimated_cost_usd REAL NOT NULL DEFAULT 0,
+                 actual_cost_usd REAL NOT NULL DEFAULT 0
+             );
+             INSERT INTO messages(id, session_id) VALUES(42, 's1');
+             INSERT INTO sessions(id, source, started_at) VALUES('s1', 'telegram', 1000);
+             INSERT INTO session_model_usage(session_id, model, billing_provider, input_tokens)
+             VALUES('s1', 'gpt-5.6', 'openai', 123);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let (rows, high_water) = fetch_initial_sessions_for_insights(&state_path).unwrap();
+        assert_eq!(high_water, 42);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["model"], "gpt-5.6");
+        assert_eq!(rows[0]["provider"], "openai");
+        assert_eq!(rows[0]["input_tokens"], 123);
+    }
+
+    #[test]
     fn insights_load_window_matches_requested_period_plus_one_boundary_day() {
         assert_eq!(insights_snapshot_load_days(1), 2);
         assert_eq!(insights_snapshot_load_days(7), 8);
@@ -130,10 +188,11 @@
                      billing_base_url TEXT,
                      model_config TEXT
                  );
-                 INSERT INTO sessions(id, model, billing_provider) VALUES
-                     ('known-session', 'unique-model', 'provider-a'),
-                     ('ambiguous-a', 'ambiguous-model', 'provider-a'),
-                     ('ambiguous-b', 'ambiguous-model', 'provider-b');",
+                 INSERT INTO sessions(id, model, billing_provider, billing_base_url, model_config) VALUES
+                     ('known-session', 'unique-model', 'provider-a', NULL, NULL),
+                     ('ambiguous-a', 'ambiguous-model', 'provider-a', NULL, NULL),
+                     ('ambiguous-b', 'ambiguous-model', 'provider-b', NULL, NULL),
+                     ('null-provider', 'unique-model', NULL, NULL, '{}');",
             )
             .unwrap();
         drop(state_conn);

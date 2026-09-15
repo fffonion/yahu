@@ -357,7 +357,7 @@ fn backfill_snapshot_providers(snapshot_path: &Path, state_db_path: &Path) -> an
     let mut session_providers = HashMap::new();
     let mut model_providers: HashMap<String, HashSet<String>> = HashMap::new();
     let mut statement = state_conn.prepare(
-        "SELECT id, COALESCE(model, 'unknown'), billing_provider, billing_base_url, model_config
+        "SELECT id, COALESCE(model, 'unknown'), COALESCE(billing_provider, ''), billing_base_url, model_config
          FROM sessions
          WHERE (billing_provider IS NOT NULL AND TRIM(billing_provider) != '') OR model_config IS NOT NULL",
     )?;
@@ -510,14 +510,14 @@ fn persist_insights_snapshot_with_message_cursor(
     let mut recorded_deltas: HashMap<String, UsageCounter> = HashMap::new();
     if needs_initial_backfill {
         let mut statement = tx.prepare("SELECT row_json FROM insights_events ORDER BY id")?;
-        let event_rows = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .filter_map(Result::ok)
-            .collect::<Vec<_>>();
-        drop(statement);
-        for value in event_rows {
-            let Ok(json) = serde_json::from_str::<serde_json::Value>(&value) else { continue };
-            let Some(counter) = UsageCounter::from_api_row(&json) else { continue };
+        let event_rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        for value in event_rows.filter_map(Result::ok) {
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(&value) else {
+                continue;
+            };
+            let Some(counter) = UsageCounter::from_api_row(&json) else {
+                continue;
+            };
             recorded_deltas
                 .entry(counter.session_id.clone())
                 .or_default()
@@ -809,9 +809,9 @@ fn usage_counter_id(session_id: &str, model: &str, provider: &str, base_url: &st
     format!("usage:{session_id}\u{1f}{model}\u{1f}{provider}\u{1f}{base_url}\u{1f}{billing_mode}\u{1f}{task}")
 }
 
-fn fetch_changed_sessions_for_insights(
+fn fetch_insights_sessions(
     path: &Path,
-    previous_message_id: i64,
+    previous_message_id: Option<i64>,
 ) -> anyhow::Result<(Vec<serde_json::Value>, i64)> {
     let conn = rusqlite::Connection::open_with_flags(
         path,
@@ -821,32 +821,44 @@ fn fetch_changed_sessions_for_insights(
     let high_water = conn.query_row("SELECT COALESCE(MAX(id), 0) FROM messages", [], |row| {
         row.get::<_, i64>(0)
     })?;
-    let lower_bound = previous_message_id
-        .saturating_sub(INSIGHTS_MESSAGE_ID_OVERLAP)
-        .max(0);
     let aliases = custom_provider_aliases(path.parent().unwrap_or_else(|| Path::new(".")));
     let has_model_usage = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_model_usage')",
         [],
         |row| row.get::<_, bool>(0),
     )?;
+    let changed_only = previous_message_id.is_some();
     let query = if has_model_usage {
-        "WITH changed(session_id) AS (
-             SELECT DISTINCT session_id FROM messages WHERE id > ?1 AND id <= ?2
-         )
-         SELECT s.id, s.source, s.started_at,
-                COALESCE(u.model, 'unknown'), COALESCE(u.billing_provider, ''),
-                u.billing_base_url, COALESCE(u.billing_mode, ''), NULL, COALESCE(u.task, ''),
-                COALESCE(u.input_tokens, 0), COALESCE(u.output_tokens, 0),
-                COALESCE(u.cache_read_tokens, 0), COALESCE(u.cache_write_tokens, 0),
-                COALESCE(u.reasoning_tokens, 0), COALESCE(u.api_call_count, 0),
-                COALESCE(u.estimated_cost_usd, 0), COALESCE(u.actual_cost_usd, 0)
-         FROM sessions s
-         JOIN changed c ON c.session_id = s.id
-         JOIN session_model_usage u ON u.session_id = s.id
-         WHERE s.archived = 0 AND s.source != 'tool'
-           AND COALESCE(s.end_reason, '') != 'compression'"
-    } else {
+        if changed_only {
+            "WITH changed(session_id) AS (
+                 SELECT DISTINCT session_id FROM messages WHERE id > ?1 AND id <= ?2
+             )
+             SELECT s.id, s.source, s.started_at,
+                    COALESCE(u.model, 'unknown'), COALESCE(u.billing_provider, ''),
+                    u.billing_base_url, COALESCE(u.billing_mode, ''), NULL, COALESCE(u.task, ''),
+                    COALESCE(u.input_tokens, 0), COALESCE(u.output_tokens, 0),
+                    COALESCE(u.cache_read_tokens, 0), COALESCE(u.cache_write_tokens, 0),
+                    COALESCE(u.reasoning_tokens, 0), COALESCE(u.api_call_count, 0),
+                    COALESCE(u.estimated_cost_usd, 0), COALESCE(u.actual_cost_usd, 0)
+             FROM sessions s
+             JOIN changed c ON c.session_id = s.id
+             JOIN session_model_usage u ON u.session_id = s.id
+             WHERE s.archived = 0 AND s.source != 'tool'
+               AND COALESCE(s.end_reason, '') != 'compression'"
+        } else {
+            "SELECT s.id, s.source, s.started_at,
+                    COALESCE(u.model, 'unknown'), COALESCE(u.billing_provider, ''),
+                    u.billing_base_url, COALESCE(u.billing_mode, ''), NULL, COALESCE(u.task, ''),
+                    COALESCE(u.input_tokens, 0), COALESCE(u.output_tokens, 0),
+                    COALESCE(u.cache_read_tokens, 0), COALESCE(u.cache_write_tokens, 0),
+                    COALESCE(u.reasoning_tokens, 0), COALESCE(u.api_call_count, 0),
+                    COALESCE(u.estimated_cost_usd, 0), COALESCE(u.actual_cost_usd, 0)
+             FROM sessions s
+             JOIN session_model_usage u ON u.session_id = s.id
+             WHERE s.archived = 0 AND s.source != 'tool'
+               AND COALESCE(s.end_reason, '') != 'compression'"
+        }
+    } else if changed_only {
         "WITH changed(session_id) AS (
              SELECT DISTINCT session_id FROM messages WHERE id > ?1 AND id <= ?2
          )
@@ -861,47 +873,82 @@ fn fetch_changed_sessions_for_insights(
          JOIN changed c ON c.session_id = s.id
          WHERE s.archived = 0 AND s.source != 'tool'
            AND COALESCE(s.end_reason, '') != 'compression'"
+    } else {
+        "SELECT s.id, s.source, s.started_at,
+                COALESCE(s.model, 'unknown'), COALESCE(s.billing_provider, ''),
+                s.billing_base_url, '', s.model_config, '',
+                COALESCE(s.input_tokens, 0), COALESCE(s.output_tokens, 0),
+                COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_write_tokens, 0),
+                COALESCE(s.reasoning_tokens, 0), COALESCE(s.api_call_count, 0),
+                COALESCE(s.estimated_cost_usd, 0), COALESCE(s.actual_cost_usd, 0)
+         FROM sessions s
+         WHERE s.archived = 0 AND s.source != 'tool'
+           AND COALESCE(s.end_reason, '') != 'compression'"
     };
     let mut statement = conn.prepare(query)?;
-    let rows = statement
-        .query_map(rusqlite::params![lower_bound, high_water], |row| {
-            let session_id = row.get::<_, String>(0)?;
-            let model = row.get::<_, String>(3)?;
-            let provider_raw = row.get::<_, String>(4)?;
-            let base_url = row.get::<_, Option<String>>(5)?;
-            let billing_mode = row.get::<_, String>(6)?;
-            let model_config = row.get::<_, Option<String>>(7)?;
-            let task = row.get::<_, String>(8)?;
-            let provider = if has_model_usage {
-                resolve_provider_name(&provider_raw, base_url.as_deref(), &aliases)
-            } else {
-                resolve_session_provider(&provider_raw, base_url.as_deref(), model_config.as_deref(), &aliases)
-            };
-            let id = if has_model_usage {
-                usage_counter_id(&session_id, &model, &provider, base_url.as_deref().unwrap_or(""), &billing_mode, &task)
-            } else {
-                session_id.clone()
-            };
-            Ok(serde_json::json!({
-                "id": id,
-                "root_session_id": session_id,
-                "source": row.get::<_, String>(1)?,
-                "model": model,
-                "provider": provider,
-                "started_at": row.get::<_, f64>(2)?,
-                "input_tokens": row.get::<_, i64>(9)?,
-                "output_tokens": row.get::<_, i64>(10)?,
-                "cache_read_tokens": row.get::<_, i64>(11)?,
-                "cache_write_tokens": row.get::<_, i64>(12)?,
-                "reasoning_tokens": row.get::<_, i64>(13)?,
-                "api_call_count": row.get::<_, i64>(14)?,
-                "tool_call_count": 0,
-                "estimated_cost_usd": row.get::<_, f64>(15)?,
-                "actual_cost_usd": row.get::<_, f64>(16)?,
-            }))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut map_row = |row: &rusqlite::Row<'_>| {
+        let session_id = row.get::<_, String>(0)?;
+        let model = row.get::<_, String>(3)?;
+        let provider_raw = row.get::<_, String>(4)?;
+        let base_url = row.get::<_, Option<String>>(5)?;
+        let billing_mode = row.get::<_, String>(6)?;
+        let model_config = row.get::<_, Option<String>>(7)?;
+        let task = row.get::<_, String>(8)?;
+        let provider = if has_model_usage {
+            resolve_provider_name(&provider_raw, base_url.as_deref(), &aliases)
+        } else {
+            resolve_session_provider(&provider_raw, base_url.as_deref(), model_config.as_deref(), &aliases)
+        };
+        let id = if has_model_usage {
+            usage_counter_id(&session_id, &model, &provider, base_url.as_deref().unwrap_or(""), &billing_mode, &task)
+        } else {
+            session_id.clone()
+        };
+        Ok(serde_json::json!({
+            "id": id,
+            "root_session_id": session_id,
+            "source": row.get::<_, String>(1)?,
+            "model": model,
+            "provider": provider,
+            "started_at": row.get::<_, f64>(2)?,
+            "input_tokens": row.get::<_, i64>(9)?,
+            "output_tokens": row.get::<_, i64>(10)?,
+            "cache_read_tokens": row.get::<_, i64>(11)?,
+            "cache_write_tokens": row.get::<_, i64>(12)?,
+            "reasoning_tokens": row.get::<_, i64>(13)?,
+            "api_call_count": row.get::<_, i64>(14)?,
+            "tool_call_count": 0,
+            "estimated_cost_usd": row.get::<_, f64>(15)?,
+            "actual_cost_usd": row.get::<_, f64>(16)?,
+        }))
+    };
+    let mut rows = Vec::new();
+    if let Some(previous_message_id) = previous_message_id {
+        let lower_bound = previous_message_id
+            .saturating_sub(INSIGHTS_MESSAGE_ID_OVERLAP)
+            .max(0);
+        for row in statement.query_map(rusqlite::params![lower_bound, high_water], &mut map_row)? {
+            rows.push(row?);
+        }
+    } else {
+        for row in statement.query_map([], &mut map_row)? {
+            rows.push(row?);
+        }
+    }
     Ok((rows, high_water))
+}
+
+fn fetch_changed_sessions_for_insights(
+    path: &Path,
+    previous_message_id: i64,
+) -> anyhow::Result<(Vec<serde_json::Value>, i64)> {
+    fetch_insights_sessions(path, Some(previous_message_id))
+}
+
+fn fetch_initial_sessions_for_insights(
+    path: &Path,
+) -> anyhow::Result<(Vec<serde_json::Value>, i64)> {
+    fetch_insights_sessions(path, None)
 }
 
 fn insights_snapshot_is_fresh(latest_snapshot_at: Option<f64>, now: f64) -> bool {
@@ -1558,7 +1605,7 @@ async fn capture_insights_snapshot(state: &AppState, captured_at: f64) -> anyhow
         if state_db_path.exists() {
             let read_path = state_db_path.clone();
             let (rows, high_water) = tokio::task::spawn_blocking(move || {
-                fetch_changed_sessions_for_insights(&read_path, 0)
+                fetch_initial_sessions_for_insights(&read_path)
             })
             .await??;
             (rows, Some(high_water))
