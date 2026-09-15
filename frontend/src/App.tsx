@@ -221,7 +221,7 @@ const hasMobileDrawer = (mode: Mode) => mode === 'chat' || mode === 'cron' || mo
 const MESSAGE_PAGE = 24;
 const MESSAGE_WINDOW = 120;
 const RAW_MESSAGE_WINDOW = MESSAGE_WINDOW * 4;
-const SESSION_MESSAGE_CACHE_LIMIT = 8;
+const SESSION_MESSAGE_CACHE_LIMIT = 2;
 const OTHER_PLATFORM_PENDING_ID = 'other-platform-pending';
 const initialRoute = getCurrentHashRoute();
 const initialChatView = readChatViewState();
@@ -3948,6 +3948,7 @@ function ChatMain(props: ChatMainProps) {
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>{t('chat.emptyDesc')}</p></div>}
       <ChatTranscript
         messages={props.messages}
+        visibleMessages={visibleMessages}
         showReasoning={props.showReasoning} showToolCalls={props.showToolCalls}
         streaming={props.streaming}
         assistantName={sessionModel || undefined}

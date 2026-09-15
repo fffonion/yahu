@@ -7,7 +7,7 @@ describe('chat session message cache', () => {
   test('keeps a bounded per-session cache and restores it before the latest refresh', () => {
     const source = app();
     expect(source).toContain('const sessionMessageCacheRef = useRef<Map<string, SessionMessageCache>>(new Map());');
-    expect(source).toContain('const SESSION_MESSAGE_CACHE_LIMIT = 8;');
+    expect(source).toContain('const SESSION_MESSAGE_CACHE_LIMIT = 2;');
     expect(source).toContain('while (cache.size > SESSION_MESSAGE_CACHE_LIMIT) cache.delete(cache.keys().next().value as string);');
     expect(source).toContain('const restored = restoreCachedMessageWindow(activeSessionId);');
     expect(source).toContain('setMessages(cached.messages);');

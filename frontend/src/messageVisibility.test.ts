@@ -159,6 +159,10 @@ describe('chat message visibility', () => {
     expect(source).toContain('const visibleMessages = useMemo(() => visibleChatMessages<ChatMessage>(props.messages, props.showReasoning, props.showToolCalls), [props.messages, props.showReasoning, props.showToolCalls]);');
     expect(source).not.toContain('dedupeVisibleChatMessages');
     expect(source).toContain('<ChatTranscript');
+    expect(transcript).toContain('visibleMessages?: ChatMessage[];');
+    expect(transcript).toContain('visibleMessages: visibleMessagesOverride,');
+    expect(transcript).toContain('() => visibleMessagesOverride || visibleChatMessages<ChatMessage>(messages, showReasoning, showToolCalls)');
+    expect(transcript).toContain('const desktopTurnBlocks = useMemo(() => compact ? buildDesktopTurnBlocks(turnDetailItems) : [], [compact, turnDetailItems]);');
     expect(transcript).toContain('<MessageView message={item.message} showReasoning={showReasoning} assistantName={assistantName} />');
     expect(transcript).not.toContain('if (!shouldRenderMessage(message, showReasoning, showToolCalls)) return null;');
     expect(transcript).toContain('showToolCalls: boolean');

@@ -60,6 +60,7 @@ type LoadTurnDetails = (detail: TurnDetailMetadata) => Promise<ChatMessage[]>;
 
 type ChatTranscriptProps = {
   messages: ChatMessage[];
+  visibleMessages?: ChatMessage[];
   showReasoning: boolean;
   showToolCalls: boolean;
   streaming?: boolean;
@@ -70,8 +71,9 @@ type ChatTranscriptProps = {
   forceOpenLatestDetailToken?: number;
 };
 
-export function ChatTranscript({
+export const ChatTranscript = React.memo(function ChatTranscript({
   messages,
+  visibleMessages: visibleMessagesOverride,
   showReasoning,
   showToolCalls,
   streaming = false,
@@ -82,8 +84,8 @@ export function ChatTranscript({
   forceOpenLatestDetailToken = 0,
 }: ChatTranscriptProps) {
   const visibleMessages = useMemo(
-    () => visibleChatMessages<ChatMessage>(messages, showReasoning, showToolCalls),
-    [messages, showReasoning, showToolCalls],
+    () => visibleMessagesOverride || visibleChatMessages<ChatMessage>(messages, showReasoning, showToolCalls),
+    [messages, showReasoning, showToolCalls, visibleMessagesOverride],
   );
   const previousTurnDetailItemsRef = useRef<Array<TurnDetailItem<ChatMessage>>>([]);
   const groupedTurnDetailItems = useMemo(
@@ -100,7 +102,7 @@ export function ChatTranscript({
     [forceOpenLatestDetailToken, streaming, turnDetailItems, visibleMessages],
   );
   const detailForceOpenToken = forceOpenLatestDetailToken;
-  const desktopTurnBlocks = useMemo(() => buildDesktopTurnBlocks(turnDetailItems), [turnDetailItems]);
+  const desktopTurnBlocks = useMemo(() => compact ? buildDesktopTurnBlocks(turnDetailItems) : [], [compact, turnDetailItems]);
   const splitIdx = findNewMessageSplitIndex(visibleMessages, newMessageBoundaryId || undefined);
 
   if (compact) {
@@ -131,7 +133,7 @@ export function ChatTranscript({
       {rendered}
     </React.Fragment>;
   })}</>;
-}
+});
 
 function NewMessagesSeparator() {
   return <div className="new-messages-separator" role="separator"><span className="new-messages-label">{t('chat.newMessages')}</span></div>;
@@ -287,7 +289,7 @@ function toolIconTone(toolName: string): string {
   return 'default';
 }
 
-function ToolMessageView({ message, suppressMessageAnchor = false }: { message: ChatMessage; suppressMessageAnchor?: boolean }) {
+const ToolMessageView = React.memo(function ToolMessageView({ message, suppressMessageAnchor = false }: { message: ChatMessage; suppressMessageAnchor?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const summary = useMemo(
     () => summarizeToolMessage(message.content, message.toolName, message.toolInput),
@@ -311,7 +313,7 @@ function ToolMessageView({ message, suppressMessageAnchor = false }: { message: 
       </div>}
     </div>
   </article>;
-}
+});
 
 function roleName(role: Role) { return role === 'assistant' ? 'Hermes Agent' : role === 'tool' ? 'Tool' : role === 'system' ? 'System' : 'You'; }
 function messageRoleName(message: ChatMessage, assistantName?: string) { return message.role === 'assistant' ? (message.model || assistantName || 'Hermes Agent') : roleName(message.role); }
@@ -386,7 +388,7 @@ function StreamingFadeText({ text }: { text: string }) {
   return <div className="md-content stream-fade-text">{content}</div>;
 }
 
-function MessageView({ message, showReasoning = false, assistantName, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; suppressMessageAnchor?: boolean }) {
+const MessageView = React.memo(function MessageView({ message, showReasoning = false, assistantName, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; suppressMessageAnchor?: boolean }) {
   if (message.historyGap) return <HistoryCoverageGap message={message} />;
   if (isToolLikeMessage(message)) return <ToolMessageView message={message} suppressMessageAnchor={suppressMessageAnchor} />;
   const isPending = !!message.pending;
@@ -409,7 +411,7 @@ function MessageView({ message, showReasoning = false, assistantName, suppressMe
       {showTurnMetadata && <div className="msg-turn-metadata" aria-label={t('chat.details')}>{turnMetadata}</div>}
     </div>
   </article>;
-}
+});
 
 function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, forceOpenToken = 0 }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenToken?: number }) {
   const [open, setOpen] = useState(() => !!item.defaultOpen);
