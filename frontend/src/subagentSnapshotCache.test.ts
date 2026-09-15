@@ -29,6 +29,15 @@ describe('subagent browser snapshot cache', () => {
     expect(readCachedSubagentSnapshot('session-1', 1_000 + SUBAGENT_SNAPSHOT_CACHE_TTL_MS)).toBeNull();
   });
 
+  test('bounds the number of retained session snapshots', () => {
+    for (let index = 0; index < 33; index += 1) {
+      writeCachedSubagentSnapshot(snapshot({ sessionId: `session-${index}` }), 1_000 + index);
+    }
+
+    expect(readCachedSubagentSnapshot('session-0', 1_100)).toBeNull();
+    expect(readCachedSubagentSnapshot('session-32', 1_100)?.sessionId).toBe('session-32');
+  });
+
   test('ignores generated time when deciding whether the status bar changed', () => {
     const previous = snapshot({ generatedAt: 100 });
     const next = snapshot({ generatedAt: 200 });

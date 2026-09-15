@@ -1,6 +1,7 @@
 import type { GoalMilestone, PersistentGoal, SubagentActivity, SubagentProgress, SubagentProgressSnapshot, SubagentTodo } from './subagentProgress';
 
 export const SUBAGENT_SNAPSHOT_CACHE_TTL_MS = 5 * 60 * 1000;
+export const SUBAGENT_SNAPSHOT_CACHE_LIMIT = 32;
 
 type CachedSubagentSnapshot = {
   snapshot: SubagentProgressSnapshot;
@@ -18,7 +19,9 @@ export function readCachedSubagentSnapshot(sessionId: string, now = Date.now()):
 
 export function writeCachedSubagentSnapshot(snapshot: SubagentProgressSnapshot, now = Date.now()): void {
   if (!snapshot.sessionId) return;
+  snapshotCache.delete(snapshot.sessionId);
   snapshotCache.set(snapshot.sessionId, { snapshot, cachedAt: now });
+  while (snapshotCache.size > SUBAGENT_SNAPSHOT_CACHE_LIMIT) snapshotCache.delete(snapshotCache.keys().next().value as string);
 }
 
 export function clearSubagentSnapshotCache(): void {
