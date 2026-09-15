@@ -678,7 +678,9 @@ export default function App() {
   const loadingMessagesRef = useRef(false);
   const hasOlderRef = useRef(false);
   const hasNewerRef = useRef(false);
+  const historyTotalRef = useRef<number | null>(historyTotal);
   const activeSessionIdRef = useRef(activeSessionId);
+  const hydratedMessageSessionRef = useRef('');
   const searchVersionRef = useRef(0);
   const sessionListRequestCountRef = useRef(0);
   const modelsRef = useRef<ModelOption[]>(models);
@@ -706,6 +708,7 @@ export default function App() {
   useEffect(() => { loadingMessagesRef.current = loadingMessages; }, [loadingMessages]);
   useEffect(() => { hasOlderRef.current = hasOlder; }, [hasOlder]);
   useEffect(() => { hasNewerRef.current = hasNewer; }, [hasNewer]);
+  useEffect(() => { historyTotalRef.current = historyTotal; }, [historyTotal]);
   useEffect(() => { newMessageBoundaryIdRef.current = newMessageBoundaryId; }, [newMessageBoundaryId]);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
   useEffect(() => { writeChatViewState(activeSessionId); }, [activeSessionId]);
@@ -757,20 +760,34 @@ export default function App() {
     const cached = sessionMessageCacheRef.current.get(sessionId);
     if (!cached) return false;
     sessionMessageCacheRef.current.delete(sessionId);
-    sessionMessageCacheRef.current.set(sessionId, cached);
     messagesRef.current = cached.messages;
     hasOlderRef.current = cached.hasOlder;
     hasNewerRef.current = cached.hasNewer;
+    historyTotalRef.current = cached.total ?? null;
     setMessages(cached.messages);
     setHasOlder(cached.hasOlder);
     setHasNewer(cached.hasNewer);
     setHistoryTotal(cached.total ?? null);
     return true;
   }, []);
+  const cacheCurrentSessionWindow = useCallback(() => {
+    const sessionId = activeSessionIdRef.current;
+    const cachedMessages = messagesRef.current;
+    if (!sessionId || sessionId === DRAFT_SESSION_ID || !cachedMessages.length) return;
+    cacheMessageWindow(sessionId, {
+      messages: cachedMessages,
+      hasOlder: hasOlderRef.current,
+      hasNewer: hasNewerRef.current,
+      total: historyTotalRef.current ?? undefined,
+    });
+  }, [cacheMessageWindow]);
   const switchActiveSession = useCallback((sessionId: string) => {
+    const previousSessionId = activeSessionIdRef.current;
+    if (previousSessionId && previousSessionId !== sessionId) cacheCurrentSessionWindow();
     activeSessionIdRef.current = sessionId;
     messageRequestRef.current += 1;
     const restored = restoreCachedMessageWindow(sessionId);
+    hydratedMessageSessionRef.current = restored ? sessionId : '';
     if (!restored) {
       messagesRef.current = [];
       hasOlderRef.current = false;
@@ -784,7 +801,7 @@ export default function App() {
     setUserMessageNav([]);
     clearNewMessages();
     setActiveSessionId(sessionId);
-  }, [clearNewMessages, restoreCachedMessageWindow]);
+  }, [cacheCurrentSessionWindow, clearNewMessages, restoreCachedMessageWindow]);
   const clearSelectedSkill = useCallback(() => {
     setSelectedSkillName('');
     setSkillRouteTarget('');
@@ -1244,6 +1261,7 @@ export default function App() {
 
   const startDraftSession = useCallback(() => {
     const sessionModel = realModelOrEmpty(model) || models[0]?.id || '';
+    cacheCurrentSessionWindow();
     clearLastChatViewSession();
     messageRequestRef.current += 1;
     activeSessionIdRef.current = DRAFT_SESSION_ID;
@@ -1263,7 +1281,7 @@ export default function App() {
     setStatus(t('status.draftConversation'));
     setSessionMenu(null);
     writeHashRoute({ mode: 'chat' });
-  }, [model, models, selectedModelProvider, writeHashRoute]);
+  }, [cacheCurrentSessionWindow, model, models, selectedModelProvider, writeHashRoute]);
 
   const loadMessageWindow = useCallback(async (sessionId: string, direction: 'latest' | 'older' | 'newer' = 'latest', aroundId?: string) => {
     if (sessionId === DRAFT_SESSION_ID) return;
@@ -1331,12 +1349,6 @@ export default function App() {
       });
       messagesRef.current = merged.messages;
       setMessages(merged.messages);
-      cacheMessageWindow(sessionId, {
-        messages: merged.messages,
-        hasOlder: merged.hasOlder,
-        hasNewer: merged.hasNewer,
-        total: page.total,
-      });
       if (direction === 'latest') setLatestReadySessionId(sessionId);
       hasOlderRef.current = merged.hasOlder;
       hasNewerRef.current = merged.hasNewer;
@@ -1350,7 +1362,7 @@ export default function App() {
         setLoadingMessages(false);
       }
     }
-  }, [activeSession?.source, cacheMessageWindow, updateSessionBoundaryTimes, updateSessionMessageCount]);
+  }, [activeSession?.source, updateSessionBoundaryTimes, updateSessionMessageCount]);
 
   const loadUserMessageNav = useCallback(async (sessionId: string) => {
     const req = ++userNavRequestRef.current;
@@ -1724,7 +1736,9 @@ export default function App() {
     messageRequestRef.current += 1;
     userNavRequestRef.current += 1;
     contextWindowRequestRef.current += 1;
-    const restored = restoreCachedMessageWindow(activeSessionId);
+    const hydrated = hydratedMessageSessionRef.current === activeSessionId;
+    hydratedMessageSessionRef.current = '';
+    const restored = hydrated || restoreCachedMessageWindow(activeSessionId);
     if (!restored) {
       messagesRef.current = [];
       hasOlderRef.current = false;
@@ -1782,20 +1796,13 @@ export default function App() {
           setNewMessageCount(marker.count);
         }
         setMessages(next);
-        const cached = sessionMessageCacheRef.current.get(watchedSessionId);
-        cacheMessageWindow(watchedSessionId, {
-          messages: next,
-          hasOlder: cached?.hasOlder ?? hasOlderRef.current,
-          hasNewer: cached?.hasNewer ?? hasNewerRef.current,
-          total: cached?.total,
-        });
         scheduleContextWindowSnapshot(watchedSessionId);
         setStatus(t('chat.streamingOther'));
       } catch { /* ignore */ }
     };
     es.onerror = () => { watchSourceRef.current = null; };
     return () => { es.close(); watchSourceRef.current = null; };
-  }, [activeSession?.source, activeSessionId, cacheMessageWindow, clearNewMessages, scheduleContextWindowSnapshot]);
+  }, [activeSession?.source, activeSessionId, clearNewMessages, scheduleContextWindowSnapshot]);
   useEffect(() => { streamingSessionIdRef.current = streamingSessionId; }, [streamingSessionId]);
   useEffect(() => {
     if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
@@ -3933,10 +3940,9 @@ function ChatMain(props: ChatMainProps) {
   useLayoutEffect(() => {
     const scroller = props.chatScrollRef.current;
     if (!scroller || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(scheduleSubagentWindowUpdate);
-    observer.observe(scroller);
-    scroller.querySelectorAll<HTMLElement>('[data-message-id]').forEach((row) => observer.observe(row));
-    return () => observer.disconnect();
+    const resizeObserver = new ResizeObserver(scheduleSubagentWindowUpdate);
+    resizeObserver.observe(scroller);
+    return () => resizeObserver.disconnect();
   }, [visibleMessages.length, props.activeSessionId, props.chatScrollRef, props.messages[0]?.id, props.messages.at(-1)?.id, scheduleSubagentWindowUpdate]);
   return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}`}>
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span className={`chat-total-count${props.historyTotal === null ? ' loading' : ''}`} aria-busy={props.historyTotal === null}>{props.messages.length || 0} loaded · <span>{props.historyTotal ?? '—'} total</span></span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div><div className="chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>

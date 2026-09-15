@@ -17,7 +17,8 @@ describe('streaming subagent detail identity', () => {
     const card = readFileSync(new URL('./SubagentProgressCard.tsx', import.meta.url), 'utf8');
     expect(card).toContain('const messages = mergeSubagentMessages(existing?.messages || [], items);');
     expect(card).toContain('onMessagesLoaded(node.sessionId, node.messageCount, items);');
-
+    expect(card).toContain("return existing ? { [nodeSessionId]: existing } : {};");
+    expect(card).toContain('if (!next) {\n          setOpenNodeIds(new Set());\n          setDetailCache({});\n        }');
   });
 
   test('keeps the floating panel title pinned to the selected node and hides sibling entries', () => {

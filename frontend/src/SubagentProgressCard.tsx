@@ -65,6 +65,11 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       next.delete(nodeSessionId);
       return next;
     });
+    setDetailCache((current) => {
+      if (!open) return {};
+      const existing = current[nodeSessionId];
+      return existing ? { [nodeSessionId]: existing } : {};
+    });
     setSelectedNodeId((current) => open || current !== nodeSessionId ? (open ? nodeSessionId : current) : null);
   }, []);
   const cacheNodeMessages = useCallback((nodeSessionId: string, messageCount: number, items: ChatMessage[]) => {
@@ -234,9 +239,17 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
       if (selectedNodeId) {
         setSelectedNodeId(null);
         setOpenNodeIds(new Set());
+        setDetailCache({});
         return;
       }
-      setExpanded((value) => !value);
+      setExpanded((value) => {
+        const next = !value;
+        if (!next) {
+          setOpenNodeIds(new Set());
+          setDetailCache({});
+        }
+        return next;
+      });
     }}>
       {!expanded && preview && <SubagentProgressPreview node={preview} runningCount={runningCount} nowSeconds={nowSeconds} />}
       {(expanded || !preview) && <>

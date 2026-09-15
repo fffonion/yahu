@@ -105,6 +105,9 @@ describe('chat message visibility', () => {
     expect(source).toContain("${isToolPrelude ? ' tool-prelude' : ''}");
     expect(styles).toContain('.msg-row.tool-prelude .msg-content{color:var(--text)}');
     expect(styles).toContain('.msg-row.tool-prelude .msg-body{font-size:13px;line-height:1.45;color:var(--text)}');
+    expect(styles).toContain('.msg-row{');
+    expect(styles).toContain('content-visibility:auto');
+    expect(styles).toContain('contain-intrinsic-size:0 96px');
   });
 
   test('hides empty assistant tool-call placeholders so they do not render blank tool result cards', () => {
@@ -171,7 +174,7 @@ describe('chat message visibility', () => {
   test('session changes restore cached message data before refreshing the latest window', () => {
     const source = appSource();
     expect(source).toContain('const sessionMessageCacheRef = useRef<Map<string, SessionMessageCache>>(new Map());');
-    expect(source).toContain('const restored = restoreCachedMessageWindow(activeSessionId);');
+    expect(source).toContain('const restored = hydrated || restoreCachedMessageWindow(activeSessionId);');
     expect(source).toContain('setMessages(cached.messages);');
     expect(source).toContain('if (!restored) {\n      messagesRef.current = [];');
     expect(source).toContain("loadMessageWindow(activeSessionId, 'latest', restored ? undefined : savedAnchor?.id);");

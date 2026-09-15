@@ -39,7 +39,7 @@ describe('subagent progress UI', () => {
     expect(app()).toContain('scheduleSubagentWindowUpdate();');
     expect(app()).toContain('new ResizeObserver(scheduleSubagentWindowUpdate)');
     expect(app()).toContain('window.setTimeout(() => { updateActiveNavigatorIds(); updateSubagentWindow(); }, 360);');
-    expect(app()).toContain('observer.observe(scroller);');
+    expect(app()).toContain('resizeObserver.observe(scroller);');
     expect(app()).toContain('}, 150);');
     expect(card()).toContain('normalizeSubagentSnapshot(JSON.parse(String(event.data)), sessionId)');
     expect(card()).not.toContain('subagents.parentOmitted');
