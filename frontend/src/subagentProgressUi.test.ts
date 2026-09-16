@@ -61,9 +61,10 @@ describe('subagent progress UI', () => {
     const styles = css();
     expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:0;pointer-events:none;box-sizing:border-box}');
     expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel,.subagent-progress-stack>.subagent-progress-card{border-radius:0 0 var(--radius-card) var(--radius-card)}');
-    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel{z-index:2}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel{z-index:3}');
     expect(styles).toContain('.subagent-progress-stack>.subagent-progress-card{z-index:1}');
-    expect(styles).toContain('.subagent-progress-stack>.subagent-progress-card:not(:last-child){border-radius:0}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-progress-card:first-of-type{z-index:2}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-progress-card+.subagent-progress-card{margin-top:calc(-1 * var(--radius-card) - 2px);padding-top:calc(var(--radius-card) + 2px)}');
     expect(styles).toContain('box-shadow:0 5px 14px rgba(0,0,0,.30)');
     expect(styles).not.toContain('box-shadow:0 4px 10px rgba(0,0,0,.12)');
     expect(styles).not.toContain('box-shadow:0 3px 8px rgba(0,0,0,.10)');
