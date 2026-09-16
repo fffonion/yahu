@@ -327,7 +327,7 @@ export function SubagentGoalPanel({ goal, nowSeconds }: { goal: PersistentGoal; 
     </summary>
     <div className="subagent-goal-body">
       <SubagentTodoList todos={goal.todos} className="subagent-goal-todos" />
-      {goal.subgoals.length > 0 && <ul className="subagent-goal-subgoals">{goal.subgoals.map((item, index) => <li key={index}>{item}</li>)}</ul>}
+      {goal.subgoals.length > 0 && <ul className="subagent-goal-subgoals">{goal.subgoals.map((item, index) => <li className="subagent-list-item" key={index}>{item}</li>)}</ul>}
       <GoalMilestones goal={goal} />
     </div>
     <footer className="subagent-goal-footer">{goalMetadata}</footer>
@@ -347,7 +347,7 @@ export function GoalMilestones({ goal }: { goal: PersistentGoal }) {
     <header><span>{t('goals.milestones')}</span><small>{milestones.length}</small></header>
     <ol>{milestones.map((item, index) => {
       const date = item.timestamp ? new Date(item.timestamp * 1000) : null;
-      return <li key={`${item.turn}:${item.timestamp || 0}:${index}`} data-verdict={item.verdict}>
+      return <li className="subagent-list-item" key={`${item.turn}:${item.timestamp || 0}:${index}`} data-verdict={item.verdict}>
         <div className="subagent-goal-milestone-meta">
           <span>{tf('goals.round', item.turn)}</span>
           {date && <time dateTime={date.toISOString()}>{date.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time>}
@@ -450,7 +450,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
     if (open && node.status === 'running' && detailMessages.length > 0) onDetailContentChange();
   }, [detailMessages, node.status, onDetailContentChange, open]);
 
-  return <div className={`subagent-progress-node depth-${Math.min(depth, 3)}`}>
+  return <div className={`subagent-progress-node subagent-list-item depth-${Math.min(depth, 3)}`}>
     <details open={open}>
       <summary className={completed ? 'completed' : undefined} onClick={(event) => { event.preventDefault(); const nextOpen = !open; onOpenChange(node.sessionId, nextOpen); if (nextOpen) onDetailOpen(node.status === 'running'); }}>
         <span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span>
@@ -475,7 +475,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
 
 function SubagentTodoList({ todos, className = '' }: { todos: SubagentTodo[]; className?: string }) {
   if (!todos.length) return null;
-  return <ul className={`subagent-progress-todos${className ? ` ${className}` : ''}`}>{todos.map((todo, index) => <li className={todo.status} key={`${todo.id}:${index}`}><span className="subagent-todo-box" aria-hidden="true">{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '–' : ''}</span><span>{todo.content}</span></li>)}</ul>;
+  return <ul className={`subagent-progress-todos${className ? ` ${className}` : ''}`}>{todos.map((todo, index) => <li className={`subagent-list-item ${todo.status}`} key={`${todo.id}:${index}`}><span className="subagent-todo-box" aria-hidden="true">{todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '–' : ''}</span><span>{todo.content}</span></li>)}</ul>;
 }
 
 function statusIcon(status: SubagentStatus) {
