@@ -605,14 +605,15 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .subagent-progress-card.subagent-card-latest .subagent-progress-track,.subagent-progress-card.subagent-card-cursor .subagent-progress-track{background:color-mix(in srgb,var(--subagent-card-accent) 16%,var(--border))}
 
 /* Unified borderless full-width rows for Goal and subagent lists. */
-.subagent-list-item{width:100%;box-sizing:border-box;border:0;border-radius:0;background:color-mix(in srgb,var(--surface-2) 24%,var(--surface))}
+.subagent-list-item{width:100%;box-sizing:border-box;border:0;border-radius:0;margin:0;padding:7px 10px;min-height:36px;background:color-mix(in srgb,var(--surface-2) 24%,var(--surface))}
 .subagent-list-item:nth-child(odd){background:color-mix(in srgb,var(--surface-2) 34%,var(--surface))}
 .subagent-list-item:nth-child(even){background:color-mix(in srgb,var(--surface-2) 22%,var(--surface))}
 .subagent-progress-tree{width:100%;gap:0;padding-right:0}
 .subagent-progress-node{width:100%;min-width:0}
+.subagent-progress-node.subagent-list-item{padding:0;min-height:36px}
 .subagent-progress-node>details{width:100%;border:0;border-radius:0;background:transparent;overflow:visible}
-.subagent-progress-node>details>summary{width:100%;box-sizing:border-box}
+.subagent-progress-node>details>summary{width:100%;box-sizing:border-box;min-height:36px;padding:7px 10px;margin:0}
+.subagent-progress-node>details>summary.completed{min-height:36px;padding:7px 10px}
 .subagent-progress-todos,.subagent-goal-subgoals,.subagent-goal-milestones ol{width:100%;gap:0}
-.subagent-progress-todos li,.subagent-goal-subgoals li,.subagent-goal-milestones li{width:100%;box-sizing:border-box;border:0;border-left:0;border-radius:0}
+.subagent-progress-todos li,.subagent-goal-subgoals li,.subagent-goal-milestones li{padding:7px 10px;min-height:36px;margin:0;width:100%;box-sizing:border-box;border:0;border-left:0;border-radius:0}
 .subagent-goal-subgoals{padding:10px 0 0}
-.subagent-goal-milestones li{padding:7px 9px}
