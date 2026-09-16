@@ -106,6 +106,12 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-main{');
   });
 
+  test('disabled providers keep the normal card height even when cached data has multiple accounts', () => {
+    const source = app();
+    expect(source).toContain('const multiAccount = enabled && accountCount > 2;');
+    expect(source).toContain("${multiAccount ? 'is-multi-account' : ''}");
+  });
+
   test('view renders independent provider cards with switches, refresh buttons, progress bars, and error notes', () => {
     const source = app();
     expect(source).toContain('function ProviderUsageMain');
@@ -166,7 +172,7 @@ describe('provider usage view', () => {
     expect(source).toContain('is-multi-account');
     expect(source).toContain('orderProviderUsageAccountGroups');
     expect(source).toContain('const accountCount = new Set');
-    expect(source).toContain('const multiAccount = accountCount > 2;');
+    expect(source).toContain('const multiAccount = enabled && accountCount > 2;');
     expect(source).toContain("['commandcode', 'codex', 'grok', 'zed-pro'].includes(section.provider)");
     expect(providerUsage()).toContain("hasQuotaWall: windows.some");
     expect(source).toContain('PROVIDER_USAGE_ORDER_KEY');
