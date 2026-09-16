@@ -12,8 +12,8 @@ const transcript = () => {
 
 describe('subagent progress UI', () => {
   test('uses one live websocket and cancellable historical snapshots for the visible time window', () => {
-    expect(app()).toContain("import { SubagentProgressCard } from './SubagentProgressCard';");
-    expect(app()).toContain('<SubagentProgressCard sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} />');
+    expect(app()).toContain("import { SubagentProgressStack } from './SubagentProgressCard';");
+    expect(app()).toContain('<SubagentProgressStack sessionId={props.activeSessionId} beforeTime={subagentBeforeTime}');
     expect(card()).toContain('new WebSocket(subagentWebSocketUrl(window.location, sessionId))');
     expect(card()).toContain('fetch(subagentSnapshotUrl(sessionId, beforeTime), { signal: controller.signal })');
     expect(card()).toContain('return () => { requestGuard.stop(); controller.abort(); };');
@@ -32,7 +32,7 @@ describe('subagent progress UI', () => {
 
     expect(cardSource).toContain('visibleSnapshot.subagents.length > 0 || visibleSnapshot.error');
     expect(cardSource).toContain("projectionPending || total === 0 ? t('subagents.refreshing')");
-    expect(cardSource).toContain('!selectedNode && !projectionPending && total > 0 &&');
+    expect(cardSource).toContain('!selectedNode && !projectionPending && total > 0 ?');
     expect(card()).toContain('}, [sessionId]);');
     expect(app()).toContain('subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer)');
     expect(app()).toContain('subagentPrecedingFallbackIds(rows.map((row) => {');
@@ -49,7 +49,7 @@ describe('subagent progress UI', () => {
   test('keeps cached status sheets visible while refreshing without replacing unchanged snapshots', () => {
     const source = card();
     expect(source).toContain("import { readCachedSubagentSnapshot, sameSubagentSnapshot, writeCachedSubagentSnapshot } from './subagentSnapshotCache';");
-    expect(source).toContain('setSnapshot(readCachedSubagentSnapshot(sessionId));');
+    expect(source).toContain('setSnapshot(useSessionCache ? readCachedSubagentSnapshot(sessionId) : null);');
     expect(source).toContain('const visibleSnapshot = snapshot?.sessionId === sessionId ? snapshot : cachedSnapshot;');
     expect(source).toContain('if (!cached) {');
     expect(source).toContain('writeCachedSubagentSnapshot(next);');
@@ -172,7 +172,7 @@ describe('subagent progress UI', () => {
     const source = card();
     const styles = css();
     expect(source).toContain('const [goalExpanded, setGoalExpanded] = useState(false);');
-    expect(source).toContain('setGoalExpanded(false);');
+    expect(source).toContain('setGoalExpanded(false)');
     expect(source).toContain('className="subagent-progress-stack"');
     expect(source).toContain('className="subagent-goal-panel" open={goalExpanded}');
     expect(source).toContain('<span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>');
@@ -188,20 +188,20 @@ describe('subagent progress UI', () => {
     expect(source).toContain('<SubagentTodoList todos={node.todos} />');
     expect(source).toContain("function SubagentTodoList({ todos, className = '' }");
 
-    expect(source).toContain('{(visibleSnapshot.subagents.length > 0 || visibleSnapshot.error) && <section className={`subagent-progress-card');
+    expect(source).toContain('const statusCard = (visibleSnapshot.subagents.length > 0 || visibleSnapshot.error) && <section className={`subagent-progress-card');
     expect(styles).toContain('.subagent-goal-icon{color:var(--subagent-goal-accent);background:color-mix(in srgb,var(--subagent-goal-accent) 12%,transparent)}');
-    expect(source).toContain('const goalMetadata = goal ? [');
+    expect(source).toContain('const goalMetadata = [');
     expect(source).toContain("tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns)");
-    expect(source).toContain('const goalElapsed = goal ? goalElapsedMinutes(goal, nowSeconds) : undefined;');
+    expect(source).toContain('const goalElapsed = goalElapsedMinutes(goal, nowSeconds);');
     expect(source).toContain('goalElapsed >= 60');
     expect(source).toContain("tf('goals.elapsedHoursMinutes', Math.floor(goalElapsed / 60), goalElapsed % 60)");
     expect(source).toContain("tf('goals.elapsedMinutes', goalElapsed)");
     expect(source).toContain('className="subagent-goal-meta">{goalMetadata}</small>');
-    expect(source).toContain('</div>\n      <footer className="subagent-goal-footer">{goalMetadata}</footer>');
+    expect(source).toContain('</div>\n    <footer className="subagent-goal-footer">{goalMetadata}</footer>');
     expect(source).toContain("const liveGoal = visibleSnapshot?.goal?.status === 'active';");
     expect(styles).toContain('.subagent-goal-copy{min-width:0;display:grid;gap:3px}');
     expect(styles).toContain('.subagent-goal-meta{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');
-    expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-preview{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel[open] .subagent-goal-preview{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}');
     expect(styles).toContain('.subagent-goal-body{max-height:min(62vh,720px);overflow-y:auto;overscroll-behavior:contain;padding:10px 12px;border-top:1px solid color-mix(in srgb,var(--border) 82%,transparent);font-size:14px;');
     expect(styles).toContain('.subagent-goal-todos li{font-size:12px}');
     expect(styles).toContain('.subagent-goal-milestones>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;color:color-mix(in srgb,var(--text) 88%,var(--subagent-goal-accent));font-size:13px;');
@@ -209,7 +209,7 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-goal-milestone-meta time{font:500 11px/1.2 var(--mono)}');
     expect(styles).toContain('.subagent-goal-milestones li p{margin:0;color:color-mix(in srgb,var(--text) 92%,var(--subagent-goal-accent));font-size:13px;');
     expect(styles).toContain('.subagent-goal-footer{margin:0;padding:9px 12px;border-top:1px solid color-mix(in srgb,var(--subagent-goal-accent) 28%,var(--border));background:color-mix(in srgb,var(--subagent-goal-accent) 5%,transparent);color:color-mix(in srgb,var(--subagent-goal-accent) 78%,var(--text));font-size:11px;');
-    expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-meta{display:none}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel[open] .subagent-goal-meta{display:block}');
     expect(i18n()).toContain("'goals.active': { en: 'Active', 'zh-CN': '进行中'");
     expect(i18n()).toContain("'goals.turnProgress': { en: '{0}/{1} turns', 'zh-CN': '{0}/{1} 轮'");
     expect(i18n()).toContain("'goals.elapsedMinutes': { en: '{0} min', 'zh-CN': '{0} 分钟'");
@@ -217,7 +217,10 @@ describe('subagent progress UI', () => {
     expect(source).toContain("if (!visibleSnapshot || visibleSnapshot.sessionId !== sessionId || (!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error)) return null;");
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
     expect(source).toContain("aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}");
-    expect(source.indexOf('className="subagent-goal-panel"')).toBeLessThan(source.indexOf('className={`subagent-progress-card'));
+    expect(source).toContain('export function SubagentProgressStack');
+    expect(source.indexOf('{goal && <SubagentGoalPanel goal={goal}')).toBeLessThan(source.indexOf('{showCursorBar && <SubagentProgressCard'));
+    expect(source).toContain('tone="cursor"');
+    expect(source).toContain('tone="latest"');
     expect(source).toContain("<span className=\"subagent-progress-heading\"><strong>{selectedNode?.task || t('subagents.title')}</strong>");
     expect(styles).toContain('.subagent-progress-stack{width:100%;max-width:none;min-height:0;max-height:90%;display:flex;flex-direction:column;align-items:stretch;gap:0;pointer-events:none;');
     expect(styles).toContain('.subagent-goal-panel{--subagent-goal-accent:var(--accent-2);width:100%;flex:0 0 auto;pointer-events:auto;');
@@ -235,6 +238,19 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-progress-node>details[open]>summary .subagent-progress-goal strong{white-space:normal;overflow:visible;text-overflow:clip}');
     expect(styles).toContain('@media(max-width:760px){.subagent-progress-card');
     expect(styles).toContain('.desktop-compact-chat .subagent-progress-card');
+  });
+
+  test('keeps Goal and subagent header geometry fixed while their bodies toggle', () => {
+    const source = card();
+    const styles = css();
+    expect(source).toContain('<span className="subagent-progress-mark"><span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span></span>');
+    expect(styles).toContain('.subagent-progress-card .subagent-progress-panel-toggle.subagent-progress-header{grid-template-columns:32px minmax(0,1fr) 4ch 16px;min-height:56px;height:56px;max-height:56px;padding:8px 12px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{height:48px;min-height:48px;max-height:48px}');
+    expect(styles).toContain('.subagent-progress-card.expanded{padding-left:0;padding-right:0}');
+    expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-panel-toggle.subagent-progress-header{grid-template-columns:32px minmax(0,1fr) 4ch 16px;min-height:56px;height:56px;max-height:56px;padding:8px 12px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.expanded{padding-top:calc(var(--radius-card) + 2px)}');
+    expect(styles).not.toContain('.subagent-goal-panel[open] .subagent-goal-preview{white-space:normal');
+    expect(styles).not.toContain('.subagent-goal-panel[open] .subagent-goal-meta{display:none}');
   });
 
   test('fills the chat panel edge to edge with rounded outer card corners on desktop and mobile', () => {
@@ -291,7 +307,7 @@ describe('subagent progress UI', () => {
     expect(cardSource).toContain('const [expanded, setExpanded] = useState(false);');
     expect(cardSource).toContain('const preview = previewSubagent(visibleSnapshot.subagents);');
     expect(cardSource).toContain('aria-expanded={expanded}');
-    expect(cardSource).toContain("className={`subagent-progress-card ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`}");
+    expect(cardSource).toContain("className={`subagent-progress-card subagent-card-${tone} ${expanded ? 'expanded' : 'collapsed'}${!expanded && preview?.status === 'completed' ? ' completed-preview' : ''}`}");
     expect(cardSource).toContain('{!expanded && preview && <SubagentProgressPreview');
     expect(cardSource).toContain('{expanded && <div className="subagent-progress-panel-body">');
     expect(styles).toContain('.subagent-progress-overlay{grid-row:2;grid-column:1;min-width:0;min-height:0;z-index:140;');

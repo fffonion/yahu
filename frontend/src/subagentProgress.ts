@@ -272,6 +272,20 @@ export function latestSubagentRows(nodes: SubagentTreeNode[], limit = SUBAGENT_D
   return nodes.slice(0, Math.max(0, limit));
 }
 
+export function latestSubagentWindowStart(subagents: Pick<SubagentProgress, 'startedAt'>[], limit = SUBAGENT_DISPLAY_LIMIT): number | undefined {
+  return subagents
+    .slice()
+    .sort((left, right) => (right.startedAt || 0) - (left.startedAt || 0))
+    .slice(0, Math.max(0, limit))
+    .map((item) => item.startedAt)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+    .reduce<number | undefined>((earliest, value) => earliest === undefined ? value : Math.min(earliest, value), undefined);
+}
+
+export function shouldLoadHistoricalSubagentWindow(beforeTime: number | null | undefined, latestWindowStart: number | undefined): boolean {
+  return typeof beforeTime === 'number' && (latestWindowStart === undefined || beforeTime < latestWindowStart);
+}
+
 export function subagentElapsedSeconds(subagent: SubagentProgress, nowSeconds: number): number {
   if (!subagent.startedAt) return 0;
   return Math.max(0, Math.round((subagent.endedAt || nowSeconds) - subagent.startedAt));
