@@ -8,6 +8,7 @@ const SUBAGENT_API_PAGE_BYTE_LIMIT: usize = 2 * 1024 * 1024;
 const SUBAGENT_API_DETAIL_BYTE_LIMIT: usize = 4 * 1024 * 1024;
 const SUBAGENT_PARENT_MESSAGE_PAGE_SIZE: usize = 500;
 const SUBAGENT_PARENT_MESSAGE_SCAN_LIMIT: usize = 20_000;
+const SUBAGENT_PARENT_DISCOVERY_LIMIT: usize = 4;
 const SUBAGENT_CHILD_MESSAGE_LIMIT: usize = 200;
 const SUBAGENT_ANCESTOR_RESOLUTION_LIMIT: usize = 200;
 const SUBAGENT_VISIBLE_LIMIT: usize = 10;
@@ -480,6 +481,84 @@ fn load_goal_candidate_session_ids(
     Ok(candidates)
 }
 
+fn load_subagent_parent_session_ids(
+    hermes_home: &Path,
+    session_id: &str,
+) -> anyhow::Result<HashSet<String>> {
+    let mut parent_ids = HashSet::from([session_id.to_string()]);
+    let db_path = hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(parent_ids);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    parent_ids.extend(load_goal_candidate_session_ids(&conn, session_id)?);
+    Ok(parent_ids)
+}
+
+fn load_subagent_parent_discovery_ids(
+    hermes_home: &Path,
+    requested_parent_id: &str,
+    parent_session_ids: &HashSet<String>,
+    window_start: f64,
+    window_end: f64,
+) -> anyhow::Result<Vec<String>> {
+    let mut ordered = vec![requested_parent_id.to_string()];
+    let db_path = hermes_home.join("state.db");
+    if !db_path.exists() || parent_session_ids.len() <= 1 {
+        return Ok(ordered);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(&conn, "sessions", &["id", "started_at", "ended_at"])? {
+        return Ok(ordered);
+    }
+    let mut candidates = Vec::new();
+    for id in parent_session_ids.iter() {
+        let Some((started_at, ended_at)) = conn
+            .query_row(
+                "SELECT started_at, ended_at FROM sessions WHERE id = ?1",
+                [id.as_str()],
+                |row| Ok((row.get::<_, f64>(0)?, row.get::<_, Option<f64>>(1)?)),
+            )
+            .optional()?
+        else {
+            continue;
+        };
+        let overlaps_window = started_at <= window_end
+            && (ended_at.is_none() || ended_at.is_some_and(|ended| ended >= window_start));
+        if overlaps_window {
+            candidates.push((
+                ended_at.unwrap_or(window_end).max(started_at),
+                started_at,
+                id.clone(),
+            ));
+        }
+    }
+    candidates.sort_by(|left, right| {
+        right
+            .0
+            .total_cmp(&left.0)
+            .then_with(|| right.1.total_cmp(&left.1))
+            .then_with(|| left.2.cmp(&right.2))
+    });
+    ordered = candidates
+        .into_iter()
+        .map(|(_, _, id)| id)
+        .take(SUBAGENT_PARENT_DISCOVERY_LIMIT)
+        .collect();
+    if ordered.is_empty() {
+        ordered.push(requested_parent_id.to_string());
+    }
+    Ok(ordered)
+}
+
 fn load_persistent_goal(
     hermes_home: &Path,
     session_id: &str,
@@ -791,9 +870,17 @@ async fn fetch_subagent_projection_snapshot(
     cache: &mut HashMap<String, CachedSubagentProjection>,
 ) -> anyhow::Result<Vec<SubagentProjection>> {
     let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
+    let parent_session_ids = load_subagent_parent_session_ids(&state.hermes_home, parent_session_id)?;
+    let discovery_parent_ids = load_subagent_parent_discovery_ids(
+        &state.hermes_home,
+        parent_session_id,
+        &parent_session_ids,
+        window_start,
+        window_end,
+    )?;
     let mut sessions = fetch_subagent_sessions_for_parent(state, parent_session_id, window_end).await?;
     let api_child_ids =
-        match fetch_api_delegate_child_ids(state, parent_session_id, &sessions, window_start).await
+        match fetch_api_delegate_child_ids(state, &discovery_parent_ids, &sessions, window_start).await
         {
         Ok(ids) => ids,
         Err(err) => {
@@ -802,8 +889,14 @@ async fn fetch_subagent_projection_snapshot(
         }
     };
     mark_api_discovered_subagents(&mut sessions, &api_child_ids);
-    resolve_missing_subagent_ancestors(state, &mut sessions, parent_session_id, window_end).await?;
-    let visible = select_visible_subagent_sessions(parent_session_id, &sessions, window_end);
+    resolve_missing_subagent_ancestors_for_parents(
+        state,
+        &mut sessions,
+        &parent_session_ids,
+        window_end,
+    )
+    .await?;
+    let visible = select_visible_subagent_sessions_for_parents(&parent_session_ids, &sessions, window_end);
     let visible_ids = visible
         .iter()
         .filter_map(|session| string_field(session, "id"))
@@ -857,21 +950,31 @@ async fn fetch_subagent_projection_snapshot(
             window_end,
         );
         cache.insert(session_id, cached);
-        out.push(mark_subagent_omitted_ancestry(
+        out.push(mark_subagent_omitted_ancestry_for_parents(
             projection,
             &visible_ids,
-            parent_session_id,
+            &parent_session_ids,
         ));
     }
     Ok(out)
 }
 
+#[cfg(test)]
 fn mark_subagent_omitted_ancestry(
-    mut projection: SubagentProjection,
+    projection: SubagentProjection,
     visible_ids: &HashSet<String>,
     parent_session_id: &str,
 ) -> SubagentProjection {
-    projection.ancestry_omitted = projection.parent_session_id != parent_session_id
+    let parent_session_ids = HashSet::from([parent_session_id.to_string()]);
+    mark_subagent_omitted_ancestry_for_parents(projection, visible_ids, &parent_session_ids)
+}
+
+fn mark_subagent_omitted_ancestry_for_parents(
+    mut projection: SubagentProjection,
+    visible_ids: &HashSet<String>,
+    parent_session_ids: &HashSet<String>,
+) -> SubagentProjection {
+    projection.ancestry_omitted = !parent_session_ids.contains(&projection.parent_session_id)
         && !visible_ids.contains(&projection.parent_session_id);
     projection
 }
@@ -1017,10 +1120,21 @@ async fn scan_subagent_sessions_for_source(
     Ok(sessions)
 }
 
+#[cfg(test)]
 async fn resolve_missing_subagent_ancestors(
     state: &AppState,
     sessions: &mut Vec<Value>,
     parent_session_id: &str,
+    window_end: f64,
+) -> anyhow::Result<()> {
+    let parent_session_ids = HashSet::from([parent_session_id.to_string()]);
+    resolve_missing_subagent_ancestors_for_parents(state, sessions, &parent_session_ids, window_end).await
+}
+
+async fn resolve_missing_subagent_ancestors_for_parents(
+    state: &AppState,
+    sessions: &mut Vec<Value>,
+    parent_session_ids: &HashSet<String>,
     window_end: f64,
 ) -> anyhow::Result<()> {
     let window_start = window_end - SUBAGENT_LOOKBACK_SECONDS;
@@ -1052,7 +1166,7 @@ async fn resolve_missing_subagent_ancestors(
             .and_then(Value::as_bool)
             .unwrap_or(false);
         loop {
-            match subagent_membership_or_missing(&candidate_id, &by_id, parent_session_id) {
+            match subagent_membership_or_missing_for_parents(&candidate_id, &by_id, parent_session_ids) {
                 Ok(true) => {
                     matched += 1;
                     break;
@@ -1091,15 +1205,15 @@ async fn resolve_missing_subagent_ancestors(
     Ok(())
 }
 
-fn subagent_membership_or_missing(
+fn subagent_membership_or_missing_for_parents(
     session_id: &str,
     sessions_by_id: &HashMap<String, Value>,
-    parent_session_id: &str,
+    parent_session_ids: &HashSet<String>,
 ) -> Result<bool, String> {
     let mut current = session_id.to_string();
     let mut seen = HashSet::new();
     while seen.insert(current.clone()) {
-        if current == parent_session_id {
+        if parent_session_ids.contains(&current) {
             return Ok(true);
         }
         let Some(session) = sessions_by_id.get(&current) else {
@@ -1108,7 +1222,7 @@ fn subagent_membership_or_missing(
         // A source-inherited child may use ordinary continuation sessions as
         // parents; resolve the full chain before deciding membership.
         if let Some(lineage_root) = string_field(session, "_lineage_root_id") {
-            return Ok(lineage_root == parent_session_id);
+            return Ok(parent_session_ids.contains(&lineage_root));
         }
         if is_session_switch_continuation(
             session,
@@ -1122,7 +1236,7 @@ fn subagent_membership_or_missing(
         let Some(parent) = string_field(session, "parent_session_id") else {
             return Ok(false);
         };
-        if parent == parent_session_id {
+        if parent_session_ids.contains(&parent) {
             return Ok(true);
         }
         current = parent;
@@ -1303,16 +1417,26 @@ fn collect_known_session_ids(value: &Value, known_ids: &HashSet<String>, out: &m
     }
 }
 
+#[cfg(test)]
 fn delegate_child_ids_from_messages(
     messages: &[Value],
     known_ids: &HashSet<String>,
     parent_session_id: &str,
 ) -> HashSet<String> {
+    let parent_session_ids = HashSet::from([parent_session_id.to_string()]);
+    delegate_child_ids_from_messages_for_parents(messages, known_ids, &parent_session_ids)
+}
+
+fn delegate_child_ids_from_messages_for_parents(
+    messages: &[Value],
+    known_ids: &HashSet<String>,
+    parent_session_ids: &HashSet<String>,
+) -> HashSet<String> {
     let mut child_ids = HashSet::new();
     for message in messages {
         collect_known_session_ids(message, known_ids, &mut child_ids);
     }
-    child_ids.remove(parent_session_id);
+    child_ids.retain(|session_id| !parent_session_ids.contains(session_id));
     child_ids
 }
 
@@ -1402,10 +1526,20 @@ fn preview_matches_delegate_goal(preview: &str, goals: &HashSet<String>) -> bool
     })
 }
 
+#[cfg(test)]
 fn delegate_child_ids_from_goal_previews(
     messages: &[Value],
     sessions: &[Value],
     parent_session_id: &str,
+) -> HashSet<String> {
+    let parent_session_ids = HashSet::from([parent_session_id.to_string()]);
+    delegate_child_ids_from_goal_previews_for_parents(messages, sessions, &parent_session_ids)
+}
+
+fn delegate_child_ids_from_goal_previews_for_parents(
+    messages: &[Value],
+    sessions: &[Value],
+    parent_session_ids: &HashSet<String>,
 ) -> HashSet<String> {
     let mut goals = HashSet::new();
     for message in messages {
@@ -1414,15 +1548,26 @@ fn delegate_child_ids_from_goal_previews(
     if goals.is_empty() {
         return HashSet::new();
     }
-    let parent_source = sessions
+    let parent_sources = parent_session_ids
         .iter()
-        .find(|session| string_field(session, "id") == Some(parent_session_id.to_string()))
-        .and_then(|session| string_field(session, "source"));
+        .map(|parent_id| {
+            let source = sessions
+                .iter()
+                .find(|session| string_field(session, "id").as_deref() == Some(parent_id.as_str()))
+                .and_then(|session| string_field(session, "source"));
+            (parent_id.clone(), source)
+        })
+        .collect::<HashMap<_, _>>();
     sessions
         .iter()
-        .filter(|session| string_field(session, "parent_session_id") == Some(parent_session_id.to_string()))
         .filter(|session| {
-            parent_source.as_deref() == string_field(session, "source").as_deref()
+            let Some(parent_id) = string_field(session, "parent_session_id") else {
+                return false;
+            };
+            parent_session_ids.contains(&parent_id)
+                && parent_sources
+                    .get(&parent_id)
+                    .is_some_and(|source| source.as_deref() == string_field(session, "source").as_deref())
         })
         .filter_map(|session| {
             let preview = string_field(session, "preview")?;
@@ -1433,7 +1578,7 @@ fn delegate_child_ids_from_goal_previews(
 
 async fn fetch_api_delegate_child_ids(
     state: &AppState,
-    parent_session_id: &str,
+    parent_session_ids: &[String],
     sessions: &[Value],
     window_start: f64,
 ) -> anyhow::Result<HashSet<String>> {
@@ -1441,12 +1586,20 @@ async fn fetch_api_delegate_child_ids(
         .iter()
         .filter_map(|session| string_field(session, "id"))
         .collect::<HashSet<_>>();
-    let messages = fetch_recent_parent_messages(state, parent_session_id, window_start).await?;
-    let mut child_ids = delegate_child_ids_from_messages(&messages, &known_ids, parent_session_id);
-    child_ids.extend(delegate_child_ids_from_goal_previews(
+    let mut messages = Vec::new();
+    for parent_session_id in parent_session_ids {
+        messages.extend(fetch_recent_parent_messages(state, parent_session_id, window_start).await?);
+    }
+    let parent_session_ids = parent_session_ids.iter().cloned().collect::<HashSet<_>>();
+    let mut child_ids = delegate_child_ids_from_messages_for_parents(
+        &messages,
+        &known_ids,
+        &parent_session_ids,
+    );
+    child_ids.extend(delegate_child_ids_from_goal_previews_for_parents(
         &messages,
         sessions,
-        parent_session_id,
+        &parent_session_ids,
     ));
     Ok(child_ids)
 }
@@ -1506,8 +1659,18 @@ async fn fetch_api_json(state: &AppState, url: String, max_bytes: usize) -> anyh
     Ok(serde_json::from_slice::<Value>(&body)?)
 }
 
+#[cfg(test)]
 fn select_visible_subagent_sessions(
     parent_session_id: &str,
+    sessions: &[Value],
+    window_end: f64,
+) -> Vec<Value> {
+    let parent_session_ids = HashSet::from([parent_session_id.to_string()]);
+    select_visible_subagent_sessions_for_parents(&parent_session_ids, sessions, window_end)
+}
+
+fn select_visible_subagent_sessions_for_parents(
+    parent_session_ids: &HashSet<String>,
     sessions: &[Value],
     window_end: f64,
 ) -> Vec<Value> {
@@ -1532,7 +1695,9 @@ fn select_visible_subagent_sessions(
             if started_at > window_end || (ended_at.is_some() && started_at < window_start) {
                 return false;
             }
-            if string_field(session, "_lineage_root_id").as_deref() == Some(parent_session_id) {
+            if string_field(session, "_lineage_root_id")
+                .is_some_and(|lineage_root| parent_session_ids.contains(&lineage_root))
+            {
                 return true;
             }
             let Some(mut current) = string_field(session, "id") else {
@@ -1541,13 +1706,19 @@ fn select_visible_subagent_sessions(
             let mut seen = HashSet::new();
             let mut first_hop = true;
             while seen.insert(current.clone()) {
+                if parent_session_ids.contains(&current) {
+                    return true;
+                }
                 let Some(session) = session_by_id.get(&current) else {
                     return false;
                 };
                 // Inherited-source children can be nested below ordinary
                 // conversation continuations; only the candidate itself must
-                // be a subagent, while the chain still has to reach the root.
-                if string_field(session, "_lineage_root_id").as_deref() == Some(parent_session_id) {
+                // be a subagent, while the chain still has to reach one of the
+                // selected chat family's main-session segments.
+                if string_field(session, "_lineage_root_id")
+                    .is_some_and(|lineage_root| parent_session_ids.contains(&lineage_root))
+                {
                     return true;
                 }
                 if first_hop
@@ -1565,7 +1736,7 @@ fn select_visible_subagent_sessions(
                 let Some(parent) = string_field(session, "parent_session_id") else {
                     return false;
                 };
-                if parent == parent_session_id {
+                if parent_session_ids.contains(&parent) {
                     return true;
                 }
                 current = parent;

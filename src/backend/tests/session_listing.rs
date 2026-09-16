@@ -667,6 +667,36 @@
         assert_eq!(local_session_switch_root_id(&state, "root").unwrap(), None);
     }
 
+    #[test]
+    fn canonical_session_id_follows_rootless_same_key_continuation() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                started_at REAL
+             );
+             INSERT INTO sessions VALUES ('old-root',NULL,'session_switch','telegram','same-key','chat','topic',1.0);
+             INSERT INTO sessions VALUES ('rootless-later',NULL,NULL,'telegram','same-key','chat','topic',10.0);
+             INSERT INTO sessions VALUES ('unrelated',NULL,NULL,'telegram','other-key','chat','topic',11.0);",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        assert_eq!(
+            local_session_switch_root_id(&state, "rootless-later").unwrap(),
+            Some("old-root".to_string())
+        );
+        assert_eq!(local_session_switch_root_id(&state, "unrelated").unwrap(), None);
+    }
+
     #[tokio::test]
     async fn session_search_enriches_missing_preview_from_local_latest_message() {
         use std::collections::HashMap;

@@ -863,6 +863,12 @@ fn local_session_switch_root_id(state: &AppState, session_id: &str) -> anyhow::R
         }
         current_id = parent_id;
     }
+    if let Some(entries) = local_session_key_group_entries(&conn, session_id)?
+        && let Some(family_root) = entries.first().map(|entry| entry.id.as_str())
+        && family_root != session_id
+    {
+        return Ok(Some(family_root.to_string()));
+    }
     Ok((current_id != session_id).then_some(current_id))
 }
 

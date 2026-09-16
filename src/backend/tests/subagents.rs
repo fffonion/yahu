@@ -766,6 +766,32 @@
     }
 
     #[test]
+    fn visible_subagent_sessions_include_children_of_every_chat_family_segment() {
+        let window_end = 500_000.0;
+        let family_roots = HashSet::from([
+            "canonical-root".to_string(),
+            "latest-continuation".to_string(),
+        ]);
+        let sessions = vec![serde_json::json!({
+            "id": "latest-delegation",
+            "source": "subagent",
+            "parent_session_id": "latest-continuation",
+            "started_at": window_end - 1.0,
+            "ended_at": window_end
+        })];
+
+        let visible = select_visible_subagent_sessions_for_parents(&family_roots, &sessions, window_end);
+
+        assert_eq!(
+            visible
+                .iter()
+                .filter_map(|session| string_field(session, "id"))
+                .collect::<Vec<_>>(),
+            vec!["latest-delegation"]
+        );
+    }
+
+    #[test]
     fn visible_subagent_sessions_apply_the_ten_item_display_limit() {
         let window_end = 500_000.0;
         let sessions = (0..44)
