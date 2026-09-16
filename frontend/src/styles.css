@@ -590,6 +590,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{grid-template-columns:32px minmax(0,1fr) 16px;gap:10px;height:56px;min-height:56px;max-height:56px;padding:8px 12px}
 .subagent-progress-stack>.subagent-goal-panel .subagent-goal-icon{width:32px;height:32px;display:grid;place-items:center;flex:0 0 32px}
 .subagent-progress-stack>.subagent-goal-panel .subagent-goal-icon svg{width:24px;height:24px}
+.subagent-progress-stack>.subagent-progress-card:not(:last-child){border-radius:0}
 @media(max-width:760px){.subagent-progress-card.collapsed.completed-preview .subagent-progress-panel-toggle.subagent-progress-header{min-height:52px;height:52px;max-height:52px;padding:7px 9px}.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{height:52px;min-height:52px;max-height:52px;padding:7px 9px}}
 
 /* Keep the three status sheets visually distinct in every theme. */
