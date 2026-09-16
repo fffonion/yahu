@@ -48,10 +48,11 @@ type SubagentProgressCardProps = {
   showGoal?: boolean;
   standalone?: boolean;
   tone?: SubagentProgressTone;
+  collapseToken?: number;
   onSnapshotChange?: (snapshot: SubagentProgressSnapshot | null) => void;
 };
 
-export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, showToolCalls, compact, showGoal = true, standalone = false, tone = 'latest', onSnapshotChange }: SubagentProgressCardProps) {
+export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, showToolCalls, compact, showGoal = true, standalone = false, tone = 'latest', collapseToken, onSnapshotChange }: SubagentProgressCardProps) {
   const [snapshot, setSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [projectionPending, setProjectionPending] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -115,6 +116,15 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
     setDetailCache({});
     followLatestDetailRef.current = true;
   }, [sessionId, useSessionCache]);
+
+  useEffect(() => {
+    if (collapseToken === undefined) return;
+    setExpanded(false);
+    setSelectedNodeId(null);
+    setOpenNodeIds(new Set());
+    setDetailCache({});
+    followLatestDetailRef.current = true;
+  }, [collapseToken]);
 
   useEffect(() => {
     if (!sessionId || sessionId === '__webui_draft_session__') return;
@@ -260,7 +270,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   </div>;
 }
 
-export function SubagentProgressStack({ sessionId, beforeTime, showReasoning, showToolCalls, compact }: { sessionId: string; beforeTime: number | null | undefined; showReasoning: boolean; showToolCalls: boolean; compact: boolean }) {
+export function SubagentProgressStack({ sessionId, beforeTime, showReasoning, showToolCalls, compact, collapseToken }: { sessionId: string; beforeTime: number | null | undefined; showReasoning: boolean; showToolCalls: boolean; compact: boolean; collapseToken: number }) {
   const [latestSnapshot, setLatestSnapshot] = useState<SubagentProgressSnapshot | null>(null);
   const [latestReady, setLatestReady] = useState(false);
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
@@ -284,9 +294,9 @@ export function SubagentProgressStack({ sessionId, beforeTime, showReasoning, sh
     return () => window.clearInterval(timer);
   }, [latestRunning, liveGoal]);
   return <div className="subagent-progress-stack">
-    {goal && <SubagentGoalPanel goal={goal} nowSeconds={nowSeconds} />}
-    {showCursorBar && <SubagentProgressCard sessionId={sessionId} beforeTime={beforeTime} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} showGoal={false} standalone tone="cursor" />}
-    <SubagentProgressCard sessionId={sessionId} beforeTime={undefined} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} showGoal={false} standalone tone="latest" onSnapshotChange={handleLatestSnapshot} />
+    {goal && <SubagentGoalPanel goal={goal} nowSeconds={nowSeconds} collapseToken={collapseToken} />}
+    {showCursorBar && <SubagentProgressCard sessionId={sessionId} beforeTime={beforeTime} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} showGoal={false} standalone tone="cursor" collapseToken={collapseToken} />}
+    <SubagentProgressCard sessionId={sessionId} beforeTime={undefined} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} showGoal={false} standalone tone="latest" collapseToken={collapseToken} onSnapshotChange={handleLatestSnapshot} />
   </div>;
 }
 
@@ -300,9 +310,9 @@ export function findSubagentTreeNode(nodes: SubagentTreeNode[], sessionId: strin
   return null;
 }
 
-export function SubagentGoalPanel({ goal, nowSeconds }: { goal: PersistentGoal; nowSeconds: number }) {
+export function SubagentGoalPanel({ goal, nowSeconds, collapseToken }: { goal: PersistentGoal; nowSeconds: number; collapseToken?: number }) {
   const [goalExpanded, setGoalExpanded] = useState(false);
-  useEffect(() => setGoalExpanded(false), [goal.createdAt, goal.text]);
+  useEffect(() => setGoalExpanded(false), [collapseToken, goal.createdAt, goal.text]);
   const completedGoalTodos = goal.todos.filter((item) => item.status === 'completed').length;
   const goalElapsed = goalElapsedMinutes(goal, nowSeconds);
   const goalElapsedLabel = goalElapsed === undefined

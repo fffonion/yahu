@@ -20,7 +20,7 @@ describe('chat media image lightbox', () => {
     expect(source).toContain('chatMediaImagesFromMarkdown');
     expect(source).toContain('function ChatImageLightbox(');
     expect(source).toContain('className={`image-modal chat-image-modal');
-    expect(source).toContain('onClick={onChatMediaClick}');
+    expect(source).toContain('onClick={onChatAreaClick}');
     expect(source).toContain('aria-label={t(\'gallery.download\')}');
     expect(source).toContain('aria-label={t(\'gallery.metadata\')}');
     expect(source).toContain('aria-label={t(\'gallery.previous\')}');

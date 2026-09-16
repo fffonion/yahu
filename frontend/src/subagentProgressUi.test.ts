@@ -46,6 +46,20 @@ describe('subagent progress UI', () => {
     expect(card()).not.toContain('subagent-progress-omitted-ancestry');
   });
 
+  test('clicking chat history collapses Goal and every subagent status sheet', () => {
+    const appSource = app();
+    const cardSource = card();
+    expect(appSource).toContain('const [statusBarCollapseToken, setStatusBarCollapseToken] = useState(0);');
+    expect(appSource).toContain('onClick={onChatAreaClick}');
+    expect(appSource).toContain('setStatusBarCollapseToken((value) => value + 1);');
+    expect(appSource).toContain('collapseToken={statusBarCollapseToken}');
+    expect(cardSource).toContain('collapseToken?: number;');
+    expect(cardSource).toContain('if (collapseToken === undefined) return;');
+    expect(cardSource).toContain('setExpanded(false);');
+    expect(cardSource).toContain('setGoalExpanded(false)');
+    expect(cardSource).toContain('collapseToken={collapseToken}');
+  });
+
   test('keeps cached status sheets visible while refreshing without replacing unchanged snapshots', () => {
     const source = card();
     expect(source).toContain("import { readCachedSubagentSnapshot, sameSubagentSnapshot, writeCachedSubagentSnapshot } from './subagentSnapshotCache';");

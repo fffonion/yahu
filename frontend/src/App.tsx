@@ -3677,6 +3677,7 @@ function ChatMain(props: ChatMainProps) {
   const isCompactViewport = useMediaQuery('(max-width: 760px), (min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
   const isSmallLandscape = useMediaQuery('(min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [statusBarCollapseToken, setStatusBarCollapseToken] = useState(0);
   useEffect(() => {
     const syncFullscreenState = () => setIsFullscreen(!!document.fullscreenElement);
     syncFullscreenState();
@@ -3903,6 +3904,10 @@ function ChatMain(props: ChatMainProps) {
     const found = chatLightboxImages.find((item) => item.path === path || item.src === src);
     setChatImageModal(found || { key: `adhoc:${path || src}`, messageId: '', path, name: link.dataset.chatImageName || basename(path || src), src, downloadUrl: `${src}${src.includes('?') ? '&' : '?'}download=1` });
   };
+  const onChatAreaClick = (event: React.MouseEvent<HTMLElement>) => {
+    onChatMediaClick(event);
+    setStatusBarCollapseToken((value) => value + 1);
+  };
   const contextWindowTotal = contextModelOption?.contextLength || fallbackContextWindowForModel(currentModel, sessionProvider);
   const contextWindowUsage = contextWindowTokens(props.messages, props.input, props.attachments, props.hasOlder || props.hasNewer, props.contextWindowSnapshot?.sessionId === props.activeSessionId ? props.contextWindowSnapshot : undefined);
   const preserveChatScrollForVisibilityChange = (nextShowReasoning: boolean, nextShowToolCalls: boolean, apply: () => void) => {
@@ -3948,8 +3953,8 @@ function ChatMain(props: ChatMainProps) {
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span className={`chat-total-count${props.historyTotal === null ? ' loading' : ''}`} aria-busy={props.historyTotal === null}>{props.messages.length || 0} loaded · <span>{props.historyTotal ?? '—'} total</span></span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div><div className="chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>
         <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <ChatUserNavigator items={props.userMessageNav || []} loading={props.userNavLoading} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
-    <div className="subagent-progress-overlay"><SubagentProgressStack sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} /></div>
-    <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatMediaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
+    <div className="subagent-progress-overlay"><SubagentProgressStack sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} collapseToken={statusBarCollapseToken} /></div>
+    <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatAreaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">{t('chat.loadingHistory')}</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>{t('chat.emptyDesc')}</p></div>}
       <ChatTranscript
