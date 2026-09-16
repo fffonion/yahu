@@ -70,8 +70,8 @@ describe('subagent progress UI', () => {
     expect(styles).not.toContain('0 8px 24px rgba(0,0,0,.07)');
     expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card{margin-top:calc(-1 * var(--radius-card) - 2px);padding-top:calc(var(--radius-card) + 2px)}');
     expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.expanded{padding-top:calc(var(--radius-card) + 15px)}');
-    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.collapsed .subagent-progress-panel-toggle{min-height:48px}');
-    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{min-height:48px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.collapsed .subagent-progress-panel-toggle{min-height:56px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{min-height:56px}');
     expect(styles).not.toContain('overflow-clip-margin:18px');
   });
 
@@ -228,7 +228,7 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-goal-panel[open] .subagent-goal-chevron{transform:rotate(90deg)}');
     expect(styles).toContain('.subagent-goal-body{');
     expect(styles).toContain('.subagent-goal-subgoals{margin:10px 0 0;padding:10px 0 0 20px;border-top:1px solid');
-    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}');
+    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:52px}');
   });
 
   test('uses a responsive card that remains readable in compact desktop and mobile chat', () => {
@@ -245,7 +245,9 @@ describe('subagent progress UI', () => {
     const styles = css();
     expect(source).toContain('<span className="subagent-progress-mark"><span className={`subagent-status-icon ${node.status}`}>{statusIcon(node.status)}</span></span>');
     expect(styles).toContain('.subagent-progress-card .subagent-progress-panel-toggle.subagent-progress-header{grid-template-columns:32px minmax(0,1fr) 4ch 16px;min-height:56px;height:56px;max-height:56px;padding:8px 12px}');
-    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{height:48px;min-height:48px;max-height:48px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{height:56px;min-height:56px;max-height:56px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-summary{grid-template-columns:32px minmax(0,1fr) 16px;gap:10px;height:56px;min-height:56px;max-height:56px;padding:8px 12px}');
+    expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel .subagent-goal-icon{width:32px;height:32px;display:grid;place-items:center;flex:0 0 32px}');
     expect(styles).toContain('.subagent-progress-card.expanded{padding-left:0;padding-right:0}');
     expect(styles).toContain('.subagent-progress-card.collapsed.completed-preview .subagent-progress-panel-toggle.subagent-progress-header{grid-template-columns:32px minmax(0,1fr) 4ch 16px;min-height:56px;height:56px;max-height:56px;padding:8px 12px}');
     expect(styles).toContain('.subagent-progress-stack>.subagent-goal-panel+.subagent-progress-card.expanded{padding-top:calc(var(--radius-card) + 2px)}');
@@ -261,7 +263,7 @@ describe('subagent progress UI', () => {
     expect(cardRule).toContain('max-width:none');
     expect(cardRule).toContain('border-radius:var(--radius-card)');
     expect(overlayRule).toContain('padding:0');
-    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}.subagent-progress-overlay{padding:0}');
+    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:52px}.subagent-progress-overlay{padding:0}');
 
   });
 
@@ -318,7 +320,7 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-progress-card.expanded{max-height:90%;');
 
     expect(styles).toContain('.subagent-progress-panel-body{min-height:0;');
-    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:44px}.subagent-progress-overlay{padding:0}');
+    expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:52px}.subagent-progress-overlay{padding:0}');
 
   });
 });
