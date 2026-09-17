@@ -38,6 +38,8 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain("const previousTitle = String(sessions.find((session) => session.id === sessionId)?.title || '').trim();");
     expect(app).toContain('pinnedSessionTitlesRef.current[canonicalId] = previousTitle;');
     expect(app).toContain('migrateChatViewState(readChatViewState(), sessionId, canonicalId)');
+    expect(app).toContain("const displayTitle = String(canonicalBody.display_title || '').trim();");
+    expect(app).toContain('pinnedSessionTitlesRef.current[canonicalId || sessionId] = displayTitle;');
     expect(app).toContain('filterPinnedCanonicalAliases(rawList, sessionCanonicalAliasesRef.current, pinnedIds)');
     expect(app).toContain('sessionCanonicalAliasesRef.current[sessionId] = canonicalId;');
   });

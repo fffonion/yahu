@@ -26,7 +26,8 @@ async fn sessions_search(
     };
     match data {
         Ok(data) => {
-            let data = append_pinned_session_rows(&state, data, &pinned_ids).await;
+            let mut data = append_pinned_session_rows(&state, data, &pinned_ids).await;
+            apply_pinned_session_display_titles(&state, &mut data, &pinned_ids);
             Json(serde_json::json!({
                 "object": "list",
                 "data": data,
@@ -528,6 +529,23 @@ async fn append_pinned_session_rows(
     rows
 }
 
+fn apply_pinned_session_display_titles(
+    state: &AppState,
+    rows: &mut [serde_json::Value],
+    pinned_ids: &[String],
+) {
+    for pinned_id in pinned_ids {
+        let Ok(Some((_, title))) = local_session_display_metadata(state, pinned_id) else {
+            continue;
+        };
+        if let Some(row) = rows.iter_mut().find(|row| row.get("id").and_then(|value| value.as_str()) == Some(pinned_id.as_str()))
+            && let Some(object) = row.as_object_mut()
+        {
+            object.insert("title".to_string(), serde_json::json!(title));
+        }
+    }
+}
+
 fn fetch_pinned_session_rows_from_local_db(
     state: &AppState,
     pinned_ids: &[String],
@@ -872,16 +890,93 @@ fn local_session_switch_root_id(state: &AppState, session_id: &str) -> anyhow::R
     Ok((current_id != session_id).then_some(current_id))
 }
 
+fn generated_session_title_base(title: &str) -> String {
+    let trimmed = title.trim();
+    let Some((base, suffix)) = trimmed.rsplit_once(" #") else {
+        return trimmed.to_string();
+    };
+    if suffix.parse::<usize>().is_ok_and(|value| value >= 1) {
+        base.trim().to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn local_session_display_metadata(state: &AppState, session_id: &str) -> anyhow::Result<Option<(String, String)>> {
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let Some(entries) = local_session_key_group_entries(&conn, session_id)? else {
+        return Ok(None);
+    };
+    let canonical_title = conn
+        .query_row(
+            "SELECT title FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )?
+        .map(|title| title.trim().to_string())
+        .filter(|title| !title.is_empty());
+    let Some(canonical_title) = canonical_title else {
+        return Ok(None);
+    };
+    let canonical_base = generated_session_title_base(&canonical_title);
+    let mut matching_title = None;
+    let mut exact_base_title = None;
+    for entry in entries {
+        if entry.id == session_id {
+            continue;
+        }
+        let Some(title) = conn
+            .query_row(
+                "SELECT title FROM sessions WHERE id = ?1",
+                [&entry.id],
+                |row| row.get::<_, Option<String>>(0),
+            )?
+            .map(|title| title.trim().to_string())
+            .filter(|title| !title.is_empty())
+        else {
+            continue;
+        };
+        if generated_session_title_base(&title) != canonical_base {
+            continue;
+        }
+        if title == canonical_base {
+            exact_base_title = Some((entry.id.clone(), title.clone()));
+        }
+        matching_title = Some((entry.id, title));
+    }
+    Ok(exact_base_title
+        .or(matching_title)
+        .or_else(|| Some((session_id.to_string(), canonical_title))))
+}
+
 async fn session_canonical(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Response<Body> {
     match local_session_switch_root_id(&state, &session_id) {
-        Ok(canonical_id) => Json(serde_json::json!({
-            "id": canonical_id.as_deref().unwrap_or(&session_id),
-            "canonical_id": canonical_id,
-        }))
-        .into_response(),
+        Ok(canonical_id) => {
+            let resolved_id = canonical_id.clone().unwrap_or_else(|| session_id.clone());
+            let display = match local_session_display_metadata(&state, &resolved_id) {
+                Ok(value) => value,
+                Err(err) => {
+                    warn!(session_id = %session_id, error = %err, "cannot resolve session display metadata");
+                    None
+                }
+            };
+            Json(serde_json::json!({
+                "id": resolved_id,
+                "canonical_id": canonical_id,
+                "display_id": display.as_ref().map(|(id, _)| id),
+                "display_title": display.as_ref().map(|(_, title)| title),
+            })).into_response()
+        }
         Err(err) => json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("cannot resolve session identity: {err}")),
     }
 }

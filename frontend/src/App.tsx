@@ -1155,8 +1155,14 @@ export default function App() {
     try {
       const canonicalRes = await fetch(`/sessions/${encodeURIComponent(sessionId)}/canonical`, { cache: 'no-store' });
       if (canonicalRes.ok) {
-        const canonicalBody = await canonicalRes.json() as { id?: unknown; canonical_id?: unknown };
+        const canonicalBody = await canonicalRes.json() as { id?: unknown; canonical_id?: unknown; display_id?: unknown; display_title?: unknown };
         const canonicalId = String(canonicalBody.canonical_id || canonicalBody.id || '').trim();
+        const displayId = String(canonicalBody.display_id || '').trim();
+        const displayTitle = String(canonicalBody.display_title || '').trim();
+        if (pinnedIds.has(sessionId) && displayId && displayTitle && !renamedSessionTitlesRef.current[canonicalId || sessionId]) {
+          pinnedSessionTitlesRef.current[canonicalId || sessionId] = displayTitle;
+          localStorage.setItem(PINNED_SESSION_TITLES_KEY, JSON.stringify(pinnedSessionTitlesRef.current));
+        }
         if (canonicalId && canonicalId !== sessionId && activeSessionIdRef.current === sessionId) {
           messageRequestRef.current += 1;
           userNavRequestRef.current += 1;
