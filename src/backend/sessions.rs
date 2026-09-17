@@ -3592,6 +3592,7 @@ fn local_session_topic_entries(
             "session_key",
             "chat_id",
             "thread_id",
+            "model_config",
         ],
     )? {
         return Ok(None);
@@ -3612,8 +3613,9 @@ fn local_session_topic_entries(
     if thread_id.as_deref().unwrap_or("").trim().is_empty() {
         return Ok(None);
     }
-    let mut statement = conn.prepare(
-        "SELECT id, parent_session_id, end_reason
+    let reset_from_select = "json_extract(COALESCE(model_config, '{}'), '$._reset_from')";
+    let mut statement = conn.prepare(&format!(
+        "SELECT id, parent_session_id, end_reason, started_at, {reset_from_select}
          FROM sessions
          WHERE session_key = ?1
            AND source IS ?2
@@ -3621,9 +3623,9 @@ fn local_session_topic_entries(
            AND thread_id IS ?4
            AND COALESCE(source, '') != 'subagent'
          ORDER BY started_at, id
-         LIMIT ?5",
-    )?;
-    let all_entries = statement
+         LIMIT ?5"
+    ))?;
+    let all_rows = statement
         .query_map(
             rusqlite::params![
                 session_key,
@@ -3633,38 +3635,37 @@ fn local_session_topic_entries(
                 MAX_TOPIC_ENTRIES as i64
             ],
             |row| {
-                Ok(SessionLineageEntry {
-                    id: row.get(0)?,
-                    parent_session_id: row.get(1)?,
-                    end_reason: row.get(2)?,
-                })
+                Ok((
+                    SessionLineageEntry {
+                        id: row.get(0)?,
+                        parent_session_id: row.get(1)?,
+                        end_reason: row.get(2)?,
+                    },
+                    row.get::<_, f64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
             },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    if all_entries.is_empty() || !all_entries.iter().any(|entry| entry.id == session_id) {
+    if all_rows.is_empty() || !all_rows.iter().any(|(entry, _, _)| entry.id == session_id) {
         return Ok(None);
     }
-    if !sqlite_table_has_columns(conn, "sessions", &["model_config"])? {
-        return Ok(None);
-    }
-    let member_ids = all_entries
+    let member_ids = all_rows
         .iter()
-        .map(|entry| entry.id.as_str())
+        .map(|(entry, _, _)| entry.id.as_str())
         .collect::<HashSet<_>>();
-    let has_explicit_topic_reset = all_entries.iter().any(|entry| {
-        conn.query_row(
-            "SELECT json_extract(COALESCE(model_config, '{}'), '$._reset_from')
-             FROM sessions WHERE id = ?1",
-            [&entry.id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .ok()
-        .flatten()
-        .is_some_and(|reset_from| member_ids.contains(reset_from.as_str()))
+    let has_explicit_topic_reset = all_rows.iter().any(|(_, _, reset_from)| {
+        reset_from
+            .as_deref()
+            .is_some_and(|reset_from| member_ids.contains(reset_from))
     });
     if !has_explicit_topic_reset {
         return Ok(None);
     }
+    let all_entries = all_rows
+        .iter()
+        .map(|(entry, _, _)| entry.clone())
+        .collect::<Vec<_>>();
 
     let parent_by_id = all_entries
         .iter()
@@ -3694,16 +3695,11 @@ fn local_session_topic_entries(
         if root_info.contains_key(root_id) {
             continue;
         }
-        let root = all_entries
+        let (root, started_at, _) = all_rows
             .iter()
-            .find(|candidate| candidate.id == *root_id)
+            .find(|(candidate, _, _)| candidate.id == *root_id)
             .expect("topic root is present in the entry set");
-        let started_at: f64 = conn.query_row(
-            "SELECT started_at FROM sessions WHERE id = ?1",
-            [&root.id],
-            |row| row.get(0),
-        )?;
-        root_info.insert(root_id.clone(), (started_at, root.end_reason.clone()));
+        root_info.insert(root_id.clone(), (*started_at, root.end_reason.clone()));
     }
     let mut roots = root_info.into_iter().collect::<Vec<_>>();
     roots.sort_by(|(left_id, (left_started, _)), (right_id, (right_started, _))| {
