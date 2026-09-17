@@ -1924,19 +1924,24 @@ export default function App() {
     if (scrollMode) scrollLatestAfterRenderRef.current = false;
     const scroller = chatScrollRef.current;
     if (!scroller) return;
-    const pendingAnchor = pendingHistoryScrollAnchorRef.current;
+    const pendingAnchor = readChatViewAnchor(activeSessionId);
     const savedTop = readChatViewPosition(activeSessionId);
     let attempts = 0;
+    let anchorRestored = false;
+    const followLatestUntilLayoutSettles = scrollMode === 'follow' || (scrollMode === 'restore' && !pendingAnchor && !Number.isFinite(savedTop));
     const restorePosition = () => {
       attempts += 1;
       // Try the saved anchor first; keep retrying across paint frames until it lands.
       if (pendingAnchor && restoreMessageScrollAnchor(scroller, pendingAnchor)) {
+        if (anchorRestored) return;
+        anchorRestored = true;
         pendingHistoryScrollAnchorRef.current = null;
         return;
       }
+      if (anchorRestored) return;
       if (pendingAnchor && attempts < 6) return;
       pendingHistoryScrollAnchorRef.current = null;
-      if (scrollMode === 'follow') {
+      if (followLatestUntilLayoutSettles) {
         scroller.scrollTop = scroller.scrollHeight;
       } else if (Number.isFinite(savedTop)) {
         scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));
@@ -1944,10 +1949,24 @@ export default function App() {
         scroller.scrollTop = scroller.scrollHeight;
       }
     };
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+      window.requestAnimationFrame(restorePosition);
+    });
+    if (resizeObserver) {
+      for (const child of Array.from(scroller.children)) resizeObserver.observe(child);
+    }
     restorePosition();
-    requestAnimationFrame(restorePosition);
-    window.setTimeout(restorePosition, 60);
-    window.setTimeout(restorePosition, 300);
+    const frame = window.requestAnimationFrame(restorePosition);
+    const firstTimer = window.setTimeout(restorePosition, 60);
+    const secondTimer = window.setTimeout(restorePosition, 300);
+    const timers = [firstTimer, secondTimer, window.setTimeout(restorePosition, 600)];
+    const finalTimer = window.setTimeout(restorePosition, 1200);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.clearTimeout(finalTimer);
+      resizeObserver?.disconnect();
+    };
   }, [messages, activeSessionId]);
   useLayoutEffect(() => {
     const targetId = pendingJumpMessageIdRef.current;

@@ -52,4 +52,12 @@ describe('chat view persistence', () => {
     expect(source).toContain('prepareLatestFollow: () => void;');
     expect(source).toContain('props.prepareLatestFollow();');
   });
+
+  test('keeps an unstored latest view at the bottom while staged rows expand', () => {
+    const source = app();
+    expect(source).toContain("const followLatestUntilLayoutSettles = scrollMode === 'follow' || (scrollMode === 'restore' && !pendingAnchor && !Number.isFinite(savedTop));");
+    expect(source).toContain('const resizeObserver = typeof ResizeObserver ===');
+    expect(source).toContain('resizeObserver.observe(child);');
+    expect(source).toContain('window.setTimeout(restorePosition, 1200);');
+  });
 });
