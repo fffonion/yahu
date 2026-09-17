@@ -54,6 +54,11 @@ describe('desktop compact chat toggle', () => {
     expect(styles).toContain('@media(max-width:760px){.desktop-compact-view-toggle{display:none!important}');
   });
 
+  test('history rows keep their latest content height while retaining virtualized rendering', () => {
+    const styles = css();
+    expect(styles).toContain('.msg-row{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;width:100%;max-width:920px;content-visibility:auto;contain-intrinsic-size:0 96px;flex:0 0 auto}');
+  });
+
   test('chat message text containers do not paint flush inner bubbles', () => {
     const styles = css();
     const themeBubble = styles.lastIndexOf('.msg-row.user .msg-content{background:var(--user-bubble)');

@@ -807,6 +807,7 @@ export default function App() {
     if (previousSessionId && previousSessionId !== sessionId) cacheCurrentSessionWindow();
     activeSessionIdRef.current = sessionId;
     messageRequestRef.current += 1;
+    setActiveSessionDetail((old) => old?.id === sessionId ? old : null);
     const restored = restoreCachedMessageWindow(sessionId);
     hydratedMessageSessionRef.current = restored ? sessionId : '';
     if (!restored) {
@@ -1159,42 +1160,43 @@ export default function App() {
         const canonicalId = String(canonicalBody.canonical_id || canonicalBody.id || '').trim();
         const displayId = String(canonicalBody.display_id || '').trim();
         const displayTitle = String(canonicalBody.display_title || '').trim();
-        if (pinnedIds.has(sessionId) && displayId && displayTitle && !renamedSessionTitlesRef.current[canonicalId || sessionId]) {
-          pinnedSessionTitlesRef.current[canonicalId || sessionId] = displayTitle;
+        const representativeId = displayId || canonicalId;
+        if (pinnedIds.has(sessionId) && displayId && displayTitle && !renamedSessionTitlesRef.current[representativeId]) {
+          pinnedSessionTitlesRef.current[representativeId] = displayTitle;
           localStorage.setItem(PINNED_SESSION_TITLES_KEY, JSON.stringify(pinnedSessionTitlesRef.current));
         }
-        if (canonicalId && canonicalId !== sessionId && activeSessionIdRef.current === sessionId) {
+        if (representativeId && representativeId !== sessionId && activeSessionIdRef.current === sessionId) {
           messageRequestRef.current += 1;
           userNavRequestRef.current += 1;
           contextWindowRequestRef.current += 1;
           const previousTitle = String(sessions.find((session) => session.id === sessionId)?.title || '').trim();
           const wasPinned = pinnedIds.has(sessionId);
           if (wasPinned) {
-            sessionCanonicalAliasesRef.current[sessionId] = canonicalId;
+            sessionCanonicalAliasesRef.current[sessionId] = representativeId;
             localStorage.setItem(SESSION_CANONICAL_ALIASES_KEY, JSON.stringify(sessionCanonicalAliasesRef.current));
           }
-          if (wasPinned && previousTitle && !renamedSessionTitlesRef.current[canonicalId] && !pinnedSessionTitlesRef.current[canonicalId]) {
-            pinnedSessionTitlesRef.current[canonicalId] = previousTitle;
+          if (wasPinned && previousTitle && !renamedSessionTitlesRef.current[representativeId] && !pinnedSessionTitlesRef.current[representativeId]) {
+            pinnedSessionTitlesRef.current[representativeId] = previousTitle;
           }
           try {
-            const migratedViewState = migrateChatViewState(readChatViewState(), sessionId, canonicalId);
+            const migratedViewState = migrateChatViewState(readChatViewState(), sessionId, representativeId);
             localStorage.setItem(CHAT_VIEW_STATE_KEY, JSON.stringify(migratedViewState));
           } catch { /* storage may be unavailable */ }
           const cachedWindow = sessionMessageCacheRef.current.get(sessionId);
           if (cachedWindow) {
             sessionMessageCacheRef.current.delete(sessionId);
-            sessionMessageCacheRef.current.delete(canonicalId);
-            sessionMessageCacheRef.current.set(canonicalId, cachedWindow);
+            sessionMessageCacheRef.current.delete(representativeId);
+            sessionMessageCacheRef.current.set(representativeId, cachedWindow);
           }
-          activeSessionIdRef.current = canonicalId;
-          setActiveSessionId(canonicalId);
+          activeSessionIdRef.current = representativeId;
+          setActiveSessionId(representativeId);
           setActiveSessionDetail(null);
-          setPinnedIds((old) => old.has(sessionId) ? replacePinnedSessionId(old, sessionId, canonicalId) : old);
+          setPinnedIds((old) => old.has(sessionId) ? replacePinnedSessionId(old, sessionId, representativeId) : old);
           setSessions((old) => {
-            if (old.some((session) => session.id === canonicalId)) return old.filter((session) => session.id !== sessionId);
-            return old.map((session) => session.id === sessionId ? { ...session, id: canonicalId } : session);
+            if (old.some((session) => session.id === representativeId)) return old.filter((session) => session.id !== sessionId);
+            return old.map((session) => session.id === sessionId ? { ...session, id: representativeId } : session);
           });
-          window.history.replaceState({ yahuRoute: { mode: 'chat', sessionId: canonicalId } }, '', buildHashRoute({ mode: 'chat', sessionId: canonicalId }));
+          window.history.replaceState({ yahuRoute: { mode: 'chat', sessionId: representativeId } }, '', buildHashRoute({ mode: 'chat', sessionId: representativeId }));
           return;
         }
       }
@@ -1215,7 +1217,10 @@ export default function App() {
       }
       setActiveSessionDetail((old) => sessionWithPreservedMessageCount(detail, old));
       setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(detail, s) } : s) : [detail, ...old]);
-    } catch (err) { setStatus(tf('status.sessionDetailUnavailable', errorMessage(err))); }
+    } catch (err) {
+      if (activeSessionIdRef.current === sessionId) setActiveSessionDetail(null);
+      setStatus(tf('status.sessionDetailUnavailable', errorMessage(err)));
+    }
   }, [apiBase, headers, applyRenamedSessionTitleOverride, pinnedIds, sessions]);
 
   const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {

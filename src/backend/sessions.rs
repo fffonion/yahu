@@ -958,7 +958,19 @@ fn local_session_switch_root_id(state: &AppState, session_id: &str) -> anyhow::R
         && let Some(family_root) = entries.first().map(|entry| entry.id.as_str())
         && family_root != session_id
     {
-        return Ok(Some(family_root.to_string()));
+        let requested_title = local_session_title(&conn, session_id)?;
+        let family_title = local_session_title(&conn, family_root)?;
+        let explicit_title_prefers_self = requested_title.as_deref().is_some_and(|title| {
+            let title = title.trim();
+            !title.is_empty()
+                && generated_session_title_base(title) == title
+                && Some(title) != family_title.as_deref().map(str::trim)
+        });
+        if session_family_titles_compatible(requested_title.as_deref(), family_title.as_deref())
+            && !explicit_title_prefers_self
+        {
+            return Ok(Some(family_root.to_string()));
+        }
     }
     Ok((current_id != session_id).then_some(current_id))
 }
@@ -973,6 +985,16 @@ fn generated_session_title_base(title: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+fn session_family_titles_compatible(current: Option<&str>, previous: Option<&str>) -> bool {
+    let Some(current) = current.map(str::trim).filter(|title| !title.is_empty()) else {
+        return true;
+    };
+    let Some(previous) = previous.map(str::trim).filter(|title| !title.is_empty()) else {
+        return true;
+    };
+    generated_session_title_base(current) == generated_session_title_base(previous)
 }
 
 fn local_session_display_metadata(state: &AppState, session_id: &str) -> anyhow::Result<Option<(String, String)>> {
@@ -3458,13 +3480,13 @@ fn local_switch_continuation_depth(
 }
 
 /// Entries backing the browsable chat transcript: keyed chats resolve to the
-/// whole visible family of segments, everything else falls back to the
-/// walk-based lineage chain.
+/// visible family of connected/resumed segments; independent roots stay
+/// separate, and unkeyed sessions use the walk-based lineage chain.
 fn local_session_chat_view_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> rusqlite::Result<Vec<SessionLineageEntry>> {
-    if let Some(entries) = local_session_all_key_entries(conn, session_id)? {
+    if let Some(entries) = local_session_key_group_entries(conn, session_id)? {
         return Ok(entries);
     }
     local_session_history_entries(conn, session_id)
@@ -3491,16 +3513,29 @@ fn local_session_history_entries(
     Ok(entries)
 }
 
+/// Read a local session title when the state database has title metadata.
+fn local_session_title(conn: &rusqlite::Connection, session_id: &str) -> rusqlite::Result<Option<String>> {
+    if !sqlite_table_has_columns(conn, "sessions", &["title"])? {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT title FROM sessions WHERE id = ?1",
+        [session_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map(|value| value.flatten())
+}
+
+type ChatKeyRow = (Option<String>, Option<String>, Option<String>, Option<String>);
+
 /// Chat keys identify one visible conversation across every compression and
 /// session-switch incarnation. When a key is present, the merged transcript is
 /// the full set of same-key segments in start order, so a session the chat
 /// later "switched back" to (for example after an overnight detour through an
-/// older incarnation) still shows the whole conversation. Segments that were
-/// forked from a *live* parent are independent side conversations and are
-/// excluded; when the requested session is itself such a side conversation, it
-/// stands alone.
-type ChatKeyRow = (Option<String>, Option<String>, Option<String>, Option<String>);
-
+/// older incarnation) still shows the whole conversation. Segments forked from
+/// a *live* parent are independent side conversations and are excluded; when
+/// the requested session is itself such a side conversation, it stands alone.
 fn local_session_key_group_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -3613,7 +3648,26 @@ fn local_session_key_group_entries(
         let ends_with_session_switch = component_entries
             .last()
             .is_some_and(|entry| entry.end_reason.as_deref() == Some("session_switch"));
+        let current_component_title = component_entries
+            .first()
+            .map(|entry| local_session_title(conn, &entry.id))
+            .transpose()?
+            .flatten();
+        let previous_component_title = grouped_components
+            .last()
+            .and_then(|(previous_ids, _, _)| {
+                all_entries
+                    .iter()
+                    .find(|entry| previous_ids.contains(&entry.id))
+            })
+            .map(|entry| local_session_title(conn, &entry.id))
+            .transpose()?
+            .flatten();
         let merge_with_previous = is_rootless_component
+            && session_family_titles_compatible(
+                current_component_title.as_deref(),
+                previous_component_title.as_deref(),
+            )
             && grouped_components.last().is_some_and(|(_, previous_has_live, previous_ends_with_switch)| {
                 *previous_has_live || (has_live_entry && *previous_ends_with_switch)
             });
@@ -3657,111 +3711,6 @@ fn local_session_key_group_entries(
         })
         .map(|entry| entry.id.clone())
         .collect::<HashSet<String>>();
-    if side_segment_ids.contains(session_id) {
-        let requested = entries
-            .iter()
-            .find(|entry| entry.id == session_id)
-            .expect("requested session is a member");
-        return Ok(Some(vec![SessionLineageEntry {
-            id: requested.id.clone(),
-            parent_session_id: requested.parent_session_id.clone(),
-            end_reason: requested.end_reason.clone(),
-        }]));
-    }
-    Ok(Some(
-        entries
-            .into_iter()
-            .filter(|entry| !side_segment_ids.contains(&entry.id))
-            .collect(),
-    ))
-}
-
-fn local_session_all_key_entries(
-    conn: &rusqlite::Connection,
-    session_id: &str,
-) -> rusqlite::Result<Option<Vec<SessionLineageEntry>>> {
-    const MAX_CHAT_KEY_GROUP: usize = 200;
-    if !sqlite_table_has_columns(
-        conn,
-        "sessions",
-        &[
-            "id",
-            "parent_session_id",
-            "end_reason",
-            "started_at",
-            "source",
-            "session_key",
-            "chat_id",
-            "thread_id",
-        ],
-    )? {
-        return Ok(None);
-    }
-    let row: Option<ChatKeyRow> = conn
-        .query_row(
-            "SELECT source, session_key, chat_id, thread_id FROM sessions WHERE id = ?1",
-            [session_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()?;
-    let Some((source, session_key, chat_id, thread_id)) = row else {
-        return Ok(None);
-    };
-    let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) else {
-        return Ok(None);
-    };
-    let mut statement = conn.prepare(
-        "SELECT id, parent_session_id, end_reason
-         FROM sessions
-         WHERE session_key = ?1
-           AND source IS ?2
-           AND chat_id IS ?3
-           AND thread_id IS ?4
-           AND COALESCE(source, '') != 'subagent'
-         ORDER BY started_at, id
-         LIMIT ?5",
-    )?;
-    let entries = statement
-        .query_map(
-            rusqlite::params![
-                session_key,
-                source,
-                chat_id,
-                thread_id,
-                MAX_CHAT_KEY_GROUP as i64
-            ],
-            |row| {
-                Ok(SessionLineageEntry {
-                    id: row.get(0)?,
-                    parent_session_id: row.get(1)?,
-                    end_reason: row.get(2)?,
-                })
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if entries.is_empty() || !entries.iter().any(|entry| entry.id == session_id) {
-        return Ok(None);
-    }
-    let member_ids = entries
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect::<HashSet<_>>();
-    let live_parents = entries
-        .iter()
-        .filter(|entry| entry.end_reason.is_none())
-        .map(|entry| entry.id.as_str())
-        .collect::<HashSet<_>>();
-    let side_segment_ids = entries
-        .iter()
-        .filter(|entry| {
-            entry
-                .parent_session_id
-                .as_deref()
-                .filter(|parent| member_ids.contains(parent))
-                .is_some_and(|parent| live_parents.contains(parent))
-        })
-        .map(|entry| entry.id.clone())
-        .collect::<HashSet<_>>();
     if side_segment_ids.contains(session_id) {
         let requested = entries
             .iter()

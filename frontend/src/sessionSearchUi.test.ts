@@ -28,20 +28,28 @@ describe('session search and composer session model UI', () => {
 
   test('canonical redirects migrate a pinned row to the canonical id without dropping selection', () => {
     const app = source();
-    expect(app).toContain("setPinnedIds((old) => old.has(sessionId) ? replacePinnedSessionId(old, sessionId, canonicalId) : old);");
-    expect(app).toContain("if (old.some((session) => session.id === canonicalId)) return old.filter((session) => session.id !== sessionId);");
-    expect(app).toContain("return old.map((session) => session.id === sessionId ? { ...session, id: canonicalId } : session);");
+    expect(app).toContain("setPinnedIds((old) => old.has(sessionId) ? replacePinnedSessionId(old, sessionId, representativeId) : old);");
+    expect(app).toContain("if (old.some((session) => session.id === representativeId)) return old.filter((session) => session.id !== sessionId);");
+    expect(app).toContain("return old.map((session) => session.id === sessionId ? { ...session, id: representativeId } : session);");
   });
 
   test('canonical redirects preserve the pinned display title and migrate chat view state', () => {
     const app = source();
     expect(app).toContain("const previousTitle = String(sessions.find((session) => session.id === sessionId)?.title || '').trim();");
-    expect(app).toContain('pinnedSessionTitlesRef.current[canonicalId] = previousTitle;');
-    expect(app).toContain('migrateChatViewState(readChatViewState(), sessionId, canonicalId)');
+    expect(app).toContain('pinnedSessionTitlesRef.current[representativeId] = previousTitle;');
+    expect(app).toContain('migrateChatViewState(readChatViewState(), sessionId, representativeId)');
     expect(app).toContain("const displayTitle = String(canonicalBody.display_title || '').trim();");
-    expect(app).toContain('pinnedSessionTitlesRef.current[canonicalId || sessionId] = displayTitle;');
+    expect(app).toContain('pinnedSessionTitlesRef.current[representativeId] = displayTitle;');
     expect(app).toContain('filterPinnedCanonicalAliases(rawList, sessionCanonicalAliasesRef.current, pinnedIds)');
-    expect(app).toContain('sessionCanonicalAliasesRef.current[sessionId] = canonicalId;');
+    expect(app).toContain('const representativeId = displayId || canonicalId;');
+    expect(app).toContain('setActiveSessionId(representativeId);');
+    expect(app).toContain('sessionCanonicalAliasesRef.current[sessionId] = representativeId;');
+  });
+
+  test('session switches clear stale active detail before an empty or failed session load', () => {
+    const app = source();
+    expect(app).toContain('setActiveSessionDetail((old) => old?.id === sessionId ? old : null);');
+    expect(app).toContain('if (activeSessionIdRef.current === sessionId) setActiveSessionDetail(null);');
   });
 
   test('new conversation and source filter are icon buttons beside the search field', () => {

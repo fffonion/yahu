@@ -89,7 +89,7 @@
     }
 
     #[test]
-    fn chat_view_entries_include_a_later_same_key_root_for_latest_history() {
+    fn chat_view_entries_keep_a_later_independent_same_key_root_separate() {
         let temp = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
         conn.execute_batch(
@@ -115,7 +115,33 @@
 
         let entries = local_session_chat_view_entries(&conn, "root-a").unwrap();
         let ids = entries.into_iter().map(|entry| entry.id).collect::<Vec<_>>();
-        assert_eq!(ids, vec!["root-a", "child-a", "root-mid", "child-mid", "root-b", "child-b"]);
+        assert_eq!(ids, vec!["root-a", "child-a"]);
+    }
+
+    #[test]
+    fn chat_view_entries_keep_independent_private_sessions_separate_without_thread() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                started_at REAL NOT NULL,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('dm-a', NULL, 'session_reset', 1.0, 'telegram', 'key', 'chat', NULL),
+                ('dm-b', NULL, NULL, 2.0, 'telegram', 'key', 'chat', NULL);",
+        )
+        .unwrap();
+
+        let entries = local_session_chat_view_entries(&conn, "dm-a").unwrap();
+        let ids = entries.into_iter().map(|entry| entry.id).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["dm-a"]);
     }
 
     #[test]
@@ -887,6 +913,32 @@
             Some("old-root".to_string())
         );
         assert_eq!(local_session_switch_root_id(&state, "unrelated").unwrap(), None);
+    }
+
+    #[test]
+    fn canonical_session_id_keeps_an_explicit_new_title_on_a_same_key_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                started_at REAL,
+                title TEXT
+             );
+             INSERT INTO sessions VALUES ('old-root',NULL,'session_switch','telegram','same-key','chat','topic',1.0,'Old topic');
+             INSERT INTO sessions VALUES ('new-root',NULL,'session_reset','telegram','same-key','chat','topic',10.0,'New topic');",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        assert_eq!(local_session_switch_root_id(&state, "new-root").unwrap(), None);
     }
 
     #[tokio::test]
