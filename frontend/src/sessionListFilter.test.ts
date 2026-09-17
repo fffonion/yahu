@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { splitSidebarSessions, reorderPinnedIds } from './sessionListFilter';
+import { replacePinnedSessionId, splitSidebarSessions, reorderPinnedIds } from './sessionListFilter';
 
 describe('session list source filter', () => {
   const sessions = [
@@ -35,5 +35,13 @@ describe('session list source filter', () => {
   test('moves a pinned session before the drop target', () => {
     expect(Array.from(reorderPinnedIds(new Set(['one', 'two', 'three']), 'three', 'one'))).toEqual(['three', 'one', 'two']);
     expect(Array.from(reorderPinnedIds(new Set(['one', 'two', 'three']), 'one', 'three'))).toEqual(['two', 'one', 'three']);
+  });
+
+  test('replaces a pinned session id with its canonical id without changing its position', () => {
+    expect(Array.from(replacePinnedSessionId(new Set(['first', 'legacy', 'last']), 'legacy', 'canonical'))).toEqual(['first', 'canonical', 'last']);
+  });
+
+  test('does not duplicate an already pinned canonical id', () => {
+    expect(Array.from(replacePinnedSessionId(new Set(['legacy', 'canonical']), 'legacy', 'canonical'))).toEqual(['canonical']);
   });
 });

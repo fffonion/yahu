@@ -32,7 +32,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtm
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
-import { reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
+import { replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
 import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from './viewport';
@@ -1134,7 +1134,11 @@ export default function App() {
           activeSessionIdRef.current = canonicalId;
           setActiveSessionId(canonicalId);
           setActiveSessionDetail(null);
-          setSessions((old) => old.filter((session) => session.id !== sessionId));
+          setPinnedIds((old) => old.has(sessionId) ? replacePinnedSessionId(old, sessionId, canonicalId) : old);
+          setSessions((old) => {
+            if (old.some((session) => session.id === canonicalId)) return old.filter((session) => session.id !== sessionId);
+            return old.map((session) => session.id === sessionId ? { ...session, id: canonicalId } : session);
+          });
           window.history.replaceState({ yahuRoute: { mode: 'chat', sessionId: canonicalId } }, '', buildHashRoute({ mode: 'chat', sessionId: canonicalId }));
           return;
         }

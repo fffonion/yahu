@@ -26,6 +26,13 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('[filter, hideCronSessions, pinnedIds, headers');
   });
 
+  test('canonical redirects migrate a pinned row to the canonical id without dropping selection', () => {
+    const app = source();
+    expect(app).toContain("setPinnedIds((old) => old.has(sessionId) ? replacePinnedSessionId(old, sessionId, canonicalId) : old);");
+    expect(app).toContain("if (old.some((session) => session.id === canonicalId)) return old.filter((session) => session.id !== sessionId);");
+    expect(app).toContain("return old.map((session) => session.id === sessionId ? { ...session, id: canonicalId } : session);");
+  });
+
   test('new conversation and source filter are icon buttons beside the search field', () => {
     const app = source();
     const css = styles();

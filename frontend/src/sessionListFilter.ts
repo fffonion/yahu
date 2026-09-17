@@ -14,6 +14,19 @@ export function splitSidebarSessions<T extends SidebarSession>(
   };
 }
 
+export function replacePinnedSessionId(pinnedIds: Set<string>, previousId: string, canonicalId: string) {
+  const order = Array.from(pinnedIds);
+  const previousIndex = order.indexOf(previousId);
+  if (previousIndex < 0 || !canonicalId || previousId === canonicalId) return new Set(order);
+  const canonicalIndex = order.indexOf(canonicalId);
+  if (canonicalIndex >= 0) {
+    order.splice(previousIndex, 1);
+    return new Set(order);
+  }
+  order[previousIndex] = canonicalId;
+  return new Set(order);
+}
+
 export function reorderPinnedIds(pinnedIds: Set<string>, sourceId: string, targetId: string) {
   const order = Array.from(pinnedIds);
   const sourceIndex = order.indexOf(sourceId);
