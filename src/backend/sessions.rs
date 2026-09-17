@@ -954,6 +954,12 @@ fn local_session_switch_root_id(state: &AppState, session_id: &str) -> anyhow::R
         }
         current_id = parent_id;
     }
+    if let Some(entries) = local_session_topic_entries(&conn, session_id)?
+        && let Some(family_root) = entries.first().map(|entry| entry.id.as_str())
+        && family_root != session_id
+    {
+        return Ok(Some(family_root.to_string()));
+    }
     if let Some(entries) = local_session_key_group_entries(&conn, session_id)?
         && let Some(family_root) = entries.first().map(|entry| entry.id.as_str())
         && family_root != session_id
@@ -1266,6 +1272,89 @@ fn filter_session_rows_shadowed_by_local_successors(
 /// newest row so each conversation is listed once, carrying the family's
 /// latest activity. Rows for independent side conversations (segments forked
 /// from a live parent) stay separate.
+fn local_topic_partition_key(
+    session: &LocalSessionListMetadata,
+    metadata: &[LocalSessionListMetadata],
+) -> Option<String> {
+    let key = session.session_key.as_deref().filter(|value| !value.trim().is_empty())?;
+    let thread = session.thread_id.as_deref().filter(|value| !value.trim().is_empty())?;
+    if session.source.as_deref() == Some("subagent") {
+        return None;
+    }
+    let members = metadata
+        .iter()
+        .filter(|candidate| {
+            candidate.source == session.source
+                && candidate.session_key.as_deref() == Some(key)
+                && candidate.chat_id == session.chat_id
+                && candidate.thread_id.as_deref() == Some(thread)
+                && candidate.source.as_deref() != Some("subagent")
+        })
+        .collect::<Vec<_>>();
+    let metadata_by_id = members
+        .iter()
+        .map(|candidate| (candidate.id.as_str(), *candidate))
+        .collect::<HashMap<_, _>>();
+    if !metadata_by_id.contains_key(session.id.as_str()) {
+        return None;
+    }
+    let member_ids = metadata_by_id.keys().copied().collect::<HashSet<_>>();
+    if !members.iter().any(|candidate| {
+        candidate
+            .reset_from
+            .as_deref()
+            .is_some_and(|reset_from| member_ids.contains(reset_from))
+    }) {
+        return None;
+    }
+    let mut root_by_id = HashMap::<String, String>::new();
+    for candidate in &members {
+        let mut current = candidate.id.as_str();
+        let mut visited = HashSet::new();
+        while visited.insert(current) {
+            let Some(parent_id) = metadata_by_id
+                .get(current)
+                .and_then(|item| item.parent_session_id.as_deref())
+            else {
+                break;
+            };
+            if !metadata_by_id.contains_key(parent_id) {
+                break;
+            }
+            current = parent_id;
+        }
+        root_by_id.insert(candidate.id.clone(), current.to_string());
+    }
+    let mut roots = root_by_id
+        .values()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter_map(|root_id| metadata_by_id.get(root_id.as_str()).map(|root| (root_id, *root)))
+        .collect::<Vec<_>>();
+    roots.sort_by(|(left_id, left), (right_id, right)| {
+        left.started_at.total_cmp(&right.started_at).then_with(|| left_id.cmp(right_id))
+    });
+    let mut partition_by_root = HashMap::<String, usize>::new();
+    let mut partition = 0usize;
+    for (root_id, root) in roots {
+        partition_by_root.insert(root_id, partition);
+        if root.end_reason.as_deref() == Some("agent_close") {
+            partition += 1;
+        }
+    }
+    let root_id = root_by_id.get(&session.id)?;
+    let partition = partition_by_root.get(root_id)?;
+    Some(format!(
+        "{}|{}|{}|{}|{}",
+        session.source.as_deref().unwrap_or(""),
+        key,
+        session.chat_id.as_deref().unwrap_or(""),
+        thread,
+        partition
+    ))
+}
+
 fn merge_session_rows_by_chat_family(
     rows: &mut Vec<serde_json::Value>,
     metadata: &[LocalSessionListMetadata],
@@ -1376,6 +1465,8 @@ fn merge_session_rows_by_chat_family(
         }
         let family = if side_ids.contains(session.id.as_str()) {
             format!("side:{}", session.id)
+        } else if let Some(topic_family) = local_topic_partition_key(session, metadata) {
+            format!("topic:{topic_family}")
         } else {
             let root = local_session_switch_component_root(session, &metadata_by_id);
             let group = epoch_group_by_root.get(&root).unwrap_or(&root);
@@ -3479,13 +3570,198 @@ fn local_switch_continuation_depth(
         .unwrap_or(0)
 }
 
-/// Entries backing the browsable chat transcript: keyed chats resolve to the
-/// visible family of connected/resumed segments; independent roots stay
-/// separate, and unkeyed sessions use the walk-based lineage chain.
+/// A Telegram topic is the user's durable conversation identity. Its session
+/// rows can have several root IDs after resets, so titles and parent links alone
+/// cannot split the topic into separate chats. Root-level agent-close branches
+/// still form a boundary; child resets under a normal switch/reset root remain
+/// in the same topic epoch.
+fn local_session_topic_entries(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Option<Vec<SessionLineageEntry>>> {
+    const MAX_TOPIC_ENTRIES: usize = 200;
+    if !sqlite_table_has_columns(
+        conn,
+        "sessions",
+        &[
+            "id",
+            "parent_session_id",
+            "end_reason",
+            "started_at",
+            "source",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let row: Option<ChatKeyRow> = conn
+        .query_row(
+            "SELECT source, session_key, chat_id, thread_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((source, session_key, chat_id, thread_id)) = row else {
+        return Ok(None);
+    };
+    let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    if thread_id.as_deref().unwrap_or("").trim().is_empty() {
+        return Ok(None);
+    }
+    let mut statement = conn.prepare(
+        "SELECT id, parent_session_id, end_reason
+         FROM sessions
+         WHERE session_key = ?1
+           AND source IS ?2
+           AND chat_id IS ?3
+           AND thread_id IS ?4
+           AND COALESCE(source, '') != 'subagent'
+         ORDER BY started_at, id
+         LIMIT ?5",
+    )?;
+    let all_entries = statement
+        .query_map(
+            rusqlite::params![
+                session_key,
+                source,
+                chat_id,
+                thread_id,
+                MAX_TOPIC_ENTRIES as i64
+            ],
+            |row| {
+                Ok(SessionLineageEntry {
+                    id: row.get(0)?,
+                    parent_session_id: row.get(1)?,
+                    end_reason: row.get(2)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if all_entries.is_empty() || !all_entries.iter().any(|entry| entry.id == session_id) {
+        return Ok(None);
+    }
+    if !sqlite_table_has_columns(conn, "sessions", &["model_config"])? {
+        return Ok(None);
+    }
+    let member_ids = all_entries
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<HashSet<_>>();
+    let has_explicit_topic_reset = all_entries.iter().any(|entry| {
+        conn.query_row(
+            "SELECT json_extract(COALESCE(model_config, '{}'), '$._reset_from')
+             FROM sessions WHERE id = ?1",
+            [&entry.id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .is_some_and(|reset_from| member_ids.contains(reset_from.as_str()))
+    });
+    if !has_explicit_topic_reset {
+        return Ok(None);
+    }
+
+    let parent_by_id = all_entries
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry.parent_session_id.as_deref()))
+        .collect::<HashMap<_, _>>();
+    let mut root_by_id = HashMap::<String, String>::new();
+    for entry in &all_entries {
+        let mut current = entry.id.as_str();
+        let mut visited = HashSet::new();
+        while visited.insert(current) {
+            let Some(Some(parent_id)) = parent_by_id.get(current) else {
+                break;
+            };
+            if !parent_by_id.contains_key(parent_id) {
+                break;
+            }
+            current = parent_id;
+        }
+        root_by_id.insert(entry.id.clone(), current.to_string());
+    }
+
+    let mut root_info = HashMap::<String, (f64, Option<String>)>::new();
+    for entry in &all_entries {
+        let root_id = root_by_id
+            .get(&entry.id)
+            .expect("every topic entry has a root");
+        if root_info.contains_key(root_id) {
+            continue;
+        }
+        let root = all_entries
+            .iter()
+            .find(|candidate| candidate.id == *root_id)
+            .expect("topic root is present in the entry set");
+        let started_at: f64 = conn.query_row(
+            "SELECT started_at FROM sessions WHERE id = ?1",
+            [&root.id],
+            |row| row.get(0),
+        )?;
+        root_info.insert(root_id.clone(), (started_at, root.end_reason.clone()));
+    }
+    let mut roots = root_info.into_iter().collect::<Vec<_>>();
+    roots.sort_by(|(left_id, (left_started, _)), (right_id, (right_started, _))| {
+        left_started.total_cmp(right_started).then_with(|| left_id.cmp(right_id))
+    });
+    let mut partition_by_root = HashMap::<String, usize>::new();
+    let mut partition = 0usize;
+    for (root_id, (_, end_reason)) in roots {
+        partition_by_root.insert(root_id, partition);
+        if end_reason.as_deref() == Some("agent_close") {
+            partition += 1;
+        }
+    }
+    let requested_root = root_by_id
+        .get(session_id)
+        .expect("requested topic session has a root");
+    let requested_partition = *partition_by_root
+        .get(requested_root)
+        .expect("requested topic root has a partition");
+    let entries = all_entries
+        .into_iter()
+        .filter(|entry| {
+            root_by_id
+                .get(&entry.id)
+                .and_then(|root| partition_by_root.get(root))
+                == Some(&requested_partition)
+        })
+        .collect::<Vec<_>>();
+    let member_ids = entries
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<HashSet<_>>();
+    let live_parent_ids = entries
+        .iter()
+        .filter(|entry| entry.end_reason.is_none())
+        .map(|entry| entry.id.as_str())
+        .collect::<HashSet<_>>();
+    if let Some(requested) = entries.iter().find(|entry| entry.id == session_id)
+        && requested
+            .parent_session_id
+            .as_deref()
+            .is_some_and(|parent| member_ids.contains(parent) && live_parent_ids.contains(parent))
+    {
+        return Ok(Some(vec![requested.clone()]));
+    }
+    Ok(Some(entries))
+}
+
+/// Entries backing the browsable chat transcript: a Telegram topic resolves to
+/// its continuous topic epoch; unkeyed and private sessions use the existing
+/// lineage/key-group rules.
 fn local_session_chat_view_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> rusqlite::Result<Vec<SessionLineageEntry>> {
+    if let Some(entries) = local_session_topic_entries(conn, session_id)? {
+        return Ok(entries);
+    }
     if let Some(entries) = local_session_key_group_entries(conn, session_id)? {
         return Ok(entries);
     }

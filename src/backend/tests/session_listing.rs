@@ -89,6 +89,44 @@
     }
 
     #[test]
+    fn chat_topic_reset_continuation_merges_kfc_and_build_epochs() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                started_at REAL NOT NULL,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                title TEXT,
+                model_config TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('kfc', NULL, 'session_switch', 1.0, 'telegram', 'key', 'chat', 'topic', 'kfc', '{}'),
+                ('config', NULL, 'session_switch', 2.0, 'telegram', 'key', 'chat', 'topic', '配置规则', '{}'),
+                ('subagent-root', NULL, 'session_reset', 3.0, 'telegram', 'key', 'chat', 'topic', 'Subagent work', '{}'),
+                ('build', 'subagent-root', NULL, 4.0, 'telegram', 'key', 'chat', 'topic', 'Build wasm playground', '{\"_reset_from\":\"subagent-root\"}');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        let entries = local_session_chat_view_entries(&conn, "kfc").unwrap();
+        let ids = entries.into_iter().map(|entry| entry.id).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["kfc", "config", "subagent-root", "build"]);
+
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        assert_eq!(
+            local_session_switch_root_id(&state, "build").unwrap(),
+            Some("kfc".to_string())
+        );
+    }
+
+    #[test]
     fn chat_view_entries_keep_a_later_independent_same_key_root_separate() {
         let temp = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
