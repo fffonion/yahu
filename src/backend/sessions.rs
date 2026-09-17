@@ -3464,7 +3464,7 @@ fn local_session_chat_view_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> rusqlite::Result<Vec<SessionLineageEntry>> {
-    if let Some(entries) = local_session_key_group_entries(conn, session_id)? {
+    if let Some(entries) = local_session_all_key_entries(conn, session_id)? {
         return Ok(entries);
     }
     local_session_history_entries(conn, session_id)
@@ -3657,6 +3657,111 @@ fn local_session_key_group_entries(
         })
         .map(|entry| entry.id.clone())
         .collect::<HashSet<String>>();
+    if side_segment_ids.contains(session_id) {
+        let requested = entries
+            .iter()
+            .find(|entry| entry.id == session_id)
+            .expect("requested session is a member");
+        return Ok(Some(vec![SessionLineageEntry {
+            id: requested.id.clone(),
+            parent_session_id: requested.parent_session_id.clone(),
+            end_reason: requested.end_reason.clone(),
+        }]));
+    }
+    Ok(Some(
+        entries
+            .into_iter()
+            .filter(|entry| !side_segment_ids.contains(&entry.id))
+            .collect(),
+    ))
+}
+
+fn local_session_all_key_entries(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Option<Vec<SessionLineageEntry>>> {
+    const MAX_CHAT_KEY_GROUP: usize = 200;
+    if !sqlite_table_has_columns(
+        conn,
+        "sessions",
+        &[
+            "id",
+            "parent_session_id",
+            "end_reason",
+            "started_at",
+            "source",
+            "session_key",
+            "chat_id",
+            "thread_id",
+        ],
+    )? {
+        return Ok(None);
+    }
+    let row: Option<ChatKeyRow> = conn
+        .query_row(
+            "SELECT source, session_key, chat_id, thread_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((source, session_key, chat_id, thread_id)) = row else {
+        return Ok(None);
+    };
+    let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let mut statement = conn.prepare(
+        "SELECT id, parent_session_id, end_reason
+         FROM sessions
+         WHERE session_key = ?1
+           AND source IS ?2
+           AND chat_id IS ?3
+           AND thread_id IS ?4
+           AND COALESCE(source, '') != 'subagent'
+         ORDER BY started_at, id
+         LIMIT ?5",
+    )?;
+    let entries = statement
+        .query_map(
+            rusqlite::params![
+                session_key,
+                source,
+                chat_id,
+                thread_id,
+                MAX_CHAT_KEY_GROUP as i64
+            ],
+            |row| {
+                Ok(SessionLineageEntry {
+                    id: row.get(0)?,
+                    parent_session_id: row.get(1)?,
+                    end_reason: row.get(2)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if entries.is_empty() || !entries.iter().any(|entry| entry.id == session_id) {
+        return Ok(None);
+    }
+    let member_ids = entries
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<HashSet<_>>();
+    let live_parents = entries
+        .iter()
+        .filter(|entry| entry.end_reason.is_none())
+        .map(|entry| entry.id.as_str())
+        .collect::<HashSet<_>>();
+    let side_segment_ids = entries
+        .iter()
+        .filter(|entry| {
+            entry
+                .parent_session_id
+                .as_deref()
+                .filter(|parent| member_ids.contains(parent))
+                .is_some_and(|parent| live_parents.contains(parent))
+        })
+        .map(|entry| entry.id.clone())
+        .collect::<HashSet<_>>();
     if side_segment_ids.contains(session_id) {
         let requested = entries
             .iter()

@@ -89,6 +89,36 @@
     }
 
     #[test]
+    fn chat_view_entries_include_a_later_same_key_root_for_latest_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                started_at REAL NOT NULL,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('root-a', NULL, 'session_switch', 1.0, 'telegram', 'key', 'chat', 'thread'),
+                ('child-a', 'root-a', 'session_switch', 2.0, 'telegram', 'key', 'chat', 'thread'),
+                ('root-mid', NULL, 'agent_close', 3.0, 'telegram', 'key', 'chat', 'thread'),
+                ('child-mid', 'root-mid', 'agent_close', 4.0, 'telegram', 'key', 'chat', 'thread'),
+                ('root-b', NULL, 'session_switch', 5.0, 'telegram', 'key', 'chat', 'thread'),
+                ('child-b', 'root-b', NULL, 6.0, 'telegram', 'key', 'chat', 'thread');",
+        )
+        .unwrap();
+
+        let entries = local_session_chat_view_entries(&conn, "root-a").unwrap();
+        let ids = entries.into_iter().map(|entry| entry.id).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["root-a", "child-a", "root-mid", "child-mid", "root-b", "child-b"]);
+    }
+
+    #[test]
     fn session_list_family_merge_keeps_independent_roots_with_the_same_chat_key() {
         let metadata = vec![
             LocalSessionListMetadata {
