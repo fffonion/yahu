@@ -31,7 +31,9 @@ describe('session right-click context menu', () => {
     const source = app();
     expect(source).toContain('const renamedSessionTitlesRef = useRef<Record<string, string>>({});');
     expect(source).toContain('const applyRenamedSessionTitleOverride = useCallback((session: Session) => {');
-    expect(source).toContain('const titleOverride = renamedSessionTitlesRef.current[session.id];');
+    expect(source).toContain('const temporaryTitle = renamedSessionTitlesRef.current[session.id];');
+    expect(source).toContain('const pinnedTitle = pinnedSessionTitlesRef.current[session.id];');
+    expect(source).toContain('const titleOverride = temporaryTitle || pinnedTitle;');
     expect(source).toContain('if (titleOverride && String(session.title || \'\').trim() !== titleOverride) return { ...session, title: titleOverride };');
     expect(source).toContain('const detail = applyRenamedSessionTitleOverride((body.data || body.session || body) as Session);');
     expect(source).toContain('const session = applyRenamedSessionTitleOverride(rawSession);');

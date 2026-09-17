@@ -33,6 +33,15 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain("return old.map((session) => session.id === sessionId ? { ...session, id: canonicalId } : session);");
   });
 
+  test('canonical redirects preserve the pinned display title and migrate chat view state', () => {
+    const app = source();
+    expect(app).toContain("const previousTitle = String(sessions.find((session) => session.id === sessionId)?.title || '').trim();");
+    expect(app).toContain('pinnedSessionTitlesRef.current[canonicalId] = previousTitle;');
+    expect(app).toContain('migrateChatViewState(readChatViewState(), sessionId, canonicalId)');
+    expect(app).toContain('filterPinnedCanonicalAliases(rawList, sessionCanonicalAliasesRef.current, pinnedIds)');
+    expect(app).toContain('sessionCanonicalAliasesRef.current[sessionId] = canonicalId;');
+  });
+
   test('new conversation and source filter are icon buttons beside the search field', () => {
     const app = source();
     const css = styles();

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { replacePinnedSessionId, splitSidebarSessions, reorderPinnedIds } from './sessionListFilter';
+import { filterPinnedCanonicalAliases, replacePinnedSessionId, splitSidebarSessions, reorderPinnedIds } from './sessionListFilter';
 
 describe('session list source filter', () => {
   const sessions = [
@@ -35,6 +35,15 @@ describe('session list source filter', () => {
   test('moves a pinned session before the drop target', () => {
     expect(Array.from(reorderPinnedIds(new Set(['one', 'two', 'three']), 'three', 'one'))).toEqual(['three', 'one', 'two']);
     expect(Array.from(reorderPinnedIds(new Set(['one', 'two', 'three']), 'one', 'three'))).toEqual(['two', 'one', 'three']);
+  });
+
+  test('hides an old session alias when its canonical session is pinned', () => {
+    const result = filterPinnedCanonicalAliases([
+      { id: 'legacy', source: 'telegram' },
+      { id: 'canonical', source: 'telegram' },
+      { id: 'other', source: 'telegram' },
+    ], { legacy: 'canonical' }, new Set(['canonical']));
+    expect(result.map((session) => session.id)).toEqual(['canonical', 'other']);
   });
 
   test('replaces a pinned session id with its canonical id without changing its position', () => {

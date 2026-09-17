@@ -1,9 +1,22 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { migrateChatViewState } from './chatViewState';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 
 describe('chat view persistence', () => {
+  test('migrates legacy session view state to the canonical id and keeps the legacy position', () => {
+    expect(migrateChatViewState({
+      lastSessionId: 'legacy',
+      positions: { legacy: 123, canonical: 456, other: 9 },
+      anchors: { legacy: { id: 'message-1', topOffset: 12 }, canonical: { id: 'message-2', topOffset: 30 } },
+    }, 'legacy', 'canonical')).toEqual({
+      lastSessionId: 'canonical',
+      positions: { canonical: 123, other: 9 },
+      anchors: { canonical: { id: 'message-1', topOffset: 12 } },
+    });
+  });
+
   test('stores the last session and per-session scroll positions and anchors in localStorage', () => {
     const source = app();
     expect(source).toContain("const CHAT_VIEW_STATE_KEY = 'yahu.chat.view.v1';");

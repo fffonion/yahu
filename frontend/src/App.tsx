@@ -32,7 +32,8 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtm
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
-import { replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
+import { migrateChatViewState } from './chatViewState';
+import { filterPinnedCanonicalAliases, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
 import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from './viewport';
@@ -108,6 +109,8 @@ const COMPOSER_ENTER_MODE_KEY = 'composerEnterMode';
 const CODE_WRAP_KEY = 'codeWrap';
 const DESKTOP_COMPACT_MESSAGES_KEY = 'desktopCompactMessages';
 const HIDE_CRON_SESSIONS_KEY = 'hideCronSessions';
+const PINNED_SESSION_TITLES_KEY = 'pinnedSessionTitles';
+const SESSION_CANONICAL_ALIASES_KEY = 'sessionCanonicalAliases';
 const PROVIDER_USAGE_ENABLED_KEY = 'yahu.provider-usage.enabled.v1';
 const PROVIDER_USAGE_ORDER_KEY = 'yahu.provider-usage.order.v1';
 const PROVIDER_USAGE_AUTO_REFRESH_KEY = 'yahu.provider-usage.auto-refresh.v1';
@@ -428,6 +431,20 @@ function readPinnedIds() {
   try { return new Set<string>(JSON.parse(localStorage.getItem('pinnedSessions') || '[]')); }
   catch { return new Set<string>(); }
 }
+function readPinnedSessionTitles(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PINNED_SESSION_TITLES_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).map(([id, title]) => [id, String(title || '').trim()]).filter(([, title]) => title));
+  } catch { return {}; }
+}
+function readSessionCanonicalAliases(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SESSION_CANONICAL_ALIASES_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).map(([id, canonicalId]) => [id, String(canonicalId || '').trim()]).filter(([id, canonicalId]) => id && canonicalId && id !== canonicalId));
+  } catch { return {}; }
+}
 function readHideCronSessions() { return localStorage.getItem(HIDE_CRON_SESSIONS_KEY) === '1'; }
 
 function readCodeWrap() { return localStorage.getItem(CODE_WRAP_KEY) !== '0'; }
@@ -671,6 +688,7 @@ export default function App() {
   const chatAbortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const sessionMessageCacheRef = useRef<Map<string, SessionMessageCache>>(new Map());
+  const sessionCanonicalAliasesRef = useRef<Record<string, string>>(readSessionCanonicalAliases());
   const messageRequestRef = useRef(0);
   const contextWindowRequestRef = useRef(0);
   const contextWindowRefreshTimerRef = useRef<number | null>(null);
@@ -691,11 +709,14 @@ export default function App() {
   const showToolCallsRef = useRef(showToolCalls);
   const newMessageBoundaryIdRef = useRef(newMessageBoundaryId);
   const renamedSessionTitlesRef = useRef<Record<string, string>>({});
+  const pinnedSessionTitlesRef = useRef<Record<string, string>>(readPinnedSessionTitles());
   const routeEventHashRef = useRef('');
   const applyRenamedSessionTitleOverride = useCallback((session: Session) => {
-    const titleOverride = renamedSessionTitlesRef.current[session.id];
+    const temporaryTitle = renamedSessionTitlesRef.current[session.id];
+    const pinnedTitle = pinnedSessionTitlesRef.current[session.id];
+    const titleOverride = temporaryTitle || pinnedTitle;
     if (titleOverride && String(session.title || '').trim() !== titleOverride) return { ...session, title: titleOverride };
-    if (titleOverride) delete renamedSessionTitlesRef.current[session.id];
+    if (temporaryTitle) delete renamedSessionTitlesRef.current[session.id];
     return session;
   }, []);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -924,7 +945,15 @@ export default function App() {
   useEffect(() => localStorage.setItem('effort', effort), [effort]);
   useEffect(() => localStorage.setItem(DESKTOP_COMPACT_MESSAGES_KEY, desktopCompactMessages ? '1' : '0'), [desktopCompactMessages]);
   useEffect(() => localStorage.setItem(HIDE_CRON_SESSIONS_KEY, hideCronSessions ? '1' : '0'), [hideCronSessions]);
-  useEffect(() => localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds))), [pinnedIds]);
+  useEffect(() => {
+    localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds)));
+    const nextTitles = Object.fromEntries(Object.entries(pinnedSessionTitlesRef.current).filter(([id, title]) => pinnedIds.has(id) && title));
+    pinnedSessionTitlesRef.current = nextTitles;
+    localStorage.setItem(PINNED_SESSION_TITLES_KEY, JSON.stringify(nextTitles));
+    const nextAliases = Object.fromEntries(Object.entries(sessionCanonicalAliasesRef.current).filter(([, canonicalId]) => pinnedIds.has(canonicalId)));
+    sessionCanonicalAliasesRef.current = nextAliases;
+    localStorage.setItem(SESSION_CANONICAL_ALIASES_KEY, JSON.stringify(nextAliases));
+  }, [pinnedIds]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || (activeSessionDetail?.id === activeSessionId ? activeSessionDetail : undefined);
   useEffect(() => {
@@ -1106,7 +1135,8 @@ export default function App() {
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const body = await res.json();
       if (version !== searchVersionRef.current) return;
-      const list: Session[] = body.data || [];
+      const rawList: Session[] = body.data || [];
+      const list = filterPinnedCanonicalAliases(rawList, sessionCanonicalAliasesRef.current, pinnedIds);
       setSessions((old) => list.map((rawSession) => {
         const session = applyRenamedSessionTitleOverride(rawSession);
         const livePreview = streamingSessionIdRef.current === session.id ? latestSessionPreviewFromMessages(messagesRef.current) : '';
@@ -1131,6 +1161,25 @@ export default function App() {
           messageRequestRef.current += 1;
           userNavRequestRef.current += 1;
           contextWindowRequestRef.current += 1;
+          const previousTitle = String(sessions.find((session) => session.id === sessionId)?.title || '').trim();
+          const wasPinned = pinnedIds.has(sessionId);
+          if (wasPinned) {
+            sessionCanonicalAliasesRef.current[sessionId] = canonicalId;
+            localStorage.setItem(SESSION_CANONICAL_ALIASES_KEY, JSON.stringify(sessionCanonicalAliasesRef.current));
+          }
+          if (wasPinned && previousTitle && !renamedSessionTitlesRef.current[canonicalId] && !pinnedSessionTitlesRef.current[canonicalId]) {
+            pinnedSessionTitlesRef.current[canonicalId] = previousTitle;
+          }
+          try {
+            const migratedViewState = migrateChatViewState(readChatViewState(), sessionId, canonicalId);
+            localStorage.setItem(CHAT_VIEW_STATE_KEY, JSON.stringify(migratedViewState));
+          } catch { /* storage may be unavailable */ }
+          const cachedWindow = sessionMessageCacheRef.current.get(sessionId);
+          if (cachedWindow) {
+            sessionMessageCacheRef.current.delete(sessionId);
+            sessionMessageCacheRef.current.delete(canonicalId);
+            sessionMessageCacheRef.current.set(canonicalId, cachedWindow);
+          }
           activeSessionIdRef.current = canonicalId;
           setActiveSessionId(canonicalId);
           setActiveSessionDetail(null);
@@ -1161,7 +1210,7 @@ export default function App() {
       setActiveSessionDetail((old) => sessionWithPreservedMessageCount(detail, old));
       setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(detail, s) } : s) : [detail, ...old]);
     } catch (err) { setStatus(tf('status.sessionDetailUnavailable', errorMessage(err))); }
-  }, [apiBase, headers, applyRenamedSessionTitleOverride]);
+  }, [apiBase, headers, applyRenamedSessionTitleOverride, pinnedIds, sessions]);
 
   const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {
     const parsed = Number(total);
@@ -2259,6 +2308,11 @@ export default function App() {
     const titles = body.titles && typeof body.titles === 'object' ? body.titles as Record<string, string> : {};
     renamedSessionTitlesRef.current = { ...renamedSessionTitlesRef.current, ...titles };
     const updatedIds = new Set<string>(Array.isArray(body.updated_ids) ? body.updated_ids : [session.id]);
+    const renamedTitle = String(body.title || nextTitle).trim();
+    for (const id of updatedIds) {
+      if (pinnedIds.has(id)) pinnedSessionTitlesRef.current[id] = String(titles[id] || renamedTitle).trim();
+    }
+    localStorage.setItem(PINNED_SESSION_TITLES_KEY, JSON.stringify(pinnedSessionTitlesRef.current));
     setSessions((old) => old.map((item) => updatedIds.has(item.id) ? { ...item, title: titles[item.id] || body.title || nextTitle } : item));
     setActiveSessionDetail((old) => old && updatedIds.has(old.id) ? { ...old, title: titles[old.id] || body.title || nextTitle } : old);
     await loadSessions(filter);

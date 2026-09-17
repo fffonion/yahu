@@ -14,6 +14,17 @@ export function splitSidebarSessions<T extends SidebarSession>(
   };
 }
 
+export function filterPinnedCanonicalAliases<T extends SidebarSession>(
+  sessions: T[],
+  aliases: Record<string, string>,
+  pinnedIds: Set<string>,
+) {
+  return sessions.filter((session) => {
+    const canonicalId = aliases[session.id];
+    return !canonicalId || canonicalId === session.id || !pinnedIds.has(canonicalId);
+  });
+}
+
 export function replacePinnedSessionId(pinnedIds: Set<string>, previousId: string, canonicalId: string) {
   const order = Array.from(pinnedIds);
   const previousIndex = order.indexOf(previousId);
