@@ -12,7 +12,16 @@ async fn sessions_search(
     let q = query.q.unwrap_or_default();
     let hide_cron_cli = query.hide_cron_cli.unwrap_or(false);
     let pinned_ids = parse_pinned_session_ids(query.pinned_ids.as_deref());
-    let data = if hide_cron_cli && q.trim().is_empty() {
+    let data = if !q.trim().is_empty() {
+        match fetch_title_filtered_sessions_from_local_db(&state, limit, &q, hide_cron_cli) {
+            Ok(Some(rows)) => Ok(rows),
+            Ok(None) => fetch_sessions_from_api_server(&state, "", limit, hide_cron_cli).await,
+            Err(err) => {
+                warn!(error = %err, "cannot read title-filtered sessions from local metadata");
+                fetch_sessions_from_api_server(&state, "", limit, hide_cron_cli).await
+            }
+        }
+    } else if hide_cron_cli {
         match fetch_filtered_sidebar_sessions_from_local_db(&state, limit) {
             Ok(Some(rows)) => Ok(rows),
             Ok(None) => fetch_sessions_from_api_server(&state, &q, limit, true).await,
@@ -28,6 +37,7 @@ async fn sessions_search(
         Ok(data) => {
             let mut data = append_pinned_session_rows(&state, data, &pinned_ids).await;
             apply_pinned_session_display_titles(&state, &mut data, &pinned_ids);
+            filter_session_rows_by_title(&mut data, &q.trim().to_lowercase());
             Json(serde_json::json!({
                 "object": "list",
                 "data": data,
@@ -281,6 +291,7 @@ async fn fetch_sessions_from_api_server(
     hide_cron_cli: bool,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
     let trimmed = query.trim();
+    let title_query = trimmed.to_lowercase();
     let mut offset = 0usize;
     let mut rows = Vec::new();
     let page_size = if trimmed.is_empty() && !hide_cron_cli {
@@ -304,6 +315,7 @@ async fn fetch_sessions_from_api_server(
             .collect::<Vec<_>>();
         if offsets.is_empty() {
             let mut visible_rows = session_rows_with_local_lineage(state, rows);
+            filter_session_rows_by_title(&mut visible_rows, &title_query);
             visible_rows.truncate(limit);
             return Ok(enrich_session_rows_with_local_previews(state, visible_rows));
         }
@@ -321,6 +333,7 @@ async fn fetch_sessions_from_api_server(
                 }
             }
             let mut visible_rows = session_rows_with_local_lineage(state, rows.clone());
+            filter_session_rows_by_title(&mut visible_rows, &title_query);
             if visible_rows.len() >= limit {
                 visible_rows.truncate(limit);
                 return Ok(enrich_session_rows_with_local_previews(state, visible_rows));
@@ -342,6 +355,24 @@ async fn fetch_sessions_from_api_server(
 fn fetch_filtered_sidebar_sessions_from_local_db(
     state: &AppState,
     limit: usize,
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    fetch_local_sessions_from_db(state, limit, "", true)
+}
+
+fn fetch_title_filtered_sessions_from_local_db(
+    state: &AppState,
+    limit: usize,
+    query: &str,
+    hide_cron_cli: bool,
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    fetch_local_sessions_from_db(state, limit, query, hide_cron_cli)
+}
+
+fn fetch_local_sessions_from_db(
+    state: &AppState,
+    limit: usize,
+    query: &str,
+    hide_cron_cli: bool,
 ) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
     let db_path = state.hermes_home.join("state.db");
     if !db_path.exists() {
@@ -421,11 +452,19 @@ fn fetch_filtered_sidebar_sessions_from_local_db(
                       AND s.session_key = p.session_key
                 )
            )
-           AND (s.source IS NULL OR s.source NOT IN ('tool', 'subagent', 'cron', 'cli', 'alp-worker', 'turtle-soup', 'turtle-bench'))
+           AND (s.source IS NULL OR s.source != 'tool')
+           AND (
+                ?3 = 0
+                OR s.source IS NULL
+                OR s.source NOT IN ('cron', 'cli', 'alp-worker', 'turtle-soup', 'turtle-bench')
+           )
+           AND instr(lower(COALESCE(s.title, '')), lower(?2)) > 0
          ORDER BY last_active DESC
          LIMIT ?1",
     )?;
-    let mapped = statement.query_map([API_SESSION_SOURCE_FILTER_SCAN_LIMIT as i64], |row| {
+    let mapped = statement.query_map(
+        rusqlite::params![limit as i64, query.trim(), i64::from(hide_cron_cli)],
+        |row| {
         let model_config: Option<String> = row.get(3)?;
         let billing_provider: Option<String> = row.get(4)?;
         let provider = model_config
@@ -725,6 +764,22 @@ fn is_client_visible_session(row: &serde_json::Value, hide_cron_cli: bool) -> bo
         .unwrap_or(true)
 }
 
+fn session_title_matches_query(row: &serde_json::Value, query_lower: &str) -> bool {
+    query_lower.is_empty()
+        || row
+            .get("title")
+            .and_then(|value| value.as_str())
+            .map(|title| title.to_lowercase().contains(query_lower))
+            .unwrap_or(false)
+}
+
+fn filter_session_rows_by_title(rows: &mut Vec<serde_json::Value>, query_lower: &str) {
+    if query_lower.is_empty() {
+        return;
+    }
+    rows.retain(|row| session_title_matches_query(row, query_lower));
+}
+
 fn session_rows_with_local_lineage(
     state: &AppState,
     mut rows: Vec<serde_json::Value>,
@@ -779,6 +834,24 @@ fn local_session_switch_parent_from_metadata<'a>(
         return None;
     }
     Some(parent)
+}
+
+fn local_session_switch_component_root(
+    current: &LocalSessionListMetadata,
+    metadata_by_id: &HashMap<&str, &LocalSessionListMetadata>,
+) -> String {
+    let mut current_id = current.id.as_str();
+    let mut visited = HashSet::new();
+    while visited.insert(current_id) {
+        let Some(current) = metadata_by_id.get(current_id).copied() else {
+            break;
+        };
+        let Some(parent) = local_session_switch_parent_from_metadata(current, metadata_by_id) else {
+            break;
+        };
+        current_id = parent.id.as_str();
+    }
+    current_id.to_string()
 }
 
 fn merge_session_switch_row(
@@ -926,6 +999,9 @@ fn local_session_display_metadata(state: &AppState, session_id: &str) -> anyhow:
         return Ok(None);
     };
     let canonical_base = generated_session_title_base(&canonical_title);
+    if canonical_title == canonical_base {
+        return Ok(Some((session_id.to_string(), canonical_title)));
+    }
     let mut matching_title = None;
     let mut exact_base_title = None;
     for entry in entries {
@@ -1173,6 +1249,10 @@ fn merge_session_rows_by_chat_family(
     metadata: &[LocalSessionListMetadata],
 ) {
     let mut family_by_id = HashMap::<&str, String>::new();
+    let metadata_by_id = metadata
+        .iter()
+        .map(|session| (session.id.as_str(), session))
+        .collect::<HashMap<_, _>>();
     let mut live_ids = HashSet::<&str>::new();
     for session in metadata {
         if session.end_reason.is_none() && session.ended_at.is_none() {
@@ -1188,8 +1268,80 @@ fn merge_session_rows_by_chat_family(
             side_ids.insert(session.id.as_str());
         }
     }
+    let mut root_members = HashMap::<String, Vec<&LocalSessionListMetadata>>::new();
+    let mut roots_by_family_key = HashMap::<String, Vec<String>>::new();
     for session in metadata {
         let Some(key) = session
+            .session_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if session.source.as_deref() == Some("subagent") {
+            continue;
+        }
+        let root = local_session_switch_component_root(session, &metadata_by_id);
+        root_members.entry(root.clone()).or_default().push(session);
+        let family_key = format!(
+            "{}|{}|{}|{}",
+            session.source.as_deref().unwrap_or(""),
+            key,
+            session.chat_id.as_deref().unwrap_or(""),
+            session.thread_id.as_deref().unwrap_or("")
+        );
+        let roots = roots_by_family_key.entry(family_key).or_default();
+        if !roots.iter().any(|candidate| candidate == &root) {
+            roots.push(root);
+        }
+    }
+    let mut epoch_group_by_root = HashMap::<String, String>::new();
+    for roots in roots_by_family_key.values_mut() {
+        roots.sort_by(|left, right| {
+            let left_started = root_members
+                .get(left)
+                .and_then(|members| members.iter().map(|session| session.started_at).min_by(f64::total_cmp))
+                .unwrap_or(f64::INFINITY);
+            let right_started = root_members
+                .get(right)
+                .and_then(|members| members.iter().map(|session| session.started_at).min_by(f64::total_cmp))
+                .unwrap_or(f64::INFINITY);
+            left_started
+                .total_cmp(&right_started)
+                .then_with(|| left.cmp(right))
+        });
+        let mut previous_group = None::<String>;
+        let mut previous_has_live = false;
+        let mut previous_ends_with_switch = false;
+        for root in roots {
+            let members = root_members.get(root).cloned().unwrap_or_default();
+            let has_live = members
+                .iter()
+                .any(|session| session.end_reason.is_none() && session.ended_at.is_none());
+            let is_rootless = members
+                .iter()
+                .find(|session| session.id == *root)
+                .is_some_and(|session| session.parent_session_id.is_none());
+            let ends_with_switch = members
+                .iter()
+                .max_by(|left, right| left.started_at.total_cmp(&right.started_at))
+                .is_some_and(|session| session.end_reason.as_deref() == Some("session_switch"));
+            let merge_with_previous = is_rootless
+                && (previous_has_live || (has_live && previous_ends_with_switch));
+            let group = if merge_with_previous {
+                previous_group.clone().unwrap_or_else(|| root.clone())
+            } else {
+                root.clone()
+            };
+            epoch_group_by_root.insert(root.clone(), group.clone());
+            previous_group = Some(group);
+            previous_has_live |= has_live;
+            previous_ends_with_switch = ends_with_switch;
+        }
+    }
+    for session in metadata {
+        let Some(_key) = session
             .session_key
             .as_deref()
             .map(str::trim)
@@ -1203,13 +1355,9 @@ fn merge_session_rows_by_chat_family(
         let family = if side_ids.contains(session.id.as_str()) {
             format!("side:{}", session.id)
         } else {
-            format!(
-                "{}|{}|{}|{}",
-                session.source.as_deref().unwrap_or(""),
-                key,
-                session.chat_id.as_deref().unwrap_or(""),
-                session.thread_id.as_deref().unwrap_or("")
-            )
+            let root = local_session_switch_component_root(session, &metadata_by_id);
+            let group = epoch_group_by_root.get(&root).unwrap_or(&root);
+            format!("root:{group}")
         };
         family_by_id.insert(session.id.as_str(), family);
     }
@@ -3398,7 +3546,7 @@ fn local_session_key_group_entries(
          ORDER BY started_at, id
          LIMIT ?5",
     )?;
-    let entries = statement
+    let all_entries = statement
         .query_map(
             rusqlite::params![
                 session_key,
@@ -3416,9 +3564,79 @@ fn local_session_key_group_entries(
             },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    if entries.is_empty() || !entries.iter().any(|entry| entry.id == session_id) {
+    if all_entries.is_empty() || !all_entries.iter().any(|entry| entry.id == session_id) {
         return Ok(None);
     }
+    let parent_by_id = all_entries
+        .iter()
+        .map(|entry| (entry.id.clone(), entry.parent_session_id.clone()))
+        .collect::<HashMap<_, _>>();
+    let mut children_by_parent = HashMap::<String, Vec<String>>::new();
+    for entry in &all_entries {
+        if let Some(parent_id) = entry.parent_session_id.as_deref() {
+            children_by_parent
+                .entry(parent_id.to_string())
+                .or_default()
+                .push(entry.id.clone());
+        }
+    }
+    let mut assigned_ids = HashSet::new();
+    let mut grouped_components = Vec::<(HashSet<String>, bool, bool)>::new();
+    for seed in &all_entries {
+        if assigned_ids.contains(&seed.id) {
+            continue;
+        }
+        let mut component_ids = HashSet::new();
+        let mut pending = vec![seed.id.clone()];
+        while let Some(current_id) = pending.pop() {
+            if !component_ids.insert(current_id.clone()) {
+                continue;
+            }
+            if let Some(Some(parent_id)) = parent_by_id.get(&current_id)
+                && parent_by_id.contains_key(parent_id)
+            {
+                pending.push(parent_id.clone());
+            }
+            if let Some(children) = children_by_parent.get(&current_id) {
+                pending.extend(children.iter().cloned());
+            }
+        }
+        assigned_ids.extend(component_ids.iter().cloned());
+        let component_entries = all_entries
+            .iter()
+            .filter(|entry| component_ids.contains(&entry.id))
+            .collect::<Vec<_>>();
+        let has_live_entry = component_entries.iter().any(|entry| entry.end_reason.is_none());
+        let is_rootless_component = component_entries
+            .first()
+            .is_some_and(|entry| entry.parent_session_id.is_none());
+        let ends_with_session_switch = component_entries
+            .last()
+            .is_some_and(|entry| entry.end_reason.as_deref() == Some("session_switch"));
+        let merge_with_previous = is_rootless_component
+            && grouped_components.last().is_some_and(|(_, previous_has_live, previous_ends_with_switch)| {
+                *previous_has_live || (has_live_entry && *previous_ends_with_switch)
+            });
+        if merge_with_previous {
+            let (previous_ids, previous_has_live, previous_ends_with_switch) = grouped_components
+                .last_mut()
+                .expect("previous component exists when merging");
+            previous_ids.extend(component_ids);
+            *previous_has_live |= has_live_entry;
+            *previous_ends_with_switch = ends_with_session_switch;
+        } else {
+            grouped_components.push((component_ids, has_live_entry, ends_with_session_switch));
+        }
+    }
+    let selected_ids = grouped_components
+        .into_iter()
+        .find(|(ids, _, _)| ids.contains(session_id))
+        .map(|(ids, _, _)| ids)
+        .unwrap_or_default();
+    let entries = all_entries
+        .into_iter()
+        .filter(|entry| selected_ids.contains(&entry.id))
+        .collect::<Vec<_>>();
     let member_ids = entries
         .iter()
         .map(|entry| entry.id.as_str())

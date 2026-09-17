@@ -304,8 +304,8 @@
             Json(serde_json::json!({
                 "object": "list",
                 "data": [
-                    {"id":"s1","source":"telegram","model":"minimax/m3","title":"MiniMax billing","preview":"first prompt","started_at":1.0,"message_count":2},
-                    {"id":"s2","source":"api_server","model":"gpt-5.5","title":"Other","preview":"unrelated","started_at":3.0,"message_count":1}
+                    {"id":"s1","source":"telegram","model":"minimax/m3","title":"Cache billing","preview":"first prompt","started_at":1.0,"message_count":2},
+                    {"id":"s2","source":"api_server","model":"gpt-5.5","title":"Cache other","preview":"unrelated","started_at":3.0,"message_count":1}
                 ],
                 "has_more": false
             }))

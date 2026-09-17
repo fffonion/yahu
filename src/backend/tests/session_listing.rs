@@ -26,6 +26,113 @@
     }
 
     #[test]
+    fn pinned_display_metadata_keeps_an_explicit_canonical_title() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                started_at REAL NOT NULL,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                title TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('root', NULL, 'session_switch', 1.0, 'telegram', 'key', 'chat', 'thread', 'kfc'),
+                ('child-2', 'root', 'session_switch', 2.0, 'telegram', 'key', 'chat', 'thread', 'kfc #2'),
+                ('child-8', 'child-2', 'session_switch', 8.0, 'telegram', 'key', 'chat', 'thread', 'kfc #8');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let display = local_session_display_metadata(&state, "root").unwrap();
+
+        assert_eq!(display, Some(("root".to_string(), "kfc".to_string())));
+    }
+
+    #[test]
+    fn keyed_session_entries_stop_at_an_independent_root_with_the_same_chat_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                started_at REAL NOT NULL,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('root-a', NULL, 'session_switch', 1.0, 'telegram', 'key', 'chat', 'thread'),
+                ('child-a', 'root-a', 'session_switch', 2.0, 'telegram', 'key', 'chat', 'thread'),
+                ('root-b', NULL, 'session_switch', 3.0, 'telegram', 'key', 'chat', 'thread'),
+                ('child-b', 'root-b', 'session_switch', 4.0, 'telegram', 'key', 'chat', 'thread');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        let entries = local_session_key_group_entries(&conn, "root-a")
+            .unwrap()
+            .unwrap();
+
+        let ids = entries.into_iter().map(|entry| entry.id).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["root-a", "child-a"]);
+    }
+
+    #[test]
+    fn session_list_family_merge_keeps_independent_roots_with_the_same_chat_key() {
+        let metadata = vec![
+            LocalSessionListMetadata {
+                id: "root-a".to_string(),
+                parent_session_id: None,
+                started_at: 1.0,
+                ended_at: Some(2.0),
+                end_reason: Some("session_switch".to_string()),
+                session_key: Some("key".to_string()),
+                source: Some("telegram".to_string()),
+                chat_id: Some("chat".to_string()),
+                thread_id: Some("thread".to_string()),
+                title: Some("kfc".to_string()),
+                reset_from: None,
+            },
+            LocalSessionListMetadata {
+                id: "root-b".to_string(),
+                parent_session_id: None,
+                started_at: 3.0,
+                ended_at: Some(4.0),
+                end_reason: Some("session_switch".to_string()),
+                session_key: Some("key".to_string()),
+                source: Some("telegram".to_string()),
+                chat_id: Some("chat".to_string()),
+                thread_id: Some("thread".to_string()),
+                title: Some("another".to_string()),
+                reset_from: None,
+            },
+        ];
+        let mut rows = vec![
+            serde_json::json!({"id":"root-a","started_at":1.0,"last_active":2.0,"title":"kfc"}),
+            serde_json::json!({"id":"root-b","started_at":3.0,"last_active":4.0,"title":"another"}),
+        ];
+
+        merge_session_rows_by_chat_family(&mut rows, &metadata);
+
+        let ids = rows
+            .iter()
+            .filter_map(|row| row.get("id").and_then(|value| value.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["root-a", "root-b"]);
+    }
+
+    #[test]
     fn local_session_preview_replaces_marker_with_latest_real_message() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");
@@ -86,7 +193,8 @@
             Json(serde_json::json!({
                 "object": "list",
                 "data": [
-                    {"id":"s1","source":"telegram","model":"minimax/m3","title":"MiniMax billing","preview":"[Alliumcepa Triplef|1698432746]\ntoken cache math","started_at":1.0,"message_count":1},
+                    {"id":"s1","source":"telegram","model":"minimax/m3","title":"Cache billing","preview":"[Alliumcepa Triplef|1698432746]\ntoken cache math","started_at":1.0,"message_count":1},
+                    {"id":"content-only","source":"telegram","model":"minimax/m3","title":"Billing details","preview":"cache appears only in this message","started_at":1.5,"message_count":1},
                     {"id":"tool1","source":"tool","model":"minimax/m3","title":"Tool internal","preview":"cache","started_at":2.0,"message_count":1}
                 ],
                 "has_more": false
@@ -123,7 +231,7 @@
             Json(serde_json::json!({
                 "object": "list",
                 "data": [
-                    {"id":"s1","source":"telegram","title":"keep","preview":"cache","started_at":3.0},
+                    {"id":"s1","source":"telegram","title":"Cache keep","preview":"cache","started_at":3.0},
                     {"id":"tb1","source":"turtle-bench","title":"bench","preview":"cache","started_at":2.0},
                     {"id":"ts1","source":"turtle-soup","title":"soup","preview":"cache","started_at":1.5},
                     {"id":"cli1","source":"cli","title":"cli","preview":"cache","started_at":1.0}
@@ -398,6 +506,60 @@
         assert_eq!(rows[0]["id"], "normal-89");
         assert_eq!(rows[0]["provider"], "chat-provider");
         assert_eq!(rows[0]["preview"], "latest final answer");
+    }
+
+    #[test]
+    fn title_filtered_local_sessions_ignore_message_preview_matches() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );
+             CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                source TEXT,
+                model TEXT,
+                model_config TEXT,
+                billing_provider TEXT,
+                parent_session_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                message_count INTEGER,
+                title TEXT,
+                archived INTEGER,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT
+            );
+            INSERT INTO sessions (id, source, started_at, title, archived)
+                VALUES ('title-hit', 'telegram', 2.0, 'Needle title', 0);
+            INSERT INTO sessions (id, source, started_at, title, archived)
+                VALUES ('preview-only', 'telegram', 1.0, 'Other title', 0);
+            INSERT INTO messages (session_id, role, content, active)
+                VALUES ('title-hit', 'assistant', 'unrelated preview', 1);
+            INSERT INTO messages (session_id, role, content, active)
+                VALUES ('preview-only', 'assistant', 'needle in the preview', 1);",
+        )
+        .unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:9".to_string(), temp.path());
+
+        let rows = fetch_title_filtered_sessions_from_local_db(&state, 80, "needle", false)
+            .unwrap()
+            .unwrap();
+        let ids = rows
+            .iter()
+            .filter_map(|row| row.get("id").and_then(|value| value.as_str()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["title-hit"]);
     }
 
     #[test]
