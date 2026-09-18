@@ -943,6 +943,17 @@ fn local_session_switch_root_id(state: &AppState, session_id: &str) -> anyhow::R
     )? {
         return Ok(None);
     }
+    let is_threaded_telegram_topic = conn
+        .query_row(
+            "SELECT source, thread_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()?
+        .is_some_and(|(source, thread_id)| {
+            source.as_deref() == Some("telegram")
+                && thread_id.as_deref().is_some_and(|value| !value.trim().is_empty())
+        });
     let mut current_id = session_id.to_string();
     let mut visited = HashSet::new();
     while visited.insert(current_id.clone()) {
@@ -1014,8 +1025,9 @@ fn local_session_switch_root_id(state: &AppState, session_id: &str) -> anyhow::R
                 && generated_session_title_base(title) == title
                 && Some(title) != family_title.as_deref().map(str::trim)
         });
-        if session_family_titles_compatible(requested_title.as_deref(), family_title.as_deref())
-            && !explicit_title_prefers_self
+        if is_threaded_telegram_topic
+            || (session_family_titles_compatible(requested_title.as_deref(), family_title.as_deref())
+                && !explicit_title_prefers_self)
         {
             return Ok(Some(family_root.to_string()));
         }
@@ -3884,6 +3896,8 @@ fn local_session_key_group_entries(
     let Some(session_key) = session_key.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
+    let is_threaded_telegram_topic = source.as_deref() == Some("telegram")
+        && thread_id.as_deref().is_some_and(|value| !value.trim().is_empty());
     let mut statement = conn.prepare(
         "SELECT id, parent_session_id, end_reason
          FROM sessions
@@ -3978,10 +3992,10 @@ fn local_session_key_group_entries(
             .transpose()?
             .flatten();
         let merge_with_previous = is_rootless_component
-            && session_family_titles_compatible(
+            && (is_threaded_telegram_topic || session_family_titles_compatible(
                 current_component_title.as_deref(),
                 previous_component_title.as_deref(),
-            )
+            ))
             && grouped_components.last().is_some_and(|(_, previous_has_live, previous_ends_with_switch)| {
                 *previous_has_live || (has_live_entry && *previous_ends_with_switch)
             });

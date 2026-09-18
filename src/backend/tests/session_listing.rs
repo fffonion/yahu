@@ -157,6 +157,40 @@
     }
 
     #[test]
+    fn chat_view_entries_merge_a_later_live_topic_root_with_a_changed_title() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                started_at REAL NOT NULL,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                title TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('topic-root', NULL, NULL, 1.0, 'telegram', 'key', 'chat', 'thread', 'rustscript'),
+                ('topic-later', NULL, NULL, 2.0, 'telegram', 'key', 'chat', 'thread', 'Subagent development orchestration');",
+        ).unwrap();
+
+        let entries = local_session_chat_view_entries(&conn, "topic-root").unwrap();
+        assert_eq!(
+            entries.into_iter().map(|entry| entry.id).collect::<Vec<_>>(),
+            vec!["topic-root", "topic-later"]
+        );
+
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        assert_eq!(
+            local_session_switch_root_id(&state, "topic-later").unwrap(),
+            Some("topic-root".to_string())
+        );
+    }
+
+    #[test]
     fn chat_view_entries_keep_independent_private_sessions_separate_without_thread() {
         let temp = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
