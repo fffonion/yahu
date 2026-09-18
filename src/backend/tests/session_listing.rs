@@ -800,6 +800,57 @@
         assert_eq!(pinned["preview"], "old final");
     }
 
+    #[tokio::test]
+    async fn pinned_topic_root_does_not_readd_a_recent_topic_alias() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                title TEXT,
+                model_config TEXT,
+                archived INTEGER
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );
+             INSERT INTO sessions
+                (id, source, session_key, chat_id, thread_id, started_at, title, archived)
+                VALUES ('pinned-root', 'telegram', 'same-topic', 'chat', 'thread', 1, 'kfc', 0);
+             INSERT INTO sessions
+                (id, source, session_key, chat_id, thread_id, started_at, title, model_config, archived)
+                VALUES ('topic-alias', 'telegram', 'same-topic', 'chat', 'thread', 2, 'Build webui wasm',
+                        '{\"_reset_from\":\"pinned-root\"}', 0);",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let mut rows = vec![
+            serde_json::json!({"id":"topic-alias","source":"telegram","title":"Build webui wasm","started_at":2.0}),
+            serde_json::json!({"id":"pinned-root","source":"telegram","title":"kfc","started_at":1.0}),
+        ];
+
+        filter_rows_shadowed_by_pinned_topic_aliases(
+            &state,
+            &mut rows,
+            &["pinned-root".to_string()],
+        ).unwrap();
+
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["pinned-root"]);
+    }
+
     #[test]
     fn session_list_hides_reset_predecessor_when_successor_is_present() {
         let temp = tempfile::tempdir().unwrap();

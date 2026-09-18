@@ -36,6 +36,9 @@ async fn sessions_search(
     match data {
         Ok(data) => {
             let mut data = append_pinned_session_rows(&state, data, &pinned_ids).await;
+            if let Err(err) = filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut data, &pinned_ids) {
+                warn!(error = %err, "cannot filter pinned topic aliases from session list");
+            }
             apply_pinned_session_display_titles(&state, &mut data, &pinned_ids);
             filter_session_rows_by_title(&mut data, &q.trim().to_lowercase());
             Json(serde_json::json!({
@@ -566,6 +569,45 @@ async fn append_pinned_session_rows(
     sanitize_session_row_previews(&mut pinned_rows);
     rows.extend(pinned_rows);
     rows
+}
+
+fn filter_rows_shadowed_by_pinned_topic_aliases(
+    state: &AppState,
+    rows: &mut Vec<serde_json::Value>,
+    pinned_ids: &[String],
+) -> anyhow::Result<()> {
+    if rows.is_empty() || pinned_ids.is_empty() {
+        return Ok(());
+    }
+    let db_path = state.hermes_home.join("state.db");
+    if !db_path.exists() {
+        return Ok(());
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let pinned_set = pinned_ids.iter().map(String::as_str).collect::<HashSet<_>>();
+    let mut topic_member_ids = HashSet::new();
+    for pinned_id in pinned_ids {
+        let Some(entries) = local_session_topic_entries(&conn, pinned_id)? else {
+            continue;
+        };
+        if entries.len() < 2 {
+            continue;
+        }
+        topic_member_ids.extend(entries.into_iter().map(|entry| entry.id));
+    }
+    if topic_member_ids.is_empty() {
+        return Ok(());
+    }
+    rows.retain(|row| {
+        let Some(id) = row.get("id").and_then(|value| value.as_str()) else {
+            return true;
+        };
+        pinned_set.contains(id) || !topic_member_ids.contains(id)
+    });
+    Ok(())
 }
 
 fn apply_pinned_session_display_titles(
