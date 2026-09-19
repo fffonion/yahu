@@ -87,6 +87,92 @@
     }
 
     #[test]
+    fn price_override_parser_reads_provider_qualified_entries_and_model_aliases() {
+        let body = serde_json::json!({
+            "version": 1,
+            "prices": {
+                "provider-alpha/claude-haiku-4-5-20251001": {"input_per_million": 1.25, "output_per_million": 5.0, "cache_read_per_million": 0.125, "cache_write_per_million": 0.2}
+            }
+        });
+        let catalog = price_override_catalog_from_bytes(&serde_json::to_vec(&body).unwrap()).unwrap();
+        let price = model_price_for_override_model(&catalog, "Provider Alpha/claude-haiku-4-5").unwrap();
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(price.input_per_million, 1.25);
+        assert_eq!(price.output_per_million, 5.0);
+        assert_eq!(price.cache_read_per_million, 0.125);
+        assert_eq!(price.cache_write_per_million, 0.2);
+    }
+
+    #[test]
+    fn price_override_table_loads_without_credentials_or_expiration() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("model-price-overrides.json");
+        std::fs::write(
+            &path,
+            br#"{"version":1,"prices":{"provider-alpha/model-a":{"input_per_million":1.25,"output_per_million":5.0,"cache_read_per_million":0.0,"cache_write_per_million":0.0}}}"#,
+        )
+        .unwrap();
+
+        let loaded = load_price_override_catalog(&path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded["provider-alpha-model-a"].output_per_million, 5.0);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("access_token"));
+    }
+
+    #[test]
+    fn provider_price_override_takes_precedence_without_affecting_other_providers() {
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![
+            serde_json::json!({"source":"telegram","provider":"Provider Alpha","model":"claude-haiku-4-5","started_at":ts,"input_tokens":1_000_000,"output_tokens":1_000_000,"estimated_cost_usd":99.0}),
+            serde_json::json!({"source":"api_server","provider":"openai","model":"claude-haiku-4-5","started_at":ts,"input_tokens":1_000_000,"output_tokens":1_000_000,"estimated_cost_usd":99.0}),
+        ];
+        let mut models_dev = ModelPriceCatalog::new();
+        insert_model_price(
+            &mut models_dev,
+            "claude-haiku-4-5",
+            ModelPrice {
+                input_per_million: 10.0,
+                output_per_million: 20.0,
+                cache_read_per_million: 0.0,
+                cache_write_per_million: 0.0,
+            },
+        );
+        let overrides = price_override_catalog_from_bytes(
+            br#"{"version":1,"prices":{"provider-alpha/claude-haiku-4-5-20251001":{"input_per_million":1.25,"output_per_million":5.0,"cache_read_per_million":0.0,"cache_write_per_million":0.0}}}"#,
+        )
+        .unwrap();
+
+        let body = aggregate_usage_insights_with_overrides_at_offset(
+            &rows,
+            ts,
+            &models_dev,
+            &overrides,
+            1,
+            0,
+        );
+        assert_eq!(body["totals"]["cost_usd"], 36.25);
+        let overridden_model = body["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["provider"] == "Provider Alpha")
+            .unwrap();
+        let regular_model = body["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["provider"] == "openai")
+            .unwrap();
+        assert_eq!(overridden_model["totals"]["cost_usd"], 6.25);
+        assert_eq!(regular_model["totals"]["cost_usd"], 30.0);
+    }
+
+    #[test]
     fn insights_aggregates_recent_api_session_rows_by_model_without_db() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()

@@ -9,6 +9,7 @@ const INSIGHTS_MESSAGE_ID_OVERLAP: i64 = 100;
 const INSIGHTS_BASELINE_CLEANUP_SECONDS: f64 = 7.0 * 86_400.0;
 const MODELS_DEV_API_URL: &str = "https://models.dev/api.json";
 const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const PRICE_OVERRIDE_RELATIVE_PATH: &str = "cache/yahu/model-price-overrides.json";
 const INSIGHTS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const INSIGHTS_SNAPSHOT_RETENTION_SECONDS: f64 = 35.0 * 86_400.0;
 const INSIGHTS_SNAPSHOT_DB: &str = "state/yahu-insights-usage.db";
@@ -974,12 +975,16 @@ struct UsageTotals {
     unpriced_tokens: i64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 struct ModelPrice {
     input_per_million: f64,
     output_per_million: f64,
     cache_read_per_million: f64,
     cache_write_per_million: f64,
+}
+
+fn default_price_override_version() -> u32 {
+    1
 }
 
 #[derive(Clone, Default)]
@@ -1148,7 +1153,27 @@ impl ModelPrice {
 }
 
 impl UsageTotals {
-    fn add_row<R: InsightsUsageRowView>(&mut self, row: &R, prices: &ModelPriceCatalog) {
+    fn add_row<R: InsightsUsageRowView>(
+        &mut self,
+        row: &R,
+        prices: &ModelPriceCatalog,
+        overrides: &ModelPriceCatalog,
+    ) {
+        let catalog_estimated_cost = model_price_for_row_with_override(prices, overrides, row)
+            .map(|price| price.estimate(
+                row.input_tokens(),
+                row.output_tokens(),
+                row.cache_read_tokens(),
+                row.cache_write_tokens(),
+            ));
+        self.add_row_with_estimated_cost(row, catalog_estimated_cost);
+    }
+
+    fn add_row_with_estimated_cost<R: InsightsUsageRowView>(
+        &mut self,
+        row: &R,
+        catalog_estimated_cost: Option<f64>,
+    ) {
         let input = row.input_tokens();
         let output = row.output_tokens();
         let cache_read = row.cache_read_tokens();
@@ -1156,8 +1181,6 @@ impl UsageTotals {
         let reasoning = row.reasoning_tokens();
         let actual_cost = row.actual_cost_usd();
         let api_estimated_cost = row.estimated_cost_usd();
-        let catalog_estimated_cost = model_price_for_row(prices, row)
-            .map(|price| price.estimate(input, output, cache_read, cache_write));
         let estimated_cost = catalog_estimated_cost.or((api_estimated_cost > 0.0).then_some(api_estimated_cost));
         let row_cost = estimated_cost.or((actual_cost > 0.0).then_some(actual_cost));
         self.sessions += 1;
@@ -1237,7 +1260,7 @@ fn normalize_model_price_key(model: &str) -> String {
     model
         .trim()
         .to_ascii_lowercase()
-        .replace(['_', '/'], "-")
+        .replace(['_', '/', ' '], "-")
 }
 
 fn insert_model_price(catalog: &mut ModelPriceCatalog, key: &str, price: ModelPrice) {
@@ -1265,6 +1288,47 @@ fn model_price_for_model(catalog: &ModelPriceCatalog, model: &str) -> Option<Mod
             .copied()
             .or_else(|| catalog.get("deepseek-v4-flash").copied())
     })
+}
+
+fn model_price_for_override_model(catalog: &ModelPriceCatalog, model: &str) -> Option<ModelPrice> {
+    let normalized = normalize_model_price_key(model);
+    if let Some(price) = catalog.get(&normalized).copied() {
+        return Some(price);
+    }
+
+    let prefix = format!("{normalized}-");
+    let mut match_price = None;
+    for (key, price) in catalog {
+        if key.starts_with(&prefix) || normalized.starts_with(&format!("{key}-")) {
+            if match_price.is_some() {
+                return None;
+            }
+            match_price = Some(*price);
+        }
+    }
+    match_price
+}
+
+fn model_price_for_row_with_override<R: InsightsUsageRowView>(
+    catalog: &ModelPriceCatalog,
+    overrides: &ModelPriceCatalog,
+    row: &R,
+) -> Option<ModelPrice> {
+    let model = row.model_name().trim();
+    if model.is_empty() {
+        return None;
+    }
+    let provider = row.provider_name().trim();
+    if !provider.is_empty() {
+        let provider_model = format!("{provider}/{model}");
+        if let Some(price) = model_price_for_override_model(overrides, &provider_model) {
+            return Some(price);
+        }
+    }
+    if let Some(price) = model_price_for_override_model(overrides, model) {
+        return Some(price);
+    }
+    model_price_for_row(catalog, row)
 }
 
 fn model_price_for_row<R: InsightsUsageRowView>(catalog: &ModelPriceCatalog, row: &R) -> Option<ModelPrice> {
@@ -1332,6 +1396,47 @@ impl ModelsDevScalar {
             Self::Text(value) => value.trim().trim_start_matches('$').parse().unwrap_or(0.0),
         }
     }
+}
+
+#[derive(Default, Deserialize)]
+struct PriceOverrideTablePayload {
+    #[serde(default = "default_price_override_version")]
+    version: u32,
+    #[serde(default)]
+    prices: BTreeMap<String, ModelPrice>,
+}
+
+fn price_override_catalog_from_bytes(bytes: &[u8]) -> Result<ModelPriceCatalog, serde_json::Error> {
+    let table: PriceOverrideTablePayload = serde_json::from_slice(bytes)?;
+    if table.version == 0 {
+        return Ok(ModelPriceCatalog::new());
+    }
+    Ok(table
+        .prices
+        .into_iter()
+        .filter_map(|(key, price)| {
+            let key = normalize_model_price_key(&key);
+            (!key.is_empty()).then_some((key, price))
+        })
+        .collect())
+}
+
+fn price_override_path(hermes_home: &Path) -> PathBuf {
+    if let Some(configured) = env::var_os("YAHU_PRICE_OVERRIDE_FILE") {
+        let configured = PathBuf::from(configured);
+        if configured.is_absolute() {
+            return configured;
+        }
+        return hermes_home.join(configured);
+    }
+    hermes_home.join(PRICE_OVERRIDE_RELATIVE_PATH)
+}
+
+fn load_price_override_catalog(path: &Path) -> ModelPriceCatalog {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| price_override_catalog_from_bytes(&bytes).ok())
+        .unwrap_or_default()
 }
 
 struct ModelPriceCatalogVisitor;
@@ -1564,11 +1669,13 @@ async fn insights_usage(
             Arc::new(ModelPriceCatalog::new())
         }
     };
+    let price_overrides = load_price_override_catalog(&price_override_path(&state.hermes_home));
     let loaded_row_count = rows.len();
-    let mut body = aggregate_usage_insights_with_prices_at_offset(
+    let mut body = aggregate_usage_insights_with_overrides_at_offset(
         &rows,
         now,
         &prices,
+        &price_overrides,
         period_days,
         timezone_offset,
     );
@@ -1854,10 +1961,30 @@ fn normalized_insights_label(value: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn aggregate_usage_insights_with_prices_at_offset<R: InsightsUsageRowView>(
     rows: &[R],
     now: f64,
     prices: &ModelPriceCatalog,
+    period_days: usize,
+    timezone_offset_minutes: i32,
+) -> serde_json::Value {
+    let price_overrides = ModelPriceCatalog::new();
+    aggregate_usage_insights_with_overrides_at_offset(
+        rows,
+        now,
+        prices,
+        &price_overrides,
+        period_days,
+        timezone_offset_minutes,
+    )
+}
+
+fn aggregate_usage_insights_with_overrides_at_offset<R: InsightsUsageRowView>(
+    rows: &[R],
+    now: f64,
+    prices: &ModelPriceCatalog,
+    overrides: &ModelPriceCatalog,
     period_days: usize,
     timezone_offset_minutes: i32,
 ) -> serde_json::Value {
@@ -1884,7 +2011,7 @@ fn aggregate_usage_insights_with_prices_at_offset<R: InsightsUsageRowView>(
             }
             day
         };
-        totals.add_row(row, prices);
+        totals.add_row(row, prices, overrides);
         let model_name = normalized_insights_label(row.model_name());
         let provider_name = normalized_insights_label(row.provider_name());
         let source_name = normalized_insights_label(row.source_name());
@@ -1901,12 +2028,12 @@ fn aggregate_usage_insights_with_prices_at_offset<R: InsightsUsageRowView>(
                 .map(|item| (item.hour.clone(), UsageTotals::default()))
                 .collect(),
         });
-        model.totals.add_row(row, prices);
-        model.daily.entry(bucket_day).or_default().add_row(row, prices);
+        model.totals.add_row(row, prices, overrides);
+        model.daily.entry(bucket_day).or_default().add_row(row, prices, overrides);
         if let Some(hour) = hour {
-            model.hourly.entry(hour).or_default().add_row(row, prices);
+            model.hourly.entry(hour).or_default().add_row(row, prices, overrides);
         }
-        sources.entry(source_name).or_default().add_row(row, prices);
+        sources.entry(source_name).or_default().add_row(row, prices, overrides);
     }
 
     let mut model_rows: Vec<_> = models.into_values().collect();
@@ -1986,7 +2113,7 @@ fn aggregate_usage_insights_with_prices_at_offset<R: InsightsUsageRowView>(
                     continue;
                 }
                 let source_name = normalized_insights_label(row.source_name());
-                period_sources.entry(source_name).or_default().add_row(row, prices);
+                period_sources.entry(source_name).or_default().add_row(row, prices, overrides);
             }
             let source_rows = {
                 let mut rows: Vec<_> = period_sources.into_iter().collect();
