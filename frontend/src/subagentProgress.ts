@@ -261,6 +261,19 @@ export function isSubagentDetailNearBottom(metrics: Pick<HTMLElement, 'scrollTop
   return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= thresholdPx;
 }
 
+export function shouldForwardSubagentWheel(
+  metrics: Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>,
+  deltaY: number,
+  thresholdPx = 1,
+): boolean {
+  if (!Number.isFinite(deltaY) || deltaY === 0) return false;
+  const atTop = metrics.scrollTop <= thresholdPx;
+  const remaining = metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight;
+  const atBottom = remaining <= thresholdPx;
+  return deltaY < 0 ? atTop : atBottom;
+}
+
+
 export function buildSubagentTree(subagents: SubagentProgress[], _parentSessionId: string): SubagentTreeNode[] {
   return subagents
     .map((subagent) => ({ ...subagent, children: [] }))

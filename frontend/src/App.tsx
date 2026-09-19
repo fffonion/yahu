@@ -39,7 +39,7 @@ import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileN
 import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from './viewport';
 import { getInsightsSessionStorage, readInsightsSessionCache, writeInsightsSessionCache } from './insightsCache';
 import { SubagentProgressStack } from './SubagentProgressCard';
-import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive } from './subagentProgress';
+import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive, shouldForwardSubagentWheel } from './subagentProgress';
 import { currentNavigatorId } from './chatUserNavigator';
 import { WorkspaceEntryIcon } from './workspaceIcons';
 
@@ -3890,6 +3890,21 @@ function ChatMain(props: ChatMainProps) {
     collapseComposerForHistory();
     if (shouldLoadOlderFromWheel(e.currentTarget, e.deltaY, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
   };
+  const onStatusOverlayWheel = (event: React.WheelEvent<HTMLElement>) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const detailTree = target.closest('.subagent-progress-tree');
+    if (!(detailTree instanceof HTMLElement) || !shouldForwardSubagentWheel(detailTree, event.deltaY)) return;
+    const scroller = props.chatScrollRef.current;
+    if (!scroller) return;
+    collapseComposerForHistory();
+    if (shouldLoadOlderFromWheel(scroller, event.deltaY, props.hasOlder, props.loadingMessages)) props.loadMessageWindow(props.activeSessionId, 'older');
+    scroller.scrollTop = Math.min(
+      Math.max(0, scroller.scrollTop + event.deltaY),
+      Math.max(0, scroller.scrollHeight - scroller.clientHeight),
+    );
+    event.preventDefault();
+  };
   const sessionModelOverride = props.activeSessionModelOverride;
   const sessionModel = sessionModelOverride?.model || realModelOrEmpty(active?.model) || realModelOrEmpty(props.activeSessionDetail?.model) || realModelOrEmpty(props.model) || props.models[0]?.id || '';
   const messageProvider = latestMessageProviderForModel(props.messages, sessionModel);
@@ -4041,7 +4056,7 @@ function ChatMain(props: ChatMainProps) {
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span className={`chat-total-count${props.historyTotal === null ? ' loading' : ''}`} aria-busy={props.historyTotal === null}>{props.messages.length || 0} loaded · <span>{props.historyTotal ?? '—'} total</span></span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div><div className="chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>
         <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
     <ChatUserNavigator items={props.userMessageNav || []} loading={props.userNavLoading} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
-    <div className="subagent-progress-overlay"><SubagentProgressStack sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} collapseToken={statusBarCollapseToken} /></div>
+    <div className="subagent-progress-overlay" onWheel={onStatusOverlayWheel}><SubagentProgressStack sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} collapseToken={statusBarCollapseToken} /></div>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatAreaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">{t('chat.loadingHistory')}</div>}
       {visibleMessages.length === 0 && <div className="empty-state chat-empty-state"><Bot className="big-mark" /><h2>{t('chat.inputPlaceholder')}</h2><p>{t('chat.emptyDesc')}</p></div>}

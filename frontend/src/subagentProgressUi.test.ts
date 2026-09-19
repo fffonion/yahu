@@ -46,6 +46,16 @@ describe('subagent progress UI', () => {
     expect(card()).not.toContain('subagent-progress-omitted-ancestry');
   });
 
+  test('hands wheel scrolling from an expanded status detail back to the main chat at its edges', () => {
+    const source = app();
+    expect(source).toContain('onWheel={onStatusOverlayWheel}');
+    expect(source).toContain("target.closest('.subagent-progress-tree')");
+    expect(source).toContain('shouldForwardSubagentWheel(detailTree, event.deltaY)');
+    expect(source).toContain('scroller.scrollTop = Math.min(');
+    expect(source).toContain('scroller.scrollTop + event.deltaY');
+    expect(source).toContain('event.preventDefault();');
+  });
+
   test('clicking chat history collapses Goal and every subagent status sheet', () => {
     const appSource = app();
     const cardSource = card();

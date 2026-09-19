@@ -9,6 +9,7 @@ import {
   goalElapsedMinutes,
   latestSubagent,
   isSubagentDetailNearBottom,
+  shouldForwardSubagentWheel,
   latestSubagentRows,
   normalizeSubagentMessages,
   normalizeSubagentSnapshot,
@@ -321,5 +322,15 @@ describe('subagent progress websocket projection', () => {
     expect(isSubagentDetailNearBottom({ scrollTop: 900, scrollHeight: 1500, clientHeight: 520 })).toBe(true);
     expect(isSubagentDetailNearBottom({ scrollTop: 500, scrollHeight: 1500, clientHeight: 520 })).toBe(false);
     expect(isSubagentDetailNearBottom({ scrollTop: 0, scrollHeight: 400, clientHeight: 520 })).toBe(true);
+  });
+
+  test('forwards wheel input only when the expanded detail tree is at the matching edge', () => {
+    const metrics = { scrollTop: 400, scrollHeight: 1_000, clientHeight: 400 };
+    expect(shouldForwardSubagentWheel(metrics, 120)).toBe(false);
+    expect(shouldForwardSubagentWheel(metrics, -120)).toBe(false);
+    expect(shouldForwardSubagentWheel({ ...metrics, scrollTop: 600 }, 120)).toBe(true);
+    expect(shouldForwardSubagentWheel({ ...metrics, scrollTop: 0 }, -120)).toBe(true);
+    expect(shouldForwardSubagentWheel({ scrollTop: 0, scrollHeight: 400, clientHeight: 520 }, 120)).toBe(true);
+    expect(shouldForwardSubagentWheel(metrics, 0)).toBe(false);
   });
 });
