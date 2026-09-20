@@ -637,10 +637,106 @@ mod provider_usage_tests {
 
     #[test]
     fn stepfun_cookie_webid_is_extracted_without_normalizing_the_cookie() {
-        let cookie = "INGRESSCOOKIE=opaque; Oasis-Webid=web-id-value; Oasis-Token=token-value";
-        assert_eq!(stepfun_cookie_value(cookie, "Oasis-Webid"), Some("web-id-value".into()));
-        assert_eq!(stepfun_cookie_value(cookie, "Oasis-Token"), Some("token-value".into()));
+        let cookie = "INGRESSCOOKIE=opaque; Oasis-Webid=[REDACTED]; Oasis-Token=[REDACTED]";
+        assert_eq!(stepfun_cookie_value(cookie, "Oasis-Webid"), Some("[REDACTED]".into()));
+        assert_eq!(stepfun_cookie_value(cookie, "Oasis-Token"), Some("[REDACTED]".into()));
         assert_eq!(stepfun_cookie_value(cookie, "Missing"), None);
+    }
+
+    #[test]
+    fn stepfun_request_headers_match_browser_rpc_requirements() {
+        let headers = stepfun_request_headers("Oasis-Webid=web-id; Oasis-Token=[REDACTED]");
+        let names = headers
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        for name in [
+            "accept",
+            "accept-language",
+            "cache-control",
+            "connect-protocol-version",
+            "content-type",
+            "cookie",
+            "dnt",
+            "oasis-appid",
+            "oasis-platform",
+            "oasis-webid",
+            "origin",
+            "pragma",
+            "priority",
+            "referer",
+            "sec-ch-ua",
+            "sec-ch-ua-mobile",
+            "sec-ch-ua-platform",
+            "sec-fetch-dest",
+            "sec-fetch-mode",
+            "sec-fetch-site",
+            "user-agent",
+        ] {
+            assert!(names.contains(name), "missing StepFun header: {name}");
+        }
+        assert!(headers.iter().any(|(name, value)| name == "cookie"
+            && value == "Oasis-Webid=web-id; Oasis-Token=[REDACTED]"));
+        assert!(headers
+            .iter()
+            .any(|(name, value)| name == "oasis-webid" && value == "web-id"));
+    }
+
+    #[test]
+    fn stepfun_usage_section_shows_today_summary_and_plan_percent() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-09-20T12:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let today_from = chrono::DateTime::parse_from_rfc3339("2026-09-20T01:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+        let today_to = chrono::DateTime::parse_from_rfc3339("2026-09-20T02:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+        let yesterday = chrono::DateTime::parse_from_rfc3339("2026-09-19T01:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+        let response = serde_json::json!({
+            "status": 1,
+            "total": 2,
+            "records": [
+                {"fromTime": today_from, "toTime": today_to, "modelId": "step-5-preview", "calls": 3, "creditConsumed": 2_000_000, "modelType": 1},
+                {"fromTime": yesterday, "toTime": yesterday + 3_600_000_i64, "modelId": "step-5-preview", "calls": 7, "creditConsumed": 9_000_000, "modelType": 1}
+            ]
+        });
+        let plan_response = serde_json::json!({
+            "status": 1,
+            "plan_credit_rate_limit": {
+                "subscription_credit_left_rate": 0.976,
+                "subscription_credit_reset_time": "2026-09-30T16:00:00Z"
+            }
+        });
+        let (records, total) = stepfun_response_records(&response).unwrap();
+        let plan = stepfun_plan_rate_limit_response(&plan_response)
+            .unwrap()
+            .unwrap();
+        let section = stepfun_usage_section_from_records_at(&records, total, now, Some(plan));
+        assert_eq!(section.description, "今日 2M · 调用次数 3");
+        assert_eq!(section.windows.len(), 1);
+        assert_eq!(section.windows[0].window, "Plan 已用");
+        assert_eq!(section.windows[0].used.as_deref(), Some("2%"));
+        assert!(section.windows[0].reset_at.is_some());
+        assert_eq!(section.rows[0].label, "step-5-preview");
+        assert_eq!(section.rows[0].input.as_deref(), Some("10"));
+    }
+
+    #[test]
+    fn stepfun_plan_rate_limit_falls_back_to_credit_buckets() {
+        let response = serde_json::json!({
+            "status": 1,
+            "planCreditRateLimit": {
+                "creditBuckets": [{"creditTotal": "1000000", "creditResidual": "750000"}]
+            }
+        });
+        let plan = stepfun_plan_rate_limit_response(&response)
+            .unwrap()
+            .unwrap();
+        assert_eq!(plan.used_percent, 25.0);
     }
 
     #[test]
@@ -656,10 +752,15 @@ mod provider_usage_tests {
             ]
         });
         let (records, total) = stepfun_response_records(&response).unwrap();
-        let section = stepfun_usage_section_from_records(&records, total);
+        let section = stepfun_usage_section_from_records_at(
+            &records,
+            total,
+            chrono::Utc::now(),
+            None,
+        );
         assert_eq!(section.provider, "stepfun");
-        assert_eq!(section.description, "本月 Credit：11.50；调用次数：6；记录：3");
-        assert_eq!(section.windows[0].used.as_deref(), Some("11.50"));
+        assert_eq!(section.description, "今日 0M · 调用次数 0");
+        assert!(section.windows.is_empty());
         assert_eq!(section.rows[0].label, "step-2");
         assert_eq!(section.rows[0].input.as_deref(), Some("1"));
         assert_eq!(section.rows[0].output.as_deref(), Some("9.50"));

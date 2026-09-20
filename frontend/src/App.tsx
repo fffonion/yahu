@@ -2995,6 +2995,7 @@ function ProviderUsageMain(props: {
               : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
             const subtitleDetails = [
               ...(tableOnly ? [providerTodayLabel(section)] : []),
+              ...(enabled && provider.provider === 'stepfun' && section ? [providerDescriptionText(section.description, provider.provider)] : []),
               ...(balance ? [tf('usage.balance', balance)] : []),
               ...(titleMeta ? [titleMeta] : []),
               ...(codexResetSubtitle ? [codexResetSubtitle] : []),
@@ -3060,7 +3061,7 @@ function ProviderUsageAccountSkeleton({ count }: { count: number }) {
 function ProviderUsageSectionView({ section, loading = false }: { section: ProviderUsageSection; loading?: boolean }) {
   const tableOnly = ['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider);
   const stepFunUsage = section.provider === 'stepfun';
-  const description = tableOnly ? '' : providerDescriptionText(section.description, section.provider);
+  const description = tableOnly || stepFunUsage ? '' : providerDescriptionText(section.description, section.provider);
   const accountTones = new Map<string, number>();
   let nextAccountTone = 0;
   const rowTone = (label: string) => {

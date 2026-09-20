@@ -204,7 +204,8 @@ describe('provider usage view', () => {
     expect(source).toContain("const tableOnly = provider.provider === 'agentrouter'");
     expect(source).toContain("return `/provider-icons/${encodeURIComponent(provider)}`;");
     expect(source).not.toContain('https://www.google.com/s2/favicons');
-    expect(source).toContain("const description = tableOnly ? '' : providerDescriptionText(section.description, section.provider)");
+    expect(source).toContain("const description = tableOnly || stepFunUsage ? '' : providerDescriptionText(section.description, section.provider)");
+    expect(source).toContain("provider.provider === 'stepfun'");
     expect(backendRoutes()).toContain('.route("/provider-icons/agentrouter.png", get(agentrouter_logo))');
     expect(backendRoutes()).toContain('.route("/provider-icons/{provider}", get(provider_icon))');
     expect(source).toContain("section.windows.length > 0 && !['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");

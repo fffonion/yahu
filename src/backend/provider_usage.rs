@@ -33,6 +33,8 @@ const ZED_CLOUD_ME_URL: &str = "https://cloud.zed.dev/client/users/me";
 const ZED_BILLING_USAGE_URL: &str = "https://cloud.zed.dev/frontend/billing/usage";
 const STEPFUN_PLAN_USAGE_URL: &str =
     "https://platform.stepfun.com/api/step.openapi.devcenter.Dashboard/QueryStepPlanUsages";
+const STEPFUN_PLAN_RATE_LIMIT_URL: &str =
+    "https://platform.stepfun.com/api/step.openapi.devcenter.Dashboard/QueryStepPlanRateLimit";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct ProviderUsageRow {
@@ -1519,6 +1521,49 @@ fn stepfun_cookie_value(cookie: &str, name: &str) -> Option<String> {
     })
 }
 
+fn stepfun_request_headers(cookie: &str) -> Vec<(String, String)> {
+    let mut headers = vec![
+        ("accept".into(), "*/*".into()),
+        (
+            "accept-language".into(),
+            "en-US,en;q=0.9,zh;q=0.8,zh-CN;q=0.7".into(),
+        ),
+        ("cache-control".into(), "no-cache".into()),
+        ("connect-protocol-version".into(), "1".into()),
+        ("content-type".into(), "application/json".into()),
+        ("cookie".into(), cookie.to_string()),
+        ("dnt".into(), "1".into()),
+        ("oasis-appid".into(), "10300".into()),
+        ("oasis-platform".into(), "web".into()),
+        ("origin".into(), "https://platform.stepfun.com".into()),
+        ("pragma".into(), "no-cache".into()),
+        ("priority".into(), "u=1, i".into()),
+        (
+            "referer".into(),
+            "https://platform.stepfun.com/account-overview".into(),
+        ),
+        (
+            "sec-ch-ua".into(),
+            "\"Google Chrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+                .into(),
+        ),
+        ("sec-ch-ua-mobile".into(), "?0".into()),
+        ("sec-ch-ua-platform".into(), "\"Windows\"".into()),
+        ("sec-fetch-dest".into(), "empty".into()),
+        ("sec-fetch-mode".into(), "cors".into()),
+        ("sec-fetch-site".into(), "same-origin".into()),
+        (
+            "user-agent".into(),
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+                .into(),
+        ),
+    ];
+    if let Some(web_id) = stepfun_cookie_value(cookie, "Oasis-Webid") {
+        headers.push(("oasis-webid".into(), web_id));
+    }
+    headers
+}
+
 fn stepfun_current_month_range_millis() -> (i64, i64) {
     let now = chrono::Utc::now();
     let start = chrono::NaiveDate::from_ymd_opt(now.year(), now.month(), 1)
@@ -1550,7 +1595,7 @@ fn stepfun_credit_text(value: f64) -> String {
     }
 }
 
-fn stepfun_response_records(value: &Value) -> Result<(Vec<Value>, usize), String> {
+fn stepfun_response_status(value: &Value) -> Result<(), String> {
     let status_ok = match value.get("status") {
         None => true,
         Some(status) => status
@@ -1566,14 +1611,122 @@ fn stepfun_response_records(value: &Value) -> Result<(Vec<Value>, usize), String
             })
             .unwrap_or(false),
     };
-    if !status_ok {
-        let desc = value
-            .get("desc")
-            .and_then(Value::as_str)
-            .filter(|text| !text.trim().is_empty())
-            .unwrap_or("StepFun 返回失败状态");
-        return Err(desc.to_string());
+    if status_ok {
+        return Ok(());
     }
+    let desc = value
+        .get("desc")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or("StepFun 返回失败状态");
+    Err(desc.to_string())
+}
+
+fn stepfun_value_field<'a>(value: &'a Value, camel: &str, snake: &str) -> Option<&'a Value> {
+    value.get(camel).or_else(|| value.get(snake))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct StepFunPlanUsageSnapshot {
+    used_percent: f64,
+    reset_at: Option<i64>,
+}
+
+fn stepfun_left_rate_to_used_percent(left_rate: f64) -> f64 {
+    let fraction = if left_rate > 1.0 {
+        left_rate / 100.0
+    } else {
+        left_rate
+    };
+    ((1.0 - fraction.clamp(0.0, 1.0)) * 100.0).clamp(0.0, 100.0)
+}
+
+fn stepfun_plan_rate_limit_response(
+    value: &Value,
+) -> Result<Option<StepFunPlanUsageSnapshot>, String> {
+    stepfun_response_status(value)?;
+    let Some(plan) = value
+        .get("planCreditRateLimit")
+        .or_else(|| value.get("plan_credit_rate_limit"))
+    else {
+        return Ok(None);
+    };
+    let left_rate = stepfun_value_field(
+        plan,
+        "subscriptionCreditLeftRate",
+        "subscription_credit_left_rate",
+    )
+    .and_then(provider_number);
+    let reset_at = stepfun_value_field(
+        plan,
+        "subscriptionCreditResetTime",
+        "subscription_credit_reset_time",
+    )
+    .and_then(codex_timestamp);
+    let bucket_rate = plan
+        .get("creditBuckets")
+        .or_else(|| plan.get("credit_buckets"))
+        .and_then(Value::as_array)
+        .map(|buckets| {
+            buckets.iter().fold((0.0, 0.0), |(total, residual), bucket| {
+                let bucket_total = stepfun_value_field(bucket, "creditTotal", "credit_total")
+                    .and_then(provider_number)
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                let bucket_residual =
+                    stepfun_value_field(bucket, "creditResidual", "credit_residual")
+                        .and_then(provider_number)
+                        .unwrap_or(0.0)
+                        .clamp(0.0, bucket_total);
+                (total + bucket_total, residual + bucket_residual)
+            })
+        })
+        .and_then(|(total, residual)| (total > 0.0).then_some(residual / total));
+    let used_percent = left_rate
+        .or(bucket_rate)
+        .map(stepfun_left_rate_to_used_percent);
+    Ok(used_percent.map(|used_percent| StepFunPlanUsageSnapshot {
+        used_percent,
+        reset_at,
+    }))
+}
+
+fn stepfun_credit_millions_text(value: f64) -> String {
+    let millions = (value.max(0.0) / 1_000_000.0 * 100.0).round() / 100.0;
+    if millions.fract() == 0.0 {
+        format!("{millions:.0}M")
+    } else {
+        format!("{millions:.2}M")
+    }
+}
+
+fn stepfun_record_is_today(
+    from_time: Option<i64>,
+    to_time: Option<i64>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    let Some(first) = from_time.or(to_time) else {
+        return false;
+    };
+    let second = to_time.or(from_time).unwrap_or(first);
+    let start = normalize_provider_timestamp(first);
+    let end = normalize_provider_timestamp(second);
+    if start <= 0 || end <= 0 {
+        return false;
+    }
+    let (start, end) = (start.min(end), start.max(end));
+    let timezone = chrono::FixedOffset::east_opt(8 * 60 * 60).expect("valid Shanghai offset");
+    let local_date = now.with_timezone(&timezone).date_naive();
+    let day_start = local_date
+        .and_hms_opt(0, 0, 0)
+        .map(|value| value.and_utc().timestamp() - timezone.local_minus_utc() as i64)
+        .unwrap_or_else(|| now.timestamp());
+    let day_end = day_start + 24 * 60 * 60;
+    start < day_end && end >= day_start
+}
+
+fn stepfun_response_records(value: &Value) -> Result<(Vec<Value>, usize), String> {
+    stepfun_response_status(value)?;
     let records = value
         .get("records")
         .and_then(Value::as_array)
@@ -1587,9 +1740,11 @@ fn stepfun_response_records(value: &Value) -> Result<(Vec<Value>, usize), String
     Ok((records, total))
 }
 
-fn stepfun_usage_section_from_records(
+fn stepfun_usage_section_from_records_at(
     records: &[Value],
-    reported_total: usize,
+    _reported_total: usize,
+    now: chrono::DateTime<chrono::Utc>,
+    plan: Option<StepFunPlanUsageSnapshot>,
 ) -> ProviderUsageSection {
     #[derive(Default)]
     struct ModelUsage {
@@ -1601,8 +1756,8 @@ fn stepfun_usage_section_from_records(
     }
 
     let mut models: BTreeMap<String, ModelUsage> = BTreeMap::new();
-    let mut total_calls = 0.0;
-    let mut total_credits = 0.0;
+    let mut today_calls = 0.0;
+    let mut today_credits = 0.0;
     for record in records {
         let model = record
             .get("modelId")
@@ -1653,8 +1808,10 @@ fn stepfun_usage_section_from_records(
         if entry.model_type.is_none() {
             entry.model_type = model_type;
         }
-        total_calls += calls;
-        total_credits += credits;
+        if stepfun_record_is_today(from_time, to_time, now) {
+            today_calls += calls;
+            today_credits += credits;
+        }
     }
 
     let mut model_rows: Vec<(String, ModelUsage)> = models.into_iter().collect();
@@ -1675,25 +1832,27 @@ fn stepfun_usage_section_from_records(
         })
         .collect();
 
-    let mut section = ProviderUsageSection {
+    let windows = plan
+        .into_iter()
+        .map(|snapshot| ProviderUsageWindow {
+            window: "Plan 已用".into(),
+            used: Some(format!("{:.0}%", snapshot.used_percent)),
+            reset: None,
+            reset_at: snapshot.reset_at,
+        })
+        .collect();
+    ProviderUsageSection {
         provider: "stepfun".into(),
         title: "StepFun Step Plan 用量".into(),
         description: format!(
-            "本月 Credit：{}；调用次数：{}；记录：{}",
-            stepfun_credit_text(total_credits),
-            fmt_provider_int(total_calls),
-            reported_total.max(records.len()),
+            "今日 {} · 调用次数 {}",
+            stepfun_credit_millions_text(today_credits),
+            fmt_provider_int(today_calls),
         ),
         rows,
+        windows,
         ..Default::default()
-    };
-    section.windows.push(ProviderUsageWindow {
-        window: "本月 Credit".into(),
-        used: Some(stepfun_credit_text(total_credits)),
-        reset: Some("月末清零".into()),
-        reset_at: None,
-    });
-    section
+    }
 }
 
 async fn fetch_stepfun_usage(state: &AppState) -> ProviderUsageSection {
@@ -1707,43 +1866,65 @@ async fn fetch_stepfun_usage(state: &AppState) -> ProviderUsageSection {
         section.errors.push("缺少 STEPFUN_COOKIE（网页 Cookie）".into());
         return section;
     }
-    let mut headers = vec![
-        ("accept".into(), "*/*".into()),
-        ("accept-language".into(), "en-US,en;q=0.9,zh;q=0.8,zh-CN;q=0.7".into()),
-        ("cache-control".into(), "no-cache".into()),
-        ("connect-protocol-version".into(), "1".into()),
-        ("content-type".into(), "application/json".into()),
-        ("cookie".into(), cookie.clone()),
-        ("oasis-appid".into(), "10300".into()),
-        ("oasis-platform".into(), "web".into()),
-        ("origin".into(), "https://platform.stepfun.com".into()),
-        ("referer".into(), "https://platform.stepfun.com/account-overview".into()),
-    ];
-    if let Some(web_id) = stepfun_cookie_value(&cookie, "Oasis-Webid") {
-        headers.push(("oasis-webid".into(), web_id));
-    }
-
+    let headers = stepfun_request_headers(&cookie);
     let (start_time, to_time) = stepfun_current_month_range_millis();
     const PAGE_SIZE: usize = 100;
     const MAX_PAGES: usize = 100;
-    let mut records = Vec::new();
-    let mut reported_total = 0usize;
-    for page in 1..=MAX_PAGES {
-        let body = serde_json::json!({
+    let usage_body = |page: usize| {
+        serde_json::json!({
             "startTime": start_time.to_string(),
             "toTime": to_time.to_string(),
             "page": page,
             "pageSize": PAGE_SIZE,
             "granularHour": 1,
-        });
-        let response = match provider_http_post_json(
-            &state.client,
-            STEPFUN_PLAN_USAGE_URL,
-            body,
-            &headers,
-        )
-        .await
-        {
+        })
+    };
+
+    let rate_request = provider_http_post_json(
+        &state.client,
+        STEPFUN_PLAN_RATE_LIMIT_URL,
+        serde_json::json!({}),
+        &headers,
+    );
+    let first_usage_request = provider_http_post_json(
+        &state.client,
+        STEPFUN_PLAN_USAGE_URL,
+        usage_body(1),
+        &headers,
+    );
+    let (rate_result, first_usage_result) = tokio::join!(rate_request, first_usage_request);
+    let plan = match rate_result {
+        Ok(value) => match stepfun_plan_rate_limit_response(&value) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                section.errors.push(format!("Step Plan 额度解析失败：{error}"));
+                None
+            }
+        },
+        Err(error) => {
+            section.errors.push(format!("Step Plan 额度查询失败：{error}"));
+            None
+        }
+    };
+
+    let mut first_usage_result = Some(first_usage_result);
+    let mut records = Vec::new();
+    let mut reported_total = 0usize;
+    for page in 1..=MAX_PAGES {
+        let response_result = if page == 1 {
+            first_usage_result
+                .take()
+                .expect("StepFun first usage response is available")
+        } else {
+            provider_http_post_json(
+                &state.client,
+                STEPFUN_PLAN_USAGE_URL,
+                usage_body(page),
+                &headers,
+            )
+            .await
+        };
+        let response = match response_result {
             Ok(value) => value,
             Err(error) => {
                 section.errors.push(format!("Step Plan 用量查询失败：{error}"));
@@ -1764,7 +1945,14 @@ async fn fetch_stepfun_usage(state: &AppState) -> ProviderUsageSection {
             break;
         }
     }
-    stepfun_usage_section_from_records(&records, reported_total)
+    let mut usage_section = stepfun_usage_section_from_records_at(
+        &records,
+        reported_total,
+        chrono::Utc::now(),
+        plan,
+    );
+    usage_section.errors = section.errors;
+    usage_section
 }
 
 async fn fetch_kimi_usage(state: &AppState) -> ProviderUsageSection {
