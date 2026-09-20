@@ -2198,6 +2198,7 @@ export default function App() {
               const delta = payload.delta || payload.text || payload.content || '';
               reasoningText += delta;
               setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, reasoning: reasoningText, pending: true } : m));
+              scrollWithStream();
             }
             if (event === 'tool.started' || event === 'tool.completed' || event === 'tool.progress') setStatus(event === 'tool.progress' ? (payload.delta || 'thinking') : `${payload.tool_name || 'tool'} ${event.replace('tool.', '')}`);
             if (event === 'assistant.completed') {

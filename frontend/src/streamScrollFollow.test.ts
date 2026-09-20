@@ -24,4 +24,14 @@ describe('streaming chat scroll follow', () => {
     expect(streamFnSource).toContain("scrollLatestAfterRenderRef.current = 'follow';");
     expect(streamFnSource).toContain('isNearBottom(chatScrollRef.current, 220)');
   });
+
+  test('keeps reasoning growth on the same streaming follow path', () => {
+    const app = source();
+    const reasoning = app.indexOf("if (event === 'reasoning.delta'");
+    const reasoningEnd = app.indexOf('\n            }', reasoning);
+    const reasoningSource = app.slice(reasoning, reasoningEnd);
+
+    expect(reasoning).toBeGreaterThan(-1);
+    expect(reasoningSource).toContain('scrollWithStream();');
+  });
 });
