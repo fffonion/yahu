@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
-import { shouldAutoLoadOlderForHiddenHistory, shouldLoadOlderFromWheel } from './chatHistoryScroll';
+import { shouldAutoLoadOlderForHiddenHistory, shouldLoadOlderFromWheel, streamFollowIntentAfterScroll } from './chatHistoryScroll';
 
 const appSource = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const cssSource = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
@@ -28,11 +28,20 @@ describe('chat history scroll triggers', () => {
     expect(shouldAutoLoadOlderForHiddenHistory({ scrollTop: 0, scrollHeight: 420, clientHeight: 640 }, true, true)).toBe(false);
   });
 
+  test('user upward intent disables stream follow even inside the near-bottom threshold', () => {
+    expect(streamFollowIntentAfterScroll(100, { scrollTop: 92, scrollHeight: 480, clientHeight: 369 })).toBe('away');
+    expect(streamFollowIntentAfterScroll(100, { scrollTop: 99.75, scrollHeight: 480, clientHeight: 369 })).toBe('away');
+    expect(streamFollowIntentAfterScroll(92, { scrollTop: 111, scrollHeight: 480, clientHeight: 369 })).toBe('follow');
+    expect(streamFollowIntentAfterScroll(null, { scrollTop: 111, scrollHeight: 480, clientHeight: 369 })).toBe(null);
+    expect(streamFollowIntentAfterScroll(111, { scrollTop: 111, scrollHeight: 480, clientHeight: 369 })).toBe(null);
+    expect(streamFollowIntentAfterScroll(92, { scrollTop: 100, scrollHeight: 900, clientHeight: 369 })).toBe(null);
+  });
+
   test('older history loading preserves the current message anchor instead of height-delta jumping', () => {
     const app = appSource();
     const css = cssSource();
-    expect(app).toContain('const pendingHistoryScrollAnchorRef = useRef<MessageScrollAnchor | null>(null);');
-    expect(app).toContain("if (direction === 'older') pendingHistoryScrollAnchorRef.current = captureMessageScrollAnchor(scroller);");
+    expect(app).toContain('const pendingHistoryScrollAnchorRef = useRef<{ sessionId: string; anchor: MessageScrollAnchor } | null>(null);');
+    expect(app).toContain("pendingHistoryScrollAnchorRef.current = anchor ? { sessionId, anchor } : null;");
     expect(app).toContain('restoreMessageScrollAnchor(scroller, anchor);');
     expect(css).toContain('.chat-scroll{position:relative;overflow:auto;');
     expect(css).toContain('.history-loading{position:absolute;top:10px;left:50%;transform:translateX(-50%);');

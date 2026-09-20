@@ -120,7 +120,8 @@ describe('chat user message navigator', () => {
     expect(source).not.toContain("const initialMinimapScrollSessionRef = useRef('');");
     expect(source).toContain('const syncMinimapToLatest = useCallback(() => {');
     expect(source).toContain('if (track && scroller && isNearBottom(scroller, 220)) track.scrollTop = track.scrollHeight;');
-    expect(source).toContain('window.requestAnimationFrame(syncMinimapToLatest);');
+    expect(source).toContain('window.requestAnimationFrame(() => {');
+    expect(source).toContain('scrollActiveNavigatorIntoView();');
 
   });
 
@@ -133,7 +134,7 @@ describe('chat user message navigator', () => {
     expect(source).toContain('className={`user-minimap-track${scrollFade.before ? \' can-scroll-before\' : \'\'}${scrollFade.after ? \' can-scroll-after\' : \'\'}`}');
     expect(source).toContain('before: track.scrollTop > 1');
     expect(source).toContain('after: track.scrollTop + track.clientHeight < track.scrollHeight - 1');
-    expect(source).toContain("typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncMinimapToLatest) : null;");
+    expect(source).toContain("typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncMinimapLayout) : null;");
     expect(styles).toContain('max-height:var(--user-minimap-max-height,75%)');
     expect(styles).toContain('.user-minimap-track.can-scroll-before');
     expect(styles).toContain('.user-minimap-track.can-scroll-after');
@@ -146,9 +147,21 @@ describe('chat user message navigator', () => {
     expect(source).toContain("if (msg.role === 'user') void loadUserMessageNav(watchedSessionId);");
   });
 
+  test('keeps the active minimap bar visible when the selected viewport is away from latest', () => {
+    const source = app();
+    expect(source).toContain('const scrollActiveNavigatorIntoView = useCallback(() => {');
+    expect(source).toContain('const active = track.querySelector<HTMLElement>(\'.user-minimap-hit.active\');');
+    expect(source).toContain('track.scrollTop += activeRect.top - trackRect.top;');
+    expect(source).toContain('track.scrollTop += activeRect.bottom - trackRect.bottom;');
+    expect(source).toContain('scrollActiveNavigatorIntoView();');
+    expect(source).toContain('const syncMinimapLayout = useCallback(() => {');
+    expect(source).toContain('const observer = typeof ResizeObserver !==');
+    expect(source).toContain('new ResizeObserver(updateActiveNavigatorIds)');
+  });
+
   test('keeps the minimap at latest only while the chat viewport follows latest', () => {
     const source = app();
-    expect(source).toContain('isNearBottom(chatScrollRef.current, 220)');
+    expect(source).toContain('if (track && scroller && isNearBottom(scroller, 220)) track.scrollTop = track.scrollHeight;');
     expect(source).toContain('track.scrollTop = track.scrollHeight;');
     expect(source).toContain("scroller.addEventListener('scroll', syncMinimapToLatest, { passive: true });");
   });

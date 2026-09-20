@@ -24,7 +24,8 @@ describe('chat view persistence', () => {
     expect(source).toContain('state.positions[sessionId] = Math.max(0, Number(scrollTop));');
     expect(source).toContain('state.anchors[sessionId] = { id: anchor.id, topOffset: Number.isFinite(anchor.topOffset) ? anchor.topOffset : 0 };');
     expect(source).toContain('writeChatViewState(props.activeSessionId, el.scrollTop, anchor ? { id: anchor.id, topOffset: anchor.topOffset } : null);');
-    expect(source).toContain('const wasNearBottom = !!chatScrollRef.current && isNearBottom(chatScrollRef.current);');
+    expect(source).toContain("const followMode = followState.sessionId === watchedSessionId ? followState.mode : 'auto';");
+    expect(source).toContain("const wasNearBottom = followMode === 'follow' || (followMode === 'auto' && !!chatScrollRef.current && isNearBottom(chatScrollRef.current));");
     expect(source).not.toContain('const viewportMatchesSaved = !Number.isFinite(savedScrollTop)');
   });
 
@@ -37,9 +38,12 @@ describe('chat view persistence', () => {
 
   test('restores the saved anchor before falling back to the saved scroll position', () => {
     const source = app();
+    expect(source).toContain('const pendingHistoryScrollAnchorRef = useRef<{ sessionId: string; anchor: MessageScrollAnchor } | null>(null);');
+    expect(source).toContain("pendingHistoryScrollAnchorRef.current = anchor ? { sessionId, anchor } : null;");
+    expect(source).toContain('pendingHistoryScroll?.sessionId === activeSessionId ? pendingHistoryScroll.anchor : readChatViewAnchor(activeSessionId)');
     expect(source).toContain('const savedAnchor = readChatViewAnchor(activeSessionId);');
-    expect(source).toContain('pendingHistoryScrollAnchorRef.current = savedAnchor ? { id: savedAnchor.id, topOffset: savedAnchor.topOffset } : null;');
-    expect(source).toContain("scrollLatestAfterRenderRef.current = 'restore';");
+    expect(source).toContain('? { sessionId: activeSessionId, anchor: { id: savedAnchor.id, topOffset: savedAnchor.topOffset } }');
+    expect(source).toContain("scrollLatestAfterRenderRef.current = { sessionId: activeSessionId, mode: 'restore' };");
     expect(source).toContain("if (pendingAnchor && restoreMessageScrollAnchor(scroller, pendingAnchor)) {");
     expect(source).toContain('pendingHistoryScrollAnchorRef.current = null;');
     expect(source).toContain('scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));');
@@ -49,7 +53,7 @@ describe('chat view persistence', () => {
 
   test('marks live updates and explicit latest jumps as follow actions', () => {
     const source = app();
-    expect(source).toContain("scrollLatestAfterRenderRef.current = 'follow';");
+    expect(source).toContain("scrollLatestAfterRenderRef.current = { sessionId, mode: 'follow' };");
     expect(source).toContain('prepareLatestFollow: () => void;');
     expect(source).toContain('props.prepareLatestFollow();');
   });

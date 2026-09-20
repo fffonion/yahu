@@ -27,3 +27,11 @@ export function shouldLoadOlderFromWheel(metrics: ChatScrollMetrics, deltaY: num
 export function shouldAutoLoadOlderForHiddenHistory(metrics: ChatScrollMetrics, hasOlder: boolean, loading: boolean): boolean {
   return hasOlder && !loading && metrics.scrollHeight <= metrics.clientHeight + 1;
 }
+
+export type StreamFollowIntent = 'follow' | 'away' | null;
+
+export function streamFollowIntentAfterScroll(previousScrollTop: number | null, metrics: ChatScrollMetrics, latestThresholdPx = 24): StreamFollowIntent {
+  if (previousScrollTop !== null && metrics.scrollTop < previousScrollTop) return 'away';
+  if (previousScrollTop !== null && metrics.scrollTop > previousScrollTop && isNearNewerBoundary(metrics, latestThresholdPx)) return 'follow';
+  return null;
+}
