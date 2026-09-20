@@ -1936,7 +1936,12 @@ export default function App() {
     const followLatestUntilLayoutSettles = scrollMode === 'follow' || (scrollMode === 'restore' && !pendingAnchor && !Number.isFinite(savedTop));
     const restorePosition = () => {
       attempts += 1;
-      // Try the saved anchor first; keep retrying across paint frames until it lands.
+      if (followLatestUntilLayoutSettles) {
+        scroller.scrollTop = scroller.scrollHeight;
+        return;
+      }
+      // Try the saved anchor only when the viewport is being restored; streaming
+      // follow must win so late layout changes cannot pull the view upward.
       if (pendingAnchor && restoreMessageScrollAnchor(scroller, pendingAnchor)) {
         if (anchorRestored) return;
         anchorRestored = true;
@@ -1946,9 +1951,7 @@ export default function App() {
       if (anchorRestored) return;
       if (pendingAnchor && attempts < 6) return;
       pendingHistoryScrollAnchorRef.current = null;
-      if (followLatestUntilLayoutSettles) {
-        scroller.scrollTop = scroller.scrollHeight;
-      } else if (Number.isFinite(savedTop)) {
+      if (Number.isFinite(savedTop)) {
         scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));
       } else {
         scroller.scrollTop = scroller.scrollHeight;
@@ -2143,7 +2146,10 @@ export default function App() {
     setHasNewer(false);
     if (clearComposer) { setInput(''); setAttachments([]); }
     setStatus(t('status.running'));
-    if (stick) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
+    if (stick) {
+      scrollLatestAfterRenderRef.current = 'follow';
+      requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
+    }
     let controller: AbortController | null = null;
     try {
       controller = new AbortController();
@@ -2158,7 +2164,9 @@ export default function App() {
       let reasoningText = '';
       let turnMetrics: ChatTurnMetrics | undefined;
       const scrollWithStream = () => {
-        if (isNearBottom(chatScrollRef.current, 220)) requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
+        if (!isNearBottom(chatScrollRef.current, 220)) return;
+        scrollLatestAfterRenderRef.current = 'follow';
+        requestAnimationFrame(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; });
       };
       const animator = createStreamAnimator({
         onUpdate: (text) => {
