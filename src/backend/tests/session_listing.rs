@@ -885,6 +885,202 @@
         assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["pinned-root"]);
     }
 
+    #[tokio::test]
+    async fn pinned_live_topic_root_does_not_readd_a_detached_recent_alias() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                source TEXT,
+                model TEXT,
+                billing_provider TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                message_count INTEGER,
+                title TEXT,
+                model_config TEXT,
+                archived INTEGER
+             );
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                active INTEGER NOT NULL DEFAULT 1
+             );
+             INSERT INTO sessions
+                (id, parent_session_id, source, session_key, chat_id, thread_id,
+                 started_at, ended_at, end_reason, title, model_config, archived)
+                VALUES
+                ('pinned-root', NULL, 'telegram', 'same-topic', 'chat', 'thread',
+                 1, 2, 'session_switch', 'webrtc', '{}', 0),
+                ('live-tail', 'pinned-root', 'telegram', 'same-topic', 'chat', 'thread',
+                 2, NULL, NULL, 'Review WebRTC build', '{}', 0),
+                ('detached-current', NULL, 'telegram', 'same-topic', 'chat', 'thread',
+                 3, NULL, NULL, 'Subagent development orchestration', '{}', 0);",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let mut rows = vec![
+            serde_json::json!({"id":"detached-current","source":"telegram","title":"Subagent development orchestration","started_at":3.0}),
+            serde_json::json!({"id":"pinned-root","source":"telegram","title":"webrtc","started_at":1.0}),
+        ];
+
+        filter_rows_shadowed_by_pinned_topic_aliases(
+            &state,
+            &mut rows,
+            &["pinned-root".to_string()],
+        ).unwrap();
+
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["pinned-root"]);
+
+        let mut rows = vec![
+            serde_json::json!({"id":"detached-current","source":"telegram","title":"Subagent development orchestration","started_at":3.0}),
+            serde_json::json!({"id":"pinned-root","source":"telegram","title":"webrtc","started_at":1.0}),
+        ];
+        filter_rows_shadowed_by_pinned_topic_aliases(
+            &state,
+            &mut rows,
+            &["pinned-root".to_string(), "detached-current".to_string()],
+        ).unwrap();
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["pinned-root"]);
+
+        let mut rows = vec![
+            serde_json::json!({"id":"detached-current","source":"telegram","title":"Subagent development orchestration","started_at":3.0}),
+            serde_json::json!({"id":"pinned-root","source":"telegram","title":"webrtc","started_at":1.0}),
+        ];
+        filter_rows_shadowed_by_pinned_topic_aliases(
+            &state,
+            &mut rows,
+            &["detached-current".to_string(), "pinned-root".to_string()],
+        ).unwrap();
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["detached-current"]);
+
+        let response = sessions_search(
+            State(Arc::new(state)),
+            Query(SessionSearchQuery {
+                q: Some("Subagent development orchestration".to_string()),
+                limit: Some(80),
+                hide_cron_cli: Some(false),
+                pinned_ids: Some("pinned-root".to_string()),
+            }),
+        ).await;
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body["data"].as_array().unwrap().iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(),
+            vec!["detached-current"]
+        );
+    }
+
+    #[test]
+    fn pinned_topic_root_keeps_a_live_side_conversation_separate() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                title TEXT,
+                model_config TEXT,
+                archived INTEGER
+             );
+             INSERT INTO sessions
+                (id, parent_session_id, source, session_key, chat_id, thread_id,
+                 started_at, ended_at, end_reason, title, model_config, archived)
+                VALUES
+                ('pinned-root', NULL, 'telegram', 'same-topic', 'chat', 'thread',
+                 1, NULL, NULL, 'root', '{}', 0),
+                ('live-side', 'pinned-root', 'telegram', 'same-topic', 'chat', 'thread',
+                 2, 2.4, 'session_switch', 'side', '{}', 0),
+                ('side-continuation', 'live-side', 'telegram', 'same-topic', 'chat', 'thread',
+                 2.5, NULL, NULL, 'side continuation', '{}', 0),
+                ('detached-current', NULL, 'telegram', 'same-topic', 'chat', 'thread',
+                 3, NULL, NULL, 'current', '{\"_reset_from\":\"pinned-root\"}', 0);",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let mut rows = vec![
+            serde_json::json!({"id":"detached-current","source":"telegram","title":"current","started_at":3.0}),
+            serde_json::json!({"id":"live-side","source":"telegram","title":"side","started_at":2.0}),
+            serde_json::json!({"id":"side-continuation","source":"telegram","title":"side continuation","started_at":2.5}),
+            serde_json::json!({"id":"pinned-root","source":"telegram","title":"root","started_at":1.0}),
+        ];
+
+        filter_rows_shadowed_by_pinned_topic_aliases(
+            &state,
+            &mut rows,
+            &["pinned-root".to_string()],
+        ).unwrap();
+
+        assert_eq!(
+            rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(),
+            vec!["live-side", "side-continuation", "pinned-root"]
+        );
+    }
+
+    #[test]
+    fn pinned_family_resolution_includes_segments_older_than_two_hundred_rows() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                started_at REAL,
+                ended_at REAL,
+                end_reason TEXT,
+                title TEXT,
+                model_config TEXT,
+                archived INTEGER
+             );",
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO sessions VALUES ('pinned-root',NULL,'telegram','long-topic','chat','thread',1,2,'session_switch','root','{}',0)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO sessions VALUES ('live-tail','pinned-root','telegram','long-topic','chat','thread',2,NULL,NULL,'tail','{}',0)",
+            [],
+        ).unwrap();
+        for index in 0..200 {
+            conn.execute(
+                "INSERT INTO sessions VALUES (?1,NULL,'telegram','long-topic','chat','thread',?2,NULL,NULL,?1,'{}',0)",
+                rusqlite::params![format!("detached-{index:03}"), index as f64 + 3.0],
+            ).unwrap();
+        }
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let mut rows = vec![
+            serde_json::json!({"id":"detached-199","source":"telegram","title":"current","started_at":202.0}),
+            serde_json::json!({"id":"pinned-root","source":"telegram","title":"root","started_at":1.0}),
+        ];
+
+        filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut rows, &["pinned-root".to_string()]).unwrap();
+
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["pinned-root"]);
+    }
+
     #[test]
     fn session_list_hides_reset_predecessor_when_successor_is_present() {
         let temp = tempfile::tempdir().unwrap();

@@ -36,11 +36,23 @@ async fn sessions_search(
     match data {
         Ok(data) => {
             let mut data = append_pinned_session_rows(&state, data, &pinned_ids).await;
-            if let Err(err) = filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut data, &pinned_ids) {
-                warn!(error = %err, "cannot filter pinned topic aliases from session list");
+            let normalized_query = q.trim().to_lowercase();
+            if normalized_query.is_empty() {
+                let resolved_families = match filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut data, &pinned_ids) {
+                    Ok(resolved_families) => resolved_families,
+                    Err(err) => {
+                        warn!(error = %err, "cannot filter pinned topic aliases from session list");
+                        HashMap::new()
+                    }
+                };
+                apply_pinned_session_display_titles(&state, &mut data, &pinned_ids, Some(&resolved_families));
+            } else {
+                apply_pinned_session_display_titles(&state, &mut data, &pinned_ids, None);
+                filter_session_rows_by_title(&mut data, &normalized_query);
+                if let Err(err) = filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut data, &pinned_ids) {
+                    warn!(error = %err, "cannot filter pinned topic aliases from session list");
+                }
             }
-            apply_pinned_session_display_titles(&state, &mut data, &pinned_ids);
-            filter_session_rows_by_title(&mut data, &q.trim().to_lowercase());
             Json(serde_json::json!({
                 "object": "list",
                 "data": data,
@@ -575,53 +587,78 @@ fn filter_rows_shadowed_by_pinned_topic_aliases(
     state: &AppState,
     rows: &mut Vec<serde_json::Value>,
     pinned_ids: &[String],
-) -> anyhow::Result<()> {
+) -> anyhow::Result<HashMap<String, Vec<SessionLineageEntry>>> {
     if rows.is_empty() || pinned_ids.is_empty() {
-        return Ok(());
+        return Ok(HashMap::new());
     }
     let db_path = state.hermes_home.join("state.db");
     if !db_path.exists() {
-        return Ok(());
+        return Ok(HashMap::new());
     }
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    let pinned_set = pinned_ids.iter().map(String::as_str).collect::<HashSet<_>>();
-    let mut topic_member_ids = HashSet::new();
+    let visible_row_ids = rows
+        .iter()
+        .filter_map(|row| row.get("id").and_then(|value| value.as_str()))
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    let mut family_member_ids = HashSet::new();
+    let mut preferred_pinned_ids = HashSet::new();
+    let mut family_entries_by_pinned = HashMap::new();
     for pinned_id in pinned_ids {
-        let Some(entries) = local_session_topic_entries(&conn, pinned_id)? else {
-            continue;
-        };
-        if entries.len() < 2 {
+        if !visible_row_ids.contains(pinned_id) || family_member_ids.contains(pinned_id) {
             continue;
         }
-        topic_member_ids.extend(entries.into_iter().map(|entry| entry.id));
+        let entries = match local_session_topic_entries(&conn, pinned_id)? {
+            Some(entries) => Some(entries),
+            None => local_session_key_group_entries(&conn, pinned_id)?,
+        };
+        let Some(entries) = entries else {
+            continue;
+        };
+        let member_ids = entries.iter().map(|entry| entry.id.clone()).collect::<Vec<_>>();
+        if member_ids.len() < 2 || member_ids.iter().any(|id| family_member_ids.contains(id)) {
+            continue;
+        }
+        preferred_pinned_ids.insert(pinned_id.clone());
+        family_member_ids.extend(member_ids);
+        family_entries_by_pinned.insert(pinned_id.clone(), entries);
     }
-    if topic_member_ids.is_empty() {
-        return Ok(());
+    if family_member_ids.is_empty() {
+        return Ok(family_entries_by_pinned);
     }
     rows.retain(|row| {
         let Some(id) = row.get("id").and_then(|value| value.as_str()) else {
             return true;
         };
-        pinned_set.contains(id) || !topic_member_ids.contains(id)
+        preferred_pinned_ids.contains(id) || !family_member_ids.contains(id)
     });
-    Ok(())
+    Ok(family_entries_by_pinned)
 }
 
 fn apply_pinned_session_display_titles(
     state: &AppState,
     rows: &mut [serde_json::Value],
     pinned_ids: &[String],
+    resolved_families: Option<&HashMap<String, Vec<SessionLineageEntry>>>,
 ) {
     for pinned_id in pinned_ids {
-        let Ok(Some((_, title))) = local_session_display_metadata(state, pinned_id) else {
+        let Some(row_index) = rows
+            .iter()
+            .position(|row| row.get("id").and_then(|value| value.as_str()) == Some(pinned_id.as_str()))
+        else {
             continue;
         };
-        if let Some(row) = rows.iter_mut().find(|row| row.get("id").and_then(|value| value.as_str()) == Some(pinned_id.as_str()))
-            && let Some(object) = row.as_object_mut()
-        {
+        let metadata = match resolved_families.and_then(|families| families.get(pinned_id)) {
+            Some(entries) => local_session_display_metadata_with_entries(state, pinned_id, Some(entries.as_slice())),
+            None => local_session_display_metadata(state, pinned_id),
+        };
+        let Ok(Some((_, title))) = metadata else {
+            continue;
+        };
+        if let Some(object) = rows[row_index].as_object_mut() {
             object.insert("title".to_string(), serde_json::json!(title));
         }
     }
@@ -1058,6 +1095,14 @@ fn session_family_titles_compatible(current: Option<&str>, previous: Option<&str
 }
 
 fn local_session_display_metadata(state: &AppState, session_id: &str) -> anyhow::Result<Option<(String, String)>> {
+    local_session_display_metadata_with_entries(state, session_id, None)
+}
+
+fn local_session_display_metadata_with_entries(
+    state: &AppState,
+    session_id: &str,
+    resolved_entries: Option<&[SessionLineageEntry]>,
+) -> anyhow::Result<Option<(String, String)>> {
     let db_path = state.hermes_home.join("state.db");
     if !db_path.exists() {
         return Ok(None);
@@ -1066,9 +1111,6 @@ fn local_session_display_metadata(state: &AppState, session_id: &str) -> anyhow:
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    let Some(entries) = local_session_key_group_entries(&conn, session_id)? else {
-        return Ok(None);
-    };
     let canonical_title = conn
         .query_row(
             "SELECT title FROM sessions WHERE id = ?1",
@@ -1084,21 +1126,46 @@ fn local_session_display_metadata(state: &AppState, session_id: &str) -> anyhow:
     if canonical_title == canonical_base {
         return Ok(Some((session_id.to_string(), canonical_title)));
     }
+    let owned_entries;
+    let entries = if let Some(resolved_entries) = resolved_entries {
+        resolved_entries
+    } else {
+        let Some(entries) = local_session_key_group_entries(&conn, session_id)? else {
+            return Ok(None);
+        };
+        owned_entries = entries;
+        owned_entries.as_slice()
+    };
+    let mut titles_by_id = HashMap::<String, String>::new();
+    let related_entries = entries
+        .iter()
+        .filter(|entry| entry.id != session_id)
+        .collect::<Vec<_>>();
+    for chunk in related_entries.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let query = format!("SELECT id, title FROM sessions WHERE id IN ({placeholders})");
+        let mut statement = conn.prepare(&query)?;
+        let rows = statement.query_map(
+            rusqlite::params_from_iter(chunk.iter().map(|entry| entry.id.as_str())),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )?;
+        for row in rows {
+            let (id, title) = row?;
+            if let Some(title) = title
+                .map(|title| title.trim().to_string())
+                .filter(|title| !title.is_empty())
+            {
+                titles_by_id.insert(id, title);
+            }
+        }
+    }
     let mut matching_title = None;
     let mut exact_base_title = None;
     for entry in entries {
         if entry.id == session_id {
             continue;
         }
-        let Some(title) = conn
-            .query_row(
-                "SELECT title FROM sessions WHERE id = ?1",
-                [&entry.id],
-                |row| row.get::<_, Option<String>>(0),
-            )?
-            .map(|title| title.trim().to_string())
-            .filter(|title| !title.is_empty())
-        else {
+        let Some(title) = titles_by_id.remove(&entry.id) else {
             continue;
         };
         if generated_session_title_base(&title) != canonical_base {
@@ -1107,7 +1174,7 @@ fn local_session_display_metadata(state: &AppState, session_id: &str) -> anyhow:
         if title == canonical_base {
             exact_base_title = Some((entry.id.clone(), title.clone()));
         }
-        matching_title = Some((entry.id, title));
+        matching_title = Some((entry.id.clone(), title));
     }
     Ok(exact_base_title
         .or(matching_title)
@@ -3633,7 +3700,6 @@ fn local_session_topic_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> rusqlite::Result<Option<Vec<SessionLineageEntry>>> {
-    const MAX_TOPIC_ENTRIES: usize = 200;
     if !sqlite_table_has_columns(
         conn,
         "sessions",
@@ -3676,18 +3742,11 @@ fn local_session_topic_entries(
            AND chat_id IS ?3
            AND thread_id IS ?4
            AND COALESCE(source, '') != 'subagent'
-         ORDER BY started_at, id
-         LIMIT ?5"
+         ORDER BY started_at, id"
     ))?;
     let all_rows = statement
         .query_map(
-            rusqlite::params![
-                session_key,
-                source,
-                chat_id,
-                thread_id,
-                MAX_TOPIC_ENTRIES as i64
-            ],
+            rusqlite::params![session_key, source, chat_id, thread_id],
             |row| {
                 Ok((
                     SessionLineageEntry {
@@ -3727,20 +3786,37 @@ fn local_session_topic_entries(
         .collect::<HashMap<_, _>>();
     let mut root_by_id = HashMap::<String, String>::new();
     for entry in &all_entries {
-        let mut current = entry.id.as_str();
-        let mut visited = HashSet::new();
-        while visited.insert(current) {
-            let Some(Some(parent_id)) = parent_by_id.get(current) else {
-                break;
+        if root_by_id.contains_key(&entry.id) {
+            continue;
+        }
+        let mut path = Vec::new();
+        let mut path_ids = HashSet::new();
+        let mut current_id = entry.id.clone();
+        let root_id = loop {
+            if let Some(root) = root_by_id.get(&current_id) {
+                break root.clone();
+            }
+            if !path_ids.insert(current_id.clone()) {
+                break current_id;
+            }
+            path.push(current_id.clone());
+            let Some(Some(parent_id)) = parent_by_id.get(current_id.as_str()) else {
+                break current_id;
             };
             if !parent_by_id.contains_key(parent_id) {
-                break;
+                break current_id;
             }
-            current = parent_id;
+            current_id = (*parent_id).to_string();
+        };
+        for id in path {
+            root_by_id.insert(id, root_id.clone());
         }
-        root_by_id.insert(entry.id.clone(), current.to_string());
     }
 
+    let root_metadata = all_rows
+        .iter()
+        .map(|(entry, started_at, _)| (entry.id.as_str(), (*started_at, entry.end_reason.clone())))
+        .collect::<HashMap<_, _>>();
     let mut root_info = HashMap::<String, (f64, Option<String>)>::new();
     for entry in &all_entries {
         let root_id = root_by_id
@@ -3749,11 +3825,10 @@ fn local_session_topic_entries(
         if root_info.contains_key(root_id) {
             continue;
         }
-        let (root, started_at, _) = all_rows
-            .iter()
-            .find(|(candidate, _, _)| candidate.id == *root_id)
+        let (started_at, end_reason) = root_metadata
+            .get(root_id.as_str())
             .expect("topic root is present in the entry set");
-        root_info.insert(root_id.clone(), (*started_at, root.end_reason.clone()));
+        root_info.insert(root_id.clone(), (*started_at, end_reason.clone()));
     }
     let mut roots = root_info.into_iter().collect::<Vec<_>>();
     roots.sort_by(|(left_id, (left_started, _)), (right_id, (right_started, _))| {
@@ -3782,24 +3857,72 @@ fn local_session_topic_entries(
                 == Some(&requested_partition)
         })
         .collect::<Vec<_>>();
+    Ok(Some(local_session_family_without_live_side_entries(entries, session_id)))
+}
+
+fn local_session_family_without_live_side_entries(
+    entries: Vec<SessionLineageEntry>,
+    session_id: &str,
+) -> Vec<SessionLineageEntry> {
     let member_ids = entries
         .iter()
-        .map(|entry| entry.id.as_str())
+        .map(|entry| entry.id.clone())
         .collect::<HashSet<_>>();
     let live_parent_ids = entries
         .iter()
         .filter(|entry| entry.end_reason.is_none())
-        .map(|entry| entry.id.as_str())
+        .map(|entry| entry.id.clone())
         .collect::<HashSet<_>>();
-    if let Some(requested) = entries.iter().find(|entry| entry.id == session_id)
-        && requested
-            .parent_session_id
-            .as_deref()
-            .is_some_and(|parent| member_ids.contains(parent) && live_parent_ids.contains(parent))
-    {
-        return Ok(Some(vec![requested.clone()]));
+    let parent_by_id = entries
+        .iter()
+        .map(|entry| (entry.id.clone(), entry.parent_session_id.clone()))
+        .collect::<HashMap<_, _>>();
+    let mut side_root_by_id = HashMap::<String, Option<String>>::new();
+    for entry in &entries {
+        if side_root_by_id.contains_key(&entry.id) {
+            continue;
+        }
+        let mut path = Vec::new();
+        let mut path_ids = HashSet::new();
+        let mut current_id = entry.id.clone();
+        let mut inherited_root = loop {
+            if let Some(root) = side_root_by_id.get(&current_id) {
+                break root.clone();
+            }
+            if !path_ids.insert(current_id.clone()) {
+                break None;
+            }
+            path.push(current_id.clone());
+            let Some(Some(parent_id)) = parent_by_id.get(&current_id) else {
+                break None;
+            };
+            if !member_ids.contains(parent_id) {
+                break None;
+            }
+            current_id = parent_id.clone();
+        };
+        for id in path.into_iter().rev() {
+            if inherited_root.is_none()
+                && parent_by_id
+                    .get(&id)
+                    .and_then(|parent| parent.as_ref())
+                    .is_some_and(|parent| live_parent_ids.contains(parent))
+            {
+                inherited_root = Some(id.clone());
+            }
+            side_root_by_id.insert(id, inherited_root.clone());
+        }
     }
-    Ok(Some(entries))
+    if let Some(Some(requested_root)) = side_root_by_id.get(session_id) {
+        return entries
+            .into_iter()
+            .filter(|entry| side_root_by_id.get(&entry.id).and_then(|root| root.as_ref()) == Some(requested_root))
+            .collect();
+    }
+    entries
+        .into_iter()
+        .filter(|entry| side_root_by_id.get(&entry.id).is_none_or(Option::is_none))
+        .collect()
 }
 
 /// Entries backing the browsable chat transcript: a Telegram topic resolves to
@@ -3866,7 +3989,6 @@ fn local_session_key_group_entries(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> rusqlite::Result<Option<Vec<SessionLineageEntry>>> {
-    const MAX_CHAT_KEY_GROUP: usize = 200;
     if !sqlite_table_has_columns(
         conn,
         "sessions",
@@ -3898,35 +4020,43 @@ fn local_session_key_group_entries(
     };
     let is_threaded_telegram_topic = source.as_deref() == Some("telegram")
         && thread_id.as_deref().is_some_and(|value| !value.trim().is_empty());
-    let mut statement = conn.prepare(
-        "SELECT id, parent_session_id, end_reason
+    let title_expression = if sqlite_table_has_columns(conn, "sessions", &["title"])? {
+        "title"
+    } else {
+        "NULL"
+    };
+    let query = format!(
+        "SELECT id, parent_session_id, end_reason, {title_expression}
          FROM sessions
          WHERE session_key = ?1
            AND source IS ?2
            AND chat_id IS ?3
            AND thread_id IS ?4
            AND COALESCE(source, '') != 'subagent'
-         ORDER BY started_at, id
-         LIMIT ?5",
-    )?;
-    let all_entries = statement
+         ORDER BY started_at, id"
+    );
+    let mut statement = conn.prepare(&query)?;
+    let all_rows = statement
         .query_map(
-            rusqlite::params![
-                session_key,
-                source,
-                chat_id,
-                thread_id,
-                MAX_CHAT_KEY_GROUP as i64
-            ],
+            rusqlite::params![session_key, source, chat_id, thread_id],
             |row| {
-                Ok(SessionLineageEntry {
-                    id: row.get(0)?,
-                    parent_session_id: row.get(1)?,
-                    end_reason: row.get(2)?,
-                })
+                Ok((
+                    SessionLineageEntry {
+                        id: row.get(0)?,
+                        parent_session_id: row.get(1)?,
+                        end_reason: row.get(2)?,
+                    },
+                    row.get::<_, Option<String>>(3)?,
+                ))
             },
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut all_entries = Vec::with_capacity(all_rows.len());
+    let mut titles_by_id = HashMap::with_capacity(all_rows.len());
+    for (entry, title) in all_rows {
+        titles_by_id.insert(entry.id.clone(), title);
+        all_entries.push(entry);
+    }
     if all_entries.is_empty() || !all_entries.iter().any(|entry| entry.id == session_id) {
         return Ok(None);
     }
@@ -3943,8 +4073,17 @@ fn local_session_key_group_entries(
                 .push(entry.id.clone());
         }
     }
+    let entry_by_id = all_entries
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect::<HashMap<_, _>>();
+    let order_by_id = all_entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| (entry.id.as_str(), index))
+        .collect::<HashMap<_, _>>();
     let mut assigned_ids = HashSet::new();
-    let mut grouped_components = Vec::<(HashSet<String>, bool, bool)>::new();
+    let mut grouped_components = Vec::<(HashSet<String>, bool, bool, Option<String>)>::new();
     for seed in &all_entries {
         if assigned_ids.contains(&seed.id) {
             continue;
@@ -3965,10 +4104,11 @@ fn local_session_key_group_entries(
             }
         }
         assigned_ids.extend(component_ids.iter().cloned());
-        let component_entries = all_entries
+        let mut component_entries = component_ids
             .iter()
-            .filter(|entry| component_ids.contains(&entry.id))
+            .filter_map(|id| entry_by_id.get(id.as_str()).copied())
             .collect::<Vec<_>>();
+        component_entries.sort_by_key(|entry| order_by_id.get(entry.id.as_str()).copied().unwrap_or(usize::MAX));
         let has_live_entry = component_entries.iter().any(|entry| entry.end_reason.is_none());
         let is_rootless_component = component_entries
             .first()
@@ -3978,84 +4118,43 @@ fn local_session_key_group_entries(
             .is_some_and(|entry| entry.end_reason.as_deref() == Some("session_switch"));
         let current_component_title = component_entries
             .first()
-            .map(|entry| local_session_title(conn, &entry.id))
-            .transpose()?
+            .and_then(|entry| titles_by_id.get(&entry.id))
+            .cloned()
             .flatten();
         let previous_component_title = grouped_components
             .last()
-            .and_then(|(previous_ids, _, _)| {
-                all_entries
-                    .iter()
-                    .find(|entry| previous_ids.contains(&entry.id))
-            })
-            .map(|entry| local_session_title(conn, &entry.id))
-            .transpose()?
-            .flatten();
+            .and_then(|(_, _, _, title)| title.as_deref());
         let merge_with_previous = is_rootless_component
             && (is_threaded_telegram_topic || session_family_titles_compatible(
                 current_component_title.as_deref(),
-                previous_component_title.as_deref(),
+                previous_component_title,
             ))
-            && grouped_components.last().is_some_and(|(_, previous_has_live, previous_ends_with_switch)| {
-                *previous_has_live || (has_live_entry && *previous_ends_with_switch)
-            });
+            && grouped_components.last().is_some_and(
+                |(_, previous_has_live, previous_ends_with_switch, _)| {
+                    *previous_has_live || (has_live_entry && *previous_ends_with_switch)
+                },
+            );
         if merge_with_previous {
-            let (previous_ids, previous_has_live, previous_ends_with_switch) = grouped_components
+            let (previous_ids, previous_has_live, previous_ends_with_switch, _) = grouped_components
                 .last_mut()
                 .expect("previous component exists when merging");
             previous_ids.extend(component_ids);
             *previous_has_live |= has_live_entry;
             *previous_ends_with_switch = ends_with_session_switch;
         } else {
-            grouped_components.push((component_ids, has_live_entry, ends_with_session_switch));
+            grouped_components.push((component_ids, has_live_entry, ends_with_session_switch, current_component_title));
         }
     }
     let selected_ids = grouped_components
         .into_iter()
-        .find(|(ids, _, _)| ids.contains(session_id))
-        .map(|(ids, _, _)| ids)
+        .find(|(ids, _, _, _)| ids.contains(session_id))
+        .map(|(ids, _, _, _)| ids)
         .unwrap_or_default();
     let entries = all_entries
         .into_iter()
         .filter(|entry| selected_ids.contains(&entry.id))
         .collect::<Vec<_>>();
-    let member_ids = entries
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect::<HashSet<_>>();
-    let live_parents = entries
-        .iter()
-        .filter(|entry| entry.end_reason.is_none())
-        .map(|entry| entry.id.as_str())
-        .collect::<HashSet<_>>();
-    let side_segment_ids = entries
-        .iter()
-        .filter(|entry| {
-            entry
-                .parent_session_id
-                .as_deref()
-                .filter(|parent| member_ids.contains(parent))
-                .is_some_and(|parent| live_parents.contains(parent))
-        })
-        .map(|entry| entry.id.clone())
-        .collect::<HashSet<String>>();
-    if side_segment_ids.contains(session_id) {
-        let requested = entries
-            .iter()
-            .find(|entry| entry.id == session_id)
-            .expect("requested session is a member");
-        return Ok(Some(vec![SessionLineageEntry {
-            id: requested.id.clone(),
-            parent_session_id: requested.parent_session_id.clone(),
-            end_reason: requested.end_reason.clone(),
-        }]));
-    }
-    Ok(Some(
-        entries
-            .into_iter()
-            .filter(|entry| !side_segment_ids.contains(&entry.id))
-            .collect(),
-    ))
+    Ok(Some(local_session_family_without_live_side_entries(entries, session_id)))
 }
 
 fn local_reasoning_select_columns(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
