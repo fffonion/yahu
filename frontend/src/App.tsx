@@ -3635,10 +3635,11 @@ function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessa
     const scroller = chatScrollRef.current;
     if (nav && scroller) nav.style.setProperty('--user-minimap-max-height', `${Math.floor(scroller.clientHeight * 0.75)}px`);
     if (!track) return;
-    setScrollFade({
+    const nextFade = {
       before: track.scrollTop > 1,
       after: track.scrollTop + track.clientHeight < track.scrollHeight - 1,
-    });
+    };
+    setScrollFade((previous) => previous.before === nextFade.before && previous.after === nextFade.after ? previous : nextFade);
   }, [chatScrollRef]);
   const syncMinimapToLatest = useCallback(() => {
     const track = trackRef.current;
