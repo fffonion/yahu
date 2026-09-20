@@ -24,7 +24,8 @@ describe('chat view persistence', () => {
     expect(source).toContain('state.positions[sessionId] = Math.max(0, Number(scrollTop));');
     expect(source).toContain('state.anchors[sessionId] = { id: anchor.id, topOffset: Number.isFinite(anchor.topOffset) ? anchor.topOffset : 0 };');
     expect(source).toContain('writeChatViewState(props.activeSessionId, el.scrollTop, anchor ? { id: anchor.id, topOffset: anchor.topOffset } : null);');
-    expect(source).toContain('const viewportMatchesSaved = !Number.isFinite(savedScrollTop) || Math.abs((chatScrollRef.current?.scrollTop || 0) - Number(savedScrollTop)) <= 2;');
+    expect(source).toContain('const wasNearBottom = !!chatScrollRef.current && isNearBottom(chatScrollRef.current);');
+    expect(source).not.toContain('const viewportMatchesSaved = !Number.isFinite(savedScrollTop)');
   });
 
   test('uses the stored session when the chat route has no explicit session', () => {

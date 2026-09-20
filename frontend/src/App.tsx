@@ -1842,9 +1842,8 @@ export default function App() {
         if (activeSessionIdRef.current !== watchedSessionId) return;
         const raw = JSON.parse(ev.data);
         const msg = normalizeMessage(raw, activeSession?.source);
-        const savedScrollTop = readChatViewPosition(watchedSessionId);
-        const viewportMatchesSaved = !Number.isFinite(savedScrollTop) || Math.abs((chatScrollRef.current?.scrollTop || 0) - Number(savedScrollTop)) <= 2;
-        const wasNearBottom = viewportMatchesSaved && !!chatScrollRef.current && isNearBottom(chatScrollRef.current);
+        if (msg.role === 'user') void loadUserMessageNav(watchedSessionId);
+        const wasNearBottom = !!chatScrollRef.current && isNearBottom(chatScrollRef.current);
         const prev = messagesRef.current;
         const next = sortMessagesInDisplayOrder(mergeWatchedMessage(prev, msg));
         messagesRef.current = next;
@@ -1866,7 +1865,7 @@ export default function App() {
     };
     es.onerror = () => { watchSourceRef.current = null; };
     return () => { es.close(); watchSourceRef.current = null; };
-  }, [activeSession?.source, activeSessionId, clearNewMessages, scheduleContextWindowSnapshot]);
+  }, [activeSession?.source, activeSessionId, clearNewMessages, loadUserMessageNav, scheduleContextWindowSnapshot]);
   useEffect(() => { streamingSessionIdRef.current = streamingSessionId; }, [streamingSessionId]);
   useEffect(() => {
     if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
@@ -2143,6 +2142,7 @@ export default function App() {
     const payloadInput = buildPayload(text, payloadAttachments);
     if (createdSession) setMessages(() => [userMsg, assistantMsg]);
     else setMessages((old) => [...old, userMsg, assistantMsg].slice(-MESSAGE_WINDOW));
+    void loadUserMessageNav(sessionId);
     setHasNewer(false);
     if (clearComposer) { setInput(''); setAttachments([]); }
     setStatus(t('status.running'));
@@ -2227,6 +2227,7 @@ export default function App() {
       setMessages((old) => old.map((m) => m.id === assistantId ? { ...m, pending: false, content: finalText || m.content, reasoning: reasoningText || m.reasoning, timestamp: Date.now() / 1000, turnMetrics: turnMetrics } : m));
       setStatus(t('chat.connected'));
       await refreshSessionTitleOnce(sessionId);
+      await loadUserMessageNav(sessionId);
       await loadWorkspace(workspacePath);
     } catch (err) {
       if (isAbortError(err)) {
@@ -3625,7 +3626,6 @@ function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessa
   const navRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const popupTimerRef = useRef<number | null>(null);
-  const initialMinimapScrollSessionRef = useRef('');
   const isMobileNavigator = useMediaQuery('(max-width: 760px)');
   const [popup, setPopup] = useState<{ item: UserMessageNavItem; top: number } | null>(null);
   const [scrollFade, setScrollFade] = useState({ before: false, after: false });
@@ -3640,6 +3640,12 @@ function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessa
       after: track.scrollTop + track.clientHeight < track.scrollHeight - 1,
     });
   }, [chatScrollRef]);
+  const syncMinimapToLatest = useCallback(() => {
+    const track = trackRef.current;
+    const scroller = chatScrollRef.current;
+    if (track && scroller && isNearBottom(scroller, 220)) track.scrollTop = track.scrollHeight;
+    updateNavigatorMetrics();
+  }, [chatScrollRef, updateNavigatorMetrics]);
   const clearPopupTimer = useCallback(() => {
     if (popupTimerRef.current === null) return;
     window.clearTimeout(popupTimerRef.current);
@@ -3654,31 +3660,28 @@ function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessa
     if (autoHide) popupTimerRef.current = window.setTimeout(() => setPopup(null), 3000);
   }, [clearPopupTimer]);
   useLayoutEffect(() => {
-    updateNavigatorMetrics();
+    syncMinimapToLatest();
     const scroller = chatScrollRef.current;
     const track = trackRef.current;
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateNavigatorMetrics) : null;
-    if (scroller) observer?.observe(scroller);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncMinimapToLatest) : null;
+    if (scroller) {
+      observer?.observe(scroller);
+      scroller.addEventListener('scroll', syncMinimapToLatest, { passive: true });
+    }
     if (track) observer?.observe(track);
-    window.addEventListener('resize', updateNavigatorMetrics);
+    window.addEventListener('resize', syncMinimapToLatest);
     return () => {
       observer?.disconnect();
-      window.removeEventListener('resize', updateNavigatorMetrics);
+      scroller?.removeEventListener('scroll', syncMinimapToLatest);
+      window.removeEventListener('resize', syncMinimapToLatest);
     };
-  }, [chatScrollRef, items.length, updateNavigatorMetrics]);
+  }, [chatScrollRef, syncMinimapToLatest]);
   useLayoutEffect(() => {
-    const track = trackRef.current;
-    if (!track || !items.length || initialMinimapScrollSessionRef.current === sessionId) return;
-    initialMinimapScrollSessionRef.current = sessionId;
-    const scrollBottom = () => {
-      if (initialMinimapScrollSessionRef.current !== sessionId) return;
-      track.scrollTop = track.scrollHeight;
-      updateNavigatorMetrics();
-    };
-    scrollBottom();
-    const frame = window.requestAnimationFrame(scrollBottom);
+    if (!items.length) return;
+    syncMinimapToLatest();
+    const frame = window.requestAnimationFrame(syncMinimapToLatest);
     return () => window.cancelAnimationFrame(frame);
-  }, [items.length, sessionId, updateNavigatorMetrics]);
+  }, [activeIds, items.length, sessionId, syncMinimapToLatest]);
   useEffect(() => () => clearPopupTimer(), [clearPopupTimer]);
   useEffect(() => {
     if (!isMobileNavigator || !popup) return;

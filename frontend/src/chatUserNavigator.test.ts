@@ -115,14 +115,12 @@ describe('chat user message navigator', () => {
     expect(styles).toContain('@media (max-width:760px){.user-minimap-popup{left:28px;width:min(300px,calc(100vw - 48px));max-width:calc(100vw - 48px);padding:9px 10px;border-radius:12px;z-index:3;pointer-events:auto}');
   });
 
-  test('minimap initially scrolls its track to the latest turn on desktop and mobile', () => {
+  test('keeps the minimap at the latest turn while the chat viewport follows latest', () => {
     const source = app();
-    expect(source).toContain("const initialMinimapScrollSessionRef = useRef('');");
-    expect(source).toContain('if (!track || !items.length || initialMinimapScrollSessionRef.current === sessionId) return;');
-    expect(source).toContain('const scrollBottom = () => {');
-    expect(source).toContain('track.scrollTop = track.scrollHeight;');
-    expect(source).toContain('window.requestAnimationFrame(scrollBottom);');
-    expect(source).toContain('initialMinimapScrollSessionRef.current = sessionId;');
+    expect(source).not.toContain("const initialMinimapScrollSessionRef = useRef('');");
+    expect(source).toContain('const syncMinimapToLatest = useCallback(() => {');
+    expect(source).toContain('if (track && scroller && isNearBottom(scroller, 220)) track.scrollTop = track.scrollHeight;');
+    expect(source).toContain('window.requestAnimationFrame(syncMinimapToLatest);');
 
   });
 
@@ -135,10 +133,23 @@ describe('chat user message navigator', () => {
     expect(source).toContain('className={`user-minimap-track${scrollFade.before ? \' can-scroll-before\' : \'\'}${scrollFade.after ? \' can-scroll-after\' : \'\'}`}');
     expect(source).toContain('before: track.scrollTop > 1');
     expect(source).toContain('after: track.scrollTop + track.clientHeight < track.scrollHeight - 1');
-    expect(source).toContain("typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateNavigatorMetrics) : null;");
+    expect(source).toContain("typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncMinimapToLatest) : null;");
     expect(styles).toContain('max-height:var(--user-minimap-max-height,75%)');
     expect(styles).toContain('.user-minimap-track.can-scroll-before');
     expect(styles).toContain('.user-minimap-track.can-scroll-after');
 
+  });
+
+  test('refreshes the user navigator when a local or watched stream adds a user turn', () => {
+    const source = app();
+    expect(source).toContain('void loadUserMessageNav(sessionId);');
+    expect(source).toContain("if (msg.role === 'user') void loadUserMessageNav(watchedSessionId);");
+  });
+
+  test('keeps the minimap at latest only while the chat viewport follows latest', () => {
+    const source = app();
+    expect(source).toContain('isNearBottom(chatScrollRef.current, 220)');
+    expect(source).toContain('track.scrollTop = track.scrollHeight;');
+    expect(source).toContain("scroller.addEventListener('scroll', syncMinimapToLatest, { passive: true });");
   });
 });

@@ -34,4 +34,11 @@ describe('streaming chat scroll follow', () => {
     expect(reasoning).toBeGreaterThan(-1);
     expect(reasoningSource).toContain('scrollWithStream();');
   });
+
+  test('uses the live viewport for watched-stream follow even when persisted scroll is stale', () => {
+    const app = source();
+    expect(app).toContain('const wasNearBottom = !!chatScrollRef.current && isNearBottom(chatScrollRef.current);');
+    expect(app).not.toContain('const viewportMatchesSaved = !Number.isFinite(savedScrollTop)');
+  });
+
 });
