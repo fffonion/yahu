@@ -35,6 +35,8 @@ const STEPFUN_PLAN_USAGE_URL: &str =
     "https://platform.stepfun.com/api/step.openapi.devcenter.Dashboard/QueryStepPlanUsages";
 const STEPFUN_PLAN_RATE_LIMIT_URL: &str =
     "https://platform.stepfun.com/api/step.openapi.devcenter.Dashboard/QueryStepPlanRateLimit";
+const STEPFUN_REFRESH_TOKEN_URL: &str =
+    "https://platform.stepfun.com/passport/proto.api.passport.v1.PassportService/RefreshToken";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct ProviderUsageRow {
@@ -134,9 +136,16 @@ struct ProviderUsagePayload {
 }
 
 #[derive(Default)]
+struct StepFunAuthState {
+    source_fingerprint: String,
+    token: String,
+}
+
+#[derive(Default)]
 struct ProviderUsageCache {
     fetched_at: Arc<RwLock<Option<Instant>>>,
     payload: Arc<RwLock<Option<ProviderUsagePayload>>>,
+    stepfun_auth: Arc<Mutex<Option<StepFunAuthState>>>,
 }
 
 fn provider_env_value(hermes_home: &Path, key: &str) -> String {
@@ -1521,7 +1530,78 @@ fn stepfun_cookie_value(cookie: &str, name: &str) -> Option<String> {
     })
 }
 
-fn stepfun_request_headers(cookie: &str) -> Vec<(String, String)> {
+fn stepfun_token_device_id(token: &str) -> Option<String> {
+    for jwt in token.rsplit("...") {
+        let Some(payload) = jwt.split('.').nth(1) else {
+            continue;
+        };
+        let payload = payload.trim_end_matches('=');
+        let Ok(decoded) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload) else {
+            continue;
+        };
+        let Ok(claims) = serde_json::from_slice::<Value>(&decoded) else {
+            continue;
+        };
+        if let Some(device_id) = claims
+            .get("device_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(device_id.to_string());
+        }
+    }
+    None
+}
+
+fn stepfun_combined_token_from_response(value: &Value) -> Result<String, String> {
+    let raw_token = |name: &str, alternate: &str| {
+        value
+            .get(name)
+            .or_else(|| value.get(alternate))
+            .and_then(|token| {
+                token
+                    .get("raw")
+                    .or_else(|| token.get("value"))
+                    .and_then(Value::as_str)
+                    .or_else(|| token.as_str())
+            })
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string)
+    };
+    let access = raw_token("accessToken", "access_token")
+        .ok_or_else(|| "RefreshToken 响应缺少 access token".to_string())?;
+    let refresh = raw_token("refreshToken", "refresh_token");
+    Ok(refresh
+        .filter(|token| !token.is_empty())
+        .map(|refresh| format!("{access}...{refresh}"))
+        .unwrap_or(access))
+}
+
+fn stepfun_cookie_with_auth(cookie: &str, token: &str, web_id: &str) -> String {
+    let mut parts = vec![format!("Oasis-Token={token}"), format!("Oasis-Webid={web_id}")];
+    parts.extend(cookie.split(';').filter_map(|part| {
+        let trimmed = part.trim();
+        let key = trimmed.split_once('=').map(|(key, _)| key.trim())?;
+        if key.eq_ignore_ascii_case("Oasis-Token") || key.eq_ignore_ascii_case("Oasis-Webid") {
+            return None;
+        }
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    }));
+    parts.join("; ")
+}
+
+fn stepfun_request_headers_for_token(cookie: &str, token: &str) -> Vec<(String, String)> {
+    let cookie_web_id = stepfun_cookie_value(cookie, "Oasis-Webid");
+    let web_id = stepfun_token_device_id(token)
+        .or(cookie_web_id)
+        .unwrap_or_default();
+    let request_cookie = if token.trim().is_empty() {
+        cookie.to_string()
+    } else {
+        stepfun_cookie_with_auth(cookie, token, &web_id)
+    };
     let mut headers = vec![
         ("accept".into(), "*/*".into()),
         (
@@ -1531,7 +1611,7 @@ fn stepfun_request_headers(cookie: &str) -> Vec<(String, String)> {
         ("cache-control".into(), "no-cache".into()),
         ("connect-protocol-version".into(), "1".into()),
         ("content-type".into(), "application/json".into()),
-        ("cookie".into(), cookie.to_string()),
+        ("cookie".into(), request_cookie),
         ("dnt".into(), "1".into()),
         ("oasis-appid".into(), "10300".into()),
         ("oasis-platform".into(), "web".into()),
@@ -1558,10 +1638,137 @@ fn stepfun_request_headers(cookie: &str) -> Vec<(String, String)> {
                 .into(),
         ),
     ];
-    if let Some(web_id) = stepfun_cookie_value(cookie, "Oasis-Webid") {
+    if !web_id.is_empty() {
         headers.push(("oasis-webid".into(), web_id));
     }
+    if !token.trim().is_empty() {
+        headers.push(("oasis-token".into(), token.to_string()));
+    }
     headers
+}
+
+fn stepfun_token_fingerprint(token: &str) -> String {
+    let mut digest = sha2::Sha256::new();
+    digest.update(token.as_bytes());
+    format!("{:x}", digest.finalize())
+}
+
+async fn stepfun_active_token(state: &AppState, source_token: &str) -> String {
+    let source_fingerprint = stepfun_token_fingerprint(source_token);
+    let mut guard = state.provider_usage_cache.stepfun_auth.lock().await;
+    if let Some(auth) = guard.as_ref()
+        && auth.source_fingerprint == source_fingerprint
+        && !auth.token.is_empty()
+    {
+        return auth.token.clone();
+    }
+    let token = source_token.to_string();
+    *guard = Some(StepFunAuthState {
+        source_fingerprint,
+        token: token.clone(),
+    });
+    token
+}
+
+fn stepfun_auth_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("http 401")
+        || error.contains("unauthorized")
+        || error.contains("token expired")
+        || error.contains("session expired")
+        || error.contains("auth failed")
+        || error.contains("oasis-token")
+}
+
+fn stepfun_public_http_error(error: &str) -> String {
+    let Some(rest) = error.strip_prefix("HTTP ") else {
+        return "StepFun 请求失败".to_string();
+    };
+    let Some(status) = rest.split_whitespace().next() else {
+        return "StepFun 请求失败".to_string();
+    };
+    if status.chars().all(|character| character.is_ascii_digit()) {
+        format!("HTTP {status}")
+    } else {
+        "StepFun 请求失败".to_string()
+    }
+}
+
+fn stepfun_result_needs_refresh(result: &Result<Value, String>) -> bool {
+    match result {
+        Err(error) => stepfun_auth_error(error),
+        Ok(value) => {
+            let unauthorized_status = [value.get("status"), value.get("code")]
+                .into_iter()
+                .flatten()
+                .find_map(provider_number)
+                .is_some_and(|code| code == 401.0);
+            unauthorized_status
+                || stepfun_response_status(value)
+                    .err()
+                    .is_some_and(|error| stepfun_auth_error(&error))
+        }
+    }
+}
+
+async fn stepfun_refresh_token(
+    state: &AppState,
+    cookie: &str,
+    source_token: &str,
+    failed_token: &str,
+) -> Result<String, String> {
+    let source_fingerprint = stepfun_token_fingerprint(source_token);
+    let mut guard = state.provider_usage_cache.stepfun_auth.lock().await;
+    if let Some(auth) = guard.as_ref()
+        && auth.source_fingerprint == source_fingerprint
+        && auth.token != failed_token
+        && !auth.token.is_empty()
+    {
+        return Ok(auth.token.clone());
+    }
+
+    let headers = stepfun_request_headers_for_token(cookie, failed_token);
+    let response = provider_http_post_json(
+        &state.client,
+        STEPFUN_REFRESH_TOKEN_URL,
+        serde_json::json!({}),
+        &headers,
+    )
+    .await
+    .map_err(|_| "StepFun token 刷新请求失败".to_string())?;
+    let token = stepfun_combined_token_from_response(&response)
+        .map_err(|_| "StepFun token 刷新响应无有效 token".to_string())?;
+    if token == failed_token {
+        return Err("StepFun token 刷新未返回新 token".to_string());
+    }
+    *guard = Some(StepFunAuthState {
+        source_fingerprint,
+        token: token.clone(),
+    });
+    Ok(token)
+}
+
+async fn stepfun_post_json_with_refresh(
+    state: &AppState,
+    cookie: &str,
+    source_token: &str,
+    url: &str,
+    body: Value,
+) -> Result<Value, String> {
+    let token = stepfun_active_token(state, source_token).await;
+    let headers = stepfun_request_headers_for_token(cookie, &token);
+    let result = provider_http_post_json(&state.client, url, body.clone(), &headers).await;
+    if !stepfun_result_needs_refresh(&result) {
+        return result.map_err(|error| stepfun_public_http_error(&error));
+    }
+
+    let refreshed = stepfun_refresh_token(state, cookie, source_token, &token).await?;
+    let retry_headers = stepfun_request_headers_for_token(cookie, &refreshed);
+    let retry = provider_http_post_json(&state.client, url, body, &retry_headers).await;
+    if stepfun_result_needs_refresh(&retry) {
+        return Err("StepFun token 刷新后仍未授权".to_string());
+    }
+    retry.map_err(|error| stepfun_public_http_error(&error))
 }
 
 fn stepfun_current_month_range_millis() -> (i64, i64) {
@@ -1866,7 +2073,13 @@ async fn fetch_stepfun_usage(state: &AppState) -> ProviderUsageSection {
         section.errors.push("缺少 STEPFUN_COOKIE（网页 Cookie）".into());
         return section;
     }
-    let headers = stepfun_request_headers(&cookie);
+    let source_token = match stepfun_cookie_value(&cookie, "Oasis-Token") {
+        Some(token) => token,
+        None => {
+            section.errors.push("Cookie 缺少 Oasis-Token".into());
+            return section;
+        }
+    };
     let (start_time, to_time) = stepfun_current_month_range_millis();
     const PAGE_SIZE: usize = 100;
     const MAX_PAGES: usize = 100;
@@ -1880,18 +2093,21 @@ async fn fetch_stepfun_usage(state: &AppState) -> ProviderUsageSection {
         })
     };
 
-    let rate_request = provider_http_post_json(
-        &state.client,
+    let rate_request = stepfun_post_json_with_refresh(
+        state,
+        &cookie,
+        &source_token,
         STEPFUN_PLAN_RATE_LIMIT_URL,
         serde_json::json!({}),
-        &headers,
     );
-    let first_usage_request = provider_http_post_json(
-        &state.client,
+    let first_usage_request = stepfun_post_json_with_refresh(
+        state,
+        &cookie,
+        &source_token,
         STEPFUN_PLAN_USAGE_URL,
         usage_body(1),
-        &headers,
     );
+
     let (rate_result, first_usage_result) = tokio::join!(rate_request, first_usage_request);
     let plan = match rate_result {
         Ok(value) => match stepfun_plan_rate_limit_response(&value) {
@@ -1916,11 +2132,12 @@ async fn fetch_stepfun_usage(state: &AppState) -> ProviderUsageSection {
                 .take()
                 .expect("StepFun first usage response is available")
         } else {
-            provider_http_post_json(
-                &state.client,
+            stepfun_post_json_with_refresh(
+                state,
+                &cookie,
+                &source_token,
                 STEPFUN_PLAN_USAGE_URL,
                 usage_body(page),
-                &headers,
             )
             .await
         };

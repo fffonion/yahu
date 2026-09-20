@@ -645,7 +645,10 @@ mod provider_usage_tests {
 
     #[test]
     fn stepfun_request_headers_match_browser_rpc_requirements() {
-        let headers = stepfun_request_headers("Oasis-Webid=web-id; Oasis-Token=[REDACTED]");
+        let headers = stepfun_request_headers_for_token(
+            "Oasis-Webid=web-id; Oasis-Token=[REDACTED]",
+            "[REDACTED]",
+        );
         let names = headers
             .iter()
             .map(|(name, _)| name.as_str())
@@ -675,13 +678,64 @@ mod provider_usage_tests {
         ] {
             assert!(names.contains(name), "missing StepFun header: {name}");
         }
-        assert!(headers.iter().any(|(name, value)| name == "cookie"
-            && value == "Oasis-Webid=web-id; Oasis-Token=[REDACTED]"));
+        assert!(headers.iter().any(|(name, value)| {
+            name == "cookie"
+                && value.contains("Oasis-Webid=web-id")
+                && value.contains("Oasis-Token=[REDACTED]")
+        }));
         assert!(headers
             .iter()
             .any(|(name, value)| name == "oasis-webid" && value == "web-id"));
+        assert!(headers
+            .iter()
+            .any(|(name, value)| name == "oasis-token" && value == "[REDACTED]"));
     }
 
+    #[test]
+    fn stepfun_browser_token_uses_refresh_device_id_and_auth_headers() {
+        use base64::Engine as _;
+
+        let jwt = |device_id: &str| {
+            let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+                serde_json::json!({"device_id": device_id}).to_string(),
+            );
+            format!("header.{payload}.signature")
+        };
+        let access = jwt("access-device");
+        let refresh = jwt("refresh-device");
+        let token = format!("{access}...{refresh}");
+        let headers = stepfun_request_headers_for_token(
+            "INGRESSCOOKIE=opaque; Oasis-Webid=stale-device; other=value",
+            &token,
+        );
+
+        assert_eq!(stepfun_token_device_id(&token), Some("refresh-device".into()));
+        assert!(headers.iter().any(|(name, value)| {
+            name == "oasis-webid" && value == "refresh-device"
+        }));
+        assert!(headers.iter().any(|(name, value)| {
+            name == "oasis-token" && value == &token
+        }));
+        let cookie = headers
+            .iter()
+            .find(|(name, _)| name == "cookie")
+            .map(|(_, value)| value)
+            .unwrap();
+        assert!(cookie.contains("Oasis-Webid=refresh-device"));
+        assert!(cookie.contains(&format!("Oasis-Token={token}")));
+        assert!(!cookie.contains("Oasis-Webid=stale-device"));
+    }
+
+    #[test]
+    fn stepfun_refresh_response_rebuilds_access_refresh_pair() {
+        let response = serde_json::json!({
+            "status": 1,
+            "accessToken": {"raw": "[REDACTED]"},
+            "refreshToken": {"raw": "[REDACTED]"}
+        });
+        let expected = "[REDACTED]...[REDACTED]";
+        assert_eq!(stepfun_combined_token_from_response(&response).unwrap(), expected);
+    }
     #[test]
     fn stepfun_usage_section_shows_today_summary_and_plan_percent() {
         let now = chrono::DateTime::parse_from_rfc3339("2026-09-20T12:00:00Z")
