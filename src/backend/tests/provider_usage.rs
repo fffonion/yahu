@@ -622,12 +622,16 @@ mod provider_usage_tests {
             "STEPFUN_API_KEY=[REDACTED]\n",
         )
         .unwrap();
+        let process_cookie = first_provider_env_value(
+            std::path::Path::new("/path/that/does/not/exist"),
+            &["STEPFUN_COOKIE", "STEPFUN_WEB_COOKIE"],
+        );
         let provider = provider_usage_catalog(temp.path())
             .into_iter()
             .find(|item| item.provider == "stepfun")
             .unwrap();
         assert!(provider.configured);
-        assert!(!provider.query_ready);
+        assert_eq!(provider.query_ready, !process_cookie.is_empty());
         assert!(provider.setup_hint.contains("网页 Cookie"));
     }
 
@@ -642,7 +646,7 @@ mod provider_usage_tests {
     #[test]
     fn stepfun_usage_response_aggregates_calls_credit_and_time_ranges() {
         let response = serde_json::json!({
-            "status": 0,
+            "status": 1,
             "desc": "ok",
             "total": 3,
             "records": [

@@ -1555,8 +1555,15 @@ fn stepfun_response_records(value: &Value) -> Result<(Vec<Value>, usize), String
         None => true,
         Some(status) => status
             .as_i64()
-            .map(|code| code == 0)
-            .or_else(|| status.as_str().map(|text| text.eq_ignore_ascii_case("OK")))
+            .map(|code| code == 1)
+            .or_else(|| {
+                status.as_str().map(|text| {
+                    matches!(
+                        text.to_ascii_uppercase().as_str(),
+                        "OK" | "SUCCESS" | "STATUS_OK" | "STATUS_SUCCESS"
+                    )
+                })
+            })
             .unwrap_or(false),
     };
     if !status_ok {
