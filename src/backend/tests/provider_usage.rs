@@ -12,6 +12,10 @@ mod provider_usage_tests {
             Some("https://www.google.com/s2/favicons?domain=openrouter.ai&sz=64".to_string())
         );
         assert_eq!(
+            provider_icon_url("stepfun"),
+            Some("https://www.google.com/s2/favicons?domain=stepfun.com&sz=64".to_string())
+        );
+        assert_eq!(
             provider_icon_url("custom-provider"),
             Some("https://www.google.com/s2/favicons?domain=custom-provider&sz=64".to_string())
         );
@@ -471,7 +475,7 @@ mod provider_usage_tests {
         let providers = json["providers"].as_array().unwrap();
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0]["provider"], "openrouter");
-        assert_eq!(providers.len(), 12);
+        assert_eq!(providers.len(), provider_usage_catalog(temp.path()).len());
     }
 
     #[test]
@@ -608,5 +612,63 @@ mod provider_usage_tests {
             cached_newapi_quota_per_unit(&state, "agentrouter", 1_800_000_001.0),
             Some(500_000.0)
         );
+    }
+
+    #[test]
+    fn stepfun_catalog_requires_web_cookie_for_query_ready() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(".env"),
+            "STEPFUN_API_KEY=[REDACTED]\n",
+        )
+        .unwrap();
+        let provider = provider_usage_catalog(temp.path())
+            .into_iter()
+            .find(|item| item.provider == "stepfun")
+            .unwrap();
+        assert!(provider.configured);
+        assert!(!provider.query_ready);
+        assert!(provider.setup_hint.contains("网页 Cookie"));
+    }
+
+    #[test]
+    fn stepfun_cookie_webid_is_extracted_without_normalizing_the_cookie() {
+        let cookie = "INGRESSCOOKIE=opaque; Oasis-Webid=web-id-value; Oasis-Token=token-value";
+        assert_eq!(stepfun_cookie_value(cookie, "Oasis-Webid"), Some("web-id-value".into()));
+        assert_eq!(stepfun_cookie_value(cookie, "Oasis-Token"), Some("token-value".into()));
+        assert_eq!(stepfun_cookie_value(cookie, "Missing"), None);
+    }
+
+    #[test]
+    fn stepfun_usage_response_aggregates_calls_credit_and_time_ranges() {
+        let response = serde_json::json!({
+            "status": 0,
+            "desc": "ok",
+            "total": 3,
+            "records": [
+                {"fromTime": "1700000000000", "toTime": "1700003600000", "modelId": "step-1", "calls": "3", "creditConsumed": "1.25", "modelType": 1},
+                {"fromTime": 1700003600000_i64, "toTime": 1700007200000_i64, "modelId": "step-1", "calls": 2, "creditConsumed": 0.75, "modelType": 1},
+                {"fromTime": 1700000000000_i64, "toTime": 1700007200000_i64, "modelId": "step-2", "calls": 1, "creditConsumed": 9.5, "modelType": 2}
+            ]
+        });
+        let (records, total) = stepfun_response_records(&response).unwrap();
+        let section = stepfun_usage_section_from_records(&records, total);
+        assert_eq!(section.provider, "stepfun");
+        assert_eq!(section.description, "本月 Credit：11.50；调用次数：6；记录：3");
+        assert_eq!(section.windows[0].used.as_deref(), Some("11.50"));
+        assert_eq!(section.rows[0].label, "step-2");
+        assert_eq!(section.rows[0].input.as_deref(), Some("1"));
+        assert_eq!(section.rows[0].output.as_deref(), Some("9.50"));
+        assert_eq!(section.rows[0].cost_or_pct.as_deref(), Some("2"));
+        assert_eq!(section.rows[1].input.as_deref(), Some("5"));
+        assert_eq!(section.rows[1].output.as_deref(), Some("2.00"));
+        assert!(section.rows[1].hit_rate.as_deref().unwrap().contains("11-14"));
+    }
+
+    #[test]
+    fn stepfun_nonzero_status_is_reported_without_exposing_response_data() {
+        let response = serde_json::json!({"status": 7, "desc": "session expired", "records": []});
+        let error = stepfun_response_records(&response).unwrap_err();
+        assert_eq!(error, "session expired");
     }
 }
