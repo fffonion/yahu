@@ -119,7 +119,7 @@ describe('chat user message navigator', () => {
     const source = app();
     expect(source).not.toContain("const initialMinimapScrollSessionRef = useRef('');");
     expect(source).toContain('const syncMinimapToLatest = useCallback(() => {');
-    expect(source).toContain('if (track && scroller && isNearBottom(scroller, 220)) track.scrollTop = track.scrollHeight;');
+    expect(source).toContain('if (track && scroller && shouldSyncMinimapToLatest(getStreamFollowMode(), scroller)) track.scrollTop = track.scrollHeight;');
     expect(source).toContain('window.requestAnimationFrame(() => {');
     expect(source).toContain('scrollActiveNavigatorIntoView();');
 
@@ -159,10 +159,14 @@ describe('chat user message navigator', () => {
     expect(source).toContain('new ResizeObserver(updateActiveNavigatorIds)');
   });
 
-  test('keeps the minimap at latest only while the chat viewport follows latest', () => {
+  test('keeps the minimap at latest only while the shared session follow mode allows it', () => {
     const source = app();
-    expect(source).toContain('if (track && scroller && isNearBottom(scroller, 220)) track.scrollTop = track.scrollHeight;');
+    expect(source).toContain('if (track && scroller && shouldSyncMinimapToLatest(getStreamFollowMode(), scroller)) track.scrollTop = track.scrollHeight;');
     expect(source).toContain('track.scrollTop = track.scrollHeight;');
-    expect(source).toContain("scroller.addEventListener('scroll', syncMinimapToLatest, { passive: true });");
+    expect(source).not.toContain("scroller.addEventListener('scroll', syncMinimapToLatest, { passive: true });");
+    expect(source).toContain("if (activeSessionIdRef.current === sessionId) {\n      cancelChatViewRestore();\n      pendingHistoryScrollAnchorRef.current = null;\n      applyStreamFollowIntent('away');");
+    expect(source).toContain('getStreamFollowMode={getActiveStreamFollowMode}');
+    expect(source).toContain("cancelLatestViewportScroll();\n    props.onStreamFollowIntent('away');\n    return props.onJumpToMessage(sessionId, messageId);");
+    expect(source).toContain('onJumpToMessage={jumpToHistoryMessage}');
   });
 });

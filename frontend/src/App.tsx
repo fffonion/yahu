@@ -21,7 +21,7 @@ import { mergeTurnMetrics, normalizeChatMessage, readTurnMetrics } from './chatM
 import { normalizeMessageParts } from './messageReasoning';
 import { isEmptyDelegateToolCallMessage, visibleChatMessages } from './messageVisibility';
 import { type TurnDetailMetadata } from './turnDetails';
-import { shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel, streamFollowIntentAfterScroll, type StreamFollowIntent } from './chatHistoryScroll';
+import { matchesProgrammaticChatScroll, sessionStreamFollowMode, shouldAutoLoadOlderForHiddenHistory, shouldLoadNewerFromScroll, shouldLoadOlderFromScroll, shouldLoadOlderFromWheel, shouldSyncMinimapToLatest, streamFollowIntentAfterScroll, type ProgrammaticChatScroll, type SessionStreamFollowState, type StreamFollowIntent, type StreamFollowMode } from './chatHistoryScroll';
 import { captureMessageScrollAnchor, restoreMessageScrollAnchor, type MessageScrollAnchor } from './chatScrollAnchor';
 import { mergeMessageWindow, sortMessagesInDisplayOrder } from './chatMessageWindow';
 import { backfillOlderChunkToTurnBoundary, normalizeChatHistoryChunk, numericHistoryMessageId, type ChatHistoryPageRaw } from './chatHistoryPage';
@@ -712,7 +712,11 @@ export default function App() {
   const pinnedSessionTitlesRef = useRef<Record<string, string>>(readPinnedSessionTitles());
   const routeEventHashRef = useRef('');
   const scrollLatestAfterRenderRef = useRef<{ sessionId: string; mode: 'follow' | 'restore' } | null>(null);
-  const chatViewportFollowRef = useRef<{ sessionId: string; mode: 'auto' | 'follow' | 'away' }>({ sessionId: activeSessionId, mode: 'auto' });
+  const chatViewRestoreGenerationRef = useRef(0);
+  const chatViewRestoreDisposeRef = useRef<(() => void) | null>(null);
+  const chatViewRestoreScrollRef = useRef<ProgrammaticChatScroll | null>(null);
+  const chatViewRestoreScrollTokenRef = useRef(0);
+  const chatViewportFollowRef = useRef<SessionStreamFollowState>({ sessionId: activeSessionId, mode: 'auto' });
   const pendingHistoryScrollAnchorRef = useRef<{ sessionId: string; anchor: MessageScrollAnchor } | null>(null);
   const pendingJumpMessageIdRef = useRef('');
   const titleRefreshDoneRef = useRef<Set<string>>(new Set());
@@ -741,15 +745,33 @@ export default function App() {
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
   useEffect(() => { writeChatViewState(activeSessionId); }, [activeSessionId]);
   useEffect(() => () => { if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current); }, []);
+  const cancelChatViewRestore = useCallback(() => {
+    chatViewRestoreGenerationRef.current += 1;
+    chatViewRestoreScrollRef.current = null;
+    const dispose = chatViewRestoreDisposeRef.current;
+    chatViewRestoreDisposeRef.current = null;
+    dispose?.();
+  }, []);
+  const consumeChatViewRestoreScroll = useCallback((sessionId: string, scrollTop: number): boolean => {
+    const target = chatViewRestoreScrollRef.current;
+    if (!target) return false;
+    chatViewRestoreScrollRef.current = null;
+    return matchesProgrammaticChatScroll(target, sessionId, scrollTop);
+  }, []);
   const prepareLatestFollow = useCallback(() => {
+    cancelChatViewRestore();
     chatViewportFollowRef.current = { sessionId: activeSessionId, mode: 'follow' };
     scrollLatestAfterRenderRef.current = { sessionId: activeSessionId, mode: 'follow' };
-  }, [activeSessionId]);
+  }, [activeSessionId, cancelChatViewRestore]);
   const applyStreamFollowIntent = useCallback((intent: Exclude<StreamFollowIntent, null>) => {
+    if (intent === 'follow') cancelChatViewRestore();
     chatViewportFollowRef.current = { sessionId: activeSessionId, mode: intent };
     const pendingScroll = scrollLatestAfterRenderRef.current;
-    if (intent === 'away' && pendingScroll?.sessionId === activeSessionId && pendingScroll.mode === 'follow') scrollLatestAfterRenderRef.current = null;
-  }, [activeSessionId]);
+    if (intent === 'away' && pendingScroll?.sessionId === activeSessionId) scrollLatestAfterRenderRef.current = null;
+  }, [activeSessionId, cancelChatViewRestore]);
+  const streamFollowModeForSession = useCallback((sessionId: string): StreamFollowMode => {
+    return sessionStreamFollowMode(chatViewportFollowRef.current, sessionId);
+  }, []);
   const showToast = useCallback((message: string) => {
     if (!message) return;
     setToastMessage(message);
@@ -1474,6 +1496,11 @@ export default function App() {
 
   const jumpToMessage = useCallback(async (sessionId: string, messageId: string) => {
     if (!sessionId || !messageId || sessionId === DRAFT_SESSION_ID) return;
+    if (activeSessionIdRef.current === sessionId) {
+      cancelChatViewRestore();
+      pendingHistoryScrollAnchorRef.current = null;
+      applyStreamFollowIntent('away');
+    }
     const targetId = String(messageId);
     const existing = document.querySelector(`[data-message-id="${CSS.escape(targetId)}"]`);
     if (existing) {
@@ -1509,7 +1536,7 @@ export default function App() {
         setLoadingMessages(false);
       }
     }
-  }, [activeSession?.source, updateSessionBoundaryTimes, updateSessionMessageCount]);
+  }, [activeSession?.source, applyStreamFollowIntent, cancelChatViewRestore, updateSessionBoundaryTimes, updateSessionMessageCount]);
 
   const fetchWorkspaceEntries = useCallback(async (path = '') => {
     const res = await fetch(`/workspace/list?path=${encodeURIComponent(path || '')}`);
@@ -1949,11 +1976,12 @@ export default function App() {
     };
   }, [sessionMenu, skillMenu, skillFileMenu, workspaceMenu]);
   useLayoutEffect(() => {
+    const restoreGeneration = ++chatViewRestoreGenerationRef.current;
     const pendingScroll = scrollLatestAfterRenderRef.current;
     const scrollMode = pendingScroll?.sessionId === activeSessionId ? pendingScroll.mode : false;
     if (pendingScroll) scrollLatestAfterRenderRef.current = null;
     const scroller = chatScrollRef.current;
-    if (!scroller) return;
+    if (!scroller || pendingJumpMessageIdRef.current) return;
     const pendingHistoryScroll = pendingHistoryScrollAnchorRef.current;
     const pendingAnchor = pendingHistoryScroll?.sessionId === activeSessionId ? pendingHistoryScroll.anchor : readChatViewAnchor(activeSessionId);
     const savedTop = readChatViewPosition(activeSessionId);
@@ -1962,18 +1990,29 @@ export default function App() {
     let disposed = false;
     let resizeFrame: number | null = null;
     const followLatestUntilLayoutSettles = scrollMode === 'follow' || (scrollMode === 'restore' && !pendingAnchor && !Number.isFinite(savedTop));
+    const rememberRestoredPosition = (previousTop: number) => {
+      if (Math.abs(scroller.scrollTop - previousTop) <= 0.01) return;
+      const token = ++chatViewRestoreScrollTokenRef.current;
+      chatViewRestoreScrollRef.current = { sessionId: activeSessionId, scrollTop: scroller.scrollTop, generation: restoreGeneration, token };
+      window.requestAnimationFrame(() => {
+        if (chatViewRestoreScrollRef.current?.token === token) chatViewRestoreScrollRef.current = null;
+      });
+    };
     const restorePosition = () => {
-      if (disposed) return;
+      if (disposed || chatViewRestoreGenerationRef.current !== restoreGeneration) return;
+      if (sessionStreamFollowMode(chatViewportFollowRef.current, activeSessionId) === 'away') return;
       attempts += 1;
       if (followLatestUntilLayoutSettles) {
-        const followState = chatViewportFollowRef.current;
-        if (followState.sessionId === activeSessionId && followState.mode === 'away') return;
+        const previousTop = scroller.scrollTop;
         scroller.scrollTop = scroller.scrollHeight;
+        rememberRestoredPosition(previousTop);
         return;
       }
       // Try the saved anchor only when the viewport is being restored; streaming
       // follow must win so late layout changes cannot pull the view upward.
+      const previousTop = scroller.scrollTop;
       if (pendingAnchor && restoreMessageScrollAnchor(scroller, pendingAnchor)) {
+        rememberRestoredPosition(previousTop);
         if (anchorRestored) return;
         anchorRestored = true;
         pendingHistoryScrollAnchorRef.current = null;
@@ -1987,6 +2026,7 @@ export default function App() {
       } else {
         scroller.scrollTop = scroller.scrollHeight;
       }
+      rememberRestoredPosition(previousTop);
     };
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
       if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
@@ -2004,13 +2044,20 @@ export default function App() {
     const secondTimer = window.setTimeout(restorePosition, 300);
     const timers = [firstTimer, secondTimer, window.setTimeout(restorePosition, 600)];
     const finalTimer = window.setTimeout(restorePosition, 1200);
-    return () => {
+    const disposeRestore = () => {
+      if (disposed) return;
       disposed = true;
+      if (chatViewRestoreScrollRef.current?.generation === restoreGeneration) chatViewRestoreScrollRef.current = null;
       window.cancelAnimationFrame(frame);
       if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
       timers.forEach((timer) => window.clearTimeout(timer));
       window.clearTimeout(finalTimer);
       resizeObserver?.disconnect();
+    };
+    chatViewRestoreDisposeRef.current = disposeRestore;
+    return () => {
+      if (chatViewRestoreDisposeRef.current === disposeRestore) chatViewRestoreDisposeRef.current = null;
+      disposeRestore();
     };
   }, [messages, activeSessionId]);
   useLayoutEffect(() => {
@@ -2570,7 +2617,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} prepareLatestFollow={prepareLatestFollow} onStreamFollowIntent={applyStreamFollowIntent} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} />
+        <ChatMain sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} prepareLatestFollow={prepareLatestFollow} onStreamFollowIntent={applyStreamFollowIntent} getStreamFollowMode={streamFollowModeForSession} consumeChatViewRestoreScroll={consumeChatViewRestoreScroll} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} />
         <WorkspaceAside rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => { setMode('workspace'); setSidebarCollapsed(false); writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path }); setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path }); }} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -3667,7 +3714,7 @@ function activeNavigatorIdsForVisibleRange(scroller: HTMLElement | null, items: 
   return active;
 }
 
-function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessage, chatScrollRef }: { items: UserMessageNavItem[]; loading: boolean; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>; chatScrollRef: React.RefObject<HTMLElement | null> }) {
+function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessage, chatScrollRef, getStreamFollowMode }: { items: UserMessageNavItem[]; loading: boolean; sessionId: string; activeIds: Set<string>; onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>; chatScrollRef: React.RefObject<HTMLElement | null>; getStreamFollowMode: () => StreamFollowMode }) {
   const navRef = useRef<HTMLElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const popupTimerRef = useRef<number | null>(null);
@@ -3689,9 +3736,9 @@ function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessa
   const syncMinimapToLatest = useCallback(() => {
     const track = trackRef.current;
     const scroller = chatScrollRef.current;
-    if (track && scroller && isNearBottom(scroller, 220)) track.scrollTop = track.scrollHeight;
+    if (track && scroller && shouldSyncMinimapToLatest(getStreamFollowMode(), scroller)) track.scrollTop = track.scrollHeight;
     updateNavigatorMetrics();
-  }, [chatScrollRef, updateNavigatorMetrics]);
+  }, [chatScrollRef, getStreamFollowMode, updateNavigatorMetrics]);
   const scrollActiveNavigatorIntoView = useCallback(() => {
     const track = trackRef.current;
     if (!track || !activeIds.size) return;
@@ -3727,13 +3774,11 @@ function ChatUserNavigator({ items, loading, sessionId, activeIds, onJumpToMessa
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncMinimapLayout) : null;
     if (scroller) {
       observer?.observe(scroller);
-      scroller.addEventListener('scroll', syncMinimapToLatest, { passive: true });
     }
     if (track) observer?.observe(track);
     window.addEventListener('resize', syncMinimapLayout);
     return () => {
       observer?.disconnect();
-      scroller?.removeEventListener('scroll', syncMinimapToLatest);
       window.removeEventListener('resize', syncMinimapLayout);
     };
   }, [chatScrollRef, syncMinimapLayout, syncMinimapToLatest]);
@@ -3791,6 +3836,8 @@ type ChatMainProps = {
   onJumpToMessage: (sessionId: string, messageId: string) => void | Promise<void>;
   prepareLatestFollow: () => void;
   onStreamFollowIntent: (intent: Exclude<StreamFollowIntent, null>) => void;
+  getStreamFollowMode: (sessionId: string) => StreamFollowMode;
+  consumeChatViewRestoreScroll: (sessionId: string, scrollTop: number) => boolean;
   contextWindowSnapshot: ContextWindowSnapshot | null;
   showReasoning: boolean;
   setShowReasoning: React.Dispatch<React.SetStateAction<boolean>>;
@@ -3846,10 +3893,11 @@ function ChatMain(props: ChatMainProps) {
   const isSmallLandscape = useMediaQuery('(min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [statusBarCollapseToken, setStatusBarCollapseToken] = useState(0);
-  const previousChatScrollTopRef = useRef<number | null>(null);
+  const previousChatScrollTopRef = useRef<{ sessionId: string; scrollTop: number } | null>(null);
   const latestScrollGenerationRef = useRef(0);
   const latestScrollSessionRef = useRef(props.activeSessionId);
   const latestScrollHandlesRef = useRef<{ frame: number | null; timers: number[] }>({ frame: null, timers: [] });
+  const getActiveStreamFollowMode = useCallback(() => props.getStreamFollowMode(props.activeSessionId), [props.activeSessionId, props.getStreamFollowMode]);
   const cancelLatestViewportScroll = useCallback(() => {
     latestScrollGenerationRef.current += 1;
     const handles = latestScrollHandlesRef.current;
@@ -3857,8 +3905,20 @@ function ChatMain(props: ChatMainProps) {
     handles.timers.forEach((timer) => window.clearTimeout(timer));
     latestScrollHandlesRef.current = { frame: null, timers: [] };
   }, []);
+  const jumpToHistoryMessage = useCallback((sessionId: string, messageId: string) => {
+    cancelLatestViewportScroll();
+    props.onStreamFollowIntent('away');
+    return props.onJumpToMessage(sessionId, messageId);
+  }, [cancelLatestViewportScroll, props.onJumpToMessage, props.onStreamFollowIntent]);
   useLayoutEffect(() => {
-    previousChatScrollTopRef.current = props.chatScrollRef.current?.scrollTop ?? null;
+    previousChatScrollTopRef.current = null;
+    const sessionId = props.activeSessionId;
+    const baselineFrame = window.requestAnimationFrame(() => {
+      if (latestScrollSessionRef.current !== sessionId) return;
+      const scroller = props.chatScrollRef.current;
+      if (scroller) previousChatScrollTopRef.current = { sessionId, scrollTop: scroller.scrollTop };
+    });
+    return () => window.cancelAnimationFrame(baselineFrame);
   }, [props.activeSessionId, props.chatScrollRef]);
   useLayoutEffect(() => {
     latestScrollSessionRef.current = props.activeSessionId;
@@ -3979,8 +4039,13 @@ function ChatMain(props: ChatMainProps) {
   const subagentBeforeTime = subagentWindow.sessionId === props.activeSessionId ? subagentWindow.beforeTime : null;
   const onScroll = (e: React.UIEvent<HTMLElement>) => {
     const el = e.currentTarget;
-    const followIntent = streamFollowIntentAfterScroll(previousChatScrollTopRef.current, el);
-    previousChatScrollTopRef.current = el.scrollTop;
+    const previousScroll = previousChatScrollTopRef.current;
+    const restoredScroll = props.consumeChatViewRestoreScroll(props.activeSessionId, el.scrollTop);
+    const followIntent = restoredScroll ? null : streamFollowIntentAfterScroll(
+      previousScroll?.sessionId === props.activeSessionId ? previousScroll.scrollTop : null,
+      el,
+    );
+    previousChatScrollTopRef.current = { sessionId: props.activeSessionId, scrollTop: el.scrollTop };
     if (followIntent === 'away') cancelLatestViewportScroll();
     if (followIntent) props.onStreamFollowIntent(followIntent);
     const anchor = captureMessageScrollAnchor(el);
@@ -4182,7 +4247,7 @@ function ChatMain(props: ChatMainProps) {
   return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}`}>
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span className={`chat-total-count${props.historyTotal === null ? ' loading' : ''}`} aria-busy={props.historyTotal === null}>{props.messages.length || 0} loaded · <span>{props.historyTotal ?? '—'} total</span></span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div><div className="chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>
         <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
-    <ChatUserNavigator items={props.userMessageNav || []} loading={props.userNavLoading} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={props.onJumpToMessage} chatScrollRef={props.chatScrollRef} />
+    <ChatUserNavigator items={props.userMessageNav || []} loading={props.userNavLoading} sessionId={props.activeSessionId} activeIds={activeNavigatorIds} onJumpToMessage={jumpToHistoryMessage} chatScrollRef={props.chatScrollRef} getStreamFollowMode={getActiveStreamFollowMode} />
     <div className="subagent-progress-overlay" onWheel={onStatusOverlayWheel}><SubagentProgressStack sessionId={props.activeSessionId} beforeTime={subagentBeforeTime} showReasoning={props.showReasoning} showToolCalls={props.showToolCalls} compact={props.desktopCompactMessages} collapseToken={statusBarCollapseToken} /></div>
     <section className="chat-scroll" ref={props.chatScrollRef} onScroll={onScroll} onClick={onChatAreaClick} onPointerDown={collapseComposerForHistory} onTouchStart={collapseComposerForHistory} onWheel={onWheel}>
       {props.loadingMessages && <div className="history-loading" aria-live="polite">{t('chat.loadingHistory')}</div>}

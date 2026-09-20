@@ -46,9 +46,14 @@ describe('streaming chat scroll follow', () => {
   test('cancels immediate and delayed follow as soon as the user scrolls upward', () => {
     const app = source();
     expect(app).toContain('if (e.deltaY < 0) {');
-    expect(app).toContain('previousChatScrollTopRef.current = props.chatScrollRef.current?.scrollTop ?? null;');
-    expect(app).toContain("if (intent === 'away' && pendingScroll?.sessionId === activeSessionId && pendingScroll.mode === 'follow') scrollLatestAfterRenderRef.current = null;");
-    expect(app).toContain("if (followState.sessionId === activeSessionId && followState.mode === 'away') return;");
+    expect(app).toContain('previousChatScrollTopRef.current = null;');
+    expect(app).toContain('const baselineFrame = window.requestAnimationFrame(() => {');
+    expect(app).toContain('previousChatScrollTopRef.current = { sessionId, scrollTop: scroller.scrollTop };');
+    expect(app).toContain('const restoredScroll = props.consumeChatViewRestoreScroll(props.activeSessionId, el.scrollTop);');
+    expect(app).toContain('const followIntent = restoredScroll ? null : streamFollowIntentAfterScroll(');
+    expect(app).toContain('previousScroll?.sessionId === props.activeSessionId ? previousScroll.scrollTop : null');
+    expect(app).toContain("if (intent === 'away' && pendingScroll?.sessionId === activeSessionId) scrollLatestAfterRenderRef.current = null;");
+    expect(app).toContain("if (sessionStreamFollowMode(chatViewportFollowRef.current, activeSessionId) === 'away') return;");
     expect(app).toContain("if (followState.sessionId !== sessionId || followState.mode !== 'follow') return;");
   });
 
@@ -62,7 +67,7 @@ describe('streaming chat scroll follow', () => {
   test('invalidates queued layout and latest-jump scroll callbacks', () => {
     const app = source();
     expect(app).toContain('let disposed = false;');
-    expect(app).toContain('if (disposed) return;');
+    expect(app).toContain('if (disposed || chatViewRestoreGenerationRef.current !== restoreGeneration) return;');
     expect(app).toContain('if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);');
     expect(app).toContain('const latestScrollGenerationRef = useRef(0);');
     expect(app).toContain('const latestScrollHandlesRef = useRef<{ frame: number | null; timers: number[] }>({ frame: null, timers: [] });');

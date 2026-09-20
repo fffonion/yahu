@@ -65,4 +65,26 @@ describe('chat view persistence', () => {
     expect(source).toContain('resizeObserver.observe(child);');
     expect(source).toContain('window.setTimeout(restorePosition, 1200);');
   });
+
+  test('invalidates saved-position restore work before history navigation can be overwritten', () => {
+    const source = app();
+    expect(source).toContain('const chatViewRestoreGenerationRef = useRef(0);');
+    expect(source).toContain('const chatViewRestoreDisposeRef = useRef<(() => void) | null>(null);');
+    expect(source).toContain('const chatViewRestoreScrollRef = useRef<ProgrammaticChatScroll | null>(null);');
+    expect(source).toContain('const cancelChatViewRestore = useCallback(() => {');
+    expect(source).toContain('chatViewRestoreGenerationRef.current += 1;');
+    expect(source).toContain('chatViewRestoreDisposeRef.current = null;\n    dispose?.();');
+    expect(source).toContain('const restoreGeneration = ++chatViewRestoreGenerationRef.current;');
+    expect(source).toContain('if (!scroller || pendingJumpMessageIdRef.current) return;');
+    expect(source).toContain('if (disposed || chatViewRestoreGenerationRef.current !== restoreGeneration) return;');
+    expect(source).toContain("if (sessionStreamFollowMode(chatViewportFollowRef.current, activeSessionId) === 'away') return;");
+    expect(source).toContain("if (intent === 'away' && pendingScroll?.sessionId === activeSessionId) scrollLatestAfterRenderRef.current = null;");
+    expect(source).toContain('cancelChatViewRestore();\n      pendingHistoryScrollAnchorRef.current = null;\n      applyStreamFollowIntent(\'away\');');
+    expect(source).toContain('chatViewRestoreDisposeRef.current = disposeRestore;');
+    expect(source).toContain('chatViewRestoreScrollRef.current = { sessionId: activeSessionId, scrollTop: scroller.scrollTop, generation: restoreGeneration, token };');
+    expect(source).toContain('if (Math.abs(scroller.scrollTop - previousTop) <= 0.01) return;');
+    expect(source).toContain('if (chatViewRestoreScrollRef.current?.token === token) chatViewRestoreScrollRef.current = null;');
+    expect(source).toContain('if (chatViewRestoreScrollRef.current?.generation === restoreGeneration) chatViewRestoreScrollRef.current = null;');
+    expect(source).toContain('consumeChatViewRestoreScroll={consumeChatViewRestoreScroll}');
+  });
 });
