@@ -11,6 +11,8 @@ use newapi::{
 const PROVIDER_USAGE_TTL: Duration = Duration::from_secs(30 * 60);
 const NEWAPI_STATUS_CACHE_TTL_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 const PROVIDER_USAGE_TIMEOUT: Duration = Duration::from_secs(15);
+const OPENCODE_USAGE_EXPORT_URL: &str = "https://opencode.ai/console/api/v1/usage/export";
+const OPENCODE_USAGE_PERMISSION_ERROR: &str = "OpenCode 用量查询返回 403：当前 OPENCODE_GO_API_KEY 权限不足，需要更高权限的 service account key（可读取 usage）。";
 
 const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
 const DEEPSEEK_PLATFORM_BASE: &str = "https://platform.deepseek.com";
@@ -411,20 +413,10 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         (
             "opencode",
             "OpenCode Go 用量",
-            any_provider_env_value(
-                hermes_home,
-                &[
-                    "OPENCODE_GO_API_KEY",
-                    "OPENCODE_GO_WORKSPACE_ID",
-                    "OPENCODE_GO_AUTH_COOKIE",
-                    "OPENCODE_WORKSPACE_ID",
-                    "OPENCODE_AUTH_COOKIE",
-                ],
-            ) || any_custom_provider_api_key(hermes_home, &["opencode-go", "opencode"]),
-            any_provider_env_value(hermes_home, &["OPENCODE_GO_WORKSPACE_ID", "OPENCODE_WORKSPACE_ID"])
-                && any_provider_env_value(hermes_home, &["OPENCODE_GO_AUTH_COOKIE", "OPENCODE_AUTH_COOKIE"]),
-            "OPENCODE_GO_WORKSPACE_ID + OPENCODE_GO_AUTH_COOKIE",
-            "配置 OpenCode Go workspace ID 和 OPENCODE_GO_AUTH_COOKIE；workspace ID 来自 workspace 地址，Cookie 从已登录 OpenCode 会话复制。",
+            !provider_env_value(hermes_home, "OPENCODE_GO_API_KEY").is_empty(),
+            !provider_env_value(hermes_home, "OPENCODE_GO_API_KEY").is_empty(),
+            "OPENCODE_GO_API_KEY",
+            "配置 OPENCODE_GO_API_KEY；用量接口要求该 key 是具有 usage 读取权限的 OpenCode service account key。",
         ),
         (
             "commandcode",
@@ -499,23 +491,6 @@ async fn provider_http_get_json(
     serde_json::from_str::<Value>(&body).map_err(|err| format!("响应不是 JSON：{err}"))
 }
 
-async fn provider_http_get_text(
-    client: &reqwest::Client,
-    url: &str,
-    headers: &[(String, String)],
-) -> Result<String, String> {
-    let mut request = client.get(url).timeout(PROVIDER_USAGE_TIMEOUT);
-    for (name, value) in headers {
-        request = request.header(name.as_str(), value.as_str());
-    }
-    let response = request.send().await.map_err(|err| err.to_string())?;
-    let status = response.status();
-    let body = response.text().await.map_err(|err| err.to_string())?;
-    if !status.is_success() {
-        return Err(format!("HTTP {status}"));
-    }
-    Ok(body)
-}
 
 async fn provider_http_get_json_retry(
     client: &reqwest::Client,
@@ -2267,10 +2242,6 @@ fn reset_at_from_ms(value: &Value, key: &str) -> Option<i64> {
     provider_reset_at(value, key)
 }
 
-fn provider_reset_text_seconds(seconds: f64) -> String {
-    provider_reset_duration(seconds)
-}
-
 fn mimo_service_cookie_path(hermes_home: &std::path::Path) -> std::path::PathBuf {
     hermes_home.join("state/mimo_service_token.json")
 }
@@ -2683,6 +2654,65 @@ fn parse_mimo_period(period_end: &str) -> (chrono::NaiveDate, chrono::NaiveDate)
     }
 }
 
+fn opencode_cost_micro_cents(csv_body: &str) -> Result<i128, String> {
+    let mut reader = csv::ReaderBuilder::new()
+        .flexible(true)
+        .from_reader(csv_body.as_bytes());
+    let headers = reader
+        .headers()
+        .map_err(|err| format!("OpenCode usage CSV 表头无效：{err}"))?;
+    let Some(cost_index) = headers
+        .iter()
+        .position(|header| header.trim_start_matches('\u{feff}') == "cost_micro_cents")
+    else {
+        return Err("OpenCode usage CSV 缺少 cost_micro_cents 列".into());
+    };
+    let mut total = 0i128;
+    for (index, record) in reader.records().enumerate() {
+        let record = record.map_err(|err| format!("OpenCode usage CSV 第 {} 行无效：{err}", index + 2))?;
+        let value = record.get(cost_index).unwrap_or_default().trim();
+        if value.is_empty() {
+            continue;
+        }
+        let cost = value
+            .parse::<i128>()
+            .map_err(|_| format!("OpenCode usage CSV 第 {} 行费用无效", index + 2))?;
+        total = total
+            .checked_add(cost)
+            .ok_or_else(|| "OpenCode usage CSV 费用总和溢出".to_string())?;
+    }
+    Ok(total)
+}
+
+async fn opencode_usage_export_from_url(
+    client: &reqwest::Client,
+    url: &str,
+    api_key: &str,
+    range: &str,
+) -> Result<i128, String> {
+    let response = client
+        .get(url)
+        .timeout(PROVIDER_USAGE_TIMEOUT)
+        .header("Accept", "text/csv")
+        .bearer_auth(api_key)
+        .query(&[("scope", "organization"), ("range", range)])
+        .send()
+        .await
+        .map_err(|err| format!("OpenCode usage 请求失败：{err}"))?;
+    let status = response.status();
+    if status == reqwest::StatusCode::FORBIDDEN {
+        return Err(OPENCODE_USAGE_PERMISSION_ERROR.into());
+    }
+    if !status.is_success() {
+        return Err(format!("OpenCode usage HTTP {status}"));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|err| format!("OpenCode usage 响应读取失败：{err}"))?;
+    opencode_cost_micro_cents(&body)
+}
+
 fn mimo_months_in_range(
     start: chrono::NaiveDate,
     end: chrono::NaiveDate,
@@ -2703,126 +2733,61 @@ fn mimo_months_in_range(
     months
 }
 
-#[cfg(test)]
-fn opencode_has_no_usage_data(html: &str) -> bool {
-    let normalized = html.to_ascii_lowercase();
-    normalized.contains("no usage data available")
-        || normalized.contains("make your first api call")
+fn opencode_cost_text(micro_cents: i128) -> String {
+    let absolute = micro_cents.unsigned_abs();
+    let dollars = absolute / 100_000_000;
+    let mut fraction = format!("{:08}", absolute % 100_000_000);
+    while fraction.len() > 2 && fraction.ends_with('0') {
+        fraction.pop();
+    }
+    let sign = if micro_cents < 0 { "-" } else { "" };
+    format!("{sign}${dollars}.{fraction}")
 }
 
-fn opencode_dashboard_urls(workspace_id: &str, override_url: &str) -> Vec<String> {
-    if !override_url.trim().is_empty() {
-        return vec![override_url.trim().to_string()];
-    }
-    vec![
-        format!("https://opencode.ai/workspace/{workspace_id}/usage"),
-        format!("https://opencode.ai/workspace/{workspace_id}/go"),
-    ]
-}
-
-fn opencode_percent_text(value: f64) -> String {
-    let mut text = format!("{value:.2}");
-    while text.contains('.') && text.ends_with('0') {
-        text.pop();
-    }
-    if text.ends_with('.') {
-        text.pop();
-    }
-    format!("{text}%")
-}
-
-async fn fetch_opencode_usage(state: &AppState) -> ProviderUsageSection {
+async fn fetch_opencode_usage_from_url(state: &AppState, url: &str) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "opencode".into(),
-        title: "OpenCode Go 额度".into(),
+        title: "OpenCode Go 用量".into(),
         ..Default::default()
     };
-    let workspace_id = ["OPENCODE_GO_WORKSPACE_ID", "OPENCODE_WORKSPACE_ID"]
-        .iter()
-        .map(|key| provider_env_value(&state.hermes_home, key))
-        .find(|value| !value.is_empty());
-    let auth_cookie = ["OPENCODE_GO_AUTH_COOKIE", "OPENCODE_AUTH_COOKIE"]
-        .iter()
-        .map(|key| provider_env_value(&state.hermes_home, key))
-        .find(|value| !value.is_empty());
-    let (Some(workspace_id), Some(auth_cookie)) = (workspace_id, auth_cookie) else {
-        section.errors.push("缺少 OpenCode Go 查询凭据".into());
+    let api_key = provider_env_value(&state.hermes_home, "OPENCODE_GO_API_KEY");
+    if api_key.is_empty() {
+        section.errors.push("缺少 OPENCODE_GO_API_KEY".into());
         return section;
-    };
-    let cookie_header = if auth_cookie.starts_with("auth=") || auth_cookie.contains(';') {
-        auth_cookie
-    } else {
-        format!("auth={auth_cookie}")
-    };
-    let headers = vec![
-        (
-            "Accept".to_string(),
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".into(),
-        ),
-        (
-            "User-Agent".to_string(),
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Hermes-token-usage/1.0".into(),
-        ),
-        ("Cookie".to_string(), cookie_header),
-    ];
-    let override_url = provider_env_value(&state.hermes_home, "OPENCODE_GO_DASHBOARD_URL");
-    let urls = opencode_dashboard_urls(&workspace_id, &override_url);
-    let mut errors = Vec::new();
-    for url in urls {
-        let html = match provider_http_get_text(&state.client, &url, &headers).await {
-            Ok(html) => html,
-            Err(err) => {
-                errors.push(format!("{}：{err}", url.rsplit('/').next().unwrap_or("页面")));
-                continue;
-            }
-        };
-        let mut windows = Vec::new();
-        let now = chrono::Utc::now().timestamp();
-        for (name, label) in [("rolling", "5h额度"), ("weekly", "周额度"), ("monthly", "月额度")] {
-            let Some((percent, reset_seconds)) = opencode_window(&html, name) else {
-                continue;
-            };
-            let reset_at = now.saturating_add(reset_seconds.max(0.0) as i64);
-            windows.push(ProviderUsageWindow {
-                window: label.into(),
-                used: Some(opencode_percent_text(percent)),
-                reset: Some(provider_reset_text_seconds(reset_seconds.max(0.0))),
-                reset_at: Some(reset_at),
-            });
-        }
-        if !windows.is_empty() {
-            section.windows = windows;
-            return section;
-        }
-        errors.push(format!("{}：缺少 5h额度/周额度/月额度窗口", url.rsplit('/').next().unwrap_or("页面")));
     }
-    if !errors.is_empty() {
-        section.errors.push(format!("查询失败：{}", errors.join("；")));
+
+    let ranges = [("24h", "24h用量"), ("7d", "7d用量"), ("30d", "30d用量")];
+    let results = futures_util::future::join_all(ranges.iter().map(|(range, label)| async {
+        (
+            *label,
+            opencode_usage_export_from_url(&state.client, url, &api_key, range).await,
+        )
+    }))
+    .await;
+    for (label, result) in results {
+        match result {
+            Ok(cost) => section.windows.push(ProviderUsageWindow {
+                window: label.into(),
+                used: Some(opencode_cost_text(cost)),
+                reset: None,
+                reset_at: None,
+            }),
+            Err(error) if error == OPENCODE_USAGE_PERMISSION_ERROR => {
+                if !section.errors.iter().any(|existing| existing == &error) {
+                    section.errors.push(error);
+                }
+            }
+            Err(error) => section.errors.push(format!("{label}：{error}")),
+        }
+    }
+    if !section.windows.is_empty() {
+        section.description = "组织用量费用；各范围从 UTC 00:00 起算".into();
     }
     section
 }
 
-fn opencode_window(html: &str, name: &str) -> Option<(f64, f64)> {
-    // SolidJS SSR shape: rollingUsage:$R[12]={usagePercent:12.3,resetInSec:3600,...}
-    let marker = format!("{name}Usage:$R[");
-    let start = html.find(&marker)? + marker.len();
-    let rest = &html[start..];
-    let index_end = rest.find(']')?;
-    let body_start = rest[index_end + 1..].find('{')? + index_end + 1;
-    let body_end = rest[body_start..].find('}')? + body_start;
-    let body = &rest[body_start + 1..body_end];
-    let parse_field = |key: &str| -> Option<f64> {
-        let marker = format!("{key}:");
-        let index = body.find(&marker)? + marker.len();
-        let tail = &body[index..];
-        let end = tail
-            .find(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == '-'))
-            .unwrap_or(tail.len());
-        tail[..end].parse::<f64>().ok().filter(|value| value.is_finite())
-    };
-    let percent = parse_field("usagePercent")?;
-    let reset = parse_field("resetInSec")?;
-    Some((percent, reset.max(0.0)))
+async fn fetch_opencode_usage(state: &AppState) -> ProviderUsageSection {
+    fetch_opencode_usage_from_url(state, OPENCODE_USAGE_EXPORT_URL).await
 }
 
 const COMMANDCODE_PLAN_TOTAL_CREDITS: &[(&str, f64)] = &[

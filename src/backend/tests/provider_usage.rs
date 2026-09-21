@@ -64,43 +64,126 @@ mod provider_usage_tests {
     }
 
     #[test]
-    fn opencode_window_parses_solidjs_ssr_object() {
-        let html = r#"rollingUsage:$R[12]={usagePercent:12.30,resetInSec:3600.5};weeklyUsage:$R[13]={usagePercent:88,resetInSec:60}"#;
-        let rolling = opencode_window(html, "rolling").unwrap();
-        assert!((rolling.0 - 12.3).abs() < 0.001);
-        assert!((rolling.1 - 3600.5).abs() < 0.001);
-        let weekly = opencode_window(html, "weekly").unwrap();
-        assert!((weekly.0 - 88.0).abs() < 0.001);
-        assert!(opencode_window(html, "monthly").is_none());
-    }
-
-    #[test]
-    fn opencode_urls_include_plan_fallback_and_honor_override() {
-        assert_eq!(
-            opencode_dashboard_urls("workspace-x", ""),
-            vec![
-                "https://opencode.ai/workspace/workspace-x/usage",
-                "https://opencode.ai/workspace/workspace-x/go",
-            ]
+    fn opencode_usage_csv_sums_cost_micro_cents() {
+        let csv = concat!(
+            "id,app_name,cost_micro_cents,created_at\n",
+            "1,CLI,125000000,2026-09-22T00:00:00Z\n",
+            "2,\"Editor, Desktop\",25000000,2026-09-22T01:00:00Z\n",
+            "service:3,Web Search,,2026-09-22T02:00:00Z\n",
         );
-        assert_eq!(
-            opencode_dashboard_urls("workspace-x", "https://example.test/custom"),
-            vec!["https://example.test/custom"]
+
+        assert_eq!(opencode_cost_micro_cents(csv).unwrap(), 150_000_000);
+    }
+
+    #[test]
+    fn opencode_catalog_reuses_inference_key_env_for_usage() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(".env"),
+            "OPENCODE_GO_API_KEY=[REDACTED]\n",
+        )
+        .unwrap();
+
+        let provider = provider_usage_catalog(temp.path())
+            .into_iter()
+            .find(|item| item.provider == "opencode")
+            .unwrap();
+
+        assert!(provider.configured);
+        assert!(provider.query_ready);
+        assert_eq!(provider.credential_hint, "OPENCODE_GO_API_KEY");
+        assert!(provider.setup_hint.contains("usage"));
+        assert!(!provider.setup_hint.contains("Cookie"));
+    }
+
+    #[tokio::test]
+    async fn opencode_usage_403_requires_higher_permission_key() {
+        async fn forbidden(
+            headers: axum::http::HeaderMap,
+            axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+        ) -> axum::http::StatusCode {
+            assert_eq!(
+                headers.get("authorization").and_then(|value| value.to_str().ok()),
+                Some("Bearer [REDACTED]")
+            );
+            assert_eq!(
+                headers.get("accept").and_then(|value| value.to_str().ok()),
+                Some("text/csv")
+            );
+            assert_eq!(params.get("scope").map(String::as_str), Some("organization"));
+            assert_eq!(params.get("range").map(String::as_str), Some("7d"));
+            axum::http::StatusCode::FORBIDDEN
+        }
+
+        let app = axum::Router::new().route(
+            "/console/api/v1/usage/export",
+            axum::routing::get(forbidden),
         );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let error = opencode_usage_export_from_url(
+            &reqwest::Client::new(),
+            &format!("http://{addr}/console/api/v1/usage/export"),
+            "[REDACTED]",
+            "7d",
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, OPENCODE_USAGE_PERMISSION_ERROR);
     }
 
-    #[test]
-    fn opencode_percent_text_does_not_duplicate_percent_sign() {
-        assert_eq!(opencode_percent_text(12.3), "12.3%");
-        assert_eq!(opencode_percent_text(88.0), "88%");
+    #[tokio::test]
+    async fn opencode_usage_export_builds_three_cost_windows() {
+        async fn usage(
+            axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+        ) -> ([(axum::http::header::HeaderName, &'static str); 1], String) {
+            let cost = match params.get("range").map(String::as_str) {
+                Some("24h") => "50000000",
+                Some("7d") => "150000000",
+                Some("30d") => "1234",
+                other => panic!("unexpected range: {other:?}"),
+            };
+            (
+                [(axum::http::header::CONTENT_TYPE, "text/csv")],
+                format!("id,cost_micro_cents,created_at\n1,{cost},2026-09-22T00:00:00Z\n"),
+            )
+        }
+
+        let app = axum::Router::new().route(
+            "/console/api/v1/usage/export",
+            axum::routing::get(usage),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(".env"),
+            "OPENCODE_GO_API_KEY=[REDACTED]\n",
+        )
+        .unwrap();
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        let section = fetch_opencode_usage_from_url(
+            &state,
+            &format!("http://{addr}/console/api/v1/usage/export"),
+        )
+        .await;
+
+        assert_eq!(section.title, "OpenCode Go 用量");
+        assert_eq!(section.errors, Vec::<String>::new());
+        assert_eq!(section.windows.len(), 3);
+        assert_eq!(section.windows[0].window, "24h用量");
+        assert_eq!(section.windows[0].used.as_deref(), Some("$0.50"));
+        assert_eq!(section.windows[1].window, "7d用量");
+        assert_eq!(section.windows[1].used.as_deref(), Some("$1.50"));
+        assert_eq!(section.windows[2].window, "30d用量");
+        assert_eq!(section.windows[2].used.as_deref(), Some("$0.00001234"));
     }
 
-    #[test]
-    fn opencode_empty_usage_page_is_detected_without_error() {
-        let html = "<p>No usage data available for the selected period.</p>";
-        assert!(opencode_has_no_usage_data(html));
-        assert!(!opencode_has_no_usage_data("rollingUsage:$R[1]={usagePercent:1,resetInSec:2}"));
-    }
 
     #[test]
     fn codex_reset_failure_reuses_cached_description_for_each_account() {
