@@ -63,17 +63,6 @@ mod provider_usage_tests {
         assert_eq!(auth_json_credential_pool(temp.path(), "missing"), Vec::new());
     }
 
-    #[test]
-    fn opencode_usage_csv_sums_cost_micro_cents() {
-        let csv = concat!(
-            "id,app_name,cost_micro_cents,created_at\n",
-            "1,CLI,125000000,2026-09-22T00:00:00Z\n",
-            "2,\"Editor, Desktop\",25000000,2026-09-22T01:00:00Z\n",
-            "service:3,Web Search,,2026-09-22T02:00:00Z\n",
-        );
-
-        assert_eq!(opencode_cost_micro_cents(csv).unwrap(), 150_000_000);
-    }
 
     #[test]
     fn opencode_catalog_reuses_inference_key_env_for_usage() {
@@ -92,69 +81,36 @@ mod provider_usage_tests {
         assert!(provider.configured);
         assert!(provider.query_ready);
         assert_eq!(provider.credential_hint, "OPENCODE_GO_API_KEY");
-        assert!(provider.setup_hint.contains("usage"));
+        assert!(provider.setup_hint.contains("Go 订阅"));
+        assert!(!provider.setup_hint.contains("service account"));
         assert!(!provider.setup_hint.contains("Cookie"));
     }
 
     #[tokio::test]
-    async fn opencode_usage_403_requires_higher_permission_key() {
+    async fn opencode_go_usage_403_requires_a_go_plan_key() {
         async fn forbidden(
             headers: axum::http::HeaderMap,
-            axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+            axum::extract::Query(params): axum::extract::Query<
+                std::collections::HashMap<String, String>,
+            >,
         ) -> axum::http::StatusCode {
             assert_eq!(
-                headers.get("authorization").and_then(|value| value.to_str().ok()),
+                headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok()),
                 Some("Bearer [REDACTED]")
             );
             assert_eq!(
                 headers.get("accept").and_then(|value| value.to_str().ok()),
-                Some("text/csv")
+                Some("application/json")
             );
-            assert_eq!(params.get("scope").map(String::as_str), Some("organization"));
-            assert_eq!(params.get("range").map(String::as_str), Some("7d"));
+            assert!(params.is_empty());
             axum::http::StatusCode::FORBIDDEN
         }
 
         let app = axum::Router::new().route(
-            "/console/api/v1/usage/export",
+            "/zen/go/v1/usage",
             axum::routing::get(forbidden),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-
-        let error = opencode_usage_export_from_url(
-            &reqwest::Client::new(),
-            &format!("http://{addr}/console/api/v1/usage/export"),
-            "[REDACTED]",
-            "7d",
-        )
-        .await
-        .unwrap_err();
-
-        assert_eq!(error, OPENCODE_USAGE_PERMISSION_ERROR);
-    }
-
-    #[tokio::test]
-    async fn opencode_usage_export_builds_three_cost_windows() {
-        async fn usage(
-            axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-        ) -> ([(axum::http::header::HeaderName, &'static str); 1], String) {
-            let cost = match params.get("range").map(String::as_str) {
-                Some("24h") => "50000000",
-                Some("7d") => "150000000",
-                Some("30d") => "1234",
-                other => panic!("unexpected range: {other:?}"),
-            };
-            (
-                [(axum::http::header::CONTENT_TYPE, "text/csv")],
-                format!("id,cost_micro_cents,created_at\n1,{cost},2026-09-22T00:00:00Z\n"),
-            )
-        }
-
-        let app = axum::Router::new().route(
-            "/console/api/v1/usage/export",
-            axum::routing::get(usage),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -169,19 +125,100 @@ mod provider_usage_tests {
 
         let section = fetch_opencode_usage_from_url(
             &state,
-            &format!("http://{addr}/console/api/v1/usage/export"),
+            &format!("http://{addr}/zen/go/v1/usage"),
         )
         .await;
 
+        assert!(section.windows.is_empty());
+        assert_eq!(
+            section.errors,
+            vec!["OpenCode Go 用量查询返回 403：当前 OPENCODE_GO_API_KEY 无 Go Plan 用量权限，需要使用关联 Go 订阅、权限更高的 key。"]
+        );
+    }
+
+    #[tokio::test]
+    async fn opencode_go_usage_builds_three_quota_windows() {
+        async fn usage(
+            axum::extract::State(calls): axum::extract::State<
+                std::sync::Arc<std::sync::atomic::AtomicUsize>,
+            >,
+            headers: axum::http::HeaderMap,
+            axum::extract::Query(params): axum::extract::Query<
+                std::collections::HashMap<String, String>,
+            >,
+        ) -> axum::Json<serde_json::Value> {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(
+                headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok()),
+                Some("Bearer [REDACTED]")
+            );
+            assert_eq!(
+                headers.get("accept").and_then(|value| value.to_str().ok()),
+                Some("application/json")
+            );
+            assert!(params.is_empty());
+            axum::Json(serde_json::json!({
+                "usage": {
+                    "rolling": {
+                        "status": "ok",
+                        "percent": 37.5,
+                        "resetsAt": "2030-01-01T01:02:03.000Z"
+                    },
+                    "weekly": {
+                        "status": "ok",
+                        "percent": 64,
+                        "resetsAt": "2030-01-08T00:00:00.000Z"
+                    },
+                    "monthly": {
+                        "status": "rate-limited",
+                        "percent": 100,
+                        "resetsAt": "2030-02-01T00:00:00.000Z"
+                    }
+                }
+            }))
+        }
+
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let app = axum::Router::new()
+            .route("/zen/go/v1/usage", axum::routing::get(usage))
+            .with_state(calls.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(".env"),
+            "OPENCODE_GO_API_KEY=[REDACTED]\n",
+        )
+        .unwrap();
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+
+        let section = fetch_opencode_usage_from_url(
+            &state,
+            &format!("http://{addr}/zen/go/v1/usage"),
+        )
+        .await;
+
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(section.title, "OpenCode Go 用量");
         assert_eq!(section.errors, Vec::<String>::new());
         assert_eq!(section.windows.len(), 3);
-        assert_eq!(section.windows[0].window, "24h用量");
-        assert_eq!(section.windows[0].used.as_deref(), Some("$0.50"));
-        assert_eq!(section.windows[1].window, "7d用量");
-        assert_eq!(section.windows[1].used.as_deref(), Some("$1.50"));
-        assert_eq!(section.windows[2].window, "30d用量");
-        assert_eq!(section.windows[2].used.as_deref(), Some("$0.00001234"));
+        assert_eq!(section.windows[0].window, "5h额度");
+        assert_eq!(section.windows[0].used.as_deref(), Some("37.5%"));
+        assert_eq!(section.windows[1].window, "周额度");
+        assert_eq!(section.windows[1].used.as_deref(), Some("64%"));
+        assert_eq!(section.windows[2].window, "月额度");
+        assert_eq!(section.windows[2].used.as_deref(), Some("100%"));
+        assert_eq!(
+            section.windows[0].reset_at,
+            Some(
+                chrono::DateTime::parse_from_rfc3339("2030-01-01T01:02:03.000Z")
+                    .unwrap()
+                    .timestamp()
+            )
+        );
     }
 
 

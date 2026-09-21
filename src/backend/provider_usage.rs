@@ -11,8 +11,8 @@ use newapi::{
 const PROVIDER_USAGE_TTL: Duration = Duration::from_secs(30 * 60);
 const NEWAPI_STATUS_CACHE_TTL_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 const PROVIDER_USAGE_TIMEOUT: Duration = Duration::from_secs(15);
-const OPENCODE_USAGE_EXPORT_URL: &str = "https://opencode.ai/console/api/v1/usage/export";
-const OPENCODE_USAGE_PERMISSION_ERROR: &str = "OpenCode 用量查询返回 403：当前 OPENCODE_GO_API_KEY 权限不足，需要更高权限的 service account key（可读取 usage）。";
+const OPENCODE_GO_USAGE_URL: &str = "https://opencode.ai/zen/go/v1/usage";
+const OPENCODE_USAGE_PERMISSION_ERROR: &str = "OpenCode Go 用量查询返回 403：当前 OPENCODE_GO_API_KEY 无 Go Plan 用量权限，需要使用关联 Go 订阅、权限更高的 key。";
 
 const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
 const DEEPSEEK_PLATFORM_BASE: &str = "https://platform.deepseek.com";
@@ -416,7 +416,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             !provider_env_value(hermes_home, "OPENCODE_GO_API_KEY").is_empty(),
             !provider_env_value(hermes_home, "OPENCODE_GO_API_KEY").is_empty(),
             "OPENCODE_GO_API_KEY",
-            "配置 OPENCODE_GO_API_KEY；用量接口要求该 key 是具有 usage 读取权限的 OpenCode service account key。",
+            "配置 OPENCODE_GO_API_KEY；该 key 需关联有效的 OpenCode Go 订阅。",
         ),
         (
             "commandcode",
@@ -2654,63 +2654,80 @@ fn parse_mimo_period(period_end: &str) -> (chrono::NaiveDate, chrono::NaiveDate)
     }
 }
 
-fn opencode_cost_micro_cents(csv_body: &str) -> Result<i128, String> {
-    let mut reader = csv::ReaderBuilder::new()
-        .flexible(true)
-        .from_reader(csv_body.as_bytes());
-    let headers = reader
-        .headers()
-        .map_err(|err| format!("OpenCode usage CSV 表头无效：{err}"))?;
-    let Some(cost_index) = headers
-        .iter()
-        .position(|header| header.trim_start_matches('\u{feff}') == "cost_micro_cents")
-    else {
-        return Err("OpenCode usage CSV 缺少 cost_micro_cents 列".into());
-    };
-    let mut total = 0i128;
-    for (index, record) in reader.records().enumerate() {
-        let record = record.map_err(|err| format!("OpenCode usage CSV 第 {} 行无效：{err}", index + 2))?;
-        let value = record.get(cost_index).unwrap_or_default().trim();
-        if value.is_empty() {
-            continue;
-        }
-        let cost = value
-            .parse::<i128>()
-            .map_err(|_| format!("OpenCode usage CSV 第 {} 行费用无效", index + 2))?;
-        total = total
-            .checked_add(cost)
-            .ok_or_else(|| "OpenCode usage CSV 费用总和溢出".to_string())?;
-    }
-    Ok(total)
+#[derive(Deserialize)]
+struct OpenCodeGoUsageResponse {
+    usage: OpenCodeGoUsageWindows,
 }
 
-async fn opencode_usage_export_from_url(
+#[derive(Deserialize)]
+struct OpenCodeGoUsageWindows {
+    rolling: OpenCodeGoUsageWindow,
+    weekly: OpenCodeGoUsageWindow,
+    monthly: OpenCodeGoUsageWindow,
+}
+
+#[derive(Deserialize)]
+struct OpenCodeGoUsageWindow {
+    #[serde(rename = "status")]
+    _status: String,
+    percent: f64,
+    #[serde(rename = "resetsAt")]
+    resets_at: String,
+}
+
+async fn opencode_go_usage_from_url(
     client: &reqwest::Client,
     url: &str,
     api_key: &str,
-    range: &str,
-) -> Result<i128, String> {
+) -> Result<OpenCodeGoUsageWindows, String> {
     let response = client
         .get(url)
         .timeout(PROVIDER_USAGE_TIMEOUT)
-        .header("Accept", "text/csv")
+        .header("Accept", "application/json")
         .bearer_auth(api_key)
-        .query(&[("scope", "organization"), ("range", range)])
         .send()
         .await
-        .map_err(|err| format!("OpenCode usage 请求失败：{err}"))?;
+        .map_err(|err| format!("OpenCode Go 用量请求失败：{err}"))?;
     let status = response.status();
     if status == reqwest::StatusCode::FORBIDDEN {
         return Err(OPENCODE_USAGE_PERMISSION_ERROR.into());
     }
     if !status.is_success() {
-        return Err(format!("OpenCode usage HTTP {status}"));
+        return Err(format!("OpenCode Go 用量 HTTP {status}"));
     }
-    let body = response
-        .text()
+    response
+        .json::<OpenCodeGoUsageResponse>()
         .await
-        .map_err(|err| format!("OpenCode usage 响应读取失败：{err}"))?;
-    opencode_cost_micro_cents(&body)
+        .map(|payload| payload.usage)
+        .map_err(|err| format!("OpenCode Go 用量响应无效：{err}"))
+}
+
+fn opencode_percent_text(percent: f64) -> String {
+    let mut value = format!("{:.2}", percent.clamp(0.0, 100.0));
+    while value.contains('.') && value.ends_with('0') {
+        value.pop();
+    }
+    if value.ends_with('.') {
+        value.pop();
+    }
+    format!("{value}%")
+}
+
+fn opencode_go_window(
+    label: &str,
+    usage: OpenCodeGoUsageWindow,
+) -> Result<ProviderUsageWindow, String> {
+    let reset_at = chrono::DateTime::parse_from_rfc3339(&usage.resets_at)
+        .map_err(|_| format!("OpenCode Go {label}重置时间无效"))?
+        .timestamp();
+    Ok(ProviderUsageWindow {
+        window: label.into(),
+        used: Some(opencode_percent_text(usage.percent)),
+        reset: Some(provider_reset_duration(
+            (reset_at - chrono::Utc::now().timestamp()).max(0) as f64,
+        )),
+        reset_at: Some(reset_at),
+    })
 }
 
 fn mimo_months_in_range(
@@ -2733,17 +2750,6 @@ fn mimo_months_in_range(
     months
 }
 
-fn opencode_cost_text(micro_cents: i128) -> String {
-    let absolute = micro_cents.unsigned_abs();
-    let dollars = absolute / 100_000_000;
-    let mut fraction = format!("{:08}", absolute % 100_000_000);
-    while fraction.len() > 2 && fraction.ends_with('0') {
-        fraction.pop();
-    }
-    let sign = if micro_cents < 0 { "-" } else { "" };
-    format!("{sign}${dollars}.{fraction}")
-}
-
 async fn fetch_opencode_usage_from_url(state: &AppState, url: &str) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "opencode".into(),
@@ -2756,38 +2762,27 @@ async fn fetch_opencode_usage_from_url(state: &AppState, url: &str) -> ProviderU
         return section;
     }
 
-    let ranges = [("24h", "24h用量"), ("7d", "7d用量"), ("30d", "30d用量")];
-    let results = futures_util::future::join_all(ranges.iter().map(|(range, label)| async {
-        (
-            *label,
-            opencode_usage_export_from_url(&state.client, url, &api_key, range).await,
-        )
-    }))
-    .await;
-    for (label, result) in results {
-        match result {
-            Ok(cost) => section.windows.push(ProviderUsageWindow {
-                window: label.into(),
-                used: Some(opencode_cost_text(cost)),
-                reset: None,
-                reset_at: None,
-            }),
-            Err(error) if error == OPENCODE_USAGE_PERMISSION_ERROR => {
-                if !section.errors.iter().any(|existing| existing == &error) {
-                    section.errors.push(error);
+    match opencode_go_usage_from_url(&state.client, url, &api_key).await {
+        Ok(usage) => {
+            for result in [
+                opencode_go_window("5h额度", usage.rolling),
+                opencode_go_window("周额度", usage.weekly),
+                opencode_go_window("月额度", usage.monthly),
+            ] {
+                match result {
+                    Ok(window) => section.windows.push(window),
+                    Err(error) => section.errors.push(error),
                 }
             }
-            Err(error) => section.errors.push(format!("{label}：{error}")),
+            section.description = "Go Plan 额度".into();
         }
-    }
-    if !section.windows.is_empty() {
-        section.description = "组织用量费用；各范围从 UTC 00:00 起算".into();
+        Err(error) => section.errors.push(error),
     }
     section
 }
 
 async fn fetch_opencode_usage(state: &AppState) -> ProviderUsageSection {
-    fetch_opencode_usage_from_url(state, OPENCODE_USAGE_EXPORT_URL).await
+    fetch_opencode_usage_from_url(state, OPENCODE_GO_USAGE_URL).await
 }
 
 const COMMANDCODE_PLAN_TOTAL_CREDITS: &[(&str, f64)] = &[

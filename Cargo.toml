@@ -15,7 +15,6 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 crc32fast = "1"
-csv = "1"
 filetime = "0.2"
 flate2 = "1"
 futures-core = "0.3"
