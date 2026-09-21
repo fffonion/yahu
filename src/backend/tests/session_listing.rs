@@ -619,6 +619,13 @@
              VALUES ('turtle-soup-newest', 'turtle-soup', 'soup-model', 3500.0, 1, 'soup', 0)",
             [],
         ).unwrap();
+        transaction.execute(
+            "INSERT INTO sessions
+             (id, source, model, model_config, started_at, message_count, title, archived)
+             VALUES ('orphan-delegate-root', 'subagent', 'judge-model',
+                     '{\"_delegate_from\":\"tb-missing-judge\"}', 5000.0, 1, NULL, 0)",
+            [],
+        ).unwrap();
         transaction.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('normal-89','user','latest question',1)", []).unwrap();
         transaction.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('normal-89','assistant','latest final answer',1)", []).unwrap();
         transaction.commit().unwrap();
@@ -670,6 +677,9 @@
                 VALUES ('title-hit', 'telegram', 2.0, 'Needle title', 0);
             INSERT INTO sessions (id, source, started_at, title, archived)
                 VALUES ('preview-only', 'telegram', 1.0, 'Other title', 0);
+            INSERT INTO sessions (id, source, model_config, started_at, title, archived)
+                VALUES ('delegate-title-hit', 'subagent',
+                        '{\"_delegate_from\":\"tb-missing-judge\"}', 3.0, 'Needle judge', 0);
             INSERT INTO messages (session_id, role, content, active)
                 VALUES ('title-hit', 'assistant', 'unrelated preview', 1);
             INSERT INTO messages (session_id, role, content, active)

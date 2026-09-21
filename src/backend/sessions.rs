@@ -467,6 +467,7 @@ fn fetch_local_sessions_from_db(
                       AND s.session_key = p.session_key
                 )
            )
+           AND json_extract(COALESCE(s.model_config, '{}'), '$._delegate_from') IS NULL
            AND (s.source IS NULL OR s.source != 'tool')
            AND (
                 ?3 = 0
