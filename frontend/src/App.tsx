@@ -3084,7 +3084,7 @@ function ProviderUsageMain(props: {
             const loading = Boolean(props.loading[provider.provider]);
             const error = props.error[provider.provider];
             const accountCount = new Set((section?.windows || []).map((window) => providerAccountWindowParts(window.window)?.[0]).filter(Boolean)).size;
-            const multiAccount = enabled && accountCount > 2;
+            const multiAccount = enabled && accountCount >= 4;
             const balance = providerBalanceText(section?.description);
             const titleMeta = providerTitleMeta(provider.provider, section?.description);
             const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud';
