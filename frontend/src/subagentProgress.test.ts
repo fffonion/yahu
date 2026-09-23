@@ -17,6 +17,7 @@ import {
   previewSubagent,
   SUBAGENT_DISPLAY_LIMIT,
   subagentBeforeTimeForMessages,
+  subagentDetailMessages,
   subagentIteration,
   subagentMessagesUrl,
   subagentPrecedingFallbackIds,
@@ -148,6 +149,21 @@ describe('subagent progress websocket projection', () => {
       { id: '1', role: 'assistant', content: 'Final **answer**', reasoning: 'Long reasoning text', timestamp: 10, toolCalls: [{ id: 'call-1' }] },
       { id: '2', role: 'tool', toolName: 'read_file', toolCallId: 'call-1', content: 'full\noutput', timestamp: 11 },
     ]);
+  });
+
+  test('shows delegation context only in the first user message of expanded details', () => {
+    const messages = normalizeSubagentMessages({ data: [
+      { id: 1, role: 'user', content: 'Creation goal', timestamp: 10 },
+      { id: 2, role: 'assistant', content: 'First response', timestamp: 11 },
+      { id: 3, role: 'user', content: 'Follow-up', timestamp: 12 },
+    ] });
+    expect(subagentDetailMessages(messages, 'Detailed delegation context').map((message) => [message.role, message.content])).toEqual([
+      ['user', 'Detailed delegation context'],
+      ['assistant', 'First response'],
+      ['user', 'Follow-up'],
+    ]);
+    expect(messages[0].content).toBe('Creation goal');
+    expect(subagentDetailMessages(messages, undefined)).toBe(messages);
   });
 
   test('marks only a valid JSON final assistant message for shared structured rendering', () => {

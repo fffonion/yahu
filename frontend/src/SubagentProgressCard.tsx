@@ -20,6 +20,7 @@ import {
   previewSubagent,
   requestSubagentInterrupt,
   shouldLoadHistoricalSubagentWindow,
+  subagentDetailMessages,
   subagentElapsedSeconds,
   subagentMessagesUrl,
   subagentSnapshotUrl,
@@ -421,7 +422,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
     }
   };
   const detailMessages = useMemo(() => {
-    const formatted = formatSubagentFinalMessages(messages);
+    const formatted = formatSubagentFinalMessages(subagentDetailMessages(messages, node.context));
     if (node.status === 'running' || !node.summary) return formatted;
     const lastContentMessage = [...formatted].reverse().find((message) => message.content.trim());
     if (lastContentMessage?.role === 'assistant') return formatted;
@@ -432,7 +433,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
       structuredContent: parseSubagentFinalStructuredContent(node.summary),
       timestamp: node.endedAt,
     }];
-  }, [messages, node.endedAt, node.sessionId, node.status, node.summary]);
+  }, [messages, node.context, node.endedAt, node.sessionId, node.status, node.summary]);
 
   useEffect(() => {
     if (!open || loadedMessageCount === node.messageCount) return;
@@ -442,7 +443,7 @@ export function SubagentProgressNode({ node, openNodeIds, onOpenChange, detailCa
     fetch(subagentMessagesUrl(node.sessionId), { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return normalizeSubagentMessages(await response.json(), node.context);
+        return normalizeSubagentMessages(await response.json());
       })
       .then((items) => {
         if (!controller.signal.aborted) onMessagesLoaded(node.sessionId, node.messageCount, items);

@@ -152,6 +152,10 @@ export function normalizeSubagentMessages(value: unknown, context?: string): Sub
   const data = (value as Record<string, unknown>).data;
   if (!Array.isArray(data)) return [];
   const messages = data.map((item, index) => normalizeSubagentMessage(item, index)).filter((item): item is SubagentMessage => !!item);
+  return subagentDetailMessages(messages, context);
+}
+
+export function subagentDetailMessages(messages: SubagentMessage[], context?: string): SubagentMessage[] {
   if (!context) return messages;
   let replaced = false;
   return messages.map((message) => {

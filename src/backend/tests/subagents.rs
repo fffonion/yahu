@@ -214,6 +214,58 @@
     }
 
     #[test]
+    fn subagent_projection_uses_creation_goal_to_find_context_even_with_a_session_preview() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                timestamp REAL NOT NULL,
+                tool_calls TEXT
+            );",
+        )
+        .unwrap();
+        let calls = serde_json::json!([{
+            "function": {
+                "name": "delegate_task",
+                "arguments": serde_json::json!({
+                    "tasks": [{
+                        "goal": "Review the backend",
+                        "context": "Use the read-only architecture checklist."
+                    }]
+                }).to_string()
+            }
+        }]).to_string();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, role, timestamp, tool_calls) VALUES (1, 'parent-1', 'assistant', 99.0, ?1)",
+            [calls],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, role, content, timestamp) VALUES
+                (2, 'child-1', 'user', 'Review the backend', 100.0),
+                (3, 'child-1', 'user', 'Follow-up must not rename the child', 101.0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let session = serde_json::json!({
+            "id": "child-1",
+            "parent_session_id": "parent-1",
+            "preview": "An unrelated preview of the conversation",
+            "started_at": 100.0,
+            "message_count": 2
+        });
+        let projected = project_subagent_session(temp.path(), &session, &[]).unwrap();
+        assert_eq!(projected.task, "Review the backend");
+        assert_eq!(projected.context.as_deref(), Some("Use the read-only architecture checklist."));
+    }
+
+    #[test]
     fn persistent_goal_is_loaded_separately_from_subagent_tasks() {
         let temp = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();

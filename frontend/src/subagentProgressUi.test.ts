@@ -106,7 +106,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('className="subagent-progress-tree"');
     expect(source).toContain('subagent-progress-todos${className');
     expect(source).toContain('className="subagent-progress-messages"');
-    expect(source).toContain('formatSubagentFinalMessages(messages)');
+    expect(source).toContain('formatSubagentFinalMessages(subagentDetailMessages(messages, node.context))');
     expect(source).toContain('structuredContent: parseSubagentFinalStructuredContent(node.summary)');
 
     expect(source).toContain('const displayTree = useMemo(() => latestSubagentRows(tree), [tree]);');
@@ -146,7 +146,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain("event.preventDefault(); const nextOpen = !open; onOpenChange(node.sessionId, nextOpen);");
 
     expect(source).toContain('subagentMessagesUrl(node.sessionId)');
-    expect(source).toContain('normalizeSubagentMessages(await response.json(), node.context)');
+    expect(source).toContain('normalizeSubagentMessages(await response.json())');
     expect(source).toContain('className="subagent-progress-messages"');
     expect(source).toContain('<ChatTranscript');
 

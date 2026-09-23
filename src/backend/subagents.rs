@@ -1835,14 +1835,14 @@ fn subagent_creation_goal(hermes_home: &Path, session: &Value, messages: &[Value
                 .filter(|text| !is_subagent_task_marker(text))
         })
         .or_else(|| {
-            string_field(session, "preview")
-                .filter(|text| !is_subagent_task_marker(text))
-        })
-        .or_else(|| {
             string_field(session, "id")
                 .and_then(|session_id| load_initial_subagent_user(hermes_home, &session_id))
         })
         .or_else(|| first_subagent_user_text(messages))
+        .or_else(|| {
+            string_field(session, "preview")
+                .filter(|text| !is_subagent_task_marker(text))
+        })
         .unwrap_or_else(|| "Subagent".to_string())
 }
 

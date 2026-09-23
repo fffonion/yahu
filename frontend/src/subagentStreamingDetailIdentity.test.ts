@@ -37,6 +37,13 @@ describe('streaming subagent detail identity', () => {
     expect(card).toContain("onDetailOpen(node.status === 'running')");
   });
 
+  test('reprojects a cached first user message when context arrives after the detail fetch', () => {
+    const card = readFileSync(new URL('./SubagentProgressCard.tsx', import.meta.url), 'utf8');
+    expect(card).toContain('const formatted = formatSubagentFinalMessages(subagentDetailMessages(messages, node.context));');
+    expect(card).toContain('[messages, node.context, node.endedAt, node.sessionId, node.status, node.summary]');
+    expect(card).toContain('return normalizeSubagentMessages(await response.json());');
+  });
+
   test('renders the delegate context as the expanded user message', () => {
     const messages = normalizeSubagentMessages(snapshot(), 'Read the exact files before editing.');
     expect(messages[0]?.content).toBe('Read the exact files before editing.');
