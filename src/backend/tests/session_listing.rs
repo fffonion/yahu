@@ -56,6 +56,36 @@
     }
 
     #[test]
+    fn suffixed_family_display_id_is_stable_from_old_and_new_segments() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                parent_session_id TEXT,
+                end_reason TEXT,
+                started_at REAL NOT NULL,
+                source TEXT,
+                session_key TEXT,
+                chat_id TEXT,
+                thread_id TEXT,
+                title TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('old', NULL, 'session_reset', 1.0, 'telegram', 'key', 'chat', NULL, 'Greeting #2'),
+                ('new', 'old', NULL, 2.0, 'telegram', 'key', 'chat', NULL, 'Greeting #4');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let old_display = local_session_display_metadata(&state, "old").unwrap().unwrap();
+        let new_display = local_session_display_metadata(&state, "new").unwrap().unwrap();
+        assert_eq!(old_display.0, new_display.0);
+        assert_eq!(new_display.0, "new");
+    }
+
+    #[test]
     fn keyed_session_entries_stop_at_an_independent_root_with_the_same_chat_key() {
         let temp = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();

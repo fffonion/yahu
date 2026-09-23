@@ -1163,10 +1163,11 @@ fn local_session_display_metadata_with_entries(
     let mut matching_title = None;
     let mut exact_base_title = None;
     for entry in entries {
-        if entry.id == session_id {
-            continue;
-        }
-        let Some(title) = titles_by_id.remove(&entry.id) else {
+        let title = if entry.id == session_id {
+            canonical_title.clone()
+        } else if let Some(title) = titles_by_id.remove(&entry.id) {
+            title
+        } else {
             continue;
         };
         if generated_session_title_base(&title) != canonical_base {
