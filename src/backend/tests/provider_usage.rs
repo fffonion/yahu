@@ -687,6 +687,18 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn agentrouter_default_usage_host_changes_without_renaming_the_card() {
+        let source = include_str!("../provider_usage.rs");
+        assert!(source.contains("\"https://ps.air-outer.com\".to_string()"));
+        let temp = tempfile::tempdir().unwrap();
+        let provider = provider_usage_catalog(temp.path())
+            .into_iter()
+            .find(|item| item.provider == "agentrouter")
+            .unwrap();
+        assert_eq!(provider.title, "AgentRouter 用量");
+    }
+
+    #[test]
     fn openrouter_catalog_title_omits_api_suffix() {
         let temp = tempfile::tempdir().unwrap();
         let provider = provider_usage_catalog(temp.path())

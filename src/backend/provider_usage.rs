@@ -4371,7 +4371,7 @@ async fn fetch_agentrouter_usage(state: &AppState) -> ProviderUsageSection {
         &["AGENTROUTER_BASE_URL", "AGENTROUTER_NEWAPI_BASE_URL"],
     );
     let base_url = if base_url.is_empty() {
-        "https://agentrouter.org".to_string()
+        "https://ps.air-outer.com".to_string()
     } else {
         base_url
     };
