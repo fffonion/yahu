@@ -33,7 +33,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtm
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
-import { filterPinnedCanonicalAliases, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
+import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
 import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from './viewport';
@@ -724,11 +724,10 @@ export default function App() {
   const watchSourceRef = useRef<EventSource | null>(null);
   const applyRenamedSessionTitleOverride = useCallback((session: Session) => {
     const temporaryTitle = renamedSessionTitlesRef.current[session.id];
-    const pinnedTitle = pinnedSessionTitlesRef.current[session.id];
-    const titleOverride = temporaryTitle || pinnedTitle;
-    if (titleOverride && String(session.title || '').trim() !== titleOverride) return { ...session, title: titleOverride };
-    if (temporaryTitle) delete renamedSessionTitlesRef.current[session.id];
-    return session;
+    const pinnedTitle = pinnedSessionTitlesRef.current[session.id] || '';
+    const result = preferServerRootTitle(session, temporaryTitle || '', pinnedTitle);
+    if (temporaryTitle && result.title === session.title) delete renamedSessionTitlesRef.current[session.id];
+    return result;
   }, []);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { modelsRef.current = models; }, [models]);
@@ -1168,7 +1167,14 @@ export default function App() {
       const body = await res.json();
       if (version !== searchVersionRef.current) return;
       const rawList: Session[] = body.data || [];
-      const list = filterPinnedCanonicalAliases(rawList, sessionCanonicalAliasesRef.current, pinnedIds);
+      const canonicalPins = (body.canonical_pins || {}) as Record<string, string>;
+      const migratedPins = canonicalizePinnedIds(pinnedIds, canonicalPins);
+      if (Array.from(pinnedIds).some((id) => canonicalPins[id] && canonicalPins[id] !== id)) {
+        Object.assign(sessionCanonicalAliasesRef.current, canonicalPins);
+        localStorage.setItem(SESSION_CANONICAL_ALIASES_KEY, JSON.stringify(sessionCanonicalAliasesRef.current));
+        setPinnedIds((current) => canonicalizePinnedIds(current, canonicalPins));
+      }
+      const list = filterPinnedCanonicalAliases(rawList, sessionCanonicalAliasesRef.current, migratedPins);
       setSessions((old) => list.map((rawSession) => {
         const session = applyRenamedSessionTitleOverride(rawSession);
         const livePreview = streamingSessionIdRef.current === session.id ? latestSessionPreviewFromMessages(messagesRef.current) : '';

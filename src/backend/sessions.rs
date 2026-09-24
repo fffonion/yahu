@@ -37,7 +37,7 @@ async fn sessions_search(
         Ok(data) => {
             let mut data = append_pinned_session_rows(&state, data, &pinned_ids).await;
             let normalized_query = q.trim().to_lowercase();
-            if normalized_query.is_empty() {
+            let resolved_families = if normalized_query.is_empty() {
                 let resolved_families = match filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut data, &pinned_ids) {
                     Ok(resolved_families) => resolved_families,
                     Err(err) => {
@@ -46,16 +46,30 @@ async fn sessions_search(
                     }
                 };
                 apply_pinned_session_display_titles(&state, &mut data, &pinned_ids, Some(&resolved_families));
+                resolved_families
             } else {
-                apply_pinned_session_display_titles(&state, &mut data, &pinned_ids, None);
+                let resolved_families = match filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut data, &pinned_ids) {
+                    Ok(resolved_families) => resolved_families,
+                    Err(err) => {
+                        warn!(error = %err, "cannot filter pinned topic aliases from session list");
+                        HashMap::new()
+                    }
+                };
+                apply_pinned_session_display_titles(&state, &mut data, &pinned_ids, Some(&resolved_families));
                 filter_session_rows_by_title(&mut data, &normalized_query);
-                if let Err(err) = filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut data, &pinned_ids) {
-                    warn!(error = %err, "cannot filter pinned topic aliases from session list");
-                }
-            }
+                resolved_families
+            };
+            let canonical_pins = resolved_families
+                .iter()
+                .filter_map(|(pinned_id, entries)| {
+                    let root_id = &entries.first()?.id;
+                    (root_id != pinned_id).then(|| (pinned_id.clone(), root_id.clone()))
+                })
+                .collect::<HashMap<_, _>>();
             Json(serde_json::json!({
                 "object": "list",
                 "data": data,
+                "canonical_pins": canonical_pins,
                 "limit": limit,
                 "q": q,
             }))
@@ -619,12 +633,31 @@ fn filter_rows_shadowed_by_pinned_topic_aliases(
         let Some(entries) = entries else {
             continue;
         };
+        let Some(root_id) = entries.first().map(|entry| entry.id.as_str()) else {
+            continue;
+        };
         let member_ids = entries.iter().map(|entry| entry.id.clone()).collect::<Vec<_>>();
         if member_ids.len() < 2 || member_ids.iter().any(|id| family_member_ids.contains(id)) {
             continue;
         }
-        preferred_pinned_ids.insert(pinned_id.clone());
+        preferred_pinned_ids.insert(root_id.to_string());
         family_member_ids.extend(member_ids);
+        if root_id != pinned_id && !visible_row_ids.contains(root_id) {
+            let (title, started_at) = conn.query_row(
+                "SELECT title, started_at FROM sessions WHERE id = ?1",
+                [root_id],
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, f64>(1)?)),
+            )?;
+            if let Some(row) = rows.iter_mut().find(|row| row.get("id").and_then(|value| value.as_str()) == Some(pinned_id))
+                && let Some(object) = row.as_object_mut()
+            {
+                object.insert("id".into(), serde_json::json!(root_id));
+                object.insert("started_at".into(), serde_json::json!(started_at));
+                if let Some(title) = title.filter(|title| !title.trim().is_empty()) {
+                    object.insert("title".into(), serde_json::json!(title));
+                }
+            }
+        }
         family_entries_by_pinned.insert(pinned_id.clone(), entries);
     }
     if family_member_ids.is_empty() {
@@ -701,7 +734,6 @@ fn fetch_pinned_session_rows_from_local_db(
                 started_at, ended_at, message_count, title
          FROM sessions
          WHERE id = ?1
-           AND parent_session_id IS NULL
            AND COALESCE(archived, 0) = 0
          LIMIT 1",
     )?;
@@ -1112,75 +1144,17 @@ fn local_session_display_metadata_with_entries(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    let canonical_title = conn
-        .query_row(
-            "SELECT title FROM sessions WHERE id = ?1",
-            [session_id],
-            |row| row.get::<_, Option<String>>(0),
-        )?
-        .map(|title| title.trim().to_string())
-        .filter(|title| !title.is_empty());
-    let Some(canonical_title) = canonical_title else {
-        return Ok(None);
-    };
-    let canonical_base = generated_session_title_base(&canonical_title);
-    if canonical_title == canonical_base {
-        return Ok(Some((session_id.to_string(), canonical_title)));
-    }
-    let owned_entries;
-    let entries = if let Some(resolved_entries) = resolved_entries {
-        resolved_entries
-    } else {
-        let Some(entries) = local_session_key_group_entries(&conn, session_id)? else {
-            return Ok(None);
-        };
-        owned_entries = entries;
-        owned_entries.as_slice()
-    };
-    let mut titles_by_id = HashMap::<String, String>::new();
-    let related_entries = entries
-        .iter()
-        .filter(|entry| entry.id != session_id)
-        .collect::<Vec<_>>();
-    for chunk in related_entries.chunks(500) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
-        let query = format!("SELECT id, title FROM sessions WHERE id IN ({placeholders})");
-        let mut statement = conn.prepare(&query)?;
-        let rows = statement.query_map(
-            rusqlite::params_from_iter(chunk.iter().map(|entry| entry.id.as_str())),
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        )?;
-        for row in rows {
-            let (id, title) = row?;
-            if let Some(title) = title
-                .map(|title| title.trim().to_string())
-                .filter(|title| !title.is_empty())
-            {
-                titles_by_id.insert(id, title);
-            }
-        }
-    }
-    let mut matching_title = None;
-    let mut exact_base_title = None;
-    for entry in entries {
-        let title = if entry.id == session_id {
-            canonical_title.clone()
-        } else if let Some(title) = titles_by_id.remove(&entry.id) {
-            title
-        } else {
-            continue;
-        };
-        if generated_session_title_base(&title) != canonical_base {
-            continue;
-        }
-        if title == canonical_base {
-            exact_base_title = Some((entry.id.clone(), title.clone()));
-        }
-        matching_title = Some((entry.id.clone(), title));
-    }
-    Ok(exact_base_title
-        .or(matching_title)
-        .or_else(|| Some((session_id.to_string(), canonical_title))))
+    let display_id = resolved_entries
+        .and_then(|entries| entries.first().map(|entry| entry.id.as_str()))
+        .unwrap_or(session_id);
+    let title = conn.query_row(
+        "SELECT title FROM sessions WHERE id = ?1",
+        [display_id],
+        |row| row.get::<_, Option<String>>(0),
+    )?
+    .map(|title| title.trim().to_string())
+    .filter(|title| !title.is_empty());
+    Ok(title.map(|title| (display_id.to_string(), title)))
 }
 
 async fn session_canonical(
@@ -1350,6 +1324,7 @@ fn filter_session_rows_shadowed_by_local_successors(
 
     let mut grouped = Vec::with_capacity(rows.len());
     let mut grouped_indices = HashMap::<String, usize>::new();
+    let mut switch_root_cache = HashMap::<String, String>::new();
     for row in rows.drain(..) {
         let Some(raw_id) = row
             .get("id")
@@ -1363,10 +1338,28 @@ fn filter_session_rows_shadowed_by_local_successors(
         if reset_hidden.contains(&raw_id) || switch_dead_end_hidden.contains(&raw_id) {
             continue;
         }
-        let canonical_id = switch_parent_by_child
-            .get(&raw_id)
-            .cloned()
-            .unwrap_or_else(|| raw_id.clone());
+        let canonical_id = if let Some(root) = switch_root_cache.get(&raw_id) {
+            root.clone()
+        } else {
+            let mut current = raw_id.clone();
+            let mut path = Vec::new();
+            let mut visited = HashSet::new();
+            while visited.insert(current.clone()) {
+                if let Some(root) = switch_root_cache.get(&current) {
+                    current = root.clone();
+                    break;
+                }
+                path.push(current.clone());
+                let Some(parent) = switch_parent_by_child.get(&current) else {
+                    break;
+                };
+                current = parent.clone();
+            }
+            for id in path {
+                switch_root_cache.insert(id, current.clone());
+            }
+            current
+        };
         let mut row = row;
         if canonical_id != raw_id
             && let (Some(parent), Some(child)) = (metadata_by_id.get(canonical_id.as_str()), metadata_by_id.get(raw_id.as_str()))
@@ -1600,6 +1593,24 @@ fn merge_session_rows_by_chat_family(
     if family_by_id.is_empty() {
         return;
     }
+    // The list may contain only the latest child, so find each family's root
+    // from the metadata already loaded for this request, not from visible rows.
+    let mut roots_by_family = HashMap::<&str, &LocalSessionListMetadata>::new();
+    for session in metadata {
+        let Some(family) = family_by_id.get(session.id.as_str()) else {
+            continue;
+        };
+        roots_by_family
+            .entry(family.as_str())
+            .and_modify(|root| {
+                if session.started_at.total_cmp(&root.started_at).is_lt()
+                    || (session.started_at == root.started_at && session.id < root.id)
+                {
+                    *root = session;
+                }
+            })
+            .or_insert(session);
+    }
     let mut grouped = HashMap::<String, Vec<(usize, f64)>>::new();
     for (index, row) in rows.iter().enumerate() {
         let Some(id) = row.get("id").and_then(|value| value.as_str()) else {
@@ -1619,10 +1630,7 @@ fn merge_session_rows_by_chat_family(
     }
     let mut removed = HashSet::<usize>::new();
     let mut activity_bumps = Vec::<(usize, f64)>::new();
-    for entries in grouped.values() {
-        if entries.len() < 2 {
-            continue;
-        }
+    for (family, entries) in &grouped {
         let mut chosen = entries[0].0;
         let mut chosen_started = entries[0].1;
         for &(index, started_at) in &entries[1..] {
@@ -1630,6 +1638,19 @@ fn merge_session_rows_by_chat_family(
                 chosen = index;
                 chosen_started = started_at;
             }
+        }
+        let Some(root) = roots_by_family.get(family.as_str()) else {
+            continue;
+        };
+        if let Some(object) = rows[chosen].as_object_mut() {
+            object.insert("id".into(), serde_json::json!(root.id));
+            object.insert("started_at".into(), serde_json::json!(root.started_at));
+            if let Some(title) = root.title.as_deref().filter(|title| !title.trim().is_empty()) {
+                object.insert("title".into(), serde_json::json!(title));
+            }
+        }
+        if entries.len() < 2 {
+            continue;
         }
         let mut merged_activity = rows[chosen]
             .get("last_active")

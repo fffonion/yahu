@@ -81,8 +81,9 @@
         let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
         let old_display = local_session_display_metadata(&state, "old").unwrap().unwrap();
         let new_display = local_session_display_metadata(&state, "new").unwrap().unwrap();
-        assert_eq!(old_display.0, new_display.0);
-        assert_eq!(new_display.0, "new");
+        assert_eq!(old_display, ("old".to_string(), "Greeting #2".to_string()));
+        assert_eq!(new_display, ("new".to_string(), "Greeting #4".to_string()));
+        assert_eq!(local_session_switch_root_id(&state, "new").unwrap(), Some("old".to_string()));
     }
 
     #[test]
@@ -288,6 +289,90 @@
             .filter_map(|row| row.get("id").and_then(|value| value.as_str()))
             .collect::<Vec<_>>();
         assert_eq!(ids, vec!["root-a", "root-b"]);
+    }
+
+    #[test]
+    fn session_list_uses_oldest_family_root_even_when_only_the_recent_child_is_returned() {
+        let metadata = vec![
+            LocalSessionListMetadata {
+                id: "old-root".into(), parent_session_id: None, started_at: 1.0,
+                ended_at: Some(2.0), end_reason: Some("session_switch".into()),
+                session_key: Some("key".into()), source: Some("telegram".into()),
+                chat_id: Some("chat".into()), thread_id: Some("topic".into()),
+                title: Some("Original title".into()), reset_from: None,
+            },
+            LocalSessionListMetadata {
+                id: "recent-child".into(), parent_session_id: Some("old-root".into()),
+                started_at: 100.0, ended_at: None, end_reason: None,
+                session_key: Some("key".into()), source: Some("telegram".into()),
+                chat_id: Some("chat".into()), thread_id: Some("topic".into()),
+                title: Some("Other title".into()), reset_from: Some("old-root".into()),
+            },
+        ];
+        let mut rows = vec![serde_json::json!({
+            "id": "recent-child", "title": "Other title", "started_at": 100.0,
+            "last_active": 110.0, "preview": "latest answer"
+        })];
+        merge_session_rows_by_chat_family(&mut rows, &metadata);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "old-root");
+        assert_eq!(rows[0]["title"], "Original title");
+        assert_eq!(rows[0]["started_at"], 1.0);
+        assert_eq!(rows[0]["last_active"], 110.0);
+        assert_eq!(rows[0]["preview"], "latest answer");
+    }
+
+    #[test]
+    fn keyless_multi_step_switch_list_uses_topmost_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, parent_session_id TEXT, title TEXT,
+                started_at REAL, ended_at REAL, end_reason TEXT,
+                source TEXT, session_key TEXT, chat_id TEXT, thread_id TEXT
+             );
+             INSERT INTO sessions VALUES
+                ('root', NULL, 'Root title', 1, 2, 'session_switch', 'cli', NULL, NULL, NULL),
+                ('middle', 'root', 'Middle title', 2, 3, 'session_switch', 'cli', NULL, NULL, NULL),
+                ('recent', 'middle', 'Recent title', 3, NULL, NULL, 'cli', NULL, NULL, NULL);",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let rows = session_rows_with_local_lineage(&state, vec![serde_json::json!({
+            "id":"recent", "title":"Recent title", "started_at":3.0,
+            "last_active":4.0
+        })]);
+        assert_eq!(rows[0]["id"], "root");
+        assert_eq!(rows[0]["title"], "Root title");
+        assert_eq!(rows[0]["last_active"], 4.0);
+    }
+
+    #[test]
+    fn pinned_child_without_visible_root_inherits_root_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, parent_session_id TEXT, end_reason TEXT,
+                source TEXT, session_key TEXT, chat_id TEXT, thread_id TEXT,
+                started_at REAL, title TEXT
+             );
+             INSERT INTO sessions VALUES
+                ('root',NULL,'session_switch','telegram','key','chat','topic',1,'Original'),
+                ('child','root',NULL,'telegram','key','chat','topic',100,'Child');",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let mut rows = vec![serde_json::json!({
+            "id":"child","started_at":100.0,"last_active":110.0,"title":"Child"
+        })];
+        let families = filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut rows, &["child".into()]).unwrap();
+        assert_eq!(families["child"].first().unwrap().id, "root");
+        assert_eq!(rows[0]["id"], "root");
+        assert_eq!(rows[0]["title"], "Original");
+        assert_eq!(rows[0]["started_at"], 1.0);
+        assert_eq!(rows[0]["last_active"], 110.0);
     }
 
     #[test]
@@ -1001,12 +1086,40 @@
             &mut rows,
             &["detached-current".to_string(), "pinned-root".to_string()],
         ).unwrap();
-        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["detached-current"]);
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["pinned-root"]);
 
-        let response = sessions_search(
-            State(Arc::new(state)),
+        let state = Arc::new(state);
+        let stale_title_response = sessions_search(
+            State(state.clone()),
             Query(SessionSearchQuery {
                 q: Some("Subagent development orchestration".to_string()),
+                limit: Some(80),
+                hide_cron_cli: Some(false),
+                pinned_ids: None,
+            }),
+        ).await;
+        let stale_bytes = axum::body::to_bytes(stale_title_response.into_body(), 1024 * 1024).await.unwrap();
+        let stale_body: serde_json::Value = serde_json::from_slice(&stale_bytes).unwrap();
+        assert!(stale_body["data"].as_array().unwrap().is_empty());
+        let aliased_pin_response = sessions_search(
+            State(state.clone()),
+            Query(SessionSearchQuery {
+                q: Some("webrtc".to_string()),
+                limit: Some(80),
+                hide_cron_cli: Some(false),
+                pinned_ids: Some("live-tail".to_string()),
+            }),
+        ).await;
+        let aliased_bytes = axum::body::to_bytes(aliased_pin_response.into_body(), 1024 * 1024).await.unwrap();
+        let aliased_body: serde_json::Value = serde_json::from_slice(&aliased_bytes).unwrap();
+        assert_eq!(aliased_body["data"].as_array().unwrap().len(), 1);
+        assert_eq!(aliased_body["data"][0]["id"], "pinned-root");
+        assert_eq!(aliased_body["data"][0]["title"], "webrtc");
+        assert_eq!(aliased_body["canonical_pins"]["live-tail"], "pinned-root");
+        let response = sessions_search(
+            State(state),
+            Query(SessionSearchQuery {
+                q: Some("webrtc".to_string()),
                 limit: Some(80),
                 hide_cron_cli: Some(false),
                 pinned_ids: Some("pinned-root".to_string()),
@@ -1016,7 +1129,7 @@
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
             body["data"].as_array().unwrap().iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(),
-            vec!["detached-current"]
+            vec!["pinned-root"]
         );
     }
 
@@ -1272,6 +1385,26 @@
             Some("old-root".to_string())
         );
         assert_eq!(local_session_switch_root_id(&state, "unrelated").unwrap(), None);
+    }
+
+    #[test]
+    fn canonical_child_with_its_own_title_still_resolves_to_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, parent_session_id TEXT, end_reason TEXT,
+                source TEXT, session_key TEXT, chat_id TEXT, thread_id TEXT,
+                started_at REAL, title TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('first',NULL,'session_switch','telegram','key','chat','topic',1,'Original #1'),
+                ('next','first',NULL,'telegram','key','chat','topic',100,'Original #3');",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        assert_eq!(local_session_switch_root_id(&state, "next").unwrap(), Some("first".into()));
+        assert_eq!(local_session_display_metadata(&state, "first").unwrap(), Some(("first".into(), "Original #1".into())));
     }
 
     #[test]
@@ -1652,6 +1785,8 @@
         let rows = session_rows_with_local_lineage(&state, rows);
         let ids = rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["fresh", "side"]);
+        assert_eq!(ids, vec!["detour", "side"]);
+        assert_eq!(rows[0]["title"], "yahu! #11");
+        assert_eq!(rows[0]["started_at"], 2.0);
         assert_eq!(rows[0]["last_active"], 100.0);
     }

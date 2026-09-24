@@ -40,7 +40,8 @@ describe('session search and composer session model UI', () => {
     expect(app).toContain('migrateChatViewState(readChatViewState(), sessionId, representativeId)');
     expect(app).toContain("const displayTitle = String(canonicalBody.display_title || '').trim();");
     expect(app).toContain('pinnedSessionTitlesRef.current[representativeId] = displayTitle;');
-    expect(app).toContain('filterPinnedCanonicalAliases(rawList, sessionCanonicalAliasesRef.current, pinnedIds)');
+    expect(app).toContain('filterPinnedCanonicalAliases(rawList, sessionCanonicalAliasesRef.current, migratedPins)');
+    expect(app).toContain('setPinnedIds((current) => canonicalizePinnedIds(current, canonicalPins));');
     expect(app).toContain('const representativeId = displayId || canonicalId;');
     expect(app).toContain('setActiveSessionId(representativeId);');
     expect(app).toContain('sessionCanonicalAliasesRef.current[sessionId] = representativeId;');

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { filterPinnedCanonicalAliases, replacePinnedSessionId, splitSidebarSessions, reorderPinnedIds } from './sessionListFilter';
+import { filterPinnedCanonicalAliases, replacePinnedSessionId, splitSidebarSessions, reorderPinnedIds, canonicalizePinnedIds, preferServerRootTitle } from './sessionListFilter';
 
 describe('session list source filter', () => {
   const sessions = [
@@ -52,5 +52,17 @@ describe('session list source filter', () => {
 
   test('does not duplicate an already pinned canonical id', () => {
     expect(Array.from(replacePinnedSessionId(new Set(['legacy', 'canonical']), 'legacy', 'canonical'))).toEqual(['canonical']);
+  });
+
+  test('canonicalizes legacy pinned children in order and without duplicates', () => {
+    const pins = canonicalizePinnedIds(new Set(['first', 'child', 'root']), { child: 'root' });
+    expect(Array.from(pins)).toEqual(['first', 'root']);
+    expect(splitSidebarSessions([{ id: 'root' }], pins).pinned.map((row) => row.id)).toEqual(['root']);
+  });
+
+  test('prefers the server root title over an old pinned child title', () => {
+    expect(preferServerRootTitle({ id: 'root', title: 'Original' }, '', 'Stale child')).toEqual({ id: 'root', title: 'Original' });
+    expect(preferServerRootTitle({ id: 'root', title: '' }, '', 'Fallback')).toEqual({ id: 'root', title: 'Fallback' });
+    expect(preferServerRootTitle({ id: 'root', title: 'Original' }, 'New rename', 'Stale child')).toEqual({ id: 'root', title: 'New rename' });
   });
 });

@@ -38,6 +38,15 @@ export function replacePinnedSessionId(pinnedIds: Set<string>, previousId: strin
   return new Set(order);
 }
 
+export function canonicalizePinnedIds(pinnedIds: Set<string>, canonicalPins: Record<string, string>): Set<string> {
+  return new Set(Array.from(pinnedIds, (id) => canonicalPins[id] || id));
+}
+
+export function preferServerRootTitle<T extends { title?: string | null }>(session: T, temporaryTitle: string, pinnedTitle: string): T {
+  const title = temporaryTitle || (String(session.title || '').trim() ? '' : pinnedTitle);
+  return title && title !== session.title ? { ...session, title } : session;
+}
+
 export function reorderPinnedIds(pinnedIds: Set<string>, sourceId: string, targetId: string) {
   const order = Array.from(pinnedIds);
   const sourceIndex = order.indexOf(sourceId);
