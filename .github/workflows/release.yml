@@ -152,6 +152,7 @@ jobs:
 
           for archive in artifacts/yahu-*.tar.gz; do
             target="$(basename "$archive" .tar.gz)"
+            target="${target#yahu-}"
             mkdir -p "npm-package/binaries/$target"
             tar -xzf "$archive" -C "npm-package/binaries/$target" yahu
           done
