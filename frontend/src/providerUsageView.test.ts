@@ -208,8 +208,14 @@ describe('provider usage view', () => {
     expect(source).toContain("provider.provider === 'stepfun'");
     expect(backendRoutes()).toContain('.route("/provider-icons/agentrouter.png", get(agentrouter_logo))');
     expect(backendRoutes()).toContain('.route("/provider-icons/{provider}", get(provider_icon))');
-    expect(source).toContain("section.windows.length > 0 && !['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
+    expect(source).toContain("section.windows.length > 0 && !['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
     expect(source).not.toContain("provider-usage-agentrouter-desc");
+  });
+
+  test('JustWoker shares the New API compact usage layout', () => {
+    const source = app();
+    expect(source).toContain("provider.provider === 'justwoker'");
+    expect(source).toContain("'agentrouter', 'justwoker', 'openrouter'");
   });
 
   test('mobile provider long press owns pointer movement and auto-scrolls at screen edges', () => {

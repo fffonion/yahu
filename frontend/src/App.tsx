@@ -3093,7 +3093,7 @@ function ProviderUsageMain(props: {
             const multiAccount = enabled && accountCount >= 4;
             const balance = providerBalanceText(section?.description);
             const titleMeta = providerTitleMeta(provider.provider, section?.description);
-            const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud';
+            const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'justwoker' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud';
             const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
             const autoRefreshing = Boolean(props.autoRefresh[provider.provider]);
             const codexResetSubtitle = enabled && provider.provider === 'codex' ? providerCodexResetSubtitle(section?.description) : '';
@@ -3167,7 +3167,7 @@ function ProviderUsageAccountSkeleton({ count }: { count: number }) {
 }
 
 function ProviderUsageSectionView({ section, loading = false }: { section: ProviderUsageSection; loading?: boolean }) {
-  const tableOnly = ['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider);
+  const tableOnly = ['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider);
   const stepFunUsage = section.provider === 'stepfun';
   const description = tableOnly || stepFunUsage ? '' : providerDescriptionText(section.description, section.provider);
   const accountTones = new Map<string, number>();
@@ -3202,7 +3202,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
   const tableRows = section.provider === 'minimax' ? minimaxRows : section.rows;
   return <div className="provider-usage-data">
     {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
-    {section.windows.length > 0 && !['agentrouter', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (accountGroups.length > 0
+    {section.windows.length > 0 && !['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (accountGroups.length > 0
       ? <div className="provider-usage-account-groups">{accountGroups.map(([account, windows], groupIndex) => {
         const visibleWindows = section.provider === 'commandcode'
           ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')

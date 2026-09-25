@@ -335,6 +335,16 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         || !agentrouter_token.is_empty();
     let agentrouter_query_ready = !agentrouter_user_id.is_empty()
         && (!agentrouter_cookie.is_empty() || !agentrouter_token.is_empty());
+    let justwoker_user_id = provider_env_value(hermes_home, "JUSTWOKER_USER_ID");
+    let justwoker_cookie = provider_env_value(hermes_home, "JUSTWOKER_SESSION_COOKIE");
+    let justwoker_token = provider_env_value(hermes_home, "JUSTWOKER_ACCESS_TOKEN");
+    let justwoker_configured = !justwoker_user_id.is_empty()
+        || !justwoker_cookie.is_empty()
+        || !justwoker_token.is_empty()
+        || any_provider_env_value(hermes_home, &["HERMES_CUSTOM_API_JUSTWOKER_ICU_API_KEY"])
+        || any_custom_provider_api_key(hermes_home, &["justwoker", "justwoker-icu"]);
+    let justwoker_query_ready = !justwoker_user_id.is_empty()
+        && (!justwoker_cookie.is_empty() || !justwoker_token.is_empty());
     let entries = [
         (
             "agentrouter",
@@ -343,6 +353,14 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             agentrouter_query_ready,
             "AGENTROUTER_SESSION_COOKIE + AGENTROUTER_USER_ID",
             "也支持 AGENTROUTER_ACCESS_TOKEN + AGENTROUTER_USER_ID；凭据写入 ~/.hermes/.env。",
+        ),
+        (
+            "justwoker",
+            "JustWoker 用量",
+            justwoker_configured,
+            justwoker_query_ready,
+            "JUSTWOKER_ACCESS_TOKEN + JUSTWOKER_USER_ID",
+            "配置账户 access token 与用户 ID；也支持 JUSTWOKER_SESSION_COOKIE + JUSTWOKER_USER_ID。推理 API key 无法查询账户用量；凭据写入 ~/.hermes/.env。",
         ),
         (
             "openrouter",
@@ -4282,7 +4300,9 @@ fn is_same_shanghai_day(timestamp: i64, now: chrono::DateTime<chrono::Utc>) -> b
     timestamp.with_timezone(&timezone).date_naive() == now.with_timezone(&timezone).date_naive()
 }
 
-fn agentrouter_usage_section(
+fn newapi_usage_section(
+    provider: &str,
+    title: &str,
     records: &[NewApiUsageRecord],
     quota_per_unit: f64,
     remaining_quota: f64,
@@ -4322,8 +4342,8 @@ fn agentrouter_usage_section(
         })
         .collect();
     ProviderUsageSection {
-        provider: "agentrouter".into(),
-        title: "AgenRouter 用量".into(),
+        provider: provider.into(),
+        title: title.into(),
         description: format!("余额 **{balance}**；累计已用 **{used}**"),
         rows,
         windows: vec![ProviderUsageWindow {
@@ -4336,29 +4356,31 @@ fn agentrouter_usage_section(
     }
 }
 
-async fn fetch_agentrouter_usage(state: &AppState) -> ProviderUsageSection {
+async fn fetch_newapi_usage(state: &AppState, provider: &str) -> ProviderUsageSection {
+    let (title, user_keys, cookie_keys, token_keys, base_keys, default_base) = match provider {
+        "justwoker" => (
+            "JustWoker 用量", &["JUSTWOKER_USER_ID"][..], &["JUSTWOKER_SESSION_COOKIE"][..],
+            &["JUSTWOKER_ACCESS_TOKEN"][..], &["JUSTWOKER_BASE_URL"][..],
+            "https://api.justwoker.icu",
+        ),
+        _ => (
+            "AgenRouter 用量", &["AGENTROUTER_USER_ID", "AGENTROUTER_NEWAPI_USER_ID"][..],
+            &["AGENTROUTER_SESSION_COOKIE", "AGENTROUTER_COOKIE"][..],
+            &["AGENTROUTER_ACCESS_TOKEN", "AGENTROUTER_TOKEN"][..],
+            &["AGENTROUTER_BASE_URL", "AGENTROUTER_NEWAPI_BASE_URL"][..],
+            "https://ps.air-outer.com",
+        ),
+    };
     let mut section = ProviderUsageSection {
-        provider: "agentrouter".into(),
-        title: "AgenRouter 用量".into(),
+        provider: provider.into(),
+        title: title.into(),
         ..Default::default()
     };
-    let user_id = first_provider_env_value(
-        &state.hermes_home,
-        &["AGENTROUTER_USER_ID", "AGENTROUTER_NEWAPI_USER_ID"],
-    );
-    let cookie = first_provider_env_value(
-        &state.hermes_home,
-        &["AGENTROUTER_SESSION_COOKIE", "AGENTROUTER_COOKIE"],
-    );
-    let token = first_provider_env_value(
-        &state.hermes_home,
-        &["AGENTROUTER_ACCESS_TOKEN", "AGENTROUTER_TOKEN"],
-    );
+    let user_id = first_provider_env_value(&state.hermes_home, user_keys);
+    let cookie = first_provider_env_value(&state.hermes_home, cookie_keys);
+    let token = first_provider_env_value(&state.hermes_home, token_keys);
     if user_id.is_empty() || (cookie.is_empty() && token.is_empty()) {
-        section.errors.push(
-            "缺少 AGENTROUTER_USER_ID 与 AGENTROUTER_SESSION_COOKIE（或 AGENTROUTER_ACCESS_TOKEN）"
-                .into(),
-        );
+        section.errors.push(format!("缺少 {} 与 {}（或 {}）", user_keys[0], cookie_keys[0], token_keys[0]));
         return section;
     }
     let auth = if !cookie.is_empty() {
@@ -4366,23 +4388,20 @@ async fn fetch_agentrouter_usage(state: &AppState) -> ProviderUsageSection {
     } else {
         NewApiAuth::Bearer { token, user_id }
     };
-    let base_url = first_provider_env_value(
-        &state.hermes_home,
-        &["AGENTROUTER_BASE_URL", "AGENTROUTER_NEWAPI_BASE_URL"],
-    );
+    let base_url = first_provider_env_value(&state.hermes_home, base_keys);
     let base_url = if base_url.is_empty() {
-        "https://ps.air-outer.com".to_string()
+        default_base.to_string()
     } else {
         base_url
     };
     let client = NewApiClient::new(&state.client, base_url, auth);
     let now = unix_now_seconds();
-    let quota_per_unit = if let Some(cached) = cached_newapi_quota_per_unit(state, "agentrouter", now) {
+    let quota_per_unit = if let Some(cached) = cached_newapi_quota_per_unit(state, provider, now) {
         Some(cached)
     } else {
         match client.fetch_status().await {
             Ok(status) => {
-                save_newapi_quota_per_unit(state, "agentrouter", status.quota_per_unit, now);
+                save_newapi_quota_per_unit(state, provider, status.quota_per_unit, now);
                 Some(status.quota_per_unit)
             }
             Err(err) => {
@@ -4402,8 +4421,8 @@ async fn fetch_agentrouter_usage(state: &AppState) -> ProviderUsageSection {
     let range = NewApiTimeRange::shanghai_days(now_utc, 7);
     match client.fetch_usage(&range).await {
         Ok(records) => {
-            let mut usage = agentrouter_usage_section(
-                &records,
+            let mut usage = newapi_usage_section(
+                provider, title, &records,
                 quota_per_unit.unwrap_or(0.0),
                 user.as_ref().map(|user| user.quota).unwrap_or(0.0),
                 user.as_ref().map(|user| user.used_quota).unwrap_or(0.0),
@@ -4443,7 +4462,7 @@ async fn fetch_provider_usage_section(
         }
     }
     let mut section = match provider {
-        "agentrouter" => fetch_agentrouter_usage(state).await,
+        "agentrouter" | "justwoker" => fetch_newapi_usage(state, provider).await,
         "openrouter" => fetch_openrouter_usage(state).await,
         "deepseek" => fetch_deepseek_usage(state).await,
         "atlascloud" => fetch_atlascloud_usage(state).await,
@@ -4631,7 +4650,7 @@ fn merge_provider_usage_payload(
 
 /// Providers that run the New API gateway software (github.com/Calcium-Ion/new-api)
 /// share its project logo. The bytes are embedded so no provider site is contacted.
-const NEWAPI_VARIANT_PROVIDERS: &[&str] = &["agentrouter"];
+const NEWAPI_VARIANT_PROVIDERS: &[&str] = &["agentrouter", "justwoker"];
 const NEWAPI_LOGO_BYTES: &[u8] = include_bytes!("assets/newapi-logo.png");
 const PROVIDER_ICON_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_PROVIDER_ICON_BODY: usize = 4 * 1024 * 1024;

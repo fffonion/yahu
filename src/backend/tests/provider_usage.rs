@@ -5,6 +5,8 @@ mod provider_usage_tests {
     #[test]
     fn provider_icon_urls_embed_newapi_variants_and_proxy_gstatic_sources() {
         assert!(NEWAPI_VARIANT_PROVIDERS.contains(&"agentrouter"));
+        assert!(NEWAPI_VARIANT_PROVIDERS.contains(&"justwoker"));
+        assert_eq!(provider_icon_url("justwoker"), None);
         assert!(NEWAPI_LOGO_BYTES.starts_with(&[0x89, b'P', b'N', b'G']));
         assert_eq!(provider_icon_url("agentrouter"), None);
         assert_eq!(
@@ -687,9 +689,37 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn justwoker_catalog_needs_account_credentials_even_with_inference_key() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(".env"),
+            "HERMES_CUSTOM_API_JUSTWOKER_ICU_API_KEY=[REDACTED]\n").unwrap();
+        let provider = provider_usage_catalog(temp.path()).into_iter()
+            .find(|item| item.provider == "justwoker").unwrap();
+        assert!(provider.configured);
+        assert_eq!(provider.query_ready,
+            !std::env::var("JUSTWOKER_USER_ID").unwrap_or_default().is_empty()
+                && !std::env::var("JUSTWOKER_ACCESS_TOKEN").unwrap_or_default().is_empty());
+        assert_eq!(provider.title, "JustWoker 用量");
+        std::fs::write(temp.path().join(".env"),
+            "JUSTWOKER_USER_ID=123\nJUSTWOKER_SESSION_COOKIE=session=[REDACTED]\n").unwrap();
+        let provider = provider_usage_catalog(temp.path()).into_iter()
+            .find(|item| item.provider == "justwoker").unwrap();
+        assert!(provider.query_ready);
+    }
+
+    #[test]
+    fn justwoker_usage_section_keeps_its_own_provider_identity() {
+        let section = newapi_usage_section("justwoker", "JustWoker 用量", &[],
+            500_000.0, 1_000_000.0, 250_000.0, chrono::Utc::now());
+        assert_eq!(section.provider, "justwoker");
+        assert_eq!(section.title, "JustWoker 用量");
+        assert_eq!(section.description, "余额 **$2.00**；累计已用 **$0.50**");
+    }
+
+    #[test]
     fn agentrouter_default_usage_host_changes_without_renaming_the_card() {
         let source = include_str!("../provider_usage.rs");
-        assert!(source.contains("\"https://ps.air-outer.com\".to_string()"));
+        assert!(source.contains("\"https://ps.air-outer.com\""));
         let temp = tempfile::tempdir().unwrap();
         let provider = provider_usage_catalog(temp.path())
             .into_iter()
@@ -719,8 +749,8 @@ mod provider_usage_tests {
                 created_at: chrono::Utc::now().timestamp() - 2 * 24 * 60 * 60,
             },
         ];
-        let section = agentrouter_usage_section(
-            &records,
+        let section = newapi_usage_section(
+            "agentrouter", "AgenRouter 用量", &records,
             500_000.0,
             62_004_855.0,
             495_145.0,
