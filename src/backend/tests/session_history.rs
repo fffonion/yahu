@@ -859,6 +859,47 @@
     }
 
     #[test]
+    fn full_history_covers_the_same_resume_epochs_as_paged_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL,
+                ended_at REAL, end_reason TEXT, source TEXT, session_key TEXT,
+                chat_id TEXT, thread_id TEXT
+            );
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,
+                tool_call_id TEXT, tool_calls TEXT, tool_name TEXT, timestamp REAL,
+                token_count INTEGER, finish_reason TEXT, reasoning TEXT,
+                reasoning_content TEXT, active INTEGER
+            );",
+        ).unwrap();
+        for (id, parent, started, ended, reason) in [
+            ("root", None, 1, Some(2), Some("session_switch")),
+            ("middle", None, 3, Some(4), Some("session_switch")),
+            ("latest", Some("root"), 5, None, None),
+            ("side", Some("latest"), 6, None, None),
+        ] {
+            conn.execute(
+                "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,'telegram','key','chat','topic')",
+                rusqlite::params![id, parent, started, ended, reason],
+            ).unwrap();
+        }
+        for (id, session_id) in [(10, "root"), (20, "middle"), (25, "root"), (30, "latest"), (40, "side")] {
+            conn.execute(
+                "INSERT INTO messages VALUES (?1,?2,'user',?2,NULL,NULL,NULL,?1,NULL,NULL,NULL,NULL,1)",
+                rusqlite::params![id, session_id],
+            ).unwrap();
+        }
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
+        let messages = fetch_local_history_context_messages(&state, "root").unwrap().unwrap().messages;
+        let ids = messages.iter().map(|message| message["id"].as_i64().unwrap()).collect::<Vec<_>>();
+        assert_eq!(ids, vec![10, 20, 25, 30]);
+    }
+
+    #[test]
     fn switch_walk_prefers_the_continuing_fork_over_a_dead_end() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");

@@ -4772,8 +4772,21 @@ fn fetch_local_history_context_messages(
         state,
         session_id,
         SessionMessageJoinMode::VisibleHistory,
-        local_session_history_entries,
+        local_session_complete_history_entries,
     )
+}
+
+fn local_session_complete_history_entries(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Vec<SessionLineageEntry>> {
+    let lineage = local_session_history_entries(conn, session_id)?;
+    let chat = local_session_chat_view_entries(conn, session_id)?;
+    if chat.len() > lineage.len() && chat.last().is_some_and(|entry| entry.end_reason.is_none()) {
+        Ok(chat)
+    } else {
+        Ok(lineage)
+    }
 }
 
 fn fetch_local_detached_session_switch_messages(
@@ -4973,7 +4986,7 @@ fn fetch_local_context_messages_with_entries(
     }
     let message_filter = local_message_history_filter(&conn, mode)?;
     let reasoning_columns = local_reasoning_select_columns(&conn)?;
-    let context = messages_with_context_boundary_from_entries(&entries, mode, |entry_id| {
+    let mut context = messages_with_context_boundary_from_entries(&entries, mode, |entry_id| {
         let sql = format!(
             "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} \
              FROM messages WHERE {message_filter} AND session_id = ?1 ORDER BY id"
@@ -4982,6 +4995,14 @@ fn fetch_local_context_messages_with_entries(
         let rows = stmt.query_map([entry_id], row_to_session_message)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     })?;
+    if mode == SessionMessageJoinMode::VisibleHistory {
+        context.messages.sort_by_key(message_i64_id);
+        if let Some(boundary_id) = context.compression_boundary_id.as_ref().and_then(serde_json::Value::as_i64)
+            && let Some(index) = context.messages.iter().position(|message| message_i64_id(message) == Some(boundary_id))
+        {
+            context.boundary_start = index + 1;
+        }
+    }
     Ok(Some(context))
 }
 
