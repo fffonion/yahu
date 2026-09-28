@@ -33,6 +33,7 @@ import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtm
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
 import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
+import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
@@ -1252,8 +1253,8 @@ export default function App() {
         const sessionEffort = sessionReasoningEffort(detail);
         if (sessionEffort) setEffort(sessionEffort);
       }
-      setActiveSessionDetail((old) => sessionWithPreservedMessageCount(detail, old));
-      setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(detail, s) } : s) : [detail, ...old]);
+      setActiveSessionDetail((old) => sessionWithPreservedMessageCount(preferNewerSessionModel(detail, sessions.find((session) => session.id === detail.id)), old));
+      setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(preferNewerSessionModel(detail, s), s) } : s) : [detail, ...old]);
     } catch (err) {
       if (activeSessionIdRef.current === sessionId) setActiveSessionDetail(null);
       setStatus(tf('status.sessionDetailUnavailable', errorMessage(err)));
