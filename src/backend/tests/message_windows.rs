@@ -38,8 +38,8 @@
         let (tail, has_older) = fetch_local_active_message_tail(&state, "s1", 3).unwrap().unwrap();
         let skeleton = history_skeleton_messages(&tail);
 
-        assert!(has_older);
-        assert_eq!(tail.iter().map(|message| message["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![1, 3, 4, 5]);
+        assert!(!has_older);
+        assert_eq!(tail.iter().map(|message| message["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
         assert_eq!(skeleton.len(), 2);
         assert_eq!(skeleton[0]["id"], 1);
         assert_eq!(skeleton[1]["turn_details"]["after_id"], "1");
@@ -64,14 +64,77 @@
                  (11,'s1','user','earlier prompt',200,1);",
         ).unwrap();
         for id in 12..=38 {
-            conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES (?1,'s1','tool','detail',?2,1)", rusqlite::params![id, 300.0 + f64::from(id)]).unwrap();
+            let role = if id == 12 || id == 14 { "assistant" } else { "tool" };
+            conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES (?1,'s1',?2,'detail',?3,1)", rusqlite::params![id, role, 300.0 + f64::from(id)]).unwrap();
         }
         drop(conn);
         let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
         let (tail, has_older) = fetch_local_active_message_tail(&state, "s1", 24).unwrap().unwrap();
-        assert!(has_older);
+        assert!(!has_older);
         assert!(tail.iter().any(|message| message["id"] == 10));
         assert!(history_skeleton_messages(&tail).iter().any(|message| message["id"] == 10));
+        assert_eq!(tail.iter().map(|message| message["id"].as_i64().unwrap()).collect::<Vec<_>>(), (10..=38).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn around_user_nav_target_reads_compacted_middle_epoch_and_nearest_neighbors() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL,
+                ended_at REAL, end_reason TEXT, source TEXT, session_key TEXT,
+                chat_id TEXT, thread_id TEXT
+            );
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,
+                tool_call_id TEXT, tool_calls TEXT, tool_name TEXT, timestamp REAL,
+                token_count INTEGER, finish_reason TEXT, reasoning TEXT,
+                reasoning_content TEXT, active INTEGER, compacted INTEGER
+            );
+            INSERT INTO sessions VALUES ('root',NULL,1,2,'session_switch','telegram','key','chat','topic');
+            INSERT INTO sessions VALUES ('middle',NULL,3,4,'session_switch','telegram','key','chat','topic');
+            INSERT INTO sessions VALUES ('latest','root',5,NULL,NULL,'telegram','key','chat','topic');
+            INSERT INTO sessions VALUES ('side','latest',6,NULL,NULL,'telegram','key','chat','topic');
+            INSERT INTO messages (id,session_id,role,content,timestamp,active,compacted) VALUES
+                (10,'root','user','old',10,1,0),
+                (20,'middle','user','middle prompt',20,0,1),
+                (21,'middle','assistant','middle answer',21,0,1),
+                (30,'latest','user','new prompt',30,1,0),
+                (31,'latest','assistant','new answer',31,1,0),
+                (32,'latest','user','inactive and not compacted',32,0,0),
+                (40,'side','user','separate side',40,1,0);",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let nav = fetch_local_user_nav_messages(&state, "root").unwrap().unwrap().0;
+        assert_eq!(nav.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(), vec!["10", "20", "30"]);
+
+        let (around, older, newer) = fetch_local_message_window_around(&state, "root", 20, 4).unwrap().unwrap();
+        assert_eq!(around.iter().map(|row| row["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![10, 20, 21, 30]);
+        assert!(!older);
+        assert!(newer);
+        let (before, _, _) = fetch_local_skeleton_page(&state, "root", Some(30), None, 4).unwrap().unwrap();
+        assert_eq!(before.iter().map(|row| row["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![10, 20, 21]);
+        let (after, _, _) = fetch_local_skeleton_page(&state, "root", None, Some(10), 4).unwrap().unwrap();
+        assert_eq!(after.iter().map(|row| row["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![20, 21, 30, 31]);
+        let (absent, _, _) = fetch_local_message_window_around(&state, "root", 22, 4).unwrap().unwrap();
+        assert_eq!(absent.iter().map(|row| row["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![20, 21, 30, 31]);
+
+        // The newest page plus older cursor pages must reconstruct the exact
+        // same visible identities as the complete transcript and user index.
+        let full = fetch_local_history_context_messages(&state, "root").unwrap().unwrap().messages;
+        let expected = full.iter().map(|row| row["id"].as_i64().unwrap()).collect::<Vec<_>>();
+        assert_eq!(expected, vec![10, 20, 21, 30, 31]);
+        let (mut collected, mut has_older) = fetch_local_active_message_tail(&state, "root", 2).unwrap().unwrap();
+        while has_older {
+            let before = collected.first().unwrap()["id"].as_i64().unwrap();
+            let (older, more, _) = fetch_local_skeleton_page(&state, "root", Some(before), None, 2).unwrap().unwrap();
+            assert!(!older.is_empty(), "older cursor must make progress");
+            collected.splice(0..0, older);
+            has_older = more;
+        }
+        assert_eq!(collected.iter().map(|row| row["id"].as_i64().unwrap()).collect::<Vec<_>>(), expected);
     }
 
     #[test]

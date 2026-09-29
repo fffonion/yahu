@@ -2415,6 +2415,7 @@ fn fetch_local_active_message_tail(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
     let entry_ids = local_history_entry_ids(&conn, session_id)?;
     if entry_ids.is_empty() {
         return Ok(None);
@@ -2423,7 +2424,7 @@ fn fetch_local_active_message_tail(
     let limit_param = entry_ids.len() + 1;
     let sql = format!(
         "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} \
-         FROM messages WHERE session_id IN ({placeholders}) AND active = 1 ORDER BY id DESC LIMIT ?{limit_param}"
+         FROM messages WHERE session_id IN ({placeholders}) AND {message_filter} ORDER BY id DESC LIMIT ?{limit_param}"
     );
     let mut params = session_id_values(&entry_ids);
     params.push(rusqlite::types::Value::Integer(i64::try_from(limit.saturating_add(1))?));
@@ -2437,6 +2438,7 @@ fn fetch_local_active_message_tail(
     let mut has_older_active = messages.len() > limit;
     messages.truncate(limit);
     messages.reverse();
+    let tail_start_id = messages.first().and_then(message_i64_id);
 
     // The local tail can start in the middle of a tool/detail run. Keep the
     // preceding visible turn anchor in the latest skeleton so its detail
@@ -2451,7 +2453,7 @@ fn fetch_local_active_message_tail(
         if starts_inside_detail {
             let anchor_param = entry_ids.len() + 1;
             let anchor_sql = format!(
-                "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND active = 1 AND id < ?{anchor_param} AND role IN ('user', 'system') ORDER BY id DESC LIMIT 1"
+                "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND {message_filter} AND id < ?{anchor_param} AND role IN ('user', 'system') ORDER BY id DESC LIMIT 1"
             );
             let mut anchor_params = session_id_values(&entry_ids);
             anchor_params.push(rusqlite::types::Value::Integer(first_id));
@@ -2471,7 +2473,7 @@ fn fetch_local_active_message_tail(
     if has_older_active {
         let probe_limit_param = entry_ids.len() + 1;
         let probe_sql = format!(
-            "SELECT id, role, timestamp FROM messages WHERE session_id IN ({placeholders}) AND active = 1 ORDER BY id DESC LIMIT ?{probe_limit_param}"
+            "SELECT id, role, timestamp FROM messages WHERE session_id IN ({placeholders}) AND {message_filter} ORDER BY id DESC LIMIT ?{probe_limit_param}"
         );
         let mut probe_params = session_id_values(&entry_ids);
         probe_params.push(rusqlite::types::Value::Integer(i64::try_from(limit.saturating_mul(2))?));
@@ -2492,7 +2494,7 @@ fn fetch_local_active_message_tail(
             if id < first_id && timestamp > visible_user_time {
                 let anchor_param = entry_ids.len() + 1;
                 let anchor_sql = format!(
-                    "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND active = 1 AND id = ?{anchor_param}"
+                    "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND {message_filter} AND id = ?{anchor_param}"
                 );
                 let mut anchor_params = session_id_values(&entry_ids);
                 anchor_params.push(rusqlite::types::Value::Integer(id));
@@ -2504,6 +2506,40 @@ fn fetch_local_active_message_tail(
         }
     }
 
+    // A separately fetched turn anchor and the raw tail must form one
+    // contiguous window. Otherwise commentary/final rows between them vanish
+    // from the skeleton, even though both endpoints are present.
+    if let (Some(start), Some(tail_start)) = (messages.first().and_then(message_i64_id), tail_start_id)
+        && start < tail_start
+    {
+        let gap_limit = limit.saturating_mul(2);
+        let start_param = entry_ids.len() + 1;
+        let end_param = entry_ids.len() + 2;
+        let cap_param = entry_ids.len() + 3;
+        let gap_sql = format!(
+            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND {message_filter} AND id >= ?{start_param} AND id < ?{end_param} ORDER BY id ASC LIMIT ?{cap_param}"
+        );
+        let mut gap_params = session_id_values(&entry_ids);
+        gap_params.extend([
+            rusqlite::types::Value::Integer(start),
+            rusqlite::types::Value::Integer(tail_start),
+            rusqlite::types::Value::Integer(i64::try_from(gap_limit.saturating_add(1))?),
+        ]);
+        let mut gap = conn.prepare(&gap_sql)?
+            .query_map(rusqlite::params_from_iter(gap_params), row_to_session_message)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if gap.len() <= gap_limit {
+            gap.extend(messages.into_iter().filter(|message| message_i64_id(message).is_some_and(|id| id >= tail_start)));
+            messages = gap;
+            let oldest = messages.first().and_then(message_i64_id).unwrap_or(start);
+            let older_sql = format!(
+                "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id IN ({placeholders}) AND {message_filter} AND id < ?{start_param})"
+            );
+            let mut older_params = session_id_values(&entry_ids);
+            older_params.push(rusqlite::types::Value::Integer(oldest));
+            has_older_active = conn.query_row(&older_sql, rusqlite::params_from_iter(older_params), |row| row.get::<_, bool>(0))?;
+        }
+    }
     Ok(Some((messages, has_older_active)))
 }
 
@@ -2522,6 +2558,7 @@ fn fetch_local_message_window_around(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     let reasoning_columns = local_reasoning_select_columns(&conn)?;
+    let message_filter = local_message_history_filter(&conn, SessionMessageJoinMode::VisibleHistory)?;
     let entry_ids = local_history_entry_ids(&conn, session_id)?;
     if entry_ids.is_empty() {
         return Ok(None);
@@ -2529,9 +2566,9 @@ fn fetch_local_message_window_around(
     let placeholders = session_id_placeholders(&entry_ids);
     let cursor_param = entry_ids.len() + 1;
     let limit_param = entry_ids.len() + 2;
-    let select = |order: &str| {
+    let select = |order: &str, direction: &str| {
         format!(
-            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND active = 1 AND id {order} ?{cursor_param} ORDER BY id DESC LIMIT ?{limit_param}"
+            "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND {message_filter} AND id {order} ?{cursor_param} ORDER BY id {direction} LIMIT ?{limit_param}"
         )
     };
     let left_limit = (limit / 2).max(1);
@@ -2540,14 +2577,14 @@ fn fetch_local_message_window_around(
     left_params.push(rusqlite::types::Value::Integer(around));
     left_params.push(rusqlite::types::Value::Integer(i64::try_from(left_limit + 1)?));
     let mut left = conn
-        .prepare(&select("<="))?
+        .prepare(&select("<=", "DESC"))?
         .query_map(rusqlite::params_from_iter(left_params), row_to_session_message)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut right_params = session_id_values(&entry_ids);
     right_params.push(rusqlite::types::Value::Integer(around));
     right_params.push(rusqlite::types::Value::Integer(i64::try_from(right_limit + 1)?));
     let mut right = conn
-        .prepare(&select(">"))?
+        .prepare(&select(">", "ASC"))?
         .query_map(rusqlite::params_from_iter(right_params), row_to_session_message)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if left.is_empty() && right.is_empty() {
@@ -2558,7 +2595,6 @@ fn fetch_local_message_window_around(
     left.truncate(left_limit);
     right.truncate(right_limit);
     left.reverse();
-    right.reverse();
     left.extend(right);
     Ok(Some((left, has_older, has_newer)))
 }

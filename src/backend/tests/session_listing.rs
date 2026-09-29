@@ -1008,6 +1008,15 @@
         ).unwrap();
 
         assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["pinned-root"]);
+        assert_eq!(rows[0]["title"], "kfc", "the alias title must not replace the pinned root title");
+        let resolved = session_canonical(
+            State(Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()))),
+            AxumPath("topic-alias".to_string()),
+        ).await;
+        let body = axum::body::to_bytes(resolved.into_body(), 1024 * 1024).await.unwrap();
+        let canonical: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(canonical["display_id"], "pinned-root");
+        assert_eq!(canonical["display_title"], "kfc");
     }
 
     #[tokio::test]
