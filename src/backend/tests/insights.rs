@@ -603,6 +603,28 @@
     }
 
     #[test]
+    fn verified_free_provider_variants_have_zero_price_without_claiming_other_free_ids() {
+        let catalog = model_price_catalog_from_models_dev(&serde_json::json!({
+            "aihubmix": {"models": {"glm-5.3-flash": {"id":"glm-5.3-flash", "cost":{"input":0.11268, "output":0.39438}}}},
+            "openrouter": {"models": {"minimax/minimax-m3": {"id":"minimax/minimax-m3", "cost":{"input":0.23, "output":0.96}}}}
+        }));
+        let now = 1_790_700_000.0;
+        let rows = vec![
+            serde_json::json!({"provider":"aihubmix","model":"coding-glm-5.3-flash-free","source":"telegram","last_active":now,"input_tokens":10_000,"output_tokens":2_000}),
+            serde_json::json!({"provider":"openrouter","model":"minimax/minimax-m3:free","source":"telegram","last_active":now,"input_tokens":20_000,"output_tokens":4_000}),
+            serde_json::json!({"provider":"openrouter","model":"stealth/union-alpha","source":"telegram","last_active":now,"input_tokens":30_000}),
+            serde_json::json!({"provider":"other","model":"coding-glm-5.3-flash-free","source":"telegram","last_active":now,"input_tokens":40_000}),
+        ];
+        let body = aggregate_usage_insights_with_prices(&rows, now, &catalog, 7);
+        for (provider, model) in [("aihubmix","coding-glm-5.3-flash-free"),("openrouter","minimax/minimax-m3:free")] {
+            let totals = &body["models"].as_array().unwrap().iter().find(|row| row["provider"] == provider && row["model"] == model).unwrap()["totals"];
+            assert_eq!(totals["cost_usd"], 0.0);
+            assert_eq!(totals["unpriced_tokens"], 0);
+        }
+        assert_eq!(body["totals"]["unpriced_tokens"], 70_000);
+    }
+
+    #[test]
     fn zed_open_ai_namespace_uses_unqualified_gpt_luna_catalog_price() {
         let catalog = model_price_catalog_from_models_dev(&serde_json::json!({
             "openai": {"models": {"gpt-6-luna": {

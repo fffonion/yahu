@@ -1348,6 +1348,18 @@ fn model_price_for_row<R: InsightsUsageRowView>(catalog: &ModelPriceCatalog, row
             return Some(price);
         }
     }
+    // These exact provider variants publish free inference prices. A generic
+    // suffix rule would incorrectly mark unrelated gateways as free.
+    if (provider.eq_ignore_ascii_case("aihubmix") && model.eq_ignore_ascii_case("coding-glm-5.3-flash-free"))
+        || (provider.eq_ignore_ascii_case("openrouter") && model.eq_ignore_ascii_case("minimax/minimax-m3:free"))
+    {
+        return Some(ModelPrice {
+            input_per_million: 0.0,
+            output_per_million: 0.0,
+            cache_read_per_million: 0.0,
+            cache_write_per_million: 0.0,
+        });
+    }
     model_price_for_model(catalog, model).or_else(|| {
         // Some hosted catalogs prefix an OpenAI model ID with `open_ai/`.
         // Match the underlying model's catalog price only after exact lookup.
