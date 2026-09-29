@@ -1192,9 +1192,12 @@ export default function App() {
     if (!sessionId) return;
     if (sessionId === DRAFT_SESSION_ID) return;
     try {
+      let canonicalModel: Pick<Session, 'model' | 'provider'> | null = null;
       const canonicalRes = await fetch(`/sessions/${encodeURIComponent(sessionId)}/canonical`, { cache: 'no-store' });
       if (canonicalRes.ok) {
-        const canonicalBody = await canonicalRes.json() as { id?: unknown; canonical_id?: unknown; display_id?: unknown; display_title?: unknown };
+        const canonicalBody = await canonicalRes.json() as { id?: unknown; canonical_id?: unknown; display_id?: unknown; display_title?: unknown; current_model?: unknown; current_provider?: unknown };
+        const currentModel = String(canonicalBody.current_model || '').trim();
+        if (currentModel) canonicalModel = { model: currentModel, provider: String(canonicalBody.current_provider || '').trim() };
         const canonicalId = String(canonicalBody.canonical_id || canonicalBody.id || '').trim();
         const displayId = String(canonicalBody.display_id || '').trim();
         const displayTitle = String(canonicalBody.display_title || '').trim();
@@ -1245,6 +1248,7 @@ export default function App() {
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const body = await res.json();
       const detail = applyRenamedSessionTitleOverride((body.data || body.session || body) as Session);
+      const resolvedDetail = canonicalModel ? { ...detail, ...canonicalModel, ended_at: undefined } : detail;
       if (reasoningRes.ok) {
         const reasoningBody = await reasoningRes.json() as { reasoning_effort?: unknown };
         const sessionEffort = normalizeReasoningEffort(reasoningBody.reasoning_effort);
@@ -1253,8 +1257,8 @@ export default function App() {
         const sessionEffort = sessionReasoningEffort(detail);
         if (sessionEffort) setEffort(sessionEffort);
       }
-      setActiveSessionDetail((old) => sessionWithPreservedMessageCount(preferNewerSessionModel(detail, sessions.find((session) => session.id === detail.id)), old));
-      setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(preferNewerSessionModel(detail, s), s) } : s) : [detail, ...old]);
+      setActiveSessionDetail((old) => sessionWithPreservedMessageCount(preferNewerSessionModel(resolvedDetail, sessions.find((session) => session.id === detail.id)), old));
+      setSessions((old) => old.some((s) => s.id === detail.id) ? old.map((s) => s.id === detail.id ? { ...s, ...sessionWithPreservedMessageCount(preferNewerSessionModel(resolvedDetail, s), s) } : s) : [resolvedDetail, ...old]);
     } catch (err) {
       if (activeSessionIdRef.current === sessionId) setActiveSessionDetail(null);
       setStatus(tf('status.sessionDetailUnavailable', errorMessage(err)));

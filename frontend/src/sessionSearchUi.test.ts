@@ -144,7 +144,7 @@ describe('session search and composer session model UI', () => {
   test('opened session header delays stitched totals until the minimap response arrives', () => {
     const app = source();
     expect(app).toContain('const updateSessionMessageCount = useCallback((sessionId: string, total: unknown) => {');
-    expect(app).toContain('sessionWithPreservedMessageCount(preferNewerSessionModel(detail, sessions.find((session) => session.id === detail.id)), old)');
+    expect(app).toContain('sessionWithPreservedMessageCount(preferNewerSessionModel(resolvedDetail, sessions.find((session) => session.id === detail.id)), old)');
     expect(app).toContain('sessionWithPreservedMessageCount(sessionForList, old.find((existing) => existing.id === session.id))');
     expect(app).toContain('updateSessionMessageCount(sessionId, page.total);');
     expect(app).toContain('updateSessionMessageCount(sessionId, body.total);');

@@ -1157,6 +1157,41 @@ fn local_session_display_metadata_with_entries(
     Ok(title.map(|title| (display_id.to_string(), title)))
 }
 
+fn local_session_current_model(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> rusqlite::Result<Option<(String, String)>> {
+    if !sqlite_table_has_columns(conn, "sessions", &["model", "model_config", "billing_provider"])? {
+        return Ok(None);
+    }
+    let entries = local_session_chat_view_entries(conn, session_id)?;
+    // Only session metadata is inspected. The family resolver excludes live-parent side conversations.
+    for entry in entries.iter().rev() {
+        if entry.end_reason.is_some() {
+            continue;
+        }
+        let row: Option<(Option<String>, Option<String>, Option<String>)> = conn
+            .query_row(
+                "SELECT model, model_config, billing_provider FROM sessions WHERE id = ?1",
+                [&entry.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        if let Some((Some(model), config, billing_provider)) = row
+            && !model.trim().is_empty()
+        {
+            let provider = config
+                .as_deref()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+                .and_then(|value| value.pointer("/gateway_runtime/provider").and_then(serde_json::Value::as_str).map(str::to_string))
+                .or(billing_provider)
+                .unwrap_or_default();
+            return Ok(Some((model, provider)));
+        }
+    }
+    Ok(None)
+}
+
 async fn session_canonical(
     State(state): State<Arc<AppState>>,
     AxumPath(session_id): AxumPath<String>,
@@ -1164,6 +1199,20 @@ async fn session_canonical(
     match local_session_switch_root_id(&state, &session_id) {
         Ok(canonical_id) => {
             let resolved_id = canonical_id.clone().unwrap_or_else(|| session_id.clone());
+            let current_model = (|| -> anyhow::Result<Option<(String, String)>> {
+                let conn = rusqlite::Connection::open_with_flags(
+                    state.hermes_home.join("state.db"),
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                )?;
+                Ok(local_session_current_model(&conn, &resolved_id)?)
+            })();
+            let current_model = match current_model {
+                Ok(value) => value,
+                Err(err) => {
+                    warn!(session_id = %session_id, error = %err, "cannot resolve current session model");
+                    None
+                }
+            };
             let display = match local_session_display_metadata(&state, &resolved_id) {
                 Ok(value) => value,
                 Err(err) => {
@@ -1176,6 +1225,8 @@ async fn session_canonical(
                 "canonical_id": canonical_id,
                 "display_id": display.as_ref().map(|(id, _)| id),
                 "display_title": display.as_ref().map(|(_, title)| title),
+                "current_model": current_model.as_ref().map(|(model, _)| model),
+                "current_provider": current_model.as_ref().map(|(_, provider)| provider),
             })).into_response()
         }
         Err(err) => json_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("cannot resolve session identity: {err}")),

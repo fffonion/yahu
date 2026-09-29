@@ -1188,6 +1188,33 @@
     }
 
     #[test]
+    fn canonical_model_prefers_latest_live_family_segment_without_message_scan() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, parent_session_id TEXT, source TEXT,
+                session_key TEXT, chat_id TEXT, thread_id TEXT, started_at REAL,
+                ended_at REAL, end_reason TEXT, model TEXT, model_config TEXT,
+                billing_provider TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('root',NULL,'telegram','key','chat','topic',1,2,'compression','minimax-m3','{}','minimax'),
+                ('middle',NULL,'telegram','key','chat','topic',3,4,'session_switch','gpt-5.5','{}','openai-codex'),
+                ('tip','root','telegram','key','chat','topic',5,NULL,NULL,'gpt-6-sol','{}','openai-codex'),
+                ('side','tip','telegram','key','chat','topic',6,NULL,NULL,'other-model','{}','other');",
+        ).unwrap();
+        assert_eq!(
+            local_session_current_model(&conn, "root").unwrap(),
+            Some(("gpt-6-sol".into(), "openai-codex".into()))
+        );
+        assert_eq!(
+            local_session_current_model(&conn, "side").unwrap(),
+            Some(("other-model".into(), "other".into()))
+        );
+    }
+
+    #[test]
     fn pinned_family_resolution_includes_segments_older_than_two_hundred_rows() {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("state.db");
