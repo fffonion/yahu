@@ -669,6 +669,18 @@ fn filter_rows_shadowed_by_pinned_topic_aliases(
         };
         preferred_pinned_ids.contains(id) || !family_member_ids.contains(id)
     });
+    for entries in family_entries_by_pinned.values() {
+        let Some(root_id) = entries.first().map(|entry| entry.id.as_str()) else {
+            continue;
+        };
+        if let Some(row) = rows.iter_mut().find(|row| row.get("id").and_then(|value| value.as_str()) == Some(root_id))
+            && let Some((model, provider)) = local_session_current_model_with_entries(&conn, entries)?
+            && let Some(object) = row.as_object_mut()
+        {
+            object.insert("model".into(), serde_json::json!(model));
+            object.insert("provider".into(), serde_json::json!(provider));
+        }
+    }
     Ok(family_entries_by_pinned)
 }
 
@@ -1161,10 +1173,17 @@ fn local_session_current_model(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> rusqlite::Result<Option<(String, String)>> {
+    let entries = local_session_chat_view_entries(conn, session_id)?;
+    local_session_current_model_with_entries(conn, &entries)
+}
+
+fn local_session_current_model_with_entries(
+    conn: &rusqlite::Connection,
+    entries: &[SessionLineageEntry],
+) -> rusqlite::Result<Option<(String, String)>> {
     if !sqlite_table_has_columns(conn, "sessions", &["model", "model_config", "billing_provider"])? {
         return Ok(None);
     }
-    let entries = local_session_chat_view_entries(conn, session_id)?;
     // Only session metadata is inspected. The family resolver excludes live-parent side conversations.
     for entry in entries.iter().rev() {
         if entry.end_reason.is_some() {

@@ -1188,6 +1188,34 @@
     }
 
     #[test]
+    fn pinned_root_keeps_latest_family_model_after_alias_collapse() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, parent_session_id TEXT, source TEXT,
+                session_key TEXT, chat_id TEXT, thread_id TEXT, started_at REAL,
+                ended_at REAL, end_reason TEXT, model TEXT, model_config TEXT,
+                billing_provider TEXT, title TEXT
+            );
+            INSERT INTO sessions VALUES
+                ('root',NULL,'telegram','key','chat','topic',1,2,'session_switch','minimax-m3','{}','minimax','Root'),
+                ('tip','root','telegram','key','chat','topic',3,NULL,NULL,'gpt-6-sol','{}','openai-codex','Tip');",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let mut rows = vec![
+            serde_json::json!({"id":"tip","model":"gpt-6-sol","provider":"openai-codex","last_active":3}),
+            serde_json::json!({"id":"root","model":"minimax-m3","provider":"minimax","last_active":1}),
+        ];
+        filter_rows_shadowed_by_pinned_topic_aliases(&state, &mut rows, &["root".into()]).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "root");
+        assert_eq!(rows[0]["model"], "gpt-6-sol");
+        assert_eq!(rows[0]["provider"], "openai-codex");
+    }
+
+    #[test]
     fn canonical_model_prefers_latest_live_family_segment_without_message_scan() {
         let temp = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
