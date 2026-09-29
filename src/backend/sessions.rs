@@ -2465,6 +2465,45 @@ fn fetch_local_active_message_tail(
         }
     }
 
+    // IDs can be reserved before another turn commits: the newest user turn
+    // may carry a lower ID than an earlier user turn. Probe only a bounded
+    // recent ID window, so latest navigation does not hide that user turn.
+    if has_older_active {
+        let probe_limit_param = entry_ids.len() + 1;
+        let probe_sql = format!(
+            "SELECT id, role, timestamp FROM messages WHERE session_id IN ({placeholders}) AND active = 1 ORDER BY id DESC LIMIT ?{probe_limit_param}"
+        );
+        let mut probe_params = session_id_values(&entry_ids);
+        probe_params.push(rusqlite::types::Value::Integer(i64::try_from(limit.saturating_mul(2))?));
+        let recent_turns = conn.prepare(&probe_sql)?
+            .query_map(rusqlite::params_from_iter(probe_params), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let newest_user = recent_turns.into_iter()
+            .filter(|(_, role, _)| role == "user")
+            .max_by(|left, right| left.2.total_cmp(&right.2));
+        if let Some((id, _, timestamp)) = newest_user {
+            let first_id = messages.first().and_then(message_i64_id).unwrap_or(i64::MAX);
+            let visible_user_time = messages.iter()
+                .filter(|message| message_role(message) == "user")
+                .filter_map(|message| message.get("timestamp").and_then(serde_json::Value::as_f64))
+                .fold(f64::NEG_INFINITY, f64::max);
+            if id < first_id && timestamp > visible_user_time {
+                let anchor_param = entry_ids.len() + 1;
+                let anchor_sql = format!(
+                    "SELECT id, session_id, role, content, tool_call_id, tool_calls, tool_name, timestamp, token_count, finish_reason, {reasoning_columns} FROM messages WHERE session_id IN ({placeholders}) AND active = 1 AND id = ?{anchor_param}"
+                );
+                let mut anchor_params = session_id_values(&entry_ids);
+                anchor_params.push(rusqlite::types::Value::Integer(id));
+                if let Some(anchor) = conn.query_row(&anchor_sql, rusqlite::params_from_iter(anchor_params), row_to_session_message).optional()? {
+                    messages.insert(0, anchor);
+                    has_older_active = true;
+                }
+            }
+        }
+    }
+
     Ok(Some((messages, has_older_active)))
 }
 

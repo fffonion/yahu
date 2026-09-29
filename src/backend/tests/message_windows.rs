@@ -46,6 +46,35 @@
         assert_eq!(skeleton[1]["turn_details"]["before_id"], "5");
     }
     #[test]
+    fn local_latest_tail_includes_newer_user_with_lower_message_id() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL, end_reason TEXT, source TEXT);
+             CREATE TABLE messages (
+                id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,
+                tool_call_id TEXT, tool_calls TEXT, tool_name TEXT, timestamp REAL,
+                token_count INTEGER, finish_reason TEXT, reasoning TEXT,
+                reasoning_content TEXT, reasoning_details TEXT,
+                codex_reasoning_items TEXT, active INTEGER
+             );
+             INSERT INTO sessions VALUES ('s1',NULL,1,NULL,NULL,'telegram');
+             INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES
+                 (10,'s1','user','actual newest prompt',300,1),
+                 (11,'s1','user','earlier prompt',200,1);",
+        ).unwrap();
+        for id in 12..=38 {
+            conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp,active) VALUES (?1,'s1','tool','detail',?2,1)", rusqlite::params![id, 300.0 + f64::from(id)]).unwrap();
+        }
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let (tail, has_older) = fetch_local_active_message_tail(&state, "s1", 24).unwrap().unwrap();
+        assert!(has_older);
+        assert!(tail.iter().any(|message| message["id"] == 10));
+        assert!(history_skeleton_messages(&tail).iter().any(|message| message["id"] == 10));
+    }
+
+    #[test]
     fn reasoning_only_assistant_message_stays_visible_in_history_skeleton() {
         let messages = vec![
             serde_json::json!({"id": 1, "role": "user", "content": "prompt"}),
