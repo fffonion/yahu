@@ -1348,7 +1348,14 @@ fn model_price_for_row<R: InsightsUsageRowView>(catalog: &ModelPriceCatalog, row
             return Some(price);
         }
     }
-    model_price_for_model(catalog, model)
+    model_price_for_model(catalog, model).or_else(|| {
+        // Some hosted catalogs prefix an OpenAI model ID with `open_ai/`.
+        // Match the underlying model's catalog price only after exact lookup.
+        let (namespace, model_id) = model.split_once('/')?;
+        (namespace.eq_ignore_ascii_case("open_ai") && !model_id.is_empty())
+            .then(|| model_price_for_model(catalog, model_id))
+            .flatten()
+    })
 }
 
 fn model_price_from_compact_model(model: &ModelsDevModel) -> Option<ModelPrice> {

@@ -603,6 +603,34 @@
     }
 
     #[test]
+    fn zed_open_ai_namespace_uses_unqualified_gpt_luna_catalog_price() {
+        let catalog = model_price_catalog_from_models_dev(&serde_json::json!({
+            "openai": {"models": {"gpt-6-luna": {
+                "id": "gpt-6-luna",
+                "cost": {"input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125}
+            }}}
+        }));
+        let regular = serde_json::json!({"provider":"openai-codex", "model":"gpt-6-luna"});
+        let zed = serde_json::json!({"provider":"zed-pro", "model":"open_ai/gpt-6-luna"});
+        let regular_price = model_price_for_row(&catalog, &regular).unwrap();
+        let zed_price = model_price_for_row(&catalog, &zed);
+        assert_eq!(zed_price.map(|price| price.estimate(1_000_000, 1_000_000, 1_000_000, 1_000_000)),
+            Some(regular_price.estimate(1_000_000, 1_000_000, 1_000_000, 1_000_000)));
+        assert_eq!(zed_price.unwrap().input_per_million, 0.1);
+        let unrelated = serde_json::json!({"provider":"zed-pro", "model":"other_vendor/gpt-6-luna"});
+        assert!(model_price_for_row(&catalog, &unrelated).is_none());
+        let ts = 1_790_700_000.0;
+        let usage = serde_json::json!({
+            "source":"telegram", "provider":"zed-pro", "model":"open_ai/gpt-6-luna",
+            "last_active":ts, "input_tokens":1_000_000, "output_tokens":1_000_000,
+            "cache_read_tokens":1_000_000, "cache_write_tokens":1_000_000
+        });
+        let result = aggregate_usage_insights_with_prices(&[usage], ts, &catalog, 7);
+        assert_eq!(result["models"][0]["totals"]["cost_usd"], 0.735);
+        assert_eq!(result["models"][0]["totals"]["unpriced_tokens"], 0);
+    }
+
+    #[test]
     fn insights_uses_catalog_api_price_for_full_tokens_instead_of_partial_session_estimate() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()
