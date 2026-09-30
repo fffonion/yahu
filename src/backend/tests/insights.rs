@@ -1523,6 +1523,104 @@
     }
 
     #[test]
+    fn insights_repairs_legacy_alias_replays_without_moving_real_usage_to_later_days() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("snapshot.db");
+        let row = |input, output, calls| serde_json::json!({
+            "id":"usage:s1", "root_session_id":"s1", "source":"telegram",
+            "provider":"justwoker", "model":"claude-opus-4-8", "started_at":1000.0,
+            "input_tokens":input, "output_tokens":output, "api_call_count":calls
+        });
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        prepare_insights_snapshot_db(&conn).unwrap();
+        conn.execute("INSERT INTO insights_meta VALUES('usage_schema_version', ?1)",
+            [INSIGHTS_USAGE_SCHEMA_VERSION]).unwrap();
+        conn.execute("INSERT INTO insights_meta VALUES('last_message_id', 42)", []).unwrap();
+        conn.execute("INSERT INTO insights_meta VALUES('coverage_started_at', 1000)", []).unwrap();
+        // Legacy writes alternate between a fixed alias counter A and a growing B:
+        // A=75; B=100 -> 200 -> 200. Stored deltas repeat A then B-A.
+        for (ts, values) in [(1100.0, vec![row(75, 1, 1)]),
+            (1200.0, vec![row(25, 1, 1)]),
+            (1300.0, vec![row(75, 1, 1), row(125, 3, 3)]),
+            (1400.0, vec![row(75, 1, 1), row(125, 3, 3)])] {
+            for value in values {
+                let counter = UsageCounter::from_api_row(&value).unwrap();
+                conn.execute("INSERT INTO insights_events(captured_at,row_json) VALUES(?1,?2)",
+                    rusqlite::params![ts, counter.to_event_json(ts).to_string()]).unwrap();
+            }
+        }
+        let baseline = UsageCounter::from_api_row(&row(200, 4, 4)).unwrap();
+        conn.execute("INSERT INTO insights_baselines VALUES('usage:s1',1400,1400,?1)",
+            [serde_json::to_string(&baseline).unwrap()]).unwrap();
+        // An unrelated repeated-sized delta is valid and must remain untouched.
+        for ts in [1300.0, 1400.0] {
+            let mut other = row(50, 2, 1);
+            other["id"] = serde_json::json!("other");
+            other["model"] = serde_json::json!("other-model");
+            conn.execute("INSERT INTO insights_events(captured_at,row_json) VALUES(?1,?2)",
+                rusqlite::params![ts, other.to_string()]).unwrap();
+        }
+        drop(conn);
+        load_insights_capture_cursor(&path).unwrap();
+        let (rows, _, _) = load_insights_usage_rows(&path, 0.0).unwrap();
+        let opus: Vec<_> = rows.iter().filter(|r| r.model == "claude-opus-4-8").collect();
+        assert_eq!(opus.iter().map(|r| r.input_tokens).sum::<i64>(), 275);
+        assert_eq!(opus.iter().map(|r| r.api_call_count).sum::<i64>(), 5);
+        assert!(!opus.iter().any(|r| r.started_at == 1400.0), "idle capture is zero usage");
+        assert_eq!(rows.iter().filter(|r| r.model == "other-model").map(|r| r.input_tokens).sum::<i64>(), 100);
+        load_insights_capture_cursor(&path).unwrap();
+        persist_insights_snapshot(&path, 1500.0, &[row(275, 5, 5)]).unwrap();
+        persist_insights_snapshot(&path, 1600.0, &[row(300, 7, 6)]).unwrap();
+        let (rows, _, _) = load_insights_usage_rows(&path, 0.0).unwrap();
+        assert_eq!(rows.iter().filter(|r| r.model == "claude-opus-4-8").map(|r| r.input_tokens).sum::<i64>(), 300);
+        assert_eq!(rows.iter().filter(|r| r.started_at == 1600.0).map(|r| r.input_tokens).sum::<i64>(), 25);
+    }
+
+    #[test]
+    fn insights_provider_alias_counters_are_coalesced_before_snapshot_deltas() {
+        let temp = tempfile::tempdir().unwrap();
+        let state_db = temp.path().join("state.db");
+        std::fs::write(temp.path().join("config.yaml"),
+            "custom_providers:\n  - name: justwoker\n    base_url: https://api.justwoker.icu/v1\n").unwrap();
+        let conn = rusqlite::Connection::open(&state_db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL,
+                archived INTEGER DEFAULT 0, end_reason TEXT);
+             CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT);
+             CREATE TABLE session_model_usage (
+                session_id TEXT, model TEXT, billing_provider TEXT, billing_base_url TEXT,
+                billing_mode TEXT, task TEXT, input_tokens INTEGER, output_tokens INTEGER,
+                cache_read_tokens INTEGER DEFAULT 0, cache_write_tokens INTEGER DEFAULT 0,
+                reasoning_tokens INTEGER DEFAULT 0, api_call_count INTEGER,
+                estimated_cost_usd REAL DEFAULT 0, actual_cost_usd REAL DEFAULT 0,
+                PRIMARY KEY(session_id, model, billing_provider, billing_base_url, billing_mode, task));
+             INSERT INTO sessions VALUES('s1', 'telegram', 1000, 0, NULL);
+             INSERT INTO messages VALUES(1, 's1');
+             INSERT INTO session_model_usage(session_id, model, billing_provider, billing_base_url,
+                billing_mode, task, input_tokens, output_tokens, api_call_count) VALUES
+                ('s1', 'claude-opus-4-8', 'custom', 'https://api.justwoker.icu/v1', 'anthropic_messages', '', 75, 1, 1),
+                ('s1', 'claude-opus-4-8', 'custom:justwoker', 'https://api.justwoker.icu/v1', 'anthropic_messages', '', 1000, 20, 4);"
+        ).unwrap();
+        let (rows, _) = fetch_changed_sessions_for_insights(&state_db, 0).unwrap();
+        assert_eq!(rows.len(), 1, "display provider aliases must share one summed counter");
+        assert_eq!(rows[0]["input_tokens"], 1075);
+        assert_eq!(rows[0]["api_call_count"], 5);
+        let snapshot = temp.path().join("snapshot.db");
+        persist_insights_snapshot(&snapshot, 1000.0, &rows).unwrap();
+        persist_insights_snapshot(&snapshot, 1300.0, &rows).unwrap();
+        conn.execute("UPDATE session_model_usage SET input_tokens = input_tokens + 100,
+            output_tokens = output_tokens + 2, api_call_count = api_call_count + 1
+            WHERE billing_provider = 'custom:justwoker'", []).unwrap();
+        let (grown, _) = fetch_changed_sessions_for_insights(&state_db, 0).unwrap();
+        persist_insights_snapshot(&snapshot, 1600.0, &grown).unwrap();
+        persist_insights_snapshot(&snapshot, 1900.0, &grown).unwrap();
+        let (usage, _, _) = load_insights_usage_rows(&snapshot, 0.0).unwrap();
+        assert_eq!(usage.iter().map(|r| r.input_tokens).sum::<i64>(), 1175);
+        assert_eq!(usage.iter().map(|r| r.api_call_count).sum::<i64>(), 6);
+        assert_eq!(usage.iter().filter(|r| r.started_at > 1000.0).count(), 1);
+    }
+
+    #[test]
     fn insights_reads_per_model_usage_rows_instead_of_session_totals() {
         let temp = tempfile::tempdir().unwrap();
         let state_db = temp.path().join("state.db");

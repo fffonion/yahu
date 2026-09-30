@@ -760,6 +760,117 @@ struct InsightsCaptureCursor {
     last_message_id: Option<i64>,
 }
 
+fn same_usage_counts(left: &UsageCounter, right: &UsageCounter) -> bool {
+    !left.subtract(right).has_delta() && !right.subtract(left).has_delta()
+}
+
+fn repair_legacy_insights_alias_replays(conn: &rusqlite::Connection) -> anyhow::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    let repaired = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM insights_meta WHERE key = 'alias_replay_repair_version' AND value >= 1)",
+        [], |row| row.get::<_, bool>(0),
+    )?;
+    if repaired {
+        return Ok(());
+    }
+    // This is a one-time snapshot-only migration, never a scan of Hermes sessions.
+    let candidates = {
+        let mut statement = tx.prepare(
+            "SELECT DISTINCT storage_id FROM (
+                SELECT json_extract(row_json, '$.id') AS storage_id
+                FROM insights_events
+                GROUP BY storage_id, captured_at HAVING COUNT(*) > 1
+             ) WHERE storage_id LIKE 'usage:%'",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for storage_id in candidates {
+        let Some(raw_baseline) = tx.query_row(
+            "SELECT counters_json FROM insights_baselines WHERE session_id = ?1",
+            [&storage_id], |row| row.get::<_, String>(0),
+        ).optional()? else { continue };
+        let baseline: UsageCounter = serde_json::from_str(&raw_baseline)?;
+        let initial = tx.query_row(
+            "SELECT counters_json FROM insights_initial_baselines WHERE session_id = ?1",
+            [&storage_id], |row| row.get::<_, String>(0),
+        ).optional()?.map(|raw| serde_json::from_str::<UsageCounter>(&raw)).transpose()?
+            .unwrap_or_default();
+        let events = {
+            let mut statement = tx.prepare(
+                "SELECT id, captured_at, row_json FROM insights_events
+                 WHERE json_extract(row_json, '$.id') = ?1 ORDER BY captured_at, id",
+            )?;
+            statement.query_map([&storage_id], |row| Ok((
+                row.get::<_, i64>(0)?, row.get::<_, f64>(1)?, row.get::<_, String>(2)?,
+            )))?.collect::<rusqlite::Result<Vec<_>>>()?
+                .into_iter().map(|(id, ts, raw)| {
+                    let value: serde_json::Value = serde_json::from_str(&raw)?;
+                    let counter = UsageCounter::from_api_row(&value)
+                        .ok_or_else(|| anyhow::anyhow!("invalid Insights usage event"))?;
+                    Ok((id, ts, counter))
+                }).collect::<anyhow::Result<Vec<_>>>()?
+        };
+        let mut batches: Vec<Vec<(i64, f64, UsageCounter)>> = Vec::new();
+        for event in events {
+            if let Some(batch) = batches.last_mut().filter(|batch| batch[0].1 == event.1) {
+                batch.push(event);
+            } else {
+                batches.push(vec![event]);
+            }
+        }
+        let Some(first_pair) = batches.iter().position(|batch| batch.len() > 1) else { continue };
+        let fixed_alias = batches[first_pair][0].2.clone();
+        let mut previous = initial;
+        for batch in &batches[..first_pair] {
+            previous.add_assign(&batch[0].2);
+        }
+        let mut corrections = Vec::new();
+        let mut last_legacy = UsageCounter::default();
+        let mut supported = true;
+        for batch in &batches[first_pair..] {
+            // Only repair the proven two-alias signature: fixed A followed by B-A.
+            // Resets, varying A, or other shapes are ambiguous; leave them unchanged.
+            if batch.len() != 2 || !same_usage_counts(&batch[0].2, &fixed_alias) {
+                supported = false;
+                break;
+            }
+            last_legacy = batch[0].2.clone();
+            last_legacy.add_assign(&batch[1].2);
+            let mut cumulative = last_legacy.clone();
+            cumulative.add_assign(&fixed_alias);
+            if previous.subtract(&cumulative).has_delta() {
+                supported = false;
+                break;
+            }
+            let delta = cumulative.subtract(&previous);
+            corrections.push((batch[0].0, batch[1].0, batch[0].1, delta));
+            previous = cumulative;
+        }
+        if !supported || !same_usage_counts(&last_legacy, &baseline) {
+            warn!("left ambiguous Insights alias replay history unchanged");
+            continue;
+        }
+        for (first_id, last_id, ts, delta) in corrections {
+            tx.execute("DELETE FROM insights_events WHERE id = ?1", [first_id])?;
+            if delta.has_delta() {
+                tx.execute("UPDATE insights_events SET row_json = ?1 WHERE id = ?2",
+                    rusqlite::params![delta.to_event_json(ts).to_string(), last_id])?;
+            } else {
+                tx.execute("DELETE FROM insights_events WHERE id = ?1", [last_id])?;
+            }
+        }
+        let mut corrected_baseline = baseline;
+        corrected_baseline.add_assign(&fixed_alias);
+        tx.execute("UPDATE insights_baselines SET counters_json = ?1 WHERE session_id = ?2",
+            rusqlite::params![serde_json::to_string(&corrected_baseline)?, storage_id])?;
+    }
+    tx.execute("INSERT INTO insights_meta(key,value) VALUES('alias_replay_repair_version',1)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value", [])?;
+    tx.commit()?;
+    Ok(())
+}
+
 fn load_insights_capture_cursor(path: &Path) -> anyhow::Result<InsightsCaptureCursor> {
     if !path.exists() {
         return Ok(InsightsCaptureCursor::default());
@@ -786,6 +897,7 @@ fn load_insights_capture_cursor(path: &Path) -> anyhow::Result<InsightsCaptureCu
         )?;
         return Ok(InsightsCaptureCursor::default());
     }
+    repair_legacy_insights_alias_replays(&conn)?;
     let last_captured_at = conn
         .query_row(
             "SELECT value FROM insights_meta WHERE key = 'last_captured_at'",
@@ -936,7 +1048,27 @@ fn fetch_insights_sessions(
             rows.push(row?);
         }
     }
+    // Different stored provider aliases can resolve to the same display key.
+    // Sum their cumulative counters before comparing against a single baseline.
+    let rows = coalesce_usage_counters(&rows)
+        .into_iter()
+        .map(|counter| counter.to_event_json(counter.started_at))
+        .collect();
     Ok((rows, high_water))
+}
+
+fn coalesce_usage_counters(rows: &[serde_json::Value]) -> Vec<UsageCounter> {
+    let mut counters: Vec<UsageCounter> = Vec::new();
+    let mut positions: HashMap<String, usize> = HashMap::new();
+    for current in rows.iter().filter_map(UsageCounter::from_api_row) {
+        if let Some(&index) = positions.get(&current.session_id) {
+            counters[index].add_assign(&current);
+        } else {
+            positions.insert(current.session_id.clone(), counters.len());
+            counters.push(current);
+        }
+    }
+    counters
 }
 
 fn fetch_changed_sessions_for_insights(
