@@ -20,6 +20,10 @@ async fn models_cached(State(state): State<Arc<AppState>>) -> Response<Body> {
                 Ok(body) => body,
                 Err(err) => {
                     errors.push(format!("inventory: {err}"));
+                    if let Some(stale) = stale_persisted_model_cache_body(&disk_cache_path) {
+                        warn!("model inventory refresh failed; using stale cache: {}", errors.join("; "));
+                        return Json(stale).into_response();
+                    }
                     return json_error(
                         StatusCode::BAD_GATEWAY,
                         &format!("model list unavailable: {}", errors.join("; ")),
@@ -80,7 +84,15 @@ agent_dir = os.environ.get('HERMES_AGENT_DIR')
 sys.path.insert(0, agent_dir)
 from hermes_cli.inventory import build_models_payload, load_picker_context
 from agent.model_metadata import get_model_context_length
-payload = build_models_payload(load_picker_context(), max_models=80, pricing=True, capabilities=True)
+cached_contexts = {}
+try:
+    with open(os.environ['YAHU_MODEL_INVENTORY_CACHE'], encoding='utf-8') as cache_file:
+        for item in json.load(cache_file)['body']['data']:
+            if item.get('provider') == 'copilot' and isinstance(item.get('context_length'), int):
+                cached_contexts[item.get('id')] = item['context_length']
+except (OSError, KeyError, TypeError, ValueError):
+    pass
+payload = build_models_payload(load_picker_context(), max_models=80, pricing=False, capabilities=False, probe_custom_providers=False)
 for provider in payload.get('providers', []):
     provider_id = provider.get('slug') or provider.get('provider') or provider.get('id') or provider.get('name') or ''
     caps = provider.setdefault('capabilities', {})
@@ -89,7 +101,8 @@ for provider in payload.get('providers', []):
             continue
         model_caps = caps.setdefault(model_id, {})
         try:
-            context_length = get_model_context_length(model_id, provider=provider_id or None)
+            # Copilot's live context probe can block the entire inventory refresh.
+            context_length = cached_contexts.get(model_id) if provider_id == 'copilot' else get_model_context_length(model_id, provider=provider_id or None)
         except Exception:
             context_length = None
         if context_length:
@@ -103,6 +116,7 @@ print(json.dumps(payload))
             .arg(script)
             .env("HERMES_AGENT_DIR", &agent_dir)
             .env("HERMES_HOME", &state.hermes_home)
+            .env("YAHU_MODEL_INVENTORY_CACHE", state.hermes_home.join("cache/yahu/model-inventory.json"))
             .output(),
     )
     .await??;

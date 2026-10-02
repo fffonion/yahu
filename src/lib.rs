@@ -38,6 +38,12 @@ pub fn fresh_persisted_model_cache_body(
     (age < ttl && model_cache_payload_has_models(&cache.body)).then_some(cache.body)
 }
 
+pub fn stale_persisted_model_cache_body(path: &Path) -> Option<Value> {
+    let bytes = fs::read(path).ok()?;
+    let cache: PersistedModelCache = serde_json::from_slice(&bytes).ok()?;
+    model_cache_payload_has_models(&cache.body).then_some(cache.body)
+}
+
 pub fn persist_model_cache_body(path: &Path, body: &Value, now: SystemTime) -> io::Result<()> {
     if !model_cache_payload_has_models(body) {
         return Err(io::Error::new(
