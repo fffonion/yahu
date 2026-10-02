@@ -62,6 +62,22 @@ fn provider_inventory_context_lengths_are_preserved_from_capabilities() {
 }
 
 #[test]
+fn same_model_on_different_providers_keeps_each_context_window() {
+    let payload = json!({"providers": [
+        {"slug": "openrouter", "name": "OpenRouter", "models": ["gpt-6-astra"],
+         "capabilities": {"gpt-6-astra": {"context_length": 1050000}}},
+        {"slug": "openai-codex", "name": "Codex", "models": ["gpt-6-astra"],
+         "capabilities": {"gpt-6-astra": {"context_length": 272000}}}
+    ]});
+    let rows = yet_another_hermes_ui::flatten_model_options(&payload);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["provider"], "openrouter");
+    assert_eq!(rows[0]["context_length"], 1050000);
+    assert_eq!(rows[1]["provider"], "openai-codex");
+    assert_eq!(rows[1]["context_length"], 272000);
+}
+
+#[test]
 fn models_cache_backend_falls_back_when_api_server_only_returns_placeholder() {
     let source = include_str!("../src/backend/models.rs");
 

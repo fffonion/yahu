@@ -182,7 +182,7 @@ fn push_model_with_label(
     context_length: Option<i64>,
 ) {
     let id = model_id.trim();
-    if id.is_empty() || id == "hermes-agent" || !seen.insert(id.to_string()) {
+    if id.is_empty() || id == "hermes-agent" || !seen.insert(format!("{provider_id}\u{0}{id}")) {
         return;
     }
     let mut row = json!({
