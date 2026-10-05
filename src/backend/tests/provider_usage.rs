@@ -503,6 +503,43 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn minimax_catalog_requires_only_cookie_with_embedded_group_id() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(".env"),
+            "MINIMAX_COOKIE='_token=[REDACTED]; minimax_group_id_v2=[REDACTED]'\n",
+        )
+        .unwrap();
+        let provider = provider_usage_catalog(temp.path())
+            .into_iter()
+            .find(|item| item.provider == "minimax")
+            .unwrap();
+        assert!(provider.configured);
+        assert!(provider.query_ready);
+        assert_eq!(provider.credential_hint, "MINIMAX_COOKIE");
+        assert!(provider.setup_hint.contains("minimax_group_id_v2"));
+        assert!(!provider.setup_hint.contains("MINIMAX_GROUP_ID"));
+    }
+
+    #[test]
+    fn minimax_request_headers_derive_group_id_from_cookie() {
+        let headers =
+            minimax_request_headers("_token=[REDACTED]; minimax_group_id_v2=[REDACTED]").unwrap();
+        assert!(headers
+            .iter()
+            .any(|(name, value)| name == "x-group-id" && value == "[REDACTED]"));
+        assert!(headers
+            .iter()
+            .any(|(name, value)| name == "Cookie"
+                && value == "_token=[REDACTED]; minimax_group_id_v2=[REDACTED]"));
+        assert_eq!(minimax_request_headers(""), Err("缺少 MINIMAX_COOKIE"));
+        assert_eq!(
+            minimax_request_headers("_token=[REDACTED]"),
+            Err("MINIMAX_COOKIE 缺少 minimax_group_id_v2")
+        );
+    }
+
+    #[test]
     fn minimax_percent_fallback_handles_zero_count_quotas() {
         let model = serde_json::json!({
             "model_name": "general",

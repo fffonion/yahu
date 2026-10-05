@@ -343,6 +343,8 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         || !justwoker_token.is_empty()
         || any_provider_env_value(hermes_home, &["HERMES_CUSTOM_API_JUSTWOKER_ICU_API_KEY"])
         || any_custom_provider_api_key(hermes_home, &["justwoker", "justwoker-icu"]);
+    let minimax_cookie = provider_env_value(hermes_home, "MINIMAX_COOKIE");
+    let minimax_query_ready = !extract_cookie_value(&minimax_cookie, "minimax_group_id_v2").is_empty();
     let justwoker_query_ready = !justwoker_user_id.is_empty()
         && (!justwoker_cookie.is_empty() || !justwoker_token.is_empty());
     let entries = [
@@ -404,12 +406,12 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         (
             "minimax",
             "MiniMax 用量",
-            any_provider_env_value(hermes_home, &["MINIMAX_API_KEY", "MINIMAX_COOKIE", "MINIMAX_GROUP_ID"])
+            !minimax_cookie.is_empty()
+                || any_provider_env_value(hermes_home, &["MINIMAX_API_KEY"])
                 || any_custom_provider_api_key(hermes_home, &["minimax"]),
-            any_provider_env_value(hermes_home, &["MINIMAX_COOKIE"])
-                && any_provider_env_value(hermes_home, &["MINIMAX_GROUP_ID"]),
-            "MINIMAX_COOKIE + MINIMAX_GROUP_ID",
-            "配置完整的 MINIMAX_COOKIE 与 MINIMAX_GROUP_ID；登录 minimaxi.com 后从浏览器开发者工具复制 Cookie，Group ID 可在开放平台账户页面查看。",
+            minimax_query_ready,
+            "MINIMAX_COOKIE",
+            "配置完整的 MINIMAX_COOKIE；登录 minimaxi.com 后从浏览器开发者工具复制 Cookie，需包含 minimax_group_id_v2。",
         ),
         (
             "stepfun",
@@ -1407,29 +1409,16 @@ fn minimax_summary_metrics(summary: &Value, today: chrono::NaiveDate) -> Vec<(St
     ]
 }
 
-async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
-    let mut section = ProviderUsageSection {
-        provider: "minimax".into(),
-        title: "MiniMax 额度".into(),
-        ..Default::default()
-    };
-    let cookie = provider_env_value(&state.hermes_home, "MINIMAX_COOKIE");
-    let group_id = provider_env_value(&state.hermes_home, "MINIMAX_GROUP_ID");
-    if cookie.is_empty() || group_id.is_empty() {
-        section
-            .errors
-            .push("缺少 MINIMAX_COOKIE 或 MINIMAX_GROUP_ID".into());
-        return section;
+fn minimax_request_headers(cookie: &str) -> Result<Vec<(String, String)>, &'static str> {
+    if cookie.is_empty() {
+        return Err("缺少 MINIMAX_COOKIE");
     }
-    // .env stores the full cookie string ("_token=...; ..."); only prefix a
-    // bare JWT.
-    let cookie_header = if cookie.contains('=') {
-        cookie
-    } else {
-        format!("_token={cookie}")
-    };
-    let headers = vec![
-        ("Cookie".to_string(), cookie_header),
+    let group_id = extract_cookie_value(cookie, "minimax_group_id_v2");
+    if group_id.is_empty() {
+        return Err("MINIMAX_COOKIE 缺少 minimax_group_id_v2");
+    }
+    Ok(vec![
+        ("Cookie".to_string(), cookie.to_string()),
         ("x-group-id".to_string(), group_id),
         ("Accept".to_string(), "application/json".into()),
         (
@@ -1437,7 +1426,23 @@ async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36".into(),
         ),
         ("Referer".to_string(), "https://platform.minimaxi.com/".into()),
-    ];
+    ])
+}
+
+async fn fetch_minimax_usage(state: &AppState) -> ProviderUsageSection {
+    let mut section = ProviderUsageSection {
+        provider: "minimax".into(),
+        title: "MiniMax 额度".into(),
+        ..Default::default()
+    };
+    let cookie = provider_env_value(&state.hermes_home, "MINIMAX_COOKIE");
+    let headers = match minimax_request_headers(&cookie) {
+        Ok(headers) => headers,
+        Err(message) => {
+            section.errors.push(message.into());
+            return section;
+        }
+    };
     let payload =
         match provider_http_get_json_retry(&state.client, MINIMAX_PLAN_REMAINS_URL, &headers)
             .await
