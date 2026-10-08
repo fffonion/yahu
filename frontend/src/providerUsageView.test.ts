@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const providerUsage = () => readFileSync(new URL('./providerUsage.ts', import.meta.url), 'utf8');
@@ -20,8 +20,13 @@ const section = (overrides: Partial<ProviderUsageSection> = {}): ProviderUsageSe
 });
 
 describe('provider usage view', () => {
-  test('Vyce AI cumulative summary does not shrink behind its scrollable model table', () => {
-    expect(css()).toContain('.provider-usage-provider-card[data-provider-id="vyceai"] .provider-usage-desc{flex-shrink:0}');
+  test('Vyce AI keeps calls in the subtitle and removes the body summary', () => {
+    const source = app();
+    expect(source).toContain("const calls = provider.provider === 'vyceai' ? providerVyceCalls(section?.description) : '';");
+    expect(source).toContain("...(tableOnly && provider.provider !== 'vyceai' ? [providerTodayLabel(section)] : []),");
+    expect(source).toContain("...(provider.provider === 'vyceai' && providerTodayWindow(section) ? [providerTodayCost(section)] : []),");
+    expect(source).toContain("...(calls ? [`${t('usage.calls')} ${calls}`] : []),");
+    expect(source).toContain("const tableOnly = ['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud', 'vyceai'].includes(section.provider);");
   });
 
   test('Vyce AI shows the daily-delta subtitle and keeps raw totals out of quota tiles', () => {
@@ -30,6 +35,15 @@ describe('provider usage view', () => {
     expect(source).toContain("section.provider !== 'vyceai'");
     expect(source).toContain("const paidZeroTokenUsage = section?.provider === 'vyceai'");
     expect(source).toContain('!paidZeroTokenUsage && todayUsageIsZero(used)');
+  });
+
+  test('Vyce call parsing preserves zero and large counts without period or capture labels', () => {
+    expect(providerVyceCalls('余额 **$192.17**；今日调用次数 66 · 采集自 05:41（差值）')).toBe('66');
+    expect(providerVyceCalls('余额 **$192.17**；今日调用次数 0 · 采集自 00:00（差值）')).toBe('0');
+    expect(providerVyceCalls('调用次数 1,234,567')).toBe('1,234,567');
+    expect(providerVyceCalls('余额 **$192.17**；累计调用次数 15417')).toBe('');
+    expect(providerVyceCalls('今日调用次数 -1 · 采集自 00:00')).toBe('');
+    expect(providerVyceCalls(undefined)).toBe('');
   });
 
   test('sectionHasContent treats rows, windows, or description as content', () => {

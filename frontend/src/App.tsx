@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
@@ -3098,6 +3098,7 @@ function ProviderUsageMain(props: {
             const accountCount = new Set((section?.windows || []).map((window) => providerAccountWindowParts(window.window)?.[0]).filter(Boolean)).size;
             const multiAccount = enabled && accountCount >= 4;
             const balance = providerBalanceText(section?.description);
+            const calls = provider.provider === 'vyceai' ? providerVyceCalls(section?.description) : '';
             const titleMeta = providerTitleMeta(provider.provider, section?.description);
             const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'justwoker' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud' || provider.provider === 'vyceai';
             const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
@@ -3108,7 +3109,9 @@ function ProviderUsageMain(props: {
               ? (loading ? t('usage.querying') : (section ? '' : provider.query_ready ? '' : t('usage.credentialsNeeded')))
               : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
             const subtitleDetails = [
-              ...(tableOnly && (provider.provider !== 'vyceai' || providerTodayWindow(section)) ? [providerTodayLabel(section)] : []),
+              ...(tableOnly && provider.provider !== 'vyceai' ? [providerTodayLabel(section)] : []),
+              ...(provider.provider === 'vyceai' && providerTodayWindow(section) ? [providerTodayCost(section)] : []),
+              ...(calls ? [`${t('usage.calls')} ${calls}`] : []),
               ...(enabled && provider.provider === 'stepfun' && section ? [providerDescriptionText(section.description, provider.provider)] : []),
               ...(balance ? [tf('usage.balance', balance)] : []),
               ...(titleMeta ? [titleMeta] : []),
@@ -3173,7 +3176,7 @@ function ProviderUsageAccountSkeleton({ count }: { count: number }) {
 }
 
 function ProviderUsageSectionView({ section, loading = false }: { section: ProviderUsageSection; loading?: boolean }) {
-  const tableOnly = ['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider);
+  const tableOnly = ['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud', 'vyceai'].includes(section.provider);
   const stepFunUsage = section.provider === 'stepfun';
   const description = tableOnly || stepFunUsage ? '' : providerDescriptionText(section.description, section.provider);
   const accountTones = new Map<string, number>();

@@ -76,6 +76,10 @@ export function orderProviderUsageAccountGroups(groups: ProviderUsageAccountGrou
     .map(({ account, windows }) => [account, windows]);
 }
 
+export function providerVyceCalls(description: string | undefined): string {
+  return description?.match(/(?:^|[；;])\s*(?:今日)?调用次数\s+(\d[\d,]*)(?=\s*(?:·|$))/)?.[1] || '';
+}
+
 export function sectionHasContent(section: ProviderUsageSection): boolean {
   return section.rows.length > 0 || section.windows.length > 0 || section.description.length > 0;
 }
