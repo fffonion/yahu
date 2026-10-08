@@ -42,6 +42,174 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn vyceai_catalog_requires_browser_session_not_inference_key() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("config.yaml"),
+            "custom_providers:\n  - name: vyceai\n    api_key: '[REDACTED]'\n",
+        )
+        .unwrap();
+        let meta = provider_usage_catalog(temp.path())
+            .into_iter()
+            .find(|item| item.provider == "vyceai")
+            .expect("Vyce AI usage card");
+        assert!(meta.configured);
+        assert!(!meta.query_ready);
+        assert_eq!(meta.credential_hint, "VYCEAI_COOKIE");
+        for (cookie, ready) in [
+            ("cf_clearance=[REDACTED]", false),
+            ("session=", false),
+            ("session=[REDACTED]", true),
+        ] {
+            std::fs::write(temp.path().join(".env"), format!("VYCEAI_COOKIE='{cookie}'\n")).unwrap();
+            let meta = provider_usage_catalog(temp.path())
+                .into_iter()
+                .find(|item| item.provider == "vyceai")
+                .unwrap();
+            assert_eq!(meta.query_ready, ready);
+        }
+        assert_eq!(
+            provider_icon_url("vyceai"),
+            Some("https://www.google.com/s2/favicons?domain=vyceai.com&sz=64".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn vyceai_dashboard_uses_session_and_account_totals() {
+        async fn dashboard(headers: axum::http::HeaderMap) -> axum::Json<Value> {
+            assert_eq!(headers["authorization"], "Bearer [REDACTED]");
+            assert_eq!(headers["accept"], "application/json");
+            assert_eq!(headers["referer"], "https://vyceai.com/dashboard-v2");
+            assert!(!headers.contains_key("cookie"));
+            axum::Json(serde_json::json!({
+                "user": {"email": "[REDACTED]", "totalBalance": 999},
+                "keys": [{"key": "[REDACTED]", "totalSpent": 999}],
+                "stats": {
+                    "availableBalance": "12.34", "totalBalance": 99,
+                    "totalSpent": 4.626, "totalRequests": 42,
+                    "modelUsage": {
+                        "deepseek-v4.1": {"inputTokens": 1200000, "outputTokens": "23000", "cost": 1.125},
+                        "grok-imagine-2": {"inputTokens": 0, "outputTokens": 0, "cost": "3.5"},
+                        "free-model": {"inputTokens": 100, "outputTokens": 10, "cost": 0}
+                    }
+                }
+            }))
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = axum::Router::new().route("/user/dashboard", axum::routing::get(dashboard));
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(".env"), "VYCEAI_COOKIE='session=[REDACTED]; cf_clearance=[REDACTED]'\n").unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let section = fetch_vyceai_usage_from_url(&state, &format!("http://{addr}/user/dashboard")).await;
+        assert_eq!(section.provider, "vyceai");
+        assert!(section.errors.is_empty(), "{:?}", section.errors);
+        assert!(section.windows.is_empty());
+        assert_eq!(section.rows.len(), 3);
+        assert_eq!(section.rows[0].label, "grok-imagine-2");
+        assert_eq!(section.rows[0].input.as_deref(), Some("0"));
+        assert_eq!(section.rows[0].cost_or_pct.as_deref(), Some("$3.50"));
+        assert_eq!(section.rows[1].input.as_deref(), Some("1.20m"));
+        assert_eq!(section.rows[1].output.as_deref(), Some("23.0k"));
+        assert!(section.rows.iter().all(|row| row.hit_rate.is_none()));
+        assert!(section.description.contains("余额 **$12.34**"));
+        assert!(section.description.contains("累计费用 $4.63"));
+        assert!(section.description.contains("调用次数 42"));
+        let serialized = serde_json::to_string(&section).unwrap();
+        assert!(!serialized.contains("[REDACTED]"));
+        assert!(!serialized.contains("999"));
+        assert!(!serialized.contains("日用量"));
+    }
+
+    #[tokio::test]
+    async fn vyceai_failures_never_expose_dashboard_bodies() {
+        let app = axum::Router::new()
+            .route("/unauthorized", axum::routing::get(|| async {
+                (axum::http::StatusCode::UNAUTHORIZED, "[REDACTED]")
+            }))
+            .route("/blocked", axum::routing::get(|| async {
+                (axum::http::StatusCode::FORBIDDEN, "[REDACTED]")
+            }))
+            .route("/html", axum::routing::get(|| async { "<html>[REDACTED]</html>" }))
+            .route("/invalid", axum::routing::get(|| async {
+                axum::Json(serde_json::json!({"error": "[REDACTED]", "keys": [{"key": "[REDACTED]"}]}))
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let missing = fetch_provider_usage_section(&state, "vyceai", None, true).await;
+        assert_eq!(missing.errors, ["VYCEAI_COOKIE 缺少 session"]);
+        std::fs::write(temp.path().join(".env"), "VYCEAI_COOKIE='session=[REDACTED]'\n").unwrap();
+        for (path, expected) in [
+            ("unauthorized", "Vyce AI dashboard 返回 HTTP 401"),
+            ("blocked", "Vyce AI dashboard 返回 HTTP 403"),
+            ("html", "Vyce AI dashboard 未返回有效 JSON"),
+            ("invalid", "Vyce AI dashboard 缺少有效的账户用量字段"),
+        ] {
+            let section = fetch_vyceai_usage_from_url(&state, &format!("http://{addr}/{path}")).await;
+            assert_eq!(section.errors, [expected]);
+            assert!(section.rows.is_empty());
+            assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
+        }
+    }
+
+    #[test]
+    fn vyceai_dashboard_handles_empty_and_invalid_model_usage() {
+        let mut payload = serde_json::json!({"stats": {
+            "availableBalance": 0, "totalSpent": 0, "totalRequests": 0, "modelUsage": {}
+        }});
+        let empty = vyceai_usage_section(&payload);
+        assert!(empty.errors.is_empty());
+        assert!(empty.rows.is_empty());
+        assert!(empty.description.contains("$0.00"));
+        payload["stats"]["modelUsage"] = serde_json::json!({
+            "negative": {"inputTokens": -1, "outputTokens": 0, "cost": 0},
+            "missing": {"inputTokens": 1, "outputTokens": 2},
+            "invalid": {"inputTokens": 1, "outputTokens": 2, "cost": "NaN"},
+            "valid": {"inputTokens": 1, "outputTokens": 2, "cost": 0.001}
+        });
+        let partial = vyceai_usage_section(&payload);
+        assert_eq!(partial.rows.len(), 1);
+        assert_eq!(partial.rows[0].label, "valid");
+        assert_eq!(partial.rows[0].cost_or_pct.as_deref(), Some("$0.0010"));
+        assert_eq!(partial.errors, ["Vyce AI dashboard 存在无效的模型用量字段"]);
+    }
+
+    #[test]
+    fn vyceai_small_nonzero_cost_is_not_displayed_as_free() {
+        let payload = serde_json::json!({"stats": {
+            "availableBalance": 0, "totalSpent": 0.00003985, "totalRequests": 1,
+            "modelUsage": {"agnes-3.0-flash": {"inputTokens": 10, "outputTokens": 1, "cost": 0.00003985}}
+        }});
+        let section = vyceai_usage_section(&payload);
+        assert_eq!(section.rows[0].cost_or_pct.as_deref(), Some("$0.00003985"));
+    }
+
+    #[test]
+    fn vyceai_cumulative_summary_uses_compact_text() {
+        let section = vyceai_usage_section(&serde_json::json!({"stats": {
+            "availableBalance": 192.19, "totalSpent": 76.82, "totalRequests": 14965,
+            "modelUsage": {}
+        }}));
+        assert_eq!(section.description, "余额 **$192.19**；累计费用 $76.82 · 调用次数 14965（累计）");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires VYCEAI_COOKIE in the request process"]
+    async fn vyceai_live_dashboard_smoke() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let section = fetch_provider_usage_section(&state, "vyceai", None, true).await;
+        assert!(section.errors.is_empty(), "{:?}", section.errors);
+        assert!(!section.description.is_empty());
+        assert!(section.captured_at > 0.0);
+        println!("{}", serde_json::to_string(&section).unwrap());
+    }
+
+    #[test]
     fn auth_json_pool_reads_labels_and_tokens() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(

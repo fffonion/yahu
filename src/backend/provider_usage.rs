@@ -345,6 +345,8 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         || any_custom_provider_api_key(hermes_home, &["justwoker", "justwoker-icu"]);
     let minimax_cookie = provider_env_value(hermes_home, "MINIMAX_COOKIE");
     let minimax_query_ready = !extract_cookie_value(&minimax_cookie, "minimax_group_id_v2").is_empty();
+    let vyceai_cookie = provider_env_value(hermes_home, "VYCEAI_COOKIE");
+    let vyceai_query_ready = !extract_cookie_value(&vyceai_cookie, "session").is_empty();
     let justwoker_query_ready = !justwoker_user_id.is_empty()
         && (!justwoker_cookie.is_empty() || !justwoker_token.is_empty());
     let entries = [
@@ -363,6 +365,16 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             justwoker_query_ready,
             "JUSTWOKER_ACCESS_TOKEN + JUSTWOKER_USER_ID",
             "配置账户 access token 与用户 ID；也支持 JUSTWOKER_SESSION_COOKIE + JUSTWOKER_USER_ID。推理 API key 无法查询账户用量；凭据写入 ~/.hermes/.env。",
+        ),
+        (
+            "vyceai",
+            "Vyce AI 用量",
+            !vyceai_cookie.is_empty()
+                || any_provider_env_value(hermes_home, &["VYCEAI_API_KEY"])
+                || any_custom_provider_api_key(hermes_home, &["vyceai"]),
+            vyceai_query_ready,
+            "VYCEAI_COOKIE",
+            "配置 VYCEAI_COOKIE，需包含网页登录后的 session；推理 API key 无法查询账户用量。",
         ),
         (
             "openrouter",
@@ -4443,6 +4455,98 @@ async fn fetch_newapi_usage(state: &AppState, provider: &str) -> ProviderUsageSe
     }
 }
 
+fn vyceai_usage_section(payload: &Value) -> ProviderUsageSection {
+    let mut section = ProviderUsageSection {
+        provider: "vyceai".into(),
+        title: "Vyce AI 用量".into(),
+        ..Default::default()
+    };
+    let stats = &payload["stats"];
+    let number = |value: &Value| provider_number(value).filter(|value| *value >= 0.0);
+    let (Some(balance), Some(spent), Some(calls), Some(models)) = (
+        number(&stats["availableBalance"]),
+        number(&stats["totalSpent"]),
+        number(&stats["totalRequests"]),
+        stats["modelUsage"].as_object(),
+    ) else {
+        section.errors.push("Vyce AI dashboard 缺少有效的账户用量字段".into());
+        return section;
+    };
+    section.description = format!(
+        "余额 **{}**；累计费用 {} · 调用次数 {calls:.0}（累计）",
+        fmt_provider_money(balance, '$'),
+        fmt_provider_money(spent, '$'),
+    );
+    let mut rows = Vec::new();
+    for (model, usage) in models {
+        let (Some(input), Some(output), Some(cost)) = (
+            number(&usage["inputTokens"]),
+            number(&usage["outputTokens"]),
+            number(&usage["cost"]),
+        ) else {
+            if section.errors.is_empty() {
+                section.errors.push("Vyce AI dashboard 存在无效的模型用量字段".into());
+            }
+            continue;
+        };
+        rows.push((cost, ProviderUsageRow {
+            label: model.clone(),
+            input: Some(fmt_provider_int(input)),
+            output: Some(fmt_provider_int(output)),
+            cost_or_pct: Some(if cost > 0.0 && cost < 0.0001 {
+                format!("${cost}")
+            } else if cost < 1.0 && cost > 0.0 {
+                format!("${cost:.4}")
+            } else {
+                fmt_provider_money(cost, '$')
+            }),
+            ..Default::default()
+        }));
+    }
+    rows.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.label.cmp(&b.1.label)));
+    section.rows = rows.into_iter().map(|(_, row)| row).collect();
+    section
+}
+
+async fn fetch_vyceai_usage_from_url(state: &AppState, url: &str) -> ProviderUsageSection {
+    let mut section = ProviderUsageSection {
+        provider: "vyceai".into(),
+        title: "Vyce AI 用量".into(),
+        ..Default::default()
+    };
+    let cookie = provider_env_value(&state.hermes_home, "VYCEAI_COOKIE");
+    let session = extract_cookie_value(&cookie, "session");
+    if session.is_empty() {
+        section.errors.push("VYCEAI_COOKIE 缺少 session".into());
+        return section;
+    }
+    // Never retain or expose the response body: dashboard includes live API keys.
+    let response = state.client.get(url)
+        .timeout(PROVIDER_USAGE_TIMEOUT)
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .header(header::ACCEPT, "application/json")
+        .header(header::REFERER, "https://vyceai.com/dashboard-v2")
+        .send().await;
+    let response = match response {
+        Ok(response) => response,
+        Err(_) => {
+            section.errors.push("Vyce AI dashboard 请求失败".into());
+            return section;
+        }
+    };
+    if !response.status().is_success() {
+        section.errors.push(format!("Vyce AI dashboard 返回 HTTP {}", response.status().as_u16()));
+        return section;
+    }
+    match response.json::<Value>().await {
+        Ok(payload) => vyceai_usage_section(&payload),
+        Err(_) => {
+            section.errors.push("Vyce AI dashboard 未返回有效 JSON".into());
+            section
+        }
+    }
+}
+
 fn provider_setup_section(meta: &ProviderUsageProvider) -> ProviderUsageSection {
     ProviderUsageSection {
         provider: meta.provider.clone(),
@@ -4468,6 +4572,7 @@ async fn fetch_provider_usage_section(
     }
     let mut section = match provider {
         "agentrouter" | "justwoker" => fetch_newapi_usage(state, provider).await,
+        "vyceai" => fetch_vyceai_usage_from_url(state, "https://vyceai.com/user/dashboard").await,
         "openrouter" => fetch_openrouter_usage(state).await,
         "deepseek" => fetch_deepseek_usage(state).await,
         "atlascloud" => fetch_atlascloud_usage(state).await,
@@ -4678,6 +4783,7 @@ fn provider_icon_url(provider: &str) -> Option<String> {
         return None;
     }
     let domains = [
+        ("vyceai", "vyceai.com"),
         ("openrouter", "openrouter.ai"),
         ("deepseek", "deepseek.com"),
         ("atlascloud", "atlascloud.ai"),

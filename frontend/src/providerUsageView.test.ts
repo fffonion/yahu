@@ -20,6 +20,10 @@ const section = (overrides: Partial<ProviderUsageSection> = {}): ProviderUsageSe
 });
 
 describe('provider usage view', () => {
+  test('Vyce AI cumulative summary does not shrink behind its scrollable model table', () => {
+    expect(css()).toContain('.provider-usage-provider-card[data-provider-id="vyceai"] .provider-usage-desc{flex-shrink:0}');
+  });
+
   test('sectionHasContent treats rows, windows, or description as content', () => {
     expect(sectionHasContent(section())).toBe(false);
     expect(sectionHasContent(section({ rows: [{ label: 'm' }] }))).toBe(true);
