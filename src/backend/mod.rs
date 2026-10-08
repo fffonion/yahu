@@ -332,6 +332,7 @@ pub async fn run() -> anyhow::Result<()> {
     });
     tokio::spawn(run_idle_cache_cleanup(state.clone()));
     tokio::spawn(run_insights_snapshot_collector(state.clone()));
+    tokio::spawn(run_vyceai_snapshot_collector(state.clone()));
 
     let app = Router::new()
         .route("/health", get(health))

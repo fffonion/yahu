@@ -2771,7 +2771,8 @@ function providerTodayCost(section: ProviderUsageSection | undefined): string {
 function providerTodayLabel(section: ProviderUsageSection | undefined): string {
   const used = providerTodayWindow(section)?.used || '';
   const cost = providerTodayCost(section);
-  return todayUsageIsZero(used) || (!cost && !used) ? t('usage.todayUnused') : tf('usage.today', cost || providerTodayTokens(section) || '-');
+  const paidZeroTokenUsage = section?.provider === 'vyceai' && Number(cost.slice(1)) > 0;
+  return (!paidZeroTokenUsage && todayUsageIsZero(used)) || (!cost && !used) ? t('usage.todayUnused') : tf('usage.today', cost || providerTodayTokens(section) || '-');
 }
 
 function providerBrandFavicon(provider: string): string {
@@ -3098,7 +3099,7 @@ function ProviderUsageMain(props: {
             const multiAccount = enabled && accountCount >= 4;
             const balance = providerBalanceText(section?.description);
             const titleMeta = providerTitleMeta(provider.provider, section?.description);
-            const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'justwoker' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud';
+            const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'justwoker' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud' || provider.provider === 'vyceai';
             const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
             const autoRefreshing = Boolean(props.autoRefresh[provider.provider]);
             const codexResetSubtitle = enabled && provider.provider === 'codex' ? providerCodexResetSubtitle(section?.description) : '';
@@ -3107,7 +3108,7 @@ function ProviderUsageMain(props: {
               ? (loading ? t('usage.querying') : (section ? '' : provider.query_ready ? '' : t('usage.credentialsNeeded')))
               : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
             const subtitleDetails = [
-              ...(tableOnly ? [providerTodayLabel(section)] : []),
+              ...(tableOnly && (provider.provider !== 'vyceai' || providerTodayWindow(section)) ? [providerTodayLabel(section)] : []),
               ...(enabled && provider.provider === 'stepfun' && section ? [providerDescriptionText(section.description, provider.provider)] : []),
               ...(balance ? [tf('usage.balance', balance)] : []),
               ...(titleMeta ? [titleMeta] : []),
@@ -3207,7 +3208,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
   const tableRows = section.provider === 'minimax' ? minimaxRows : section.rows;
   return <div className="provider-usage-data">
     {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
-    {section.windows.length > 0 && !['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && (accountGroups.length > 0
+    {section.windows.length > 0 && !['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && section.provider !== 'vyceai' && (accountGroups.length > 0
       ? <div className="provider-usage-account-groups">{accountGroups.map(([account, windows], groupIndex) => {
         const visibleWindows = section.provider === 'commandcode'
           ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')

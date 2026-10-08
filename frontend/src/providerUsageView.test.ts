@@ -24,6 +24,14 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-provider-card[data-provider-id="vyceai"] .provider-usage-desc{flex-shrink:0}');
   });
 
+  test('Vyce AI shows the daily-delta subtitle and keeps raw totals out of quota tiles', () => {
+    const source = app();
+    expect(source).toContain("provider.provider === 'vyceai'");
+    expect(source).toContain("section.provider !== 'vyceai'");
+    expect(source).toContain("const paidZeroTokenUsage = section?.provider === 'vyceai'");
+    expect(source).toContain('!paidZeroTokenUsage && todayUsageIsZero(used)');
+  });
+
   test('sectionHasContent treats rows, windows, or description as content', () => {
     expect(sectionHasContent(section())).toBe(false);
     expect(sectionHasContent(section({ rows: [{ label: 'm' }] }))).toBe(true);

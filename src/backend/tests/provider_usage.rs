@@ -75,51 +75,60 @@ mod provider_usage_tests {
     }
 
     #[tokio::test]
-    async fn vyceai_dashboard_uses_session_and_account_totals() {
-        async fn dashboard(headers: axum::http::HeaderMap) -> axum::Json<Value> {
-            assert_eq!(headers["authorization"], "Bearer [REDACTED]");
+    async fn vyceai_dashboard_uses_session_and_daily_deltas() {
+        async fn dashboard(
+            axum::extract::State(calls): axum::extract::State<Arc<std::sync::atomic::AtomicUsize>>,
+            headers: axum::http::HeaderMap,
+        ) -> axum::Json<Value> {
+            let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) as f64;
+            assert!(headers["authorization"] == "Bearer [REDACTED]", "mock session header mismatch");
             assert_eq!(headers["accept"], "application/json");
             assert_eq!(headers["referer"], "https://vyceai.com/dashboard-v2");
             assert!(!headers.contains_key("cookie"));
             axum::Json(serde_json::json!({
-                "user": {"email": "[REDACTED]", "totalBalance": 999},
+                "user": {"id": "account-a", "email": "[REDACTED]", "totalBalance": 999},
                 "keys": [{"key": "[REDACTED]", "totalSpent": 999}],
                 "stats": {
-                    "availableBalance": "12.34", "totalBalance": 99,
-                    "totalSpent": 4.626, "totalRequests": 42,
+                    "availableBalance": 12.34 + n * 10.0, "totalBalance": 99,
+                    "totalSpent": 4.626 + n * 4.625, "totalRequests": 42.0 + n * 3.0,
                     "modelUsage": {
-                        "deepseek-v4.1": {"inputTokens": 1200000, "outputTokens": "23000", "cost": 1.125},
-                        "grok-imagine-2": {"inputTokens": 0, "outputTokens": 0, "cost": "3.5"},
-                        "free-model": {"inputTokens": 100, "outputTokens": 10, "cost": 0}
+                        "deepseek-v4.1": {"inputTokens": 1200000.0 + n * 200.0, "outputTokens": (23000.0 + n * 20.0).to_string(), "cost": 1.125 + n * 1.125},
+                        "grok-imagine-2": {"inputTokens": 0, "outputTokens": 0, "cost": (3.5 + n * 3.5).to_string()},
+                        "free-model": {"inputTokens": 100.0 + n * 10.0, "outputTokens": 10.0 + n, "cost": 0}
                     }
                 }
             }))
         }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = axum::Router::new().route("/user/dashboard", axum::routing::get(dashboard));
+        let app = axum::Router::new().route("/user/dashboard", axum::routing::get(dashboard))
+            .with_state(Arc::new(std::sync::atomic::AtomicUsize::new(0)));
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join(".env"), "VYCEAI_COOKIE='session=[REDACTED]; cf_clearance=[REDACTED]'\n").unwrap();
         let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
         let section = fetch_vyceai_usage_from_url(&state, &format!("http://{addr}/user/dashboard")).await;
+        assert!(section.errors.is_empty());
+        assert!(section.rows.is_empty());
+        assert_eq!(section.windows[0].used.as_deref(), Some("0 / 0 / $0.00"));
+        let section = fetch_vyceai_usage_from_url(&state, &format!("http://{addr}/user/dashboard")).await;
         assert_eq!(section.provider, "vyceai");
         assert!(section.errors.is_empty(), "{:?}", section.errors);
-        assert!(section.windows.is_empty());
+        assert_eq!(section.windows.len(), 1);
         assert_eq!(section.rows.len(), 3);
         assert_eq!(section.rows[0].label, "grok-imagine-2");
         assert_eq!(section.rows[0].input.as_deref(), Some("0"));
         assert_eq!(section.rows[0].cost_or_pct.as_deref(), Some("$3.50"));
-        assert_eq!(section.rows[1].input.as_deref(), Some("1.20m"));
-        assert_eq!(section.rows[1].output.as_deref(), Some("23.0k"));
+        assert_eq!(section.rows[1].input.as_deref(), Some("200"));
+        assert_eq!(section.rows[1].output.as_deref(), Some("20"));
         assert!(section.rows.iter().all(|row| row.hit_rate.is_none()));
-        assert!(section.description.contains("余额 **$12.34**"));
-        assert!(section.description.contains("累计费用 $4.63"));
-        assert!(section.description.contains("调用次数 42"));
+        assert!(section.description.contains("余额 **$22.34**"));
+        assert!(section.description.contains("今日调用次数 3"));
+        assert_eq!(section.windows[0].used.as_deref(), Some("210 / 21 / $4.62"));
         let serialized = serde_json::to_string(&section).unwrap();
         assert!(!serialized.contains("[REDACTED]"));
         assert!(!serialized.contains("999"));
-        assert!(!serialized.contains("日用量"));
+        assert!(serialized.contains("今日用量（差值）"));
     }
 
     #[tokio::test]
@@ -207,6 +216,177 @@ mod provider_usage_tests {
         assert!(!section.description.is_empty());
         assert!(section.captured_at > 0.0);
         println!("{}", serde_json::to_string(&section).unwrap());
+    }
+
+    fn vyceai_daily_test_payload(input: f64, output: f64, cost: f64, calls: f64, account: &str) -> Value {
+        serde_json::json!({
+            "user": {"id": account, "email": "[REDACTED]"},
+            "keys": [{"key": "[REDACTED]"}],
+            "stats": {
+                "availableBalance": 12.34, "totalSpent": cost, "totalRequests": calls,
+                "modelUsage": {"deepseek-v4.1": {"inputTokens": input, "outputTokens": output, "cost": cost}}
+            }
+        })
+    }
+
+    #[test]
+    fn vyceai_daily_deltas_persist_and_do_not_replay_unchanged_counters() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let now = chrono::DateTime::parse_from_rfc3339("2030-01-02T02:00:00Z").unwrap().timestamp();
+        let baseline = vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(1000.0, 100.0, 10.0, 40.0, "account-a"), now);
+        assert!(baseline.errors.is_empty());
+        assert!(baseline.rows.is_empty());
+        assert_eq!(baseline.windows[0].used.as_deref(), Some("0 / 0 / $0.00"));
+        let current = vyceai_daily_test_payload(1200.0, 120.0, 12.0, 43.0, "account-a");
+        let delta = vyceai_daily_usage_section(&state, &current, now + 300);
+        assert!(delta.errors.is_empty());
+        assert_eq!(delta.rows[0].input.as_deref(), Some("200"));
+        assert_eq!(delta.rows[0].output.as_deref(), Some("20"));
+        assert_eq!(delta.rows[0].cost_or_pct.as_deref(), Some("$2.00"));
+        assert_eq!(delta.windows[0].used.as_deref(), Some("200 / 20 / $2.00"));
+        assert!(delta.description.contains("今日调用次数 3"));
+        assert!(delta.description.contains("10:00"));
+        let restarted = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let repeated = vyceai_daily_usage_section(&restarted, &current, now + 600);
+        assert_eq!(repeated.windows[0].used, delta.windows[0].used);
+        assert!(repeated.description.contains("今日调用次数 3"));
+        let persisted = std::fs::read_to_string(temp.path().join("state/vyceai-usage-snapshot.json")).unwrap();
+        assert!(!persisted.contains("[REDACTED]"));
+        assert!(!persisted.contains("keys"));
+        assert!(!persisted.contains("email"));
+    }
+
+    #[test]
+    fn vyceai_daily_rollover_and_account_switch_establish_new_baselines() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let before = chrono::DateTime::parse_from_rfc3339("2030-01-02T15:59:00Z").unwrap().timestamp();
+        let after = chrono::DateTime::parse_from_rfc3339("2030-01-02T16:01:00Z").unwrap().timestamp();
+        vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(1000.0, 100.0, 10.0, 40.0, "account-a"), before);
+        let rolled = vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(2000.0, 200.0, 20.0, 80.0, "account-a"), after);
+        assert_eq!(rolled.windows[0].used.as_deref(), Some("0 / 0 / $0.00"));
+        assert!(rolled.description.contains("00:01"));
+        let grown = vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(2010.0, 201.0, 20.5, 81.0, "account-a"), after + 300);
+        assert_eq!(grown.windows[0].used.as_deref(), Some("10 / 1 / $0.50"));
+        let switched = vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(9000.0, 900.0, 90.0, 900.0, "account-b"), after + 600);
+        assert_eq!(switched.windows[0].used.as_deref(), Some("0 / 0 / $0.00"));
+        let grown = vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(9020.0, 902.0, 91.0, 902.0, "account-b"), after + 900);
+        assert_eq!(grown.windows[0].used.as_deref(), Some("20 / 2 / $1.00"));
+        assert!(grown.description.contains("今日调用次数 2"));
+    }
+
+    #[test]
+    fn vyceai_counter_regressions_and_missing_models_never_replay_usage() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let now = chrono::DateTime::parse_from_rfc3339("2030-01-02T02:00:00Z").unwrap().timestamp();
+        for (i, input) in [1000.0, 1100.0, 900.0, 1100.0].iter().enumerate() {
+            let section = vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(*input, 100.0, 10.0, 40.0, "account-a"), now + i as i64);
+            if i > 0 { assert_eq!(section.rows[0].input.as_deref(), Some("100")); }
+        }
+        let mut payload = vyceai_daily_test_payload(1100.0, 100.0, 10.0, 40.0, "account-a");
+        payload["stats"]["modelUsage"]["new-image"] = serde_json::json!({"inputTokens": 0, "outputTokens": 0, "cost": 2.0});
+        let added = vyceai_daily_usage_section(&state, &payload, now + 4);
+        assert_eq!(added.rows.len(), 2);
+        assert_eq!(added.rows[0].label, "new-image");
+        payload["stats"]["modelUsage"] = serde_json::json!({});
+        let missing = vyceai_daily_usage_section(&state, &payload, now + 5);
+        assert_eq!(missing.rows.len(), 2);
+        payload["stats"]["modelUsage"]["new-image"] = serde_json::json!({"inputTokens": 0, "outputTokens": 0, "cost": 2.0});
+        let returned = vyceai_daily_usage_section(&state, &payload, now + 6);
+        assert_eq!(returned.rows[0].cost_or_pct.as_deref(), Some("$2.00"));
+    }
+
+    #[test]
+    fn vyceai_invalid_responses_and_storage_failures_preserve_baselines() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let now = chrono::DateTime::parse_from_rfc3339("2030-01-02T02:00:00Z").unwrap().timestamp();
+        let payload = vyceai_daily_test_payload(1000.0, 100.0, 10.0, 40.0, "account-a");
+        vyceai_daily_usage_section(&state, &payload, now);
+        let path = temp.path().join("state/vyceai-usage-snapshot.json");
+        let previous = std::fs::read(&path).unwrap();
+        let invalid = vyceai_daily_usage_section(&state, &serde_json::json!({"error":"[REDACTED]"}), now + 300);
+        assert!(!invalid.errors.is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), previous);
+        std::fs::write(&path, "invalid").unwrap();
+        let corrupt = vyceai_daily_usage_section(&state, &payload, now + 600);
+        assert_eq!(corrupt.errors, ["Vyce AI 用量快照无法解析"]);
+        assert_eq!(std::fs::read(&path).unwrap(), b"invalid");
+        let blocked = tempfile::tempdir().unwrap();
+        std::fs::write(blocked.path().join("state"), "blocked").unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), blocked.path());
+        let section = vyceai_daily_usage_section(&state, &payload, now);
+        assert!(!section.errors.is_empty());
+        assert!(section.rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn vyceai_daily_caches_expire_at_shanghai_midnight_and_reject_legacy_totals() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
+        let now = chrono::Utc::now().timestamp();
+        let yesterday = ProviderUsageSection {
+            provider: "vyceai".into(), captured_at: (vyceai_day_start(now) - 1) as f64,
+            windows: vec![ProviderUsageWindow { window: "今日用量（差值）".into(), used: Some("10 / 1 / $1.00".into()), reset: None, reset_at: None }],
+            ..Default::default()
+        };
+        save_shared_provider_section(&state, &yesterday, now as f64);
+        assert!(shared_cached_section(&state, "vyceai").is_none());
+        *state.provider_usage_cache.payload.write().await = Some(ProviderUsagePayload {
+            sections: vec![yesterday], ..Default::default()
+        });
+        *state.provider_usage_cache.fetched_at.write().await = Some(Instant::now());
+        assert!(cached_provider_payload(&state, "vyceai").await.is_none());
+        let response = provider_usage_handler(State(state.clone()), Query(ProviderUsageQuery { provider: None, refresh: None })).await;
+        let body: Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert!(!body["sections"].as_array().unwrap().iter().any(|section| section["provider"] == "vyceai"));
+        let legacy = ProviderUsageSection { provider: "vyceai".into(), captured_at: now as f64, ..Default::default() };
+        save_shared_provider_section(&state, &legacy, now as f64);
+        assert!(shared_cached_section(&state, "vyceai").is_none());
+    }
+
+    #[test]
+    fn vyceai_collector_is_aligned_to_midnight_and_runs_without_an_open_page() {
+        let before = chrono::DateTime::parse_from_rfc3339("2030-01-02T15:59:59Z").unwrap().timestamp();
+        assert_eq!(vyceai_next_snapshot_delay(before), Duration::from_secs(1));
+        assert_eq!(vyceai_next_snapshot_delay(before + 1), Duration::from_secs(300));
+        assert!(include_str!("../mod.rs").contains("tokio::spawn(run_vyceai_snapshot_collector(state.clone()))"));
+    }
+
+    #[tokio::test]
+    async fn vyceai_concurrent_fetches_serialize_cumulative_snapshots() {
+        async fn dashboard(axum::extract::State(calls): axum::extract::State<Arc<std::sync::atomic::AtomicUsize>>) -> axum::Json<Value> {
+            let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) as f64;
+            if n == 0.0 { tokio::time::sleep(Duration::from_millis(30)).await; }
+            axum::Json(vyceai_daily_test_payload(1000.0 + n * 10.0, 100.0 + n, 10.0 + n * 0.5, 40.0 + n, "account-a"))
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = axum::Router::new().route("/user/dashboard", axum::routing::get(dashboard))
+            .with_state(Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(".env"), "VYCEAI_COOKIE='session=[REDACTED]'\n").unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let url = format!("http://{addr}/user/dashboard");
+        let (first, second) = tokio::join!(fetch_vyceai_usage_from_url(&state, &url), fetch_vyceai_usage_from_url(&state, &url));
+        assert_eq!(first.windows[0].used.as_deref(), Some("0 / 0 / $0.00"));
+        assert_eq!(second.windows[0].used.as_deref(), Some("10 / 1 / $0.50"));
+        let third = fetch_vyceai_usage_from_url(&state, &url).await;
+        assert_eq!(third.windows[0].used.as_deref(), Some("20 / 2 / $1.00"));
+    }
+
+    #[test]
+    fn vyceai_daily_paid_image_with_tiny_cost_is_not_reported_as_zero() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let now = chrono::DateTime::parse_from_rfc3339("2030-01-02T02:00:00Z").unwrap().timestamp();
+        vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(0.0, 0.0, 0.0, 1.0, "account-a"), now);
+        let section = vyceai_daily_usage_section(&state, &vyceai_daily_test_payload(0.0, 0.0, 0.00003985, 2.0, "account-a"), now + 300);
+        assert_eq!(section.windows[0].used.as_deref(), Some("0 / 0 / $0.00003985"));
+        assert_eq!(section.rows[0].cost_or_pct.as_deref(), Some("$0.00003985"));
     }
 
     #[test]
