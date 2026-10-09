@@ -83,11 +83,15 @@ export function providerVyceCalls(description: string | undefined): string {
   return description?.match(/(?:^|[；;])\s*(?:今日)?调用次数\s+(\d[\d,]*)(?=\s*(?:·|$))/)?.[1] || '';
 }
 
-export function providerCodexCreditSubtitle(credits: ProviderUsageCredit[] | undefined): string {
+function codexCreditEntries(credits: ProviderUsageCredit[] | undefined): [string, string][] {
   const positive = (credits || []).filter((credit) => Number.isFinite(credit.balance) && credit.balance > 0);
-  if (!positive.length) return '';
+  if (!positive.length) return [];
   const formatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
-  return positive.map(({ account, balance }) => `${account}：Credit ${balance < 0.01 ? String(balance) : formatter.format(balance)}`).join('；');
+  return positive.map(({ account, balance }) => [account, `Credit ${balance < 0.01 ? String(balance) : formatter.format(balance)}`]);
+}
+
+export function providerCodexCreditSubtitle(credits: ProviderUsageCredit[] | undefined): string {
+  return codexCreditEntries(credits).map(([account, detail]) => `${account}：${detail}`).join('；');
 }
 
 export function sectionHasContent(section: ProviderUsageSection): boolean {
@@ -114,20 +118,24 @@ function codexResetDurations(expiry: string): string[] {
     .filter(Boolean);
 }
 
-export function providerCodexResetSubtitle(description: string | undefined): string {
-  return codexResetEntries(description)
-    .filter((entry) => entry.count > 0)
-    .map((entry) => `${entry.account}：${entry.count}个重置${entry.expiry ? ` ${entry.expiry}到期` : ''}`)
-    .join('；');
+function codexAccountSubtitle(description: string | undefined, credits: ProviderUsageCredit[] | undefined, mobile: boolean): string {
+  const groups = new Map<string, string[]>();
+  for (const [account, detail] of codexCreditEntries(credits)) groups.set(account, [detail]);
+  for (const entry of codexResetEntries(description)) {
+    if (entry.count <= 0) continue;
+    const detail = mobile ? codexResetDurations(entry.expiry).join(', ')
+      : `${entry.count}个重置${entry.expiry ? ` ${entry.expiry}到期` : ''}`;
+    if (detail) groups.set(entry.account, [...(groups.get(entry.account) || []), detail]);
+  }
+  return [...groups].map(([account, details]) =>
+    `${account}${mobile && !details[0].startsWith('Credit ') ? ': ' : '：'}${details.join(' · ')}`
+  ).join(mobile ? '; ' : '；');
 }
 
-export function providerCodexMobileResetSubtitle(description: string | undefined): string {
-  return codexResetEntries(description)
-    .filter((entry) => entry.count > 0)
-    .map((entry) => {
-      const durations = codexResetDurations(entry.expiry);
-      return durations.length ? `${entry.account}: ${durations.join(', ')}` : '';
-    })
-    .filter(Boolean)
-    .join('; ');
+export function providerCodexResetSubtitle(description: string | undefined, credits?: ProviderUsageCredit[]): string {
+  return codexAccountSubtitle(description, credits, false);
+}
+
+export function providerCodexMobileResetSubtitle(description: string | undefined, credits?: ProviderUsageCredit[]): string {
+  return codexAccountSubtitle(description, credits, true);
 }

@@ -110,11 +110,20 @@ describe('provider usage view', () => {
     expect(sectionHasContent(section({ credits: [{ account: 'zero', balance: 0 }] }))).toBe(false);
   });
 
+  test('Codex groups Credit and reset under one account label', () => {
+    const credits = [{ account: 'alpha', balance: 12.5 }, { account: 'beta', balance: 0 }, { account: 'credit-only', balance: 0.004 }];
+    const description = 'alpha：Reset：2个；到期：2小时后、5天后；beta：Reset：1个；到期：29天后；empty：Reset：0个';
+    expect(providerCodexResetSubtitle(description, credits)).toBe('alpha：Credit 12.5 · 2个重置 2小时后、5天后到期；credit-only：Credit 0.004；beta：1个重置 29天后到期');
+    expect(providerCodexMobileResetSubtitle(description, credits)).toBe('alpha：Credit 12.5 · 2小时, 5天; credit-only：Credit 0.004; beta: 29天');
+    expect(providerCodexResetSubtitle(undefined, [{ account: 'zero', balance: 0 }])).toBe('');
+    expect(providerCodexMobileResetSubtitle('alpha：Reset：1个', [{ account: 'alpha', balance: 1 }])).toBe('alpha：Credit 1');
+  });
+
   test('Codex Credit is in desktop and mobile subtitles without replacing reset details', () => {
     const source = app();
-    expect(source).toContain("const codexCreditSubtitle = enabled && provider.provider === 'codex' ? providerCodexCreditSubtitle(section?.credits) : '';");
-    expect(source).toContain("[codexCreditSubtitle, providerCodexMobileResetSubtitle(section?.description)].filter(Boolean).join(' · ')");
-    expect(source).toContain("...(codexCreditSubtitle ? [codexCreditSubtitle] : []),");
+    expect(source).toContain("providerCodexResetSubtitle(section?.description, section?.credits)");
+    expect(source).toContain("providerCodexMobileResetSubtitle(section?.description, section?.credits)");
+    expect(source).not.toContain('const codexCreditSubtitle =');
     expect(css()).toContain('.provider-usage-provider-card[data-provider-id="codex"] .provider-usage-subline>span{white-space:normal;overflow-wrap:anywhere}');
   });
 

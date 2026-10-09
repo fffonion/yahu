@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexCreditSubtitle, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
@@ -3103,9 +3103,8 @@ function ProviderUsageMain(props: {
             const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'justwoker' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud' || provider.provider === 'vyceai';
             const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
             const autoRefreshing = Boolean(props.autoRefresh[provider.provider]);
-            const codexCreditSubtitle = enabled && provider.provider === 'codex' ? providerCodexCreditSubtitle(section?.credits) : '';
-            const codexResetSubtitle = enabled && provider.provider === 'codex' ? providerCodexResetSubtitle(section?.description) : '';
-            const codexMobileResetSubtitle = enabled && provider.provider === 'codex' ? [codexCreditSubtitle, providerCodexMobileResetSubtitle(section?.description)].filter(Boolean).join(' · ') : '';
+            const codexResetSubtitle = enabled && provider.provider === 'codex' ? providerCodexResetSubtitle(section?.description, section?.credits) : '';
+            const codexMobileResetSubtitle = enabled && provider.provider === 'codex' ? providerCodexMobileResetSubtitle(section?.description, section?.credits) : '';
             const subtitle = enabled
               ? (loading ? t('usage.querying') : (section ? '' : provider.query_ready ? '' : t('usage.credentialsNeeded')))
               : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
@@ -3116,7 +3115,6 @@ function ProviderUsageMain(props: {
               ...(enabled && provider.provider === 'stepfun' && section ? [providerDescriptionText(section.description, provider.provider)] : []),
               ...(balance ? [tf('usage.balance', balance)] : []),
               ...(titleMeta ? [titleMeta] : []),
-              ...(codexCreditSubtitle ? [codexCreditSubtitle] : []),
               ...(codexResetSubtitle ? [codexResetSubtitle] : []),
               ...(subtitle ? [subtitle] : []),
             ].filter(Boolean).join(' · ');
