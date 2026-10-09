@@ -58,6 +58,12 @@ struct ProviderUsageWindow {
     reset_at: Option<i64>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct ProviderUsageCredit {
+    account: String,
+    balance: f64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct ProviderUsageSection {
     provider: String,
@@ -65,6 +71,8 @@ struct ProviderUsageSection {
     description: String,
     #[serde(default)]
     captured_at: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    credits: Vec<ProviderUsageCredit>,
     rows: Vec<ProviderUsageRow>,
     windows: Vec<ProviderUsageWindow>,
     errors: Vec<String>,
@@ -3221,6 +3229,12 @@ fn codex_backend_reset_credits_url(base_url: &str) -> String {
     )
 }
 
+fn codex_usage_credit(account: &str, payload: &Value) -> Option<ProviderUsageCredit> {
+    let balance = payload.pointer("/credits/balance").and_then(provider_number)
+        .filter(|balance| balance.is_finite() && *balance > 0.0)?;
+    Some(ProviderUsageCredit { account: account.to_string(), balance })
+}
+
 fn codex_reset_credits_description(value: &Value) -> Option<String> {
     let credits = value.get("credits").and_then(Value::as_array);
     let has_count = value.get("available_count").is_some();
@@ -3377,6 +3391,7 @@ fn provider_cached_account_section(
         cached
             .windows
             .retain(|window| provider_account_window_matches(window, label));
+        cached.credits.retain(|credit| credit.account == label);
     }
     refresh_provider_cached_reset_times(&mut cached, now);
     Some(cached)
@@ -3435,6 +3450,15 @@ async fn fetch_codex_usage(
     cached_section: Option<&ProviderUsageSection>,
     force: bool,
 ) -> ProviderUsageSection {
+    fetch_codex_usage_from_url(state, cached_section, force, "https://chatgpt.com/backend-api/codex").await
+}
+
+async fn fetch_codex_usage_from_url(
+    state: &AppState,
+    cached_section: Option<&ProviderUsageSection>,
+    force: bool,
+    base_url: &str,
+) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "codex".into(),
         title: "Codex 额度".into(),
@@ -3466,13 +3490,14 @@ async fn fetch_codex_usage(
         .collect::<Vec<_>>();
     for (_, cached) in &skipped_accounts {
         section.windows.extend(cached.windows.clone());
+        section.credits.extend(cached.credits.clone());
     }
     // Fanout only accounts that are not currently exhausted. Accounts at 100%
     // remain served from their cached windows until one of those windows resets.
     let mut fetched: Vec<(String, Result<Value, String>)> =
         futures_util::future::join_all(live_accounts.iter().map(|(label, token)| async move {
             jitter_delay().await;
-            (label.clone(), codex_query_account(state, token).await)
+            (label.clone(), codex_query_account(state, token, base_url).await)
         }))
         .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
@@ -3486,6 +3511,9 @@ async fn fetch_codex_usage(
     for (label, result) in &fetched {
         match result {
             Ok(payload) => {
+                if let Some(credit) = codex_usage_credit(label, payload) {
+                    section.credits.push(credit);
+                }
                 for (key, fallback) in [
                     ("primary_window", "5h额度"),
                     ("secondary_window", "周额度"),
@@ -3533,15 +3561,20 @@ async fn fetch_codex_usage(
                     }
                 }
             }
-            Err(err) => section.errors.push(format!("{label}：查询失败：{err}")),
+            Err(err) => {
+                if let Some(cached) = cached_section {
+                    section.credits.extend(cached.credits.iter()
+                        .filter(|credit| credit.account.as_str() == label.as_str()).cloned());
+                }
+                section.errors.push(format!("{label}：查询失败：{err}"));
+            }
         }
     }
     section.description = reset_descriptions.join("；");
     section
 }
 
-async fn codex_query_account(state: &AppState, token: &str) -> Result<Value, String> {
-    let base_url = "https://chatgpt.com/backend-api/codex";
+async fn codex_query_account(state: &AppState, token: &str, base_url: &str) -> Result<Value, String> {
     let account_id = jwt_chatgpt_account_id(token);
     let mut headers = vec![
         ("Authorization".to_string(), format!("Bearer {token}")),

@@ -13,11 +13,14 @@ export type ProviderUsageWindow = {
   reset_at?: number | null;
 };
 
+export type ProviderUsageCredit = { account: string; balance: number };
+
 export type ProviderUsageSection = {
   provider: string;
   title: string;
   description: string;
   captured_at?: number;
+  credits?: ProviderUsageCredit[];
   rows: ProviderUsageRow[];
   windows: ProviderUsageWindow[];
   errors: string[];
@@ -80,8 +83,16 @@ export function providerVyceCalls(description: string | undefined): string {
   return description?.match(/(?:^|[；;])\s*(?:今日)?调用次数\s+(\d[\d,]*)(?=\s*(?:·|$))/)?.[1] || '';
 }
 
+export function providerCodexCreditSubtitle(credits: ProviderUsageCredit[] | undefined): string {
+  const positive = (credits || []).filter((credit) => Number.isFinite(credit.balance) && credit.balance > 0);
+  if (!positive.length) return '';
+  const formatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+  return positive.map(({ account, balance }) => `${account}：Credit ${balance < 0.01 ? String(balance) : formatter.format(balance)}`).join('；');
+}
+
 export function sectionHasContent(section: ProviderUsageSection): boolean {
-  return section.rows.length > 0 || section.windows.length > 0 || section.description.length > 0;
+  return section.rows.length > 0 || section.windows.length > 0 || section.description.length > 0
+    || Boolean(section.credits?.some((credit) => Number.isFinite(credit.balance) && credit.balance > 0));
 }
 
 type CodexResetEntry = { account: string; count: number; expiry: string };

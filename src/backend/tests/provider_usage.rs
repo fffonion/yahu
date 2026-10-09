@@ -573,6 +573,89 @@ mod provider_usage_tests {
 
 
     #[test]
+    fn codex_credit_uses_usage_balance_and_omits_zero_or_invalid_values() {
+        for balance in [serde_json::json!(61894.9120765), serde_json::json!("61894.9120765000")] {
+            let credit = codex_usage_credit("alpha", &serde_json::json!({"credits": {"balance": balance}})).unwrap();
+            assert_eq!(credit.account, "alpha");
+            assert_eq!(credit.balance, 61894.9120765);
+        }
+        for balance in [serde_json::json!(0), serde_json::json!("0.0000"), serde_json::json!(-1), serde_json::json!("NaN"), serde_json::json!("Infinity"), Value::Null] {
+            assert!(codex_usage_credit("alpha", &serde_json::json!({"credits": {"balance": balance}})).is_none());
+        }
+        assert!(codex_usage_credit("alpha", &serde_json::json!({"credits": {"has_credits": true}})).is_none());
+        assert!(codex_usage_credit("alpha", &serde_json::json!({"_reset_credits": {"available_count": 5}})).is_none());
+    }
+
+    #[tokio::test]
+    async fn codex_credit_is_queried_cached_per_account_and_cleared_when_zero() {
+        use axum::extract::State;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        async fn usage(State(calls): State<Arc<AtomicUsize>>, headers: axum::http::HeaderMap) -> (axum::http::StatusCode, Json<Value>) {
+            assert!(headers["authorization"] == "Bearer [REDACTED]", "mock authorization mismatch");
+            let n = calls.fetch_add(1, Ordering::SeqCst);
+            if n == 2 { return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"unavailable"}))); }
+            let balance = match n { 0 => "25.5", 1 => "0.0000", _ => "50.75" };
+            (axum::http::StatusCode::OK, Json(serde_json::json!({
+                "credits": {"balance":balance, "has_credits":balance != "0.0000"},
+                "rate_limit": {"primary_window": {"used_percent":100.0,"limit_window_seconds":18000,"reset_at":chrono::Utc::now().timestamp()+3600}}
+            })))
+        }
+        async fn resets(State(calls): State<Arc<AtomicUsize>>) -> (axum::http::StatusCode, Json<Value>) {
+            if calls.load(Ordering::SeqCst) == 4 { return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"unavailable"}))); }
+            (axum::http::StatusCode::OK, Json(serde_json::json!({"available_count":0,"credits":[]})))
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = axum::Router::new().route("/api/codex/usage",get(usage)).route("/api/codex/rate-limit-reset-credits",get(resets)).with_state(calls.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("auth.json"), r#"{"credential_pool":{"openai-codex":[{"label":"alpha","access_token":"[REDACTED]"}]}}"#).unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(),temp.path());
+        let url = format!("http://{address}/codex");
+        let first = fetch_codex_usage_from_url(&state,None,false,&url).await;
+        assert!(first.errors.is_empty());
+        assert_eq!(first.credits.len(),1);
+        assert_eq!(first.credits[0].account,"alpha");
+        assert_eq!(first.credits[0].balance,25.5);
+        let skipped = fetch_codex_usage_from_url(&state,Some(&first),false,&url).await;
+        assert_eq!(skipped.credits[0].balance,25.5);
+        assert_eq!(calls.load(Ordering::SeqCst),1);
+        let zero = fetch_codex_usage_from_url(&state,Some(&first),true,&url).await;
+        assert!(zero.errors.is_empty());
+        assert!(zero.credits.is_empty());
+        assert!(serde_json::to_value(&zero).unwrap().get("credits").is_none());
+        let failed = fetch_codex_usage_from_url(&state,Some(&first),true,&url).await;
+        assert!(!failed.errors.is_empty());
+        assert_eq!(failed.credits[0].balance,25.5);
+        let reset_failed = fetch_codex_usage_from_url(&state,Some(&first),true,&url).await;
+        assert!(reset_failed.errors.is_empty());
+        assert_eq!(reset_failed.credits[0].balance,50.75);
+        assert!(reset_failed.description.contains("alpha：Reset：0个"));
+        server.abort();
+    }
+
+    #[test]
+    fn codex_credit_cache_is_account_scoped_and_old_sections_still_deserialize() {
+        let now = chrono::Utc::now().timestamp();
+        let cached = ProviderUsageSection {
+            provider: "codex".into(),
+            credits: vec![ProviderUsageCredit{account:"alpha".into(),balance:10.0},ProviderUsageCredit{account:"beta".into(),balance:20.0}],
+            windows: ["alpha","beta"].into_iter().map(|label| ProviderUsageWindow{window:format!("{label} 5h额度"),used:Some("100%".into()),reset:None,reset_at:Some(now+3600)}).collect(),
+            ..Default::default()
+        };
+        for (account,balance) in [("alpha",10.0),("beta",20.0)] {
+            let section = provider_cached_account_section(&cached,account,true,now).unwrap();
+            assert_eq!(section.credits.len(),1);
+            assert_eq!(section.credits[0].account,account);
+            assert_eq!(section.credits[0].balance,balance);
+        }
+        let old: ProviderUsageSection = serde_json::from_value(serde_json::json!({"provider":"codex","title":"Codex","description":"","rows":[],"windows":[],"errors":[]})).unwrap();
+        assert!(old.credits.is_empty());
+        assert!(serde_json::to_value(&old).unwrap().get("credits").is_none());
+    }
+
+    #[test]
     fn codex_reset_failure_reuses_cached_description_for_each_account() {
         let cached = ProviderUsageSection {
             provider: "codex".into(),
@@ -936,6 +1019,7 @@ mod provider_usage_tests {
                 title: "OpenRouter API 用量".into(),
                 description: "余额 **$9.00**".into(),
                 captured_at: 1_700_000_000.0,
+                credits: Vec::new(),
                 rows: vec![ProviderUsageRow {
                     label: "gpt-test".into(),
                     hit_rate: None,

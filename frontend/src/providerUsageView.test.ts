@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
+import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerVyceCalls, providerCodexCreditSubtitle, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const providerUsage = () => readFileSync(new URL('./providerUsage.ts', import.meta.url), 'utf8');
@@ -94,6 +94,30 @@ describe('provider usage view', () => {
       { window: 'refreshing 周额度', used: '80%', reset_at: now + 3600 },
     ], now)).toBe(false);
   });
+  test('Codex Credit subtitle keeps nonzero balances per account and hides zero', () => {
+    expect(providerCodexCreditSubtitle([
+      { account: 'zero', balance: 0 },
+      { account: 'alpha', balance: 61894.9120765 },
+      { account: 'negative', balance: -1 },
+      { account: 'invalid', balance: Number.NaN },
+      { account: 'infinite', balance: Number.POSITIVE_INFINITY },
+      { account: 'beta', balance: 12.5 },
+    ])).toBe('alpha：Credit 61,894.91；beta：Credit 12.5');
+    expect(providerCodexCreditSubtitle([{ account: 'tiny', balance: 0.004 }])).toBe('tiny：Credit 0.004');
+    expect(providerCodexCreditSubtitle([{ account: 'zero', balance: 0 }])).toBe('');
+    expect(providerCodexCreditSubtitle(undefined)).toBe('');
+    expect(sectionHasContent(section({ credits: [{ account: 'alpha', balance: 1 }] }))).toBe(true);
+    expect(sectionHasContent(section({ credits: [{ account: 'zero', balance: 0 }] }))).toBe(false);
+  });
+
+  test('Codex Credit is in desktop and mobile subtitles without replacing reset details', () => {
+    const source = app();
+    expect(source).toContain("const codexCreditSubtitle = enabled && provider.provider === 'codex' ? providerCodexCreditSubtitle(section?.credits) : '';");
+    expect(source).toContain("[codexCreditSubtitle, providerCodexMobileResetSubtitle(section?.description)].filter(Boolean).join(' · ')");
+    expect(source).toContain("...(codexCreditSubtitle ? [codexCreditSubtitle] : []),");
+    expect(css()).toContain('.provider-usage-provider-card[data-provider-id="codex"] .provider-usage-subline>span{white-space:normal;overflow-wrap:anywhere}');
+  });
+
   test('Codex reset subtitle keeps positive accounts and omits zero-reset accounts', () => {
     expect(providerCodexResetSubtitle('mayo：Reset：1个；到期：28天后；me：Reset：0个'))
       .toBe('mayo：1个重置 28天后到期');

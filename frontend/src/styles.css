@@ -536,6 +536,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
   .settings-mobile-nav-option{padding:8px}
 }
 
+.provider-usage-provider-card[data-provider-id="codex"] .provider-usage-subline>span{white-space:normal;overflow-wrap:anywhere}
 .provider-usage-subline>span.provider-usage-subline-mobile{display:none}
 
 .workspace-main{grid-column:2 / -1}
