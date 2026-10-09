@@ -84,10 +84,10 @@ export function providerVyceCalls(description: string | undefined): string {
 }
 
 function codexCreditEntries(credits: ProviderUsageCredit[] | undefined): [string, string][] {
-  const positive = (credits || []).filter((credit) => Number.isFinite(credit.balance) && credit.balance > 0);
+  const positive = (credits || []).filter((credit) => Number.isFinite(credit.balance) && Math.trunc(credit.balance) > 0);
   if (!positive.length) return [];
-  const formatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
-  return positive.map(({ account, balance }) => [account, `Credit ${balance < 0.01 ? String(balance) : formatter.format(balance)}`]);
+  const formatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0, useGrouping: false });
+  return positive.map(({ account, balance }) => [account, `Credit ${formatter.format(Math.trunc(balance))}`]);
 }
 
 export function providerCodexCreditSubtitle(credits: ProviderUsageCredit[] | undefined): string {

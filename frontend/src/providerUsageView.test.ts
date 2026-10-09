@@ -102,8 +102,8 @@ describe('provider usage view', () => {
       { account: 'invalid', balance: Number.NaN },
       { account: 'infinite', balance: Number.POSITIVE_INFINITY },
       { account: 'beta', balance: 12.5 },
-    ])).toBe('alpha：Credit 61,894.91；beta：Credit 12.5');
-    expect(providerCodexCreditSubtitle([{ account: 'tiny', balance: 0.004 }])).toBe('tiny：Credit 0.004');
+    ])).toBe('alpha：Credit 61894；beta：Credit 12');
+    expect(providerCodexCreditSubtitle([{ account: 'tiny', balance: 0.004 }])).toBe('');
     expect(providerCodexCreditSubtitle([{ account: 'zero', balance: 0 }])).toBe('');
     expect(providerCodexCreditSubtitle(undefined)).toBe('');
     expect(sectionHasContent(section({ credits: [{ account: 'alpha', balance: 1 }] }))).toBe(true);
@@ -111,10 +111,10 @@ describe('provider usage view', () => {
   });
 
   test('Codex groups Credit and reset under one account label', () => {
-    const credits = [{ account: 'alpha', balance: 12.5 }, { account: 'beta', balance: 0 }, { account: 'credit-only', balance: 0.004 }];
+    const credits = [{ account: 'alpha', balance: 12.5 }, { account: 'beta', balance: 0 }, { account: 'credit-only', balance: 1.9 }];
     const description = 'alpha：Reset：2个；到期：2小时后、5天后；beta：Reset：1个；到期：29天后；empty：Reset：0个';
-    expect(providerCodexResetSubtitle(description, credits)).toBe('alpha：Credit 12.5 · 2个重置 2小时后、5天后到期；credit-only：Credit 0.004；beta：1个重置 29天后到期');
-    expect(providerCodexMobileResetSubtitle(description, credits)).toBe('alpha：Credit 12.5 · 2小时, 5天; credit-only：Credit 0.004; beta: 29天');
+    expect(providerCodexResetSubtitle(description, credits)).toBe('alpha：Credit 12 · 2个重置 2小时后、5天后到期；credit-only：Credit 1；beta：1个重置 29天后到期');
+    expect(providerCodexMobileResetSubtitle(description, credits)).toBe('alpha：Credit 12 · 2小时, 5天; credit-only：Credit 1; beta: 29天');
     expect(providerCodexResetSubtitle(undefined, [{ account: 'zero', balance: 0 }])).toBe('');
     expect(providerCodexMobileResetSubtitle('alpha：Reset：1个', [{ account: 'alpha', balance: 1 }])).toBe('alpha：Credit 1');
   });
