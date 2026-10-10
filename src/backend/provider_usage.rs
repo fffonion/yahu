@@ -382,7 +382,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         ),
         (
             "hcnsec",
-            "hcnsec",
+            "hcnsec 用量",
             hcnsec_configured,
             hcnsec_query_ready,
             "HCNSEC_ACCESS_TOKEN + HCNSEC_USER_ID",
@@ -4423,7 +4423,7 @@ fn newapi_usage_section(
 async fn fetch_newapi_usage(state: &AppState, provider: &str) -> ProviderUsageSection {
     let (title, user_keys, cookie_keys, token_keys, base_keys, default_base) = match provider {
         "hcnsec" => (
-            "hcnsec", &["HCNSEC_USER_ID"][..], &["HCNSEC_SESSION_COOKIE"][..],
+            "hcnsec 用量", &["HCNSEC_USER_ID"][..], &["HCNSEC_SESSION_COOKIE"][..],
             &["HCNSEC_ACCESS_TOKEN"][..], &["HCNSEC_BASE_URL"][..],
             "https://api.hcnsec.cn",
         ),

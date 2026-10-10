@@ -1158,6 +1158,16 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn newapi_variants_share_the_usage_card_title_convention() {
+        let temp = tempfile::tempdir().unwrap();
+        let catalog = provider_usage_catalog(temp.path());
+        for provider in ["agentrouter", "justwoker", "hcnsec"] {
+            let meta = catalog.iter().find(|meta| meta.provider == provider).unwrap();
+            assert!(meta.title.ends_with(" 用量"), "New API usage card title must use the shared suffix");
+        }
+    }
+
+    #[test]
     fn hcnsec_catalog_requires_account_credentials_and_embeds_newapi_logo() {
         let temp = tempfile::tempdir().unwrap();
         let meta = || provider_usage_catalog(temp.path()).into_iter()
@@ -1168,7 +1178,7 @@ mod provider_usage_tests {
         assert!(!meta().query_ready);
         std::fs::write(temp.path().join(".env"), "HCNSEC_ACCESS_TOKEN=[REDACTED]\nHCNSEC_USER_ID=123\n").unwrap();
         assert!(meta().query_ready);
-        assert_eq!(meta().title, "hcnsec");
+        assert_eq!(meta().title, "hcnsec 用量");
         assert_eq!(meta().credential_hint, "HCNSEC_ACCESS_TOKEN + HCNSEC_USER_ID");
         assert!(NEWAPI_VARIANT_PROVIDERS.contains(&"hcnsec"));
         assert_eq!(provider_icon_url("hcnsec"), None);
@@ -1210,7 +1220,7 @@ mod provider_usage_tests {
             let section = fetch_provider_usage_section(&state,"hcnsec",None,force).await;
             assert!(section.errors.is_empty(), "hcnsec mock query failed");
             assert_eq!(section.provider,"hcnsec");
-            assert_eq!(section.title,"hcnsec");
+            assert_eq!(section.title,"hcnsec 用量");
             assert_eq!(section.description,"余额 **$2.00**；累计已用 **$0.50**");
             assert_eq!(section.rows[0].input.as_deref(),Some("300"));
             assert_eq!(section.rows[0].output.as_deref(),Some("5"));
