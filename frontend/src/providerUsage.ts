@@ -79,6 +79,15 @@ export function orderProviderUsageAccountGroups(groups: ProviderUsageAccountGrou
     .map(({ account, windows }) => [account, windows]);
 }
 
+export function orderNewApiUsageRows(provider: string, rows: ProviderUsageRow[]): ProviderUsageRow[] {
+  if (!['agentrouter', 'justwoker', 'hcnsec'].includes(provider)) return rows;
+  const tokenUsage = (row: ProviderUsageRow) => {
+    const value = Number((row.input || '').replace(/,/g, ''));
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+  return [...rows].sort((left, right) => tokenUsage(right) - tokenUsage(left));
+}
+
 export function providerVyceCalls(description: string | undefined): string {
   return description?.match(/(?:^|[；;])\s*(?:今日)?调用次数\s+(\d[\d,]*)(?=\s*(?:·|$))/)?.[1] || '';
 }

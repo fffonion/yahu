@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
@@ -3208,7 +3208,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     </article>;
   };
   const minimaxRows = section.rows.filter((row) => ['日用量', '周额度', '月额度'].includes(row.label));
-  const tableRows = section.provider === 'minimax' ? minimaxRows : section.rows;
+  const tableRows = section.provider === 'minimax' ? minimaxRows : orderNewApiUsageRows(section.provider, section.rows);
   return <div className="provider-usage-data">
     {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
     {section.windows.length > 0 && !['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && section.provider !== 'vyceai' && (accountGroups.length > 0

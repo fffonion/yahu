@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import * as providerUsageModule from './providerUsage';
 import { orderProviderUsageAccountGroups, providerUsageAccountHasActiveQuotaWall, providerVyceCalls, providerCodexCreditSubtitle, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, sectionHasContent, type ProviderUsageAccountGroup, type ProviderUsageSection } from './providerUsage';
 
 const app = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
@@ -269,6 +270,37 @@ describe('provider usage view', () => {
     expect(backendRoutes()).toContain('.route("/provider-icons/{provider}", get(provider_icon))');
     expect(source).toContain("section.windows.length > 0 && !['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
     expect(source).not.toContain("provider-usage-agentrouter-desc");
+  });
+
+  test('New API model rows sort by token usage descending for all variants', () => {
+    expect(typeof providerUsageModule.orderNewApiUsageRows).toBe('function');
+    const rows = [
+      { label: 'a-expensive', input: '5', output: '999', cost_or_pct: '$100.00' },
+      { label: 'z-high-usage', input: '2,000', output: '1', cost_or_pct: '$0.01' },
+      { label: 'b-middle', input: '999', output: '200', cost_or_pct: '$1.00' },
+      { label: 'c-equal', input: '999', output: '2', cost_or_pct: '$2.00' },
+      { label: 'zero', input: '0' },
+      { label: 'missing', input: null },
+      { label: 'invalid', input: 'NaN' },
+      { label: 'infinite', input: 'Infinity' },
+    ];
+    const originalOrder = rows.map(row => row.label);
+    Object.freeze(rows);
+    for (const provider of ['agentrouter', 'justwoker', 'hcnsec']) {
+      expect(providerUsageModule.orderNewApiUsageRows(provider, rows).map(row => row.label)).toEqual([
+        'z-high-usage', 'b-middle', 'c-equal', 'a-expensive', 'zero', 'missing', 'invalid', 'infinite',
+      ]);
+      expect(rows.map(row => row.label)).toEqual(originalOrder);
+      expect(providerUsageModule.orderNewApiUsageRows(provider, [])).toEqual([]);
+    }
+  });
+
+  test('New API row sorting leaves other providers unchanged and is used for cached rows', () => {
+    const rows = [{ label: 'first', input: '1' }, { label: 'second', input: '100' }];
+    for (const provider of ['vyceai', 'codex', 'openrouter', 'deepseek', 'minimax']) {
+      expect(providerUsageModule.orderNewApiUsageRows(provider, rows)).toBe(rows);
+    }
+    expect(app()).toContain('orderNewApiUsageRows(section.provider, section.rows)');
   });
 
   test('hcnsec shares the compact New API usage monitor layout', () => {
