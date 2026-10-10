@@ -344,6 +344,11 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         || !agentrouter_token.is_empty();
     let agentrouter_query_ready = !agentrouter_user_id.is_empty()
         && (!agentrouter_cookie.is_empty() || !agentrouter_token.is_empty());
+    let hcnsec_user_id = provider_env_value(hermes_home, "HCNSEC_USER_ID");
+    let hcnsec_cookie = provider_env_value(hermes_home, "HCNSEC_SESSION_COOKIE");
+    let hcnsec_token = provider_env_value(hermes_home, "HCNSEC_ACCESS_TOKEN");
+    let hcnsec_configured = !hcnsec_user_id.is_empty() || !hcnsec_cookie.is_empty() || !hcnsec_token.is_empty();
+    let hcnsec_query_ready = !hcnsec_user_id.is_empty() && (!hcnsec_cookie.is_empty() || !hcnsec_token.is_empty());
     let justwoker_user_id = provider_env_value(hermes_home, "JUSTWOKER_USER_ID");
     let justwoker_cookie = provider_env_value(hermes_home, "JUSTWOKER_SESSION_COOKIE");
     let justwoker_token = provider_env_value(hermes_home, "JUSTWOKER_ACCESS_TOKEN");
@@ -374,6 +379,14 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             justwoker_query_ready,
             "JUSTWOKER_ACCESS_TOKEN + JUSTWOKER_USER_ID",
             "配置账户 access token 与用户 ID；也支持 JUSTWOKER_SESSION_COOKIE + JUSTWOKER_USER_ID。推理 API key 无法查询账户用量；凭据写入 ~/.hermes/.env。",
+        ),
+        (
+            "hcnsec",
+            "hcnsec",
+            hcnsec_configured,
+            hcnsec_query_ready,
+            "HCNSEC_ACCESS_TOKEN + HCNSEC_USER_ID",
+            "配置账户 access token 与用户 ID；也支持 HCNSEC_SESSION_COOKIE + HCNSEC_USER_ID。",
         ),
         (
             "vyceai",
@@ -4409,6 +4422,11 @@ fn newapi_usage_section(
 
 async fn fetch_newapi_usage(state: &AppState, provider: &str) -> ProviderUsageSection {
     let (title, user_keys, cookie_keys, token_keys, base_keys, default_base) = match provider {
+        "hcnsec" => (
+            "hcnsec", &["HCNSEC_USER_ID"][..], &["HCNSEC_SESSION_COOKIE"][..],
+            &["HCNSEC_ACCESS_TOKEN"][..], &["HCNSEC_BASE_URL"][..],
+            "https://api.hcnsec.cn",
+        ),
         "justwoker" => (
             "JustWoker 用量", &["JUSTWOKER_USER_ID"][..], &["JUSTWOKER_SESSION_COOKIE"][..],
             &["JUSTWOKER_ACCESS_TOKEN"][..], &["JUSTWOKER_BASE_URL"][..],
@@ -4770,7 +4788,7 @@ async fn fetch_provider_usage_section(
         }
     }
     let mut section = match provider {
-        "agentrouter" | "justwoker" => fetch_newapi_usage(state, provider).await,
+        "agentrouter" | "justwoker" | "hcnsec" => fetch_newapi_usage(state, provider).await,
         "vyceai" => fetch_vyceai_usage_from_url(state, "https://vyceai.com/user/dashboard").await,
         "openrouter" => fetch_openrouter_usage(state).await,
         "deepseek" => fetch_deepseek_usage(state).await,
@@ -4979,7 +4997,7 @@ fn merge_provider_usage_payload(
 
 /// Providers that run the New API gateway software (github.com/Calcium-Ion/new-api)
 /// share its project logo. The bytes are embedded so no provider site is contacted.
-const NEWAPI_VARIANT_PROVIDERS: &[&str] = &["agentrouter", "justwoker"];
+const NEWAPI_VARIANT_PROVIDERS: &[&str] = &["agentrouter", "justwoker", "hcnsec"];
 const NEWAPI_LOGO_BYTES: &[u8] = include_bytes!("assets/newapi-logo.png");
 const PROVIDER_ICON_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_PROVIDER_ICON_BODY: usize = 4 * 1024 * 1024;

@@ -26,7 +26,7 @@ describe('provider usage view', () => {
     expect(source).toContain("...(tableOnly && provider.provider !== 'vyceai' ? [providerTodayLabel(section)] : []),");
     expect(source).toContain("...(provider.provider === 'vyceai' && providerTodayWindow(section) ? [providerTodayCost(section)] : []),");
     expect(source).toContain("...(calls ? [`${t('usage.calls')} ${calls}`] : []),");
-    expect(source).toContain("const tableOnly = ['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud', 'vyceai'].includes(section.provider);");
+    expect(source).toContain("const tableOnly = ['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud', 'vyceai'].includes(section.provider);");
   });
 
   test('Vyce AI shows the daily-delta subtitle and keeps raw totals out of quota tiles', () => {
@@ -267,14 +267,20 @@ describe('provider usage view', () => {
     expect(source).toContain("provider.provider === 'stepfun'");
     expect(backendRoutes()).toContain('.route("/provider-icons/agentrouter.png", get(agentrouter_logo))');
     expect(backendRoutes()).toContain('.route("/provider-icons/{provider}", get(provider_icon))');
-    expect(source).toContain("section.windows.length > 0 && !['agentrouter', 'justwoker', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
+    expect(source).toContain("section.windows.length > 0 && !['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
     expect(source).not.toContain("provider-usage-agentrouter-desc");
+  });
+
+  test('hcnsec shares the compact New API usage monitor layout', () => {
+    const source = app();
+    expect(source).toContain("provider.provider === 'hcnsec'");
+    expect(source).toContain("'agentrouter', 'justwoker', 'hcnsec', 'openrouter'");
   });
 
   test('JustWoker shares the New API compact usage layout', () => {
     const source = app();
     expect(source).toContain("provider.provider === 'justwoker'");
-    expect(source).toContain("'agentrouter', 'justwoker', 'openrouter'");
+    expect(source).toContain("'agentrouter', 'justwoker', 'hcnsec', 'openrouter'");
   });
 
   test('mobile provider long press owns pointer movement and auto-scrolls at screen edges', () => {

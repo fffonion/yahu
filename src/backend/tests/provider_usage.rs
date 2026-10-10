@@ -1158,6 +1158,72 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn hcnsec_catalog_requires_account_credentials_and_embeds_newapi_logo() {
+        let temp = tempfile::tempdir().unwrap();
+        let meta = || provider_usage_catalog(temp.path()).into_iter()
+            .find(|item| item.provider == "hcnsec").expect("hcnsec usage card");
+        assert!(!meta().configured);
+        std::fs::write(temp.path().join(".env"), "HCNSEC_ACCESS_TOKEN=[REDACTED]\n").unwrap();
+        assert!(meta().configured);
+        assert!(!meta().query_ready);
+        std::fs::write(temp.path().join(".env"), "HCNSEC_ACCESS_TOKEN=[REDACTED]\nHCNSEC_USER_ID=123\n").unwrap();
+        assert!(meta().query_ready);
+        assert_eq!(meta().title, "hcnsec");
+        assert_eq!(meta().credential_hint, "HCNSEC_ACCESS_TOKEN + HCNSEC_USER_ID");
+        assert!(NEWAPI_VARIANT_PROVIDERS.contains(&"hcnsec"));
+        assert_eq!(provider_icon_url("hcnsec"), None);
+        std::fs::write(temp.path().join(".env"), "HCNSEC_SESSION_COOKIE=session=[REDACTED]\nHCNSEC_USER_ID=123\n").unwrap();
+        assert!(meta().query_ready);
+    }
+
+    #[tokio::test]
+    async fn hcnsec_dispatch_uses_own_credentials_host_and_quota_cache() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        async fn status(State(calls): State<Arc<AtomicUsize>>) -> Json<Value> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Json(serde_json::json!({"success":true,"data":{"quota_per_unit":500_000}}))
+        }
+        fn check_auth(headers: &axum::http::HeaderMap) {
+            assert!(headers.get("authorization").is_some_and(|value| value == "Bearer [REDACTED]"), "mock authorization mismatch");
+            assert!(headers.get("new-api-user").is_some_and(|value| value == "123"), "mock user mismatch");
+        }
+        async fn user(headers: axum::http::HeaderMap) -> Json<Value> {
+            check_auth(&headers);
+            Json(serde_json::json!({"success":true,"data":{"quota":1_000_000,"used_quota":250_000,"request_count":5}}))
+        }
+        async fn usage(headers: axum::http::HeaderMap, Query(query): Query<HashMap<String,String>>) -> Json<Value> {
+            check_auth(&headers);
+            assert_eq!(query["default_time"], "day");
+            assert!(query["start_timestamp"].parse::<i64>().unwrap() < query["end_timestamp"].parse::<i64>().unwrap());
+            Json(serde_json::json!({"success":true,"data":[{"model_name":"test-model","count":5,"quota":500_000,"token_used":300,"created_at":chrono::Utc::now().timestamp()}]}))
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = axum::Router::new().route("/api/status",get(status)).route("/api/user/self",get(user)).route("/api/data/self",get(usage)).with_state(calls.clone());
+        let server = tokio::spawn(async move { axum::serve(listener,app).await.unwrap(); });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(".env"),format!("HCNSEC_ACCESS_TOKEN=[REDACTED]\nHCNSEC_USER_ID=123\nHCNSEC_BASE_URL=http://{addr}\n")).unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(),temp.path());
+        save_newapi_quota_per_unit(&state,"justwoker",1_000_000.0,unix_now_seconds());
+        for force in [false,true] {
+            let section = fetch_provider_usage_section(&state,"hcnsec",None,force).await;
+            assert!(section.errors.is_empty(), "hcnsec mock query failed");
+            assert_eq!(section.provider,"hcnsec");
+            assert_eq!(section.title,"hcnsec");
+            assert_eq!(section.description,"余额 **$2.00**；累计已用 **$0.50**");
+            assert_eq!(section.rows[0].input.as_deref(),Some("300"));
+            assert_eq!(section.rows[0].output.as_deref(),Some("5"));
+            assert_eq!(section.rows[0].cost_or_pct.as_deref(),Some("$1.00"));
+            assert_eq!(section.windows[0].used.as_deref(),Some("$1.00"));
+            assert!(section.captured_at > 0.0);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst),1);
+        assert_eq!(cached_newapi_quota_per_unit(&state,"justwoker",unix_now_seconds()),Some(1_000_000.0));
+        server.abort();
+    }
+
+    #[test]
     fn justwoker_catalog_needs_account_credentials_even_with_inference_key() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join(".env"),
