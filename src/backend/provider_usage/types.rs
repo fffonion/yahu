@@ -63,4 +63,5 @@ struct ProviderUsageCache {
     vyceai_refresh: Arc<Mutex<()>>,
     zed_daily_refresh: Arc<Mutex<()>>,
     sensenova_daily_refresh: Arc<Mutex<()>>,
+    sensenova_auth: Arc<Mutex<Option<SenseNovaAuthState>>>,
 }

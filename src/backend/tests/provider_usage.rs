@@ -93,6 +93,156 @@ mod provider_usage_tests {
     }
 
     #[tokio::test]
+    async fn sensenova_401_refreshes_and_persists_only_its_credentials() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let usage_calls = calls.clone();
+        let app = axum::Router::new()
+            .route("/pool-usage", axum::routing::get(move || {
+                let calls = usage_calls.clone();
+                async move {
+                    if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                        (axum::http::StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({"message":"[REDACTED]"})))
+                    } else {
+                        (axum::http::StatusCode::OK, axum::Json(serde_json::from_str::<Value>(include_str!("fixtures/sensenova-pool-usage.json")).unwrap()))
+                    }
+                }
+            }))
+            .route("/oauth2/token", axum::routing::post(|axum::Form(form): axum::Form<HashMap<String,String>>| async move {
+                assert!(form.get("refresh_token").is_some_and(|v| v == "[REDACTED]"), "refresh credential mismatch");
+                assert_eq!(form.get("grant_type").map(String::as_str), Some("refresh_token"));
+                assert_eq!(form.get("client_id").map(String::as_str), Some("nova"));
+                axum::Json(serde_json::json!({"access_token":"[REDACTED]", "refresh_token":"[REDACTED]", "expires_in":10800, "token_type":"Bearer"}))
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(".env");
+        std::fs::write(&path, "# retained\nUNRELATED='unchanged'\nSENSENOVA_ACCESS_TOKEN='[REDACTED]'\nSENSENOVA_REFRESH_TOKEN='[REDACTED]'\n").unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let section = fetch_sensenova_usage_from_url(&state, &format!("http://{addr}/pool-usage")).await;
+        assert!(section.errors.is_empty(), "authenticated usage must recover after refresh");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(section.pools.len(), 2);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.starts_with("# retained\nUNRELATED='unchanged'\n"));
+        assert!(saved.contains("SENSENOVA_ACCESS_TOKEN=[REDACTED]\n"), "updated access must be persisted");
+        assert!(saved.contains("SENSENOVA_REFRESH_TOKEN=[REDACTED]\n"), "refresh rotation must be persisted");
+        assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+    }
+
+    #[tokio::test]
+    async fn sensenova_expiring_access_refreshes_once_before_concurrent_usage() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let refresh_calls = Arc::new(AtomicUsize::new(0));
+        let usage_calls = Arc::new(AtomicUsize::new(0));
+        let ready = refresh_calls.clone();
+        let usages = usage_calls.clone();
+        let refreshes = refresh_calls.clone();
+        let app = axum::Router::new()
+            .route("/pool-usage", axum::routing::get(move || {
+                let ready = ready.clone(); let usages = usages.clone();
+                async move {
+                    usages.fetch_add(1, Ordering::SeqCst);
+                    if ready.load(Ordering::SeqCst) == 0 {
+                        (axum::http::StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({})))
+                    } else {
+                        (axum::http::StatusCode::OK, axum::Json(serde_json::from_str::<Value>(include_str!("fixtures/sensenova-pool-usage.json")).unwrap()))
+                    }
+                }
+            }))
+            .route("/oauth2/token", axum::routing::post(move || {
+                let refreshes = refreshes.clone();
+                async move {
+                    refreshes.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(serde_json::json!({"access_token":"[REDACTED]", "expires_in":10800}))
+                }
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(serde_json::json!({"exp":chrono::Utc::now().timestamp()+60}).to_string());
+        std::fs::write(temp.path().join(".env"), format!("SENSENOVA_ACCESS_TOKEN=[REDACTED].{claims}.[REDACTED]\nSENSENOVA_REFRESH_TOKEN=[REDACTED]\n")).unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let url = format!("http://{addr}/pool-usage");
+        let (first, second) = tokio::join!(fetch_sensenova_usage_from_url(&state, &url), fetch_sensenova_usage_from_url(&state, &url));
+        assert!(first.errors.is_empty() && second.errors.is_empty());
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(usage_calls.load(Ordering::SeqCst), 2, "near-expiry token must be renewed before the first usage request");
+        let restarted = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        assert!(fetch_sensenova_usage_from_url(&restarted, &url).await.errors.is_empty());
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(usage_calls.load(Ordering::SeqCst), 3);
+        assert!(std::fs::read_to_string(temp.path().join(".env")).unwrap().contains("SENSENOVA_REFRESH_TOKEN=[REDACTED]\n"));
+    }
+
+    #[tokio::test]
+    async fn sensenova_refresh_failures_preserve_credentials_and_hide_bodies() {
+        use axum::response::IntoResponse as _;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        for scenario in 0..6 {
+            let followed = Arc::new(AtomicBool::new(false));
+            let redirect_hit = followed.clone();
+            let app = axum::Router::new()
+                .route("/pool-usage", axum::routing::get(|| async { (axum::http::StatusCode::UNAUTHORIZED, "[REDACTED]") }))
+                .route("/oauth2/token", axum::routing::post(move || async move {
+                    match scenario {
+                        0 => (axum::http::StatusCode::BAD_REQUEST, "[REDACTED]").into_response(),
+                        1 => "invalid json [REDACTED]".into_response(),
+                        2 => axum::Json(serde_json::json!({})).into_response(),
+                        3 => axum::Json(serde_json::json!({"access_token":"[REDACTED]", "refresh_token":"\n"})).into_response(),
+                        4 => (axum::http::StatusCode::TEMPORARY_REDIRECT, [("location", "/not-allowed")], "[REDACTED]").into_response(),
+                        _ => axum::Json(serde_json::json!({"access_token":"\n", "refresh_token":"[REDACTED]"})).into_response(),
+                    }
+                }))
+                .route("/not-allowed", axum::routing::post(move || {
+                    let redirect_hit = redirect_hit.clone();
+                    async move { redirect_hit.store(true, Ordering::SeqCst); axum::http::StatusCode::INTERNAL_SERVER_ERROR }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let temp = tempfile::tempdir().unwrap();
+            let original = "OTHER=unchanged\nSENSENOVA_ACCESS_TOKEN=[REDACTED]\nSENSENOVA_REFRESH_TOKEN=[REDACTED]\n";
+            std::fs::write(temp.path().join(".env"), original).unwrap();
+            let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+            let section = fetch_sensenova_usage_from_url(&state, &format!("http://{addr}/pool-usage")).await;
+            assert!(!section.errors.is_empty(), "failed renewal must remain visible");
+            assert!(!followed.load(Ordering::SeqCst), "refresh must not follow redirects");
+            assert!(section.pools.is_empty() && section.windows.is_empty());
+            assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
+            assert!(std::fs::read_to_string(temp.path().join(".env")).unwrap() == original, "failed renewal must not replace saved credentials");
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "opt-in real SenseNova renewal; rotates only its ~/.hermes/.env credentials"]
+    async fn sensenova_live_refresh_smoke() {
+        let home = PathBuf::from(env::var("SENSENOVA_LIVE_HOME").expect("explicit live home required"));
+        let state = test_app_state("http://127.0.0.1:1".into(), &home);
+        let prior = sensenova_current_auth(&state).await;
+        assert!(!prior.access.is_empty() && !prior.refresh.is_empty(), "live credentials required");
+        let refreshed = sensenova_refresh_auth(&state, SENSENOVA_POOL_USAGE_URL, &prior).await;
+        assert!(refreshed.is_ok(), "real SenseNova renewal failed");
+        let refreshed = refreshed.unwrap();
+        assert!(provider_env_value(&home, "SENSENOVA_ACCESS_TOKEN") == refreshed.access, "private access readback mismatch");
+        assert!(provider_env_value(&home, "SENSENOVA_REFRESH_TOKEN") == refreshed.refresh, "private refresh readback mismatch");
+        let section = fetch_sensenova_usage(&state).await;
+        assert!(section.errors.is_empty(), "renewed real usage failed");
+        assert!(!section.pools.is_empty());
+        let restarted = test_app_state("http://127.0.0.1:1".into(), &home);
+        assert!(fetch_sensenova_usage(&restarted).await.errors.is_empty(), "renewed credentials must survive restart");
+        println!("Real SenseNova refresh, private credential readback and two usage queries passed");
+    }
+
+    #[tokio::test]
     async fn sensenova_query_failures_never_echo_response_bodies() {
         let app = axum::Router::new()
             .route("/unauthorized", axum::routing::get(|| async { (axum::http::StatusCode::UNAUTHORIZED, "[REDACTED]") }))
