@@ -13,7 +13,7 @@ async fn fetch_provider_usage_section(
     cached_section: Option<&ProviderUsageSection>,
     force: bool,
 ) -> ProviderUsageSection {
-    let account_scoped = matches!(provider, "commandcode" | "codex" | "grok" | "zed-pro");
+    let account_scoped = matches!(provider, "commandcode" | "codex" | "grok" | "zed-pro" | "sensenova");
     if !force && !account_scoped {
         let now = chrono::Utc::now().timestamp();
         if let Some(mut cached) = cached_section.and_then(|section| provider_cached_section(section, now)) {
@@ -31,6 +31,7 @@ async fn fetch_provider_usage_section(
         "stepfun" => fetch_stepfun_usage(state).await,
         "kimi" => fetch_kimi_usage(state).await,
         "mimo" => fetch_mimo_usage(state).await,
+        "sensenova" => fetch_sensenova_usage(state).await,
         "opencode" => fetch_opencode_usage(state).await,
         "commandcode" => fetch_commandcode_usage(state, cached_section).await,
         "codex" => fetch_codex_usage(state, cached_section, force).await,
@@ -82,6 +83,12 @@ async fn provider_usage_handler(
                 } else {
                     sections.push(section);
                 }
+            }
+        }
+        for provider in ["zed-pro", "sensenova"] {
+            if let Some(section) = provider_daily_snapshot_section(&state, provider, chrono::Utc::now().timestamp()) {
+                sections.retain(|s| s.provider != provider);
+                sections.push(section);
             }
         }
         return (

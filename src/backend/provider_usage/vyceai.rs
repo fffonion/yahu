@@ -257,7 +257,7 @@ async fn run_vyceai_snapshot_collector(state: Arc<AppState>) {
 
 fn vyceai_cached_section_is_current(section: &ProviderUsageSection, now: i64) -> bool {
     if section.provider != "vyceai" {
-        return true;
+        return provider_daily_cached_section_is_current(section, now);
     }
     let captured_at = section.captured_at as i64;
     captured_at > 0

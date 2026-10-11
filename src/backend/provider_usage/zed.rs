@@ -97,9 +97,7 @@ fn zed_subscription_reset(payload: &Value) -> (Option<String>, Option<i64>) {
     (reset, reset_at)
 }
 
-fn zed_account_snapshot(
-    payload: &Value,
-) -> Result<(String, Vec<ProviderUsageWindow>), String> {
+fn zed_account_snapshot(payload: &Value) -> Result<(String, Vec<ProviderUsageWindow>), String> {
     let plan = payload.get("plan").cloned().unwrap_or(Value::Null);
     let plan_name = zed_plan_name(payload);
     if plan_name.is_empty() && plan.is_null() {
@@ -205,9 +203,7 @@ async fn zed_query_billing_usage(state: &AppState, raw_cookie: &str) -> Result<V
     provider_http_get_json(&state.client, ZED_BILLING_USAGE_URL, &headers).await
 }
 
-fn zed_billing_snapshot(
-    payload: &Value,
-) -> Result<(String, Option<ProviderUsageWindow>), String> {
+fn zed_billing_snapshot(payload: &Value) -> Result<(String, Option<ProviderUsageWindow>), String> {
     let current_usage = payload
         .get("current_usage")
         .ok_or_else(|| "返回内容缺少 current_usage".to_string())?;
@@ -220,7 +216,11 @@ fn zed_billing_snapshot(
                 .get("token_spend_in_cents")
                 .and_then(provider_number)
         })
-        .or_else(|| payload.get("token_spend_in_cents").and_then(provider_number))
+        .or_else(|| {
+            payload
+                .get("token_spend_in_cents")
+                .and_then(provider_number)
+        })
         .ok_or_else(|| "返回内容缺少 token spend".to_string())?;
     let limit = token_spend
         .and_then(|value| value.get("limit_in_cents"))
@@ -231,15 +231,7 @@ fn zed_billing_snapshot(
                 .and_then(provider_number)
         })
         .or_else(|| payload.get("limit_in_cents").and_then(provider_number));
-    let plan = payload
-        .get("plan")
-        .and_then(Value::as_str)
-        .map(zed_plan_label)
-        .filter(|value| !value.is_empty());
     let mut details = Vec::new();
-    if let Some(plan) = plan {
-        details.push(plan);
-    }
     let spend_text = if let Some(limit) = limit.filter(|value| value.is_finite() && *value >= 0.0) {
         format!(
             "余额 **{}/{}**",
@@ -250,19 +242,12 @@ fn zed_billing_snapshot(
         format!("余额 **{}**", fmt_provider_money(used / 100.0, '$'))
     };
     details.push(spend_text);
-    if let Some(limit) = limit.filter(|value| value.is_finite() && *value > 0.0) {
-        details.push(if used > limit {
-            "超额：是".into()
-        } else {
-            "超额：否".into()
-        });
-    }
     let window = limit
         .filter(|value| value.is_finite() && *value > 0.0)
         .and_then(|limit| {
             let percent = used / limit * 100.0;
             percent.is_finite().then(|| ProviderUsageWindow {
-                window: "Hosted AI 月额度".into(),
+                window: "月额度".into(),
                 used: Some(format!("{percent:.1}%")),
                 reset: None,
                 reset_at: None,
@@ -272,17 +257,13 @@ fn zed_billing_snapshot(
 }
 
 fn zed_merge_billing_description(existing: &str, billing: &str) -> String {
-    let mut parts = Vec::new();
-    for part in billing
+    billing
         .split(" · ")
-        .chain(existing.split(" · ").filter(|part| !part.trim_start().starts_with("余额 **")))
-    {
-        let part = part.trim();
-        if !part.is_empty() && !parts.iter().any(|previous| previous == part) {
-            parts.push(part.to_string());
-        }
-    }
-    parts.join(" · ")
+        .chain(existing.split(" · "))
+        .map(str::trim)
+        .find(|part| part.starts_with("余额 **"))
+        .unwrap_or_default()
+        .to_string()
 }
 
 async fn fetch_zed_pro_usage(
@@ -295,7 +276,13 @@ async fn fetch_zed_pro_usage(
         title: "Zed Pro 用量".into(),
         ..Default::default()
     };
+    let _guard = state.provider_usage_cache.zed_daily_refresh.lock().await;
     let accounts = auth_json_credential_entries(&state.hermes_home, "zed-pro");
+    let billing_identity = accounts
+        .iter()
+        .filter_map(|a| a.user_id.as_deref())
+        .collect::<Vec<_>>()
+        .join("|");
     let session_cookie = provider_env_value(&state.hermes_home, "ZED_SESSION_COOKIE");
     if accounts.is_empty() && session_cookie.is_empty() {
         section
@@ -321,13 +308,15 @@ async fn fetch_zed_pro_usage(
             }
         })
         .collect::<Vec<_>>();
-    let mut fetched: Vec<(String, Result<Value, String>)> = futures_util::future::join_all(
-        live_accounts.iter().map(|account| async {
+    let mut fetched: Vec<(String, Result<Value, String>)> =
+        futures_util::future::join_all(live_accounts.iter().map(|account| async {
             jitter_delay().await;
-            (account.label.clone(), zed_query_account(state, account).await)
-        }),
-    )
-    .await;
+            (
+                account.label.clone(),
+                zed_query_account(state, account).await,
+            )
+        }))
+        .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
     section.description = cached_section
         .map(|cached| cached.description.clone())
@@ -379,14 +368,14 @@ async fn fetch_zed_pro_usage(
     if session_cookie.is_empty() {
         section
             .errors
-            .push("Hosted AI token spend：缺少 ZED_SESSION_COOKIE".into());
+            .push("用量查询：缺少 ZED_SESSION_COOKIE".into());
     } else {
         match zed_query_billing_usage(state, &session_cookie).await {
             Ok(payload) => match zed_billing_snapshot(&payload) {
                 Ok((description, window)) => {
-                    section
-                        .windows
-                        .retain(|window| window.window != "Hosted AI 月额度");
+                    section.windows.retain(|window| {
+                        window.window != "Hosted AI 月额度" && window.window != "月额度"
+                    });
                     if let Some(mut window) = window {
                         window.reset = subscription_reset.clone();
                         window.reset_at = subscription_reset_at;
@@ -394,15 +383,37 @@ async fn fetch_zed_pro_usage(
                     }
                     section.description =
                         zed_merge_billing_description(&section.description, &description);
+                    let spent = payload
+                        .pointer("/current_usage/token_spend/spend_in_cents")
+                        .or_else(|| payload.pointer("/current_usage/token_spend_in_cents"))
+                        .or_else(|| payload.get("token_spend_in_cents"))
+                        .and_then(provider_number);
+                    if let Some(spent) = spent {
+                        let epoch = subscription_reset_at
+                            .or_else(|| section.windows.iter().find_map(|w| w.reset_at))
+                            .unwrap_or(0);
+                        if let Err(err) = provider_observed_daily(
+                            state,
+                            &mut section,
+                            &billing_identity,
+                            "USD",
+                            HashMap::from([("billing".into(), (epoch, spent / 100.0))]),
+                            now,
+                        ) {
+                            section.errors.push(err);
+                        }
+                    }
                 }
-                Err(err) => section
-                    .errors
-                    .push(format!("Hosted AI token spend：{err}")),
+                Err(err) => section.errors.push(format!("用量查询：{err}")),
             },
-            Err(err) => section
-                .errors
-                .push(format!("Hosted AI token spend：查询失败：{err}")),
+            Err(err) => section.errors.push(format!("用量查询：查询失败：{err}")),
         }
     }
+    section.description = section
+        .description
+        .split(" · ")
+        .find(|part| part.starts_with("余额 **"))
+        .unwrap_or_default()
+        .to_string();
     section
 }

@@ -527,7 +527,7 @@ fn stepfun_usage_section_from_records_at(
         })
         .collect();
 
-    let windows = plan
+    let mut windows: Vec<ProviderUsageWindow> = plan
         .into_iter()
         .map(|snapshot| ProviderUsageWindow {
             window: "Plan 已用".into(),
@@ -536,6 +536,12 @@ fn stepfun_usage_section_from_records_at(
             reset_at: snapshot.reset_at,
         })
         .collect();
+    windows.push(ProviderUsageWindow {
+        window: "今日积分用量".into(),
+        used: Some(format!("{today_credits} Credit")),
+        reset: None,
+        reset_at: Some(provider_daily_day_start(now.timestamp()) + 86400),
+    });
     ProviderUsageSection {
         provider: "stepfun".into(),
         title: "StepFun Step Plan 用量".into(),

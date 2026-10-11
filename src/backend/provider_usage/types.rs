@@ -31,6 +31,8 @@ struct ProviderUsageSection {
     captured_at: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     credits: Vec<ProviderUsageCredit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pools: Vec<SenseNovaPool>,
     rows: Vec<ProviderUsageRow>,
     windows: Vec<ProviderUsageWindow>,
     errors: Vec<String>,
@@ -59,4 +61,6 @@ struct ProviderUsageCache {
     payload: Arc<RwLock<Option<ProviderUsagePayload>>>,
     stepfun_auth: Arc<Mutex<Option<StepFunAuthState>>>,
     vyceai_refresh: Arc<Mutex<()>>,
+    zed_daily_refresh: Arc<Mutex<()>>,
+    sensenova_daily_refresh: Arc<Mutex<()>>,
 }

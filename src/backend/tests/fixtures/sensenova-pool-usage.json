@@ -1,0 +1,47 @@
+{
+  "plan": {
+    "id": "free",
+    "name": "Free Plan",
+    "type": "TOKEN_PLAN_PLAN_TYPE_FREE"
+  },
+  "pools": [
+    {
+      "name": "通用积分池",
+      "window_5h": {
+        "limit": "60000",
+        "used": "2010.032",
+        "remaining": "57989.968",
+        "reset_at": "1791743839"
+      },
+      "window_7d": {
+        "limit": "600000",
+        "used": "2010.032",
+        "remaining": "597989.968",
+        "reset_at": "1792330639"
+      },
+      "grant_balance": "1538.254",
+      "nearest_grant_expiry": "1794319200",
+      "nearest_grant_expiring_balance": "1.242",
+      "pool_type": "default"
+    },
+    {
+      "name": "Flash-Lite积分池",
+      "window_5h": {
+        "limit": "60000",
+        "used": "2191.7372",
+        "remaining": "57808.2628",
+        "reset_at": "1791743839"
+      },
+      "window_7d": {
+        "limit": "600000",
+        "used": "2191.7372",
+        "remaining": "597808.2628",
+        "reset_at": "1792330639"
+      },
+      "grant_balance": "0",
+      "nearest_grant_expiry": "0",
+      "nearest_grant_expiring_balance": "0",
+      "pool_type": "dedicated"
+    }
+  ]
+}

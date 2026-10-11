@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { formatProviderCredits, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
@@ -2758,6 +2758,8 @@ function todayUsageIsZero(used: string): boolean {
 function providerTodayTokens(section: ProviderUsageSection | undefined): string {
   const used = providerTodayWindow(section)?.used;
   if (!used) return '';
+  const credit = used.match(/^([\d,.]+) Credit$/);
+  if (credit) return `${formatProviderCredits(Number(credit[1].replace(/,/g, '')))} Credit`;
   if (todayUsageIsZero(used)) return '';
   return used.split(' / ').slice(0, -1).join(' / ') || used;
 }
@@ -2790,7 +2792,7 @@ function providerBalanceText(description: string | undefined): string {
 }
 
 function providerDescriptionText(description: string | undefined, provider?: string): string {
-  if (provider === 'mimo' || provider === 'codex') return '';
+  if (provider === 'mimo' || provider === 'codex' || provider === 'sensenova' || provider === 'zed-pro') return '';
   return (description || '').replace(/余额\s+\*\*[^*]+\*\*；?\s*/g, '').trim();
 }
 
@@ -3113,6 +3115,7 @@ function ProviderUsageMain(props: {
               ...(provider.provider === 'vyceai' && providerTodayWindow(section) ? [providerTodayCost(section)] : []),
               ...(calls ? [`${t('usage.calls')} ${calls}`] : []),
               ...(enabled && provider.provider === 'stepfun' && section ? [providerDescriptionText(section.description, provider.provider)] : []),
+              ...(enabled && ['zed-pro', 'sensenova'].includes(provider.provider) && providerTodayWindow(section) ? [providerTodayLabel(section)] : []),
               ...(balance ? [tf('usage.balance', balance)] : []),
               ...(titleMeta ? [titleMeta] : []),
               ...(codexResetSubtitle ? [codexResetSubtitle] : []),
@@ -3128,7 +3131,7 @@ function ProviderUsageMain(props: {
                   <span className={`provider-usage-brand-icon brand-${provider.provider}`} aria-hidden="true"><img src={providerBrandFavicon(provider.provider)} alt="" loading="lazy" referrerPolicy="no-referrer" /></span>
                   <div className="provider-usage-title-main">
                     <div className="provider-usage-title-row"><h2>{provider.title}</h2></div>
-                    <div className="provider-usage-subline">{codexMobileResetSubtitle ? <><span className="provider-usage-subline-full">{subtitleDetails}</span><span className="provider-usage-subline-mobile">{codexMobileResetSubtitle}</span></> : <span>{subtitleDetails}</span>}</div>
+                    <div className="provider-usage-subline" title={enabled && ['zed-pro', 'sensenova'].includes(provider.provider) ? t('usage.observedDaily') : undefined}>{codexMobileResetSubtitle ? <><span className="provider-usage-subline-full">{subtitleDetails}</span><span className="provider-usage-subline-mobile">{codexMobileResetSubtitle}</span></> : <span>{subtitleDetails}</span>}</div>
                   </div>
                 </div>
                 <div className="provider-usage-card-actions">
@@ -3187,10 +3190,11 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     if (!accountTones.has(account)) accountTones.set(account, nextAccountTone++ % 2);
     return `tone-${accountTones.get(account)}`;
   };
-  const accountScoped = ['commandcode', 'codex', 'grok', 'zed-pro'].includes(section.provider);
+  const accountScoped = ['commandcode', 'codex', 'grok', 'zed-pro', 'sensenova'].includes(section.provider);
+  const quotaWindows = section.windows.filter((win) => !win.window.includes('今日'));
   const quotaWallPercent = section.provider === 'commandcode' ? 99 : 100;
-  const accountGroups = accountScoped && section.windows.some((win) => providerAccountWindowParts(win.window))
-    ? orderProviderUsageAccountGroups(Array.from(section.windows.reduce((groups, win) => {
+  const accountGroups = accountScoped && quotaWindows.some((win) => providerAccountWindowParts(win.window))
+    ? orderProviderUsageAccountGroups(Array.from(quotaWindows.reduce((groups, win) => {
       const account = providerAccountWindowParts(win.window)?.[0] || win.window;
       const group = groups.get(account) || [];
       group.push(win);
@@ -3199,10 +3203,14 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     }, new Map<string, ProviderUsageWindow[]>()).entries()), quotaWallPercent)
     : [];
   const renderWindow = (win: ProviderUsageWindow, index: number) => {
+    const parts = providerAccountWindowParts(win.window);
+    const pool = section.provider === 'sensenova' ? section.pools?.find((item) => item.name === parts?.[0]) : undefined;
+    const quota = pool?.quotas.find((item) => item.window === parts?.[1]);
+    const quotaDetail = quota ? tf('usage.creditUsed', formatProviderCredits(quota.used), formatProviderCredits(quota.limit)) : undefined;
     const percent = providerUsagePercent(win.used);
     const progressPercent = percent === null ? null : Math.min(100, Math.max(0, percent));
-    return <article className="provider-usage-window" key={`${win.window}-${index}`}>
-      <div className="provider-usage-window-head"><strong>{accountScoped ? (providerAccountWindowParts(win.window)?.[1] || win.window) : win.window}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{integerPercentText(win.used)}</span></div>
+    return <article className="provider-usage-window" key={`${win.window}-${index}`} title={quotaDetail}>
+      <div className="provider-usage-window-head"><strong>{accountScoped ? (providerAccountWindowParts(win.window)?.[1] || win.window) : win.window}{quota && <span className="provider-usage-quota-remaining" aria-label={tf('usage.remainingCredit', formatProviderCredits(quota.remaining))}>{formatProviderCredits(quota.remaining)}</span>}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{integerPercentText(win.used)}</span></div>
       {progressPercent !== null && <div className={`provider-usage-progress ${usagePercentTone(progressPercent)}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-valuetext={integerPercentText(win.used)}><span style={{ width: `${progressPercent}%` }} /></div>}
       {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\u00a0'}</p> : null}
     </article>;
@@ -3211,16 +3219,19 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
   const tableRows = section.provider === 'minimax' ? minimaxRows : orderNewApiUsageRows(section.provider, section.rows);
   return <div className="provider-usage-data">
     {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
-    {section.windows.length > 0 && !['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && section.provider !== 'vyceai' && (accountGroups.length > 0
+    {quotaWindows.length > 0 && !['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && section.provider !== 'vyceai' && (accountGroups.length > 0
       ? <div className="provider-usage-account-groups">{accountGroups.map(([account, windows], groupIndex) => {
         const visibleWindows = section.provider === 'commandcode'
           ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')
           : windows;
         if (!visibleWindows.length) return null;
         const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows, Date.now() / 1000, quotaWallPercent));
-        return <section className={`provider-usage-account-group tone-${groupIndex % 2}${refreshing ? ' is-loading' : ''}`} aria-busy={refreshing} key={account}><strong>{account}</strong><div className="provider-usage-windows">{refreshing ? <ProviderUsageAccountSkeleton count={visibleWindows.length} /> : visibleWindows.map(renderWindow)}</div></section>;
+        const pool = section.provider === 'sensenova' ? section.pools?.find((item) => item.name === account) : undefined;
+        const grantExpiry = pool?.nearest_grant_expiry && pool.nearest_grant_expiring_balance
+          ? tf('usage.creditExpiring', formatProviderCredits(pool.nearest_grant_expiring_balance), new Date(pool.nearest_grant_expiry * 1000).toLocaleString()) : undefined;
+        return <section className={`provider-usage-account-group tone-${groupIndex % 2}${refreshing ? ' is-loading' : ''}`} aria-busy={refreshing} key={account}><strong>{account}</strong><div className="provider-usage-windows">{refreshing ? <ProviderUsageAccountSkeleton count={visibleWindows.length} /> : visibleWindows.map(renderWindow)}</div>{pool?.grant_balance != null && <p className="provider-usage-window-reset" title={grantExpiry}>{tf('usage.grantCredit', formatProviderCredits(pool.grant_balance))}</p>}</section>;
       })}</div>
-      : <div className="provider-usage-windows">{section.windows.map(renderWindow)}</div>)}
+      : <div className="provider-usage-windows">{quotaWindows.map(renderWindow)}</div>)}
     {tableRows.length > 0 && <div className="provider-usage-table-wrap"><table className="provider-usage-table"><thead>{section.provider === 'minimax' ? <tr><th>{t('usage.period')}</th><th>token {t('usage.input')}</th></tr> : stepFunUsage ? <tr><th>{t('usage.model')}</th><th>{t('usage.calls')}</th><th>{t('usage.credit')}</th><th>{t('usage.timeRange')}</th><th>{t('usage.type')}</th></tr> : <tr><th>{t('usage.model')}</th><th>{section.provider === 'deepseek' ? t('usage.planInput') : t('usage.input')}</th><th>{section.provider === 'deepseek' ? t('usage.planOutput') : t('usage.output')}</th><th>{section.provider === 'deepseek' ? t('usage.cacheHitRate') : t('usage.hitRate')}</th><th>{section.provider === 'deepseek' ? t('usage.cost') : t('usage.amountUsage')}</th></tr>}</thead><tbody>
       {tableRows.map((row, index) => section.provider === 'minimax' ? <tr className="provider-usage-row" key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.output || row.input || '-'}</td></tr> : stepFunUsage ? <tr className="provider-usage-row" key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.input || '-'}</td><td>{row.output || '-'}</td><td>{row.hit_rate || '-'}</td><td>{row.cost_or_pct || '-'}</td></tr> : <tr className={`provider-usage-row ${rowTone(row.label)}`} key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.input || '-'}</td><td>{row.output || '-'}</td><td>{integerPercentText(row.hit_rate)}</td><td>{integerPercentText(row.cost_or_pct)}</td></tr>)}
     </tbody></table></div>}

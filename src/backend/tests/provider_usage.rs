@@ -3,6 +3,122 @@ mod provider_usage_tests {
     use super::*;
 
     #[test]
+    fn sensenova_catalog_requires_console_token_not_inference_key() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("config.yaml"), "custom_providers:\n  - name: sensenova\n    api_key: '[REDACTED]'\n").unwrap();
+        let meta = provider_usage_catalog(temp.path()).into_iter().find(|item| item.provider == "sensenova").expect("SenseNova Token Plan card");
+        assert!(meta.configured);
+        assert!(!meta.query_ready);
+        assert_eq!(meta.title, "SenseNova Token Plan 用量");
+        assert_eq!(meta.credential_hint, "SENSENOVA_ACCESS_TOKEN");
+        std::fs::write(temp.path().join(".env"), "SENSENOVA_ACCESS_TOKEN='[REDACTED]'\n").unwrap();
+        assert!(provider_usage_catalog(temp.path()).into_iter().find(|item| item.provider == "sensenova").unwrap().query_ready);
+        assert_eq!(provider_icon_url("sensenova"), Some("https://platform.sensenova.cn/favicon.ico".into()));
+    }
+
+    #[test]
+    fn sensenova_pool_usage_preserves_separate_windows_and_grants() {
+        let payload: Value = serde_json::from_str(include_str!("fixtures/sensenova-pool-usage.json")).unwrap();
+        let section = sensenova_usage_section(&payload, 1791726000);
+        assert_eq!(section.provider, "sensenova");
+        assert!(section.description.is_empty());
+        assert!(section.errors.is_empty());
+        assert!(section.rows.is_empty());
+        assert_eq!(section.windows.len(), 4);
+        assert_eq!(section.windows[0].window, "通用积分池 5h额度");
+        assert_eq!(section.windows[0].used.as_deref(), Some("3.35%"));
+        assert_eq!(section.windows[0].reset_at, Some(1791743839));
+        assert_eq!(section.windows[1].used.as_deref(), Some("0.34%"));
+        assert_eq!(section.windows[2].window, "Flash-Lite积分池 5h额度");
+        assert_eq!(section.pools.len(), 2);
+        assert_eq!(section.pools[0].grant_balance, Some(1538.254));
+        assert_eq!(section.pools[0].nearest_grant_expiry, Some(1794319200));
+        assert_eq!(section.pools[0].nearest_grant_expiring_balance, Some(1.242));
+        assert_eq!(section.pools[0].quotas[0].used, 2010.032);
+        assert_eq!(section.pools[0].quotas[0].remaining, 57989.968);
+        assert_eq!(section.pools[1].grant_balance, Some(0.0));
+        assert_eq!(section.pools[1].nearest_grant_expiry, None);
+        assert!(section.credits.is_empty());
+        let safe = serde_json::to_string(&section).unwrap();
+        assert!(!safe.contains("pool_"));
+        assert!(!safe.contains("model_ids"));
+    }
+
+    #[tokio::test]
+    async fn sensenova_query_uses_console_bearer_without_cookies() {
+        async fn usage(headers: axum::http::HeaderMap) -> axum::Json<Value> {
+            assert!(headers.get("authorization").is_some_and(|value| value == "Bearer [REDACTED]"), "console auth header mismatch");
+            assert!(!headers.contains_key("cookie"));
+            assert_eq!(headers["accept"], "application/json");
+            assert_eq!(headers["referer"], "https://platform.sensenova.cn/console");
+            axum::Json(serde_json::from_str(include_str!("fixtures/sensenova-pool-usage.json")).unwrap())
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, axum::Router::new().route("/pool-usage", axum::routing::get(usage))).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let missing = fetch_provider_usage_section(&state, "sensenova", None, true).await;
+        assert_eq!(missing.errors, ["缺少 SENSENOVA_ACCESS_TOKEN"]);
+        std::fs::write(temp.path().join(".env"), "SENSENOVA_ACCESS_TOKEN='[REDACTED]'\n").unwrap();
+        let section = fetch_sensenova_usage_from_url(&state, &format!("http://{addr}/pool-usage")).await;
+        assert!(section.errors.is_empty());
+        assert_eq!(section.windows.len(), 5);
+        assert_eq!(section.windows.last().unwrap().used.as_deref(), Some("0 Credit"));
+        assert_eq!(section.pools.len(), 2);
+        assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn sensenova_invalid_usage_is_not_reported_as_zero() {
+        let mut payload: Value = serde_json::from_str(include_str!("fixtures/sensenova-pool-usage.json")).unwrap();
+        for invalid in [serde_json::json!("NaN"), serde_json::json!(-1), Value::Null] {
+            payload["pools"][0]["window_5h"]["used"] = invalid;
+            let section = sensenova_usage_section(&payload, 1791726000);
+            assert!(!section.errors.is_empty());
+            assert!(section.windows.iter().all(|window| window.window != "通用积分池 5h额度"));
+            assert_eq!(section.windows.len(), 3);
+        }
+        payload["pools"][0]["window_5h"] = serde_json::json!({"limit":0,"used":0,"remaining":0,"reset_at":0});
+        assert_eq!(sensenova_usage_section(&payload, 1791726000).windows.len(), 3);
+        payload["pools"][0]["window_5h"] = serde_json::json!({"limit":10,"used":11,"remaining":0,"reset_at":0});
+        let section = sensenova_usage_section(&payload, 1791726000);
+        assert_eq!(section.windows[0].used.as_deref(), Some("100.00%"));
+        assert_eq!(section.windows[0].reset_at, None);
+        assert_eq!(section.pools[0].quotas[0].used, 11.0);
+        assert!(!sensenova_usage_section(&serde_json::json!({"pools": []}), 0).errors.is_empty());
+        assert!(sensenova_usage_section(&serde_json::json!({"error": "[REDACTED]"}), 0).windows.is_empty());
+        let legacy: ProviderUsageSection = serde_json::from_value(serde_json::json!({"provider":"opencode","title":"Go","description":"","rows":[],"windows":[],"errors":[]})).unwrap();
+        assert!(legacy.pools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn sensenova_query_failures_never_echo_response_bodies() {
+        let app = axum::Router::new()
+            .route("/unauthorized", axum::routing::get(|| async { (axum::http::StatusCode::UNAUTHORIZED, "[REDACTED]") }))
+            .route("/forbidden", axum::routing::get(|| async { (axum::http::StatusCode::FORBIDDEN, "[REDACTED]") }))
+            .route("/html", axum::routing::get(|| async { "<html>[REDACTED]</html>" }))
+            .route("/schema", axum::routing::get(|| async { axum::Json(serde_json::json!({"message":"[REDACTED]"})) }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(".env"), "SENSENOVA_ACCESS_TOKEN='[REDACTED]'\n").unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        for (path, expected) in [
+            ("unauthorized", "SenseNova 积分查询返回 HTTP 401"),
+            ("forbidden", "SenseNova 积分查询返回 HTTP 403"),
+            ("html", "SenseNova 积分响应未返回有效 JSON"),
+            ("schema", "SenseNova 积分响应缺少有效的 pools"),
+        ] {
+            let section = fetch_sensenova_usage_from_url(&state, &format!("http://{addr}/{path}")).await;
+            assert_eq!(section.errors, [expected]);
+            assert!(section.windows.is_empty());
+            assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
+        }
+    }
+
+    #[test]
     fn provider_icon_urls_embed_newapi_variants_and_proxy_gstatic_sources() {
         assert!(NEWAPI_VARIANT_PROVIDERS.contains(&"agentrouter"));
         assert!(NEWAPI_VARIANT_PROVIDERS.contains(&"justwoker"));
@@ -1020,6 +1136,7 @@ mod provider_usage_tests {
                 description: "余额 **$9.00**".into(),
                 captured_at: 1_700_000_000.0,
                 credits: Vec::new(),
+                pools: Vec::new(),
                 rows: vec![ProviderUsageRow {
                     label: "gpt-test".into(),
                     hit_rate: None,
@@ -1092,6 +1209,32 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn observed_provider_daily_counters_do_not_replay_or_cross_days() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:9".to_string(), temp.path());
+        let now = 1_700_000_000;
+        let capture = |used: f64, epoch: i64, at: i64, identity: &str| {
+            let mut section = ProviderUsageSection { provider: "sensenova".into(), ..Default::default() };
+            provider_observed_daily(&state, &mut section, identity, "Credit",
+                HashMap::from([("pool".into(), (epoch, used))]), at).unwrap();
+            section.windows.last().unwrap().used.clone().unwrap()
+        };
+        assert_eq!(capture(100.0, 1, now, "account"), "0 Credit");
+        assert_eq!(capture(130.0, 1, now + 1, "account"), "30 Credit");
+        assert_eq!(capture(130.0, 1, now + 2, "account"), "30 Credit");
+        assert_eq!(capture(120.0, 1, now + 3, "account"), "30 Credit");
+        assert_eq!(capture(140.0, 1, now + 4, "account"), "40 Credit");
+        assert_eq!(capture(5.0, 2, now + 5, "account"), "45 Credit");
+        assert_eq!(capture(90.0, 2, now + 6, "another-account"), "0 Credit");
+        assert_eq!(capture(100.0, 2, now + 86400, "another-account"), "0 Credit");
+        assert_eq!(capture(102.5, 2, now + 86401, "another-account"), "2.5 Credit");
+        let path = temp.path().join("state/sensenova-daily-usage.json");
+        std::fs::write(path, "bad json").unwrap();
+        let mut section = ProviderUsageSection { provider: "sensenova".into(), ..Default::default() };
+        assert!(provider_observed_daily(&state, &mut section, "account", "Credit", HashMap::new(), now + 86402).is_err());
+    }
+
+    #[test]
     fn zed_billing_snapshot_parses_student_token_spend() {
         let payload = serde_json::json!({
             "plan": "token_based_zed_student",
@@ -1104,12 +1247,9 @@ mod provider_usage_tests {
             "portal_url": "https://example.test/portal?token=[REDACTED]"
         });
         let (description, window) = zed_billing_snapshot(&payload).unwrap();
-        assert_eq!(
-            description,
-            "Student · 余额 **$0.07/$10.00** · 超额：否"
-        );
+        assert_eq!(description, "余额 **$0.07/$10.00**");
         let window = window.unwrap();
-        assert_eq!(window.window, "Hosted AI 月额度");
+        assert_eq!(window.window, "月额度");
         assert_eq!(window.used.as_deref(), Some("0.7%"));
         assert!(window.reset.is_none());
     }
@@ -1124,7 +1264,8 @@ mod provider_usage_tests {
             }
         });
         let (description, window) = zed_billing_snapshot(&payload).unwrap();
-        assert!(description.contains("超额：是"));
+        assert_eq!(description, "余额 **$12.00/$10.00**");
+        assert!(!description.contains("超额"));
         assert_eq!(window.unwrap().used.as_deref(), Some("120.0%"));
     }
 
@@ -1136,7 +1277,7 @@ mod provider_usage_tests {
         );
         assert_eq!(
             merged,
-            "Student · 余额 **$0.07/$10.00** · 超额：否 · 账期 9/1–10/1"
+            "余额 **$0.07/$10.00**"
         );
     }
 
@@ -1478,7 +1619,9 @@ mod provider_usage_tests {
             .unwrap();
         let section = stepfun_usage_section_from_records_at(&records, total, now, Some(plan));
         assert_eq!(section.description, "今日 2M · 调用次数 3");
-        assert_eq!(section.windows.len(), 1);
+        assert_eq!(section.windows.len(), 2);
+        assert_eq!(section.windows[1].window, "今日积分用量");
+        assert_eq!(section.windows[1].used.as_deref(), Some("2000000 Credit"));
         assert_eq!(section.windows[0].window, "Plan 已用");
         assert_eq!(section.windows[0].used.as_deref(), Some("2%"));
         assert!(section.windows[0].reset_at.is_some());
@@ -1521,7 +1664,9 @@ mod provider_usage_tests {
         );
         assert_eq!(section.provider, "stepfun");
         assert_eq!(section.description, "今日 0M · 调用次数 0");
-        assert!(section.windows.is_empty());
+        assert_eq!(section.windows.len(), 1);
+        assert_eq!(section.windows[0].window, "今日积分用量");
+        assert_eq!(section.windows[0].used.as_deref(), Some("0 Credit"));
         assert_eq!(section.rows[0].label, "step-2");
         assert_eq!(section.rows[0].input.as_deref(), Some("1"));
         assert_eq!(section.rows[0].output.as_deref(), Some("9.50"));

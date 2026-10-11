@@ -143,6 +143,15 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             "配置 KIMI_AUTH_TOKEN；登录 kimi.com 后从浏览器开发者工具复制已登录会话的认证 token。",
         ),
         (
+            "sensenova",
+            "SenseNova Token Plan 用量",
+            any_provider_env_value(hermes_home, &["SENSENOVA_ACCESS_TOKEN", "SENSENOVA_API_KEY"])
+                || any_custom_provider_api_key(hermes_home, &["sensenova"]),
+            !provider_env_value(hermes_home, "SENSENOVA_ACCESS_TOKEN").is_empty(),
+            "SENSENOVA_ACCESS_TOKEN",
+            "配置 SenseNova 控制台网页登录的 access token；推理 API key 无法查询 Token Plan 积分。",
+        ),
+        (
             "opencode",
             "OpenCode Go 用量",
             !provider_env_value(hermes_home, "OPENCODE_GO_API_KEY").is_empty(),
@@ -186,7 +195,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             zed_configured,
             zed_configured,
             "ZED_SESSION_COOKIE 或 auth.json credential_pool.zed-pro",
-            "Hosted AI token spend 使用浏览器 Cookie 中的 zed.session；仅在运行时注入 ZED_SESSION_COOKIE。auth.json 的 zed-pro 凭据继续提供套餐和账期信息。",
+            "用量查询使用浏览器 Cookie 中的 zed.session；auth.json 的 zed-pro 凭据提供账期重置时间。",
         ),
     ];
     entries

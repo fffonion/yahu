@@ -426,6 +426,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .provider-usage-window{min-width:0;padding:8px 10px;border:1px solid color-mix(in srgb,var(--border) 82%,transparent);border-radius:var(--radius-md,10px);background:color-mix(in srgb,var(--surface-2) 62%,transparent)}
 .provider-usage-window-head,.provider-usage-metric-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px;min-width:0}
 .provider-usage-window-head strong,.provider-usage-metric-head strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.provider-usage-window-head .provider-usage-quota-remaining{margin-left:6px;opacity:.65;font:inherit}
 .provider-usage-window-head span,.provider-usage-metric-head span{flex:0 0 auto;font:600 11px/1 var(--mono);color:var(--text)}
 .provider-usage-progress,.provider-usage-mini-progress{height:5px;margin-top:6px;border-radius:999px;overflow:hidden;background:color-mix(in srgb,var(--muted) 16%,transparent)}
 .provider-usage-progress span,.provider-usage-mini-progress span{display:block;width:0;height:100%;border-radius:inherit;transition:width .25s ease}

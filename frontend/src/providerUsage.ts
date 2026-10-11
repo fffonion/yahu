@@ -15,12 +15,27 @@ export type ProviderUsageWindow = {
 
 export type ProviderUsageCredit = { account: string; balance: number };
 
+export type SenseNovaPool = {
+  name: string;
+  grant_balance: number | null;
+  nearest_grant_expiry: number | null;
+  nearest_grant_expiring_balance: number | null;
+  quotas: { window: string; limit: number; used: number; remaining: number }[];
+};
+
+export function formatProviderCredits(value: number): string {
+  return Number.isFinite(value) && value >= 0
+    ? new Intl.NumberFormat('en-US', { useGrouping: false, maximumFractionDigits: 0 }).format(Math.trunc(value))
+    : '—';
+}
+
 export type ProviderUsageSection = {
   provider: string;
   title: string;
   description: string;
   captured_at?: number;
   credits?: ProviderUsageCredit[];
+  pools?: SenseNovaPool[];
   rows: ProviderUsageRow[];
   windows: ProviderUsageWindow[];
   errors: string[];

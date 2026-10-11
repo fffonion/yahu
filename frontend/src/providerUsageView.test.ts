@@ -21,6 +21,31 @@ const section = (overrides: Partial<ProviderUsageSection> = {}): ProviderUsageSe
 });
 
 describe('provider usage view', () => {
+  test('Zed and SenseNova show daily usage before balance without plan descriptions or daily quota tiles', () => {
+    const source = app();
+    const daily = "...(enabled && ['zed-pro', 'sensenova'].includes(provider.provider) && providerTodayWindow(section) ? [providerTodayLabel(section)] : []),";
+    expect(source).toContain(daily);
+    expect(source.indexOf(daily)).toBeLessThan(source.indexOf("...(balance ? [tf('usage.balance', balance)] : []),"));
+    expect(source).toContain("const quotaWindows = section.windows.filter((win) => !win.window.includes('今日'));");
+    expect(source).toContain("provider === 'sensenova' || provider === 'zed-pro'");
+    expect(source).not.toContain("if (provider === 'sensenova') return description || '';");
+  });
+  test('SenseNova shares quota groups and displays integer credits beside quota labels', () => {
+    expect(app()).toContain("const accountScoped = ['commandcode', 'codex', 'grok', 'zed-pro', 'sensenova'].includes(section.provider);");
+    expect(app()).toContain('provider-usage-quota-remaining');
+    expect(app()).toContain('usage.remainingCredit');
+    expect(app()).toContain('usage.grantCredit');
+    const format = providerUsageModule.formatProviderCredits;
+    expect(typeof format).toBe('function');
+    expect(format(1538.254)).toBe('1538');
+    expect(format(2191.7372)).toBe('2191');
+    expect(format(57989.968)).toBe('57989');
+    expect(format(0)).toBe('0');
+    expect(format(Number.NaN)).toBe('—');
+    expect(format(-1)).toBe('—');
+  });
+
+
   test('Vyce AI keeps calls in the subtitle and removes the body summary', () => {
     const source = app();
     expect(source).toContain("const calls = provider.provider === 'vyceai' ? providerVyceCalls(section?.description) : '';");
@@ -233,7 +258,7 @@ describe('provider usage view', () => {
     expect(source).toContain('orderProviderUsageAccountGroups');
     expect(source).toContain('const accountCount = new Set');
     expect(source).toContain('const multiAccount = enabled && accountCount >= 4;');
-    expect(source).toContain("['commandcode', 'codex', 'grok', 'zed-pro'].includes(section.provider)");
+    expect(source).toContain("['commandcode', 'codex', 'grok', 'zed-pro', 'sensenova'].includes(section.provider)");
     expect(providerUsage()).toContain("hasQuotaWall: windows.some");
     expect(source).toContain('PROVIDER_USAGE_ORDER_KEY');
     expect(source).toContain('onDragStart');
@@ -268,7 +293,7 @@ describe('provider usage view', () => {
     expect(source).toContain("provider.provider === 'stepfun'");
     expect(backendRoutes()).toContain('.route("/provider-icons/agentrouter.png", get(agentrouter_logo))');
     expect(backendRoutes()).toContain('.route("/provider-icons/{provider}", get(provider_icon))');
-    expect(source).toContain("section.windows.length > 0 && !['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
+    expect(source).toContain("quotaWindows.length > 0 && !['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider)");
     expect(source).not.toContain("provider-usage-agentrouter-desc");
   });
 

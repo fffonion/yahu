@@ -22,6 +22,9 @@ fn provider_icon_url(provider: &str) -> Option<String> {
     if NEWAPI_VARIANT_PROVIDERS.contains(&provider) {
         return None;
     }
+    if provider == "sensenova" {
+        return Some("https://platform.sensenova.cn/favicon.ico".into());
+    }
     let domains = [
         ("vyceai", "vyceai.com"),
         ("openrouter", "openrouter.ai"),
