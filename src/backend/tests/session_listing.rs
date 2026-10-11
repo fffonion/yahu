@@ -617,6 +617,100 @@
     }
 
     #[test]
+    fn filtered_recent_sessions_sort_latest_messages_before_applying_limit() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
+                content TEXT, active INTEGER DEFAULT 1, timestamp REAL
+             );
+             CREATE INDEX idx_messages_session ON messages(session_id, timestamp);
+             CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, source TEXT, model TEXT, model_config TEXT,
+                billing_provider TEXT, parent_session_id TEXT, started_at REAL,
+                ended_at REAL, end_reason TEXT, message_count INTEGER, title TEXT,
+                archived INTEGER DEFAULT 0, session_key TEXT, chat_id TEXT, thread_id TEXT,
+                last_activity_at REAL
+             );
+             CREATE INDEX idx_sessions_parent ON sessions(parent_session_id);
+             INSERT INTO sessions (id,source,started_at,title,last_activity_at) VALUES
+                ('active-old','telegram',1,'recent work',100),
+                ('newer-created','telegram',500,'recent work',500);
+             INSERT INTO messages (session_id,role,content,timestamp) VALUES
+                ('active-old','assistant','newest response',1000),
+                ('active-old','user','previous question',900);",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:9".to_string(), temp.path());
+        for hide_cron_cli in [false, true] {
+            for query in [None, Some("recent")] {
+                let rows = fetch_local_sessions_from_db(&state, 1, query.unwrap_or(""), hide_cron_cli).unwrap().unwrap();
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0]["id"], "active-old", "latest activity must win before LIMIT, query={query:?}");
+                assert_eq!(rows[0]["last_active"], 1000.0);
+                assert_eq!(rows[0]["started_at"], 1.0);
+            }
+        }
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute("UPDATE sessions SET last_activity_at = 2000 WHERE id = 'active-old'", []).unwrap();
+        drop(conn);
+        let rows = fetch_filtered_sidebar_sessions_from_local_db(&state, 1).unwrap().unwrap();
+        assert_eq!(rows[0]["last_active"], 2000.0, "a newer heartbeat also counts as activity");
+    }
+
+    #[test]
+    fn filtered_recent_session_switch_root_inherits_latest_descendant_message() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,
+                active INTEGER DEFAULT 1, timestamp REAL
+             );
+             CREATE INDEX idx_messages_session ON messages(session_id, timestamp);
+             CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, source TEXT, model TEXT, model_config TEXT,
+                billing_provider TEXT, parent_session_id TEXT, started_at REAL,
+                ended_at REAL, end_reason TEXT, message_count INTEGER, title TEXT,
+                archived INTEGER DEFAULT 0, session_key TEXT, chat_id TEXT, thread_id TEXT
+             );
+             CREATE INDEX idx_sessions_parent ON sessions(parent_session_id);
+             INSERT INTO sessions (id,source,started_at,title,end_reason,parent_session_id) VALUES
+                ('root','telegram',1,'original title','session_switch',NULL),
+                ('middle','telegram',2,'middle title','session_switch','root'),
+                ('leaf','telegram',3,'changed title',NULL,'middle'),
+                ('other','telegram',500,'other title',NULL,NULL);
+             INSERT INTO messages (session_id,role,content,timestamp) VALUES
+                ('leaf','assistant','latest response',1000);",
+        ).unwrap();
+        drop(conn);
+        let state = test_app_state("http://127.0.0.1:9".to_string(), temp.path());
+        let rows = fetch_filtered_sidebar_sessions_from_local_db(&state, 1).unwrap().unwrap();
+        assert_eq!(rows[0]["id"], "root");
+        assert_eq!(rows[0]["last_active"], 1000.0);
+        assert_eq!(rows[0]["title"], "original title");
+    }
+
+    #[test]
+    fn recent_session_activity_uses_covering_message_index() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, started_at REAL, last_activity_at REAL);
+             CREATE TABLE messages (session_id TEXT, timestamp REAL);
+             CREATE INDEX idx_messages_session ON messages(session_id, timestamp);",
+        ).unwrap();
+        let activity = local_session_activity_sql(&conn, "s").unwrap();
+        let sql = format!("EXPLAIN QUERY PLAN SELECT {activity} FROM sessions AS s WHERE s.id = 'root'");
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let plan = stmt.query_map([], |row| row.get::<_, String>(3)).unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>().unwrap().join("\n");
+        assert!(plan.contains("COVERING INDEX idx_messages_session (session_id=?)"), "{plan}");
+        assert!(!plan.contains("SCAN recent_message"), "{plan}");
+        assert!(!plan.contains("SCAN messages"), "{plan}");
+    }
+
+    #[test]
     fn local_filtered_sidebar_preaggregates_session_switch_activity_once() {
         let source = include_str!("../sessions.rs");
 

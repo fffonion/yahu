@@ -397,6 +397,23 @@ fn fetch_title_filtered_sessions_from_local_db(
     fetch_local_sessions_from_db(state, limit, query, hide_cron_cli)
 }
 
+fn local_session_activity_sql(conn: &rusqlite::Connection, alias: &str) -> rusqlite::Result<String> {
+    let started = format!("COALESCE({alias}.started_at, 0)");
+    let activity = if sqlite_table_has_columns(conn, "sessions", &["last_activity_at"])? {
+        format!("COALESCE({alias}.last_activity_at, {started})")
+    } else {
+        started.clone()
+    };
+    let latest_message = if sqlite_table_has_columns(conn, "messages", &["session_id", "timestamp"])? {
+        // Hermes' (session_id, timestamp) index resolves MAX within one session range.
+        // Never GROUP BY / scan the full messages table for sidebar refreshes.
+        format!("COALESCE((SELECT MAX(recent_message.timestamp) FROM messages AS recent_message WHERE recent_message.session_id = {alias}.id), {started})")
+    } else {
+        started.clone()
+    };
+    Ok(format!("MAX({started}, {activity}, {latest_message})"))
+}
+
 fn fetch_local_sessions_from_db(
     state: &AppState,
     limit: usize,
@@ -436,7 +453,8 @@ fn fetch_local_sessions_from_db(
     }
     // Keep this local fallback aligned with Hermes' _LISTABLE_CHILD_SQL:
     // roots plus branch/reset children, excluding compression continuations.
-    let mut statement = conn.prepare(
+    let member_activity = local_session_activity_sql(&conn, "member")?;
+    let mut statement = conn.prepare(&format!(
         "WITH RECURSIVE session_switch_chain(root_id, session_id) AS (
              SELECT id, id FROM sessions
              UNION
@@ -451,7 +469,7 @@ fn fetch_local_sessions_from_db(
                AND child.thread_id IS parent.thread_id
          ),
          session_switch_activity(root_id, last_active) AS (
-             SELECT chain.root_id, MAX(member.started_at)
+             SELECT chain.root_id, MAX({member_activity})
              FROM session_switch_chain AS chain
              JOIN sessions AS member ON member.id = chain.session_id
              GROUP BY chain.root_id
@@ -464,14 +482,14 @@ fn fetch_local_sessions_from_db(
          WHERE COALESCE(s.archived, 0) = 0
            AND (
                 s.parent_session_id IS NULL
-                OR json_extract(COALESCE(s.model_config, '{}'), '$._branched_from') IS NOT NULL
+                OR json_extract(COALESCE(s.model_config, '{{}}'), '$._branched_from') IS NOT NULL
                 OR EXISTS (
                     SELECT 1 FROM sessions p
                     WHERE p.id = s.parent_session_id
                       AND p.end_reason = 'branched'
                       AND s.started_at >= p.ended_at
                 )
-                OR json_extract(COALESCE(s.model_config, '{}'), '$._reset_from') IS NOT NULL
+                OR json_extract(COALESCE(s.model_config, '{{}}'), '$._reset_from') IS NOT NULL
                 OR EXISTS (
                     SELECT 1 FROM sessions p
                     WHERE p.id = s.parent_session_id
@@ -481,7 +499,7 @@ fn fetch_local_sessions_from_db(
                       AND s.session_key = p.session_key
                 )
            )
-           AND json_extract(COALESCE(s.model_config, '{}'), '$._delegate_from') IS NULL
+           AND json_extract(COALESCE(s.model_config, '{{}}'), '$._delegate_from') IS NULL
            AND (s.source IS NULL OR s.source != 'tool')
            AND (
                 ?3 = 0
@@ -489,9 +507,9 @@ fn fetch_local_sessions_from_db(
                 OR s.source NOT IN ('cron', 'cli', 'alp-worker', 'turtle-soup', 'turtle-bench')
            )
            AND instr(lower(COALESCE(s.title, '')), lower(?2)) > 0
-         ORDER BY last_active DESC
+         ORDER BY last_active DESC, s.started_at DESC, s.id DESC
          LIMIT ?1",
-    )?;
+    ))?;
     let mapped = statement.query_map(
         rusqlite::params![limit as i64, query.trim(), i64::from(hide_cron_cli)],
         |row| {
