@@ -5830,7 +5830,7 @@ async fn fetch_session_messages_for_watch(
     session_id: &str,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
     let mut req = client.get(format!(
-        "{}/api/sessions/{}/messages?limit=24",
+        "{}/api/sessions/{}/messages?order=latest&limit=24",
         api_url.trim_end_matches('/'),
         path_segment(session_id)
     ));

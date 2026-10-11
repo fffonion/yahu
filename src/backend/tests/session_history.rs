@@ -61,6 +61,33 @@
     }
 
     #[tokio::test]
+    async fn remote_watch_explicitly_requests_the_latest_page() {
+        async fn api_session() -> Json<Value> {
+            Json(serde_json::json!({"session": {"id": "parent", "message_count": 100}}))
+        }
+        async fn api_messages(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+            assert_eq!(query.get("limit").map(String::as_str), Some("24"));
+            let latest = query.get("order").map(String::as_str) == Some("latest");
+            Json(serde_json::json!({"data": [{
+                "id": if latest { 99 } else { 1 },
+                "role": "user", "content": if latest { "Latest turn" } else { "Old turn" },
+                "timestamp": if latest { 99.0 } else { 1.0 }
+            }]}))
+        }
+        let app = Router::new()
+            .route("/api/sessions/{id}", get(api_session))
+            .route("/api/sessions/{id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+
+        let messages = fetch_session_messages_for_watch(&state.client, &state.api_url, &state.api_key, "parent").await.unwrap();
+        assert_eq!(messages.last().unwrap()["id"], 99);
+    }
+
+    #[tokio::test]
     async fn session_history_context_stitches_parent_chain_before_child_messages() {
         async fn api_session(AxumPath(session_id): AxumPath<String>) -> Json<serde_json::Value> {
             let parent = match session_id.as_str() {
