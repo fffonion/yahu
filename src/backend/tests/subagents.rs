@@ -1089,6 +1089,119 @@
     }
 
     #[tokio::test]
+    async fn subagent_snapshot_finds_indexed_children_omitted_from_upstream_lists() {
+        async fn api_list() -> Json<Value> {
+            Json(serde_json::json!({"data": [], "has_more": false}))
+        }
+        async fn api_session(
+            State(missing_activity): State<Arc<std::sync::atomic::AtomicBool>>,
+            AxumPath(id): AxumPath<String>,
+        ) -> Json<Value> {
+            assert!(matches!(id.as_str(), "parent" | "hidden-child"));
+            let activity = if missing_activity.load(std::sync::atomic::Ordering::Relaxed) { Value::Null } else { serde_json::json!(700_099.0) };
+            Json(serde_json::json!({"session": {
+                "id": id, "source": "telegram",
+                "parent_session_id": if id == "parent" { None } else { Some("parent") },
+                "is_internal_child": id == "hidden-child",
+                "started_at": if id == "parent" { 1.0 } else { 700_010.0 },
+                "last_active": activity, "message_count": 1
+            }}))
+        }
+        async fn api_messages(AxumPath(id): AxumPath<String>) -> Json<Value> {
+            let data = if id == "hidden-child" {
+                vec![serde_json::json!({"id": 10, "role": "user", "content": "Indexed child task", "timestamp": 700_010.0})]
+            } else { Vec::new() };
+            Json(serde_json::json!({"data": data}))
+        }
+        let missing_activity = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let app = Router::new()
+            .route("/api/sessions", get(api_list))
+            .route("/api/sessions/{id}", get(api_session))
+            .route("/api/sessions/{id}/messages", get(api_messages))
+            .with_state(missing_activity.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch("CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, parent_session_id TEXT, source TEXT, started_at REAL, ended_at REAL
+        );
+        CREATE INDEX idx_sessions_parent ON sessions(parent_session_id);
+        INSERT INTO sessions VALUES ('parent', NULL, 'telegram', 1, NULL);
+        INSERT INTO sessions VALUES ('hidden-child', 'parent', 'telegram', 700010, NULL);
+        INSERT INTO sessions VALUES ('unrelated-child', 'other-parent', 'telegram', 700020, NULL);
+        INSERT INTO sessions VALUES ('future-child', 'parent', 'telegram', 900000, NULL);").unwrap();
+        drop(conn);
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+        let mut cache = HashMap::new();
+        let projected = fetch_subagent_projection_snapshot(&state, "parent", 700_100.0, &mut cache).await.unwrap();
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected[0].session_id, "hidden-child");
+        assert_eq!(projected[0].status, "running");
+        missing_activity.store(true, std::sync::atomic::Ordering::Relaxed);
+        let projected = fetch_subagent_projection_snapshot(&state, "parent", 701_100.0, &mut cache).await.unwrap();
+        assert_eq!(projected[0].status, "interrupted");
+        assert_eq!(projected[0].ended_at, Some(700_010.0));
+    }
+
+    #[test]
+    fn indexed_subagent_discovery_skips_databases_without_the_parent_index() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch("CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL);
+            INSERT INTO sessions VALUES ('child', 'parent', 700010);").unwrap();
+        drop(conn);
+        assert!(load_indexed_subagent_session_ids(temp.path(), &HashSet::from(["parent".to_string()]), 700_000.0, 700_100.0).unwrap().is_none());
+    }
+
+    #[test]
+    fn indexed_subagent_discovery_bounds_nested_lineage_and_deduplicates_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch("CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL);
+            CREATE INDEX idx_sessions_parent ON sessions(parent_session_id);
+            INSERT INTO sessions VALUES ('child', 'parent', 700010, NULL);
+            INSERT INTO sessions VALUES ('grandchild', 'child', 700020, NULL);
+            INSERT INTO sessions VALUES ('old', 'parent', 600000, 600001);
+            INSERT INTO sessions VALUES ('future', 'parent', 900000, NULL);
+            INSERT INTO sessions VALUES ('unrelated', 'other-parent', 700030, NULL);").unwrap();
+        drop(conn);
+        let roots = HashSet::from(["parent".to_string(), "child".to_string()]);
+        let ids = load_indexed_subagent_session_ids(temp.path(), &roots, 700_000.0, 700_100.0).unwrap().unwrap();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids.into_iter().collect::<HashSet<_>>(), HashSet::from(["child".to_string(), "grandchild".to_string()]));
+    }
+
+    #[test]
+    fn indexed_subagent_discovery_preserves_old_running_children_and_their_descendants() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch("CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL);
+            CREATE INDEX idx_sessions_parent ON sessions(parent_session_id);
+            INSERT INTO sessions VALUES ('old-running', 'parent', 100, NULL);
+            INSERT INTO sessions VALUES ('current-grandchild', 'old-running', 700010, NULL);
+            INSERT INTO sessions VALUES ('old-completed', 'parent', 100, 200);").unwrap();
+        drop(conn);
+        let ids = load_indexed_subagent_session_ids(temp.path(), &HashSet::from(["parent".to_string()]), 700_000.0, 700_100.0).unwrap().unwrap();
+        assert_eq!(ids.into_iter().collect::<HashSet<_>>(), HashSet::from(["old-running".to_string(), "current-grandchild".to_string()]));
+    }
+
+    #[test]
+    fn indexed_subagent_discovery_enforces_its_candidate_budget() {
+        let temp = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch("CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL, ended_at REAL);
+            CREATE INDEX idx_sessions_parent ON sessions(parent_session_id);").unwrap();
+        for index in 0..=SUBAGENT_ANCESTOR_RESOLUTION_LIMIT {
+            conn.execute("INSERT INTO sessions VALUES (?1, 'parent', 700010, NULL)", [format!("child-{index}")]).unwrap();
+        }
+        drop(conn);
+        let result = load_indexed_subagent_session_ids(temp.path(), &HashSet::from(["parent".to_string()]), 700_000.0, 700_100.0);
+        assert!(result.unwrap_err().to_string().contains("candidate safety limit"));
+    }
+
+    #[tokio::test]
     async fn child_projection_messages_use_a_limited_latest_tail() {
         async fn api_messages(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
             assert_eq!(query.get("order").map(String::as_str), Some("latest"));

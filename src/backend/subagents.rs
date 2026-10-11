@@ -101,6 +101,7 @@ struct CachedSubagentProjection {
     message_count: u64,
     ended_at: Option<f64>,
     last_active: Option<f64>,
+    last_message_at: Option<f64>,
     projection: SubagentProjection,
 }
 
@@ -878,14 +879,29 @@ async fn fetch_subagent_projection_snapshot(
         window_start,
         window_end,
     )?;
-    let mut sessions = fetch_subagent_sessions_for_parent(state, parent_session_id, window_end).await?;
-    let api_child_ids =
-        match fetch_api_delegate_child_ids(state, &discovery_parent_ids, &sessions, window_start).await
+    let local_child_ids = load_indexed_subagent_session_ids(
+        &state.hermes_home,
+        &parent_session_ids,
+        window_start,
+        window_end,
+    )?;
+    let locally_scoped = local_child_ids.is_some();
+    let mut sessions = if let Some(ids) = local_child_ids {
+        fetch_indexed_subagent_sessions(state, ids).await?
+    } else {
+        fetch_subagent_sessions_for_parent(state, parent_session_id, window_end).await?
+    };
+    let api_child_ids = if locally_scoped {
+        HashSet::new()
+    } else {
+        match fetch_api_delegate_child_ids(state, &discovery_parent_ids, &sessions, window_start)
+            .await
         {
-        Ok(ids) => ids,
-        Err(err) => {
-            warn!(error = %err, parent_session_id, "cannot discover delegated child ids from API transcript");
-            HashSet::new()
+            Ok(ids) => ids,
+            Err(err) => {
+                warn!(error = %err, parent_session_id, "cannot discover delegated child ids from API transcript");
+                HashSet::new()
+            }
         }
     };
     mark_api_discovered_subagents(&mut sessions, &api_child_ids);
@@ -933,10 +949,15 @@ async fn fetch_subagent_projection_snapshot(
         let Some(projection) = project_subagent_session(&state.hermes_home, &session, &messages) else {
             continue;
         };
+        let last_message_at = messages.iter()
+            .filter_map(|message| number_field(message, "timestamp"))
+            .filter(|timestamp| timestamp.is_finite())
+            .max_by(f64::total_cmp);
         resolved[index] = Some(CachedSubagentProjection {
             message_count,
             ended_at,
             last_active,
+            last_message_at,
             projection,
         });
     }
@@ -946,7 +967,7 @@ async fn fetch_subagent_projection_snapshot(
         let session_id = cached.projection.session_id.clone();
         let projection = mark_stale_running_subagent(
             cached.projection.clone(),
-            cached.last_active,
+            cached.last_active.or(cached.last_message_at),
             window_end,
         );
         cache.insert(session_id, cached);
@@ -994,6 +1015,86 @@ fn mark_stale_running_subagent(
         projection.current_tool = None;
     }
     projection
+}
+
+/// Upstream intentionally omits delegate children from session lists. Discover
+/// only ids through the existing parent index; metadata/messages stay on the API.
+fn load_indexed_subagent_session_ids(
+    hermes_home: &Path,
+    parent_ids: &HashSet<String>,
+    window_start: f64,
+    window_end: f64,
+) -> anyhow::Result<Option<Vec<String>>> {
+    let path = hermes_home.join("state.db");
+    if !path.exists() || parent_ids.is_empty() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    if !sqlite_table_has_columns(&conn, "sessions", &["id", "parent_session_id", "started_at", "ended_at"])?
+        || !conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_sessions_parent' AND tbl_name = 'sessions')",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?
+    {
+        return Ok(None);
+    }
+    let mut roots = parent_ids.iter().cloned().collect::<Vec<_>>();
+    roots.sort();
+    let start_param = roots.len() + 1;
+    let end_param = roots.len() + 2;
+    let sql = format!(
+        "WITH RECURSIVE children(id) AS (
+            SELECT id FROM sessions INDEXED BY idx_sessions_parent
+            WHERE parent_session_id IN ({}) AND started_at <= ?{end_param}
+                AND (started_at >= ?{start_param} OR ended_at IS NULL OR ended_at >= ?{start_param})
+            UNION
+            SELECT child.id FROM sessions AS child INDEXED BY idx_sessions_parent
+            JOIN children ON child.parent_session_id = children.id
+            WHERE child.started_at <= ?{end_param}
+                AND (child.started_at >= ?{start_param} OR child.ended_at IS NULL OR child.ended_at >= ?{start_param})
+        ) SELECT id FROM children LIMIT {}",
+        session_id_placeholders(&roots),
+        SUBAGENT_ANCESTOR_RESOLUTION_LIMIT + 1,
+    );
+    let mut params = session_id_values(&roots);
+    params.extend([
+        rusqlite::types::Value::Real(window_start),
+        rusqlite::types::Value::Real(window_end),
+    ]);
+    let ids = conn
+        .prepare(&sql)?
+        .query_map(rusqlite::params_from_iter(params), |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if ids.len() > SUBAGENT_ANCESTOR_RESOLUTION_LIMIT {
+        anyhow::bail!("indexed subagent discovery exceeded the candidate safety limit");
+    }
+    Ok(Some(ids))
+}
+
+async fn fetch_indexed_subagent_sessions(
+    state: &AppState,
+    ids: Vec<String>,
+) -> anyhow::Result<Vec<Value>> {
+    futures_util::stream::iter(ids.into_iter().map(|id| async move {
+        let url = format!(
+            "{}/api/sessions/{}",
+            state.api_url.trim_end_matches('/'),
+            path_segment(&id)
+        );
+        let body = fetch_api_json(state, url, SUBAGENT_API_PAGE_BYTE_LIMIT).await?;
+        Ok::<_, anyhow::Error>(body.get("session").unwrap_or(&body).clone())
+    }))
+    .buffer_unordered(SUBAGENT_SNAPSHOT_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await
+    .into_iter()
+    .collect()
 }
 
 async fn fetch_subagent_sessions_for_parent(
@@ -1280,6 +1381,7 @@ fn is_subagent_session(session: &Value) -> bool {
         .get(API_DISCOVERED_SUBAGENT_FIELD)
         .and_then(Value::as_bool)
         .unwrap_or(false)
+        || session.get("is_internal_child").and_then(Value::as_bool).unwrap_or(false)
         || string_field(session, "source").is_none_or(|source| source == "subagent")
         || has_delegate_marker(session)
 }
