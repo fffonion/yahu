@@ -21,6 +21,13 @@ const section = (overrides: Partial<ProviderUsageSection> = {}): ProviderUsageSe
 });
 
 describe('provider usage view', () => {
+  test('Vyce AI favicon is enlarged inside its existing clipped frame', () => {
+    const styles = css();
+    expect(styles).toContain('.provider-usage-brand-icon.brand-vyceai img{transform:scale(1.45)}');
+    expect(styles).toContain('background:transparent;overflow:hidden');
+    expect(styles).toContain('.provider-usage-brand-icon img{display:block;width:100%;height:100%;object-fit:cover}');
+    expect(styles.match(/brand-vyceai img\{/g)?.length).toBe(1);
+  });
   test('Zed and SenseNova show daily usage before balance without plan descriptions or daily quota tiles', () => {
     const source = app();
     const daily = "...(enabled && ['zed-pro', 'sensenova'].includes(provider.provider) && providerTodayWindow(section) ? [providerTodayLabel(section)] : []),";
