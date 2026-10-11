@@ -1071,7 +1071,7 @@ mod provider_usage_tests {
 
     #[test]
     fn commandcode_billing_requests_share_one_parallel_stage() {
-        let source = include_str!("../provider_usage.rs");
+        let source = include_str!("../provider_usage/commandcode.rs");
         assert!(source.contains("let (credits_result, subscription_result) = tokio::join!("));
     }
 
@@ -1263,7 +1263,7 @@ mod provider_usage_tests {
 
     #[test]
     fn agentrouter_default_usage_host_changes_without_renaming_the_card() {
-        let source = include_str!("../provider_usage.rs");
+        let source = include_str!("../provider_usage/newapi.rs");
         assert!(source.contains("\"https://ps.air-outer.com\""));
         let temp = tempfile::tempdir().unwrap();
         let provider = provider_usage_catalog(temp.path())
