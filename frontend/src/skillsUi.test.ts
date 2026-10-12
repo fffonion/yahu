@@ -177,7 +177,7 @@ describe('skills UI', () => {
     expect(source).toContain("return { mode: 'skills', skillName: decodePart(kind) }");
     expect(source).toContain("return route.skillName ? `#/skills/${encodePart(route.skillName)}` : '#/skills'");
   });
-  test('skill list uses the API Server and supports wheel and pan scrolling', () => {
+  test('skill list uses local inventory and supports wheel and pan scrolling', () => {
     const source = app();
     const styles = css();
     expect(source).toContain("fetch('/skills/list', { cache: 'no-store' })");
@@ -208,8 +208,8 @@ describe('skills backend API', () => {
   test('routes skills through restored local/Python-backed skill implementation', () => {
     const source = server();
     expect(source).toContain('.route("/skills/list", get(skills_list))');
-    expect(server()).toContain('/v1/skills');
-    expect(server()).toContain('fetch_api_json');
+    expect(server()).toContain('include_str!("skills_inventory.py")');
+    expect(readFileSync(new URL('../../src/backend/skills.rs', import.meta.url), 'utf8').includes('/v1/skills')).toBe(false);
     expect(source).toContain('.route("/skills/files", get(skill_files))');
     expect(source).toContain('.route("/skills/file", get(skill_file).put(skill_file_write))');
     expect(source).toContain('.route("/skills/download/{name}", get(skill_download))');

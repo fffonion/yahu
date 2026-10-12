@@ -1,11 +1,24 @@
 async fn skills_list(State(state): State<Arc<AppState>>) -> Response<Body> {
-    let url = format!("{}/v1/skills", state.api_url.trim_end_matches('/'));
-    match fetch_api_json(&state, url, 2 * 1024 * 1024).await {
-        Ok(body) => {
-            let data = body.get("data").cloned().unwrap_or(body);
-            Json(serde_json::json!({ "object": "list", "data": data })).into_response()
+    let agent_dir = hermes_agent_dir(&state);
+    let output = timeout(
+        Duration::from_secs(20),
+        Command::new(hermes_python_command(&agent_dir))
+            .arg("-c")
+            .arg(include_str!("skills_inventory.py"))
+            .args(skill_roots(&state))
+            .env("HERMES_HOME", &state.hermes_home)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    match output {
+        Ok(Ok(output)) if output.status.success() => {
+            match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                Ok(body) => Json(body).into_response(),
+                Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "invalid skill inventory response"),
+            }
         }
-        Err(err) => json_error(StatusCode::BAD_GATEWAY, &format!("skills API request failed: {err}")),
+        _ => json_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to read local skill inventory"),
     }
 }
 
