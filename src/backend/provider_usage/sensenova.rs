@@ -141,25 +141,45 @@ fn sensenova_access_expiry(access: &str) -> Option<i64> {
         .as_i64()
 }
 
-async fn sensenova_current_auth(state: &AppState) -> SenseNovaAuthState {
-    let source_access = provider_env_value(&state.hermes_home, "SENSENOVA_ACCESS_TOKEN");
-    let source_refresh = provider_env_value(&state.hermes_home, "SENSENOVA_REFRESH_TOKEN");
-    let mut cached = state.provider_usage_cache.sensenova_auth.lock().await;
-    if let Some(auth) = cached.as_ref()
-        && auth.source_access == source_access
-        && auth.source_refresh == source_refresh
-    {
-        return auth.clone();
+fn load_sensenova_service_auth(home: &Path) -> Option<SenseNovaAuthState> {
+    let value: Value = serde_json::from_slice(&std::fs::read(sensenova_service_token_path(home)).ok()?).ok()?;
+    let username = provider_env_value(home, "SENSENOVA_USERNAME");
+    let saved_username = value.get("username").and_then(Value::as_str).unwrap_or_default();
+    if !saved_username.is_empty() && !username.is_empty() && saved_username != username {
+        return None;
     }
-    let auth = SenseNovaAuthState {
-        expires_at: sensenova_access_expiry(&source_access),
-        access: source_access.clone(),
-        refresh: source_refresh.clone(),
-        source_access,
-        source_refresh,
-    };
+    let access = value.get("access_token")?.as_str()?.to_string();
+    let refresh = value.get("refresh_token")?.as_str()?.to_string();
+    Some(SenseNovaAuthState {
+        expires_at: value.get("expires_at").and_then(Value::as_i64).or_else(|| sensenova_access_expiry(&access)),
+        source_access: access.clone(), source_refresh: refresh.clone(), access, refresh,
+    })
+}
+
+fn sensenova_password_configured(home: &Path) -> bool {
+    !provider_env_value(home, "SENSENOVA_USERNAME").is_empty()
+        && !provider_env_value(home, "SENSENOVA_PASSWORD").is_empty()
+}
+
+async fn sensenova_current_auth(state: &AppState) -> SenseNovaAuthState {
+    let auth = load_sensenova_service_auth(&state.hermes_home).unwrap_or(SenseNovaAuthState {
+        source_access: String::new(), source_refresh: String::new(), access: String::new(),
+        refresh: String::new(), expires_at: None,
+    });
+    let mut cached = state.provider_usage_cache.sensenova_auth.lock().await;
+    if let Some(current) = cached.as_ref()
+        && current.source_access == auth.source_access
+        && current.source_refresh == auth.source_refresh
+        && current.expires_at == auth.expires_at
+    {
+        return current.clone();
+    }
     *cached = Some(auth.clone());
     auth
+}
+
+fn sensenova_service_token_path(home: &Path) -> PathBuf {
+    home.join("state/sensenova_service_token.json")
 }
 
 fn sensenova_persist_auth(
@@ -167,73 +187,41 @@ fn sensenova_persist_auth(
     prior: &SenseNovaAuthState,
     access: &str,
     refresh: &str,
+    expires_at: Option<i64>,
 ) -> Result<(), String> {
-    use std::io::Write as _;
-    let path = home.join(".env");
-    let path = path.canonicalize().unwrap_or(path);
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(_) => return Err("SenseNova 续期凭据读取失败".into()),
-    };
-    let updates = [
-        ("SENSENOVA_ACCESS_TOKEN", &prior.access, access),
-        ("SENSENOVA_REFRESH_TOKEN", &prior.refresh, refresh),
-    ];
-    for (key, expected, _) in updates {
-        if let Some(value) = raw
-            .lines()
-            .filter(|line| !line.trim_start().starts_with('#'))
-            .find_map(|line| {
-                let (name, value) = line.split_once('=')?;
-                (name.trim() == key).then(|| strip_env_quotes(value))
-            })
-            && !value.is_empty()
-            && value != *expected
-        {
-            return Err("SenseNova 凭据已被更新，请重试".into());
-        }
+    let path = sensenova_service_token_path(home);
+    if let Ok(raw) = std::fs::read(&path)
+        && let Ok(value) = serde_json::from_slice::<Value>(&raw)
+        && (value.get("access_token").and_then(Value::as_str).unwrap_or_default() != prior.access
+            || value.get("refresh_token").and_then(Value::as_str).unwrap_or_default() != prior.refresh)
+    {
+        return Err("SenseNova 会话已被更新，请重试".into());
     }
-    let mut seen = [false; 2];
-    let mut text = String::new();
-    for line in raw.split_inclusive('\n') {
-        let key = (!line.trim_start().starts_with('#'))
-            .then(|| line.split_once('=').map(|(key, _)| key.trim()))
-            .flatten();
-        if let Some(index) = updates.iter().position(|(name, _, _)| Some(*name) == key) {
-            if !seen[index] {
-                text.push_str(&format!("{}={}\n", updates[index].0, updates[index].2));
-                seen[index] = true;
-            }
-        } else {
-            text.push_str(line);
-        }
-    }
-    if !text.is_empty() && !text.ends_with('\n') {
-        text.push('\n');
-    }
-    for (index, (key, _, value)) in updates.iter().enumerate() {
-        if !seen[index] {
-            text.push_str(&format!("{key}={value}\n"));
-        }
-    }
-    let save = || -> std::io::Result<()> {
-        let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(home))?;
-        file.write_all(text.as_bytes())?;
-        file.as_file().sync_all()?;
-        file.persist(&path).map_err(|e| e.error)?;
-        Ok(())
-    };
-    save().map_err(|_| "SenseNova 续期凭据保存失败".to_string())
+    save_private_provider_session(&path, &serde_json::json!({
+        "username": provider_env_value(home, "SENSENOVA_USERNAME"),
+        "access_token": access,
+        "refresh_token": refresh,
+        "expires_at": expires_at,
+    })).map_err(|_| "SenseNova 会话缓存保存失败".to_string())
+}
+
+#[derive(Debug)]
+enum SenseNovaRefreshError {
+    InvalidGrant,
+    Other(String),
+}
+
+impl From<String> for SenseNovaRefreshError {
+    fn from(value: String) -> Self { Self::Other(value) }
 }
 
 async fn sensenova_refresh_auth(
     state: &AppState,
     usage_url: &str,
     prior: &SenseNovaAuthState,
-) -> Result<SenseNovaAuthState, String> {
+) -> Result<SenseNovaAuthState, SenseNovaRefreshError> {
     if prior.refresh.is_empty() {
-        return Err("SenseNova 登录已过期，缺少 SENSENOVA_REFRESH_TOKEN".into());
+        return Err(SenseNovaRefreshError::Other("SenseNova 会话缺少 refresh token".into()));
     }
     let mut url =
         reqwest::Url::parse(usage_url).map_err(|_| "SenseNova 续期地址无效".to_string())?;
@@ -256,15 +244,26 @@ async fn sensenova_refresh_auth(
         .await
         .map_err(|_| "SenseNova 登录续期请求失败".to_string())?;
     if !response.status().is_success() {
-        return Err(format!(
-            "SenseNova 登录续期返回 HTTP {}，请重新登录控制台",
-            response.status().as_u16()
-        ));
+        let status = response.status();
+        if matches!(status.as_u16(), 400 | 401)
+            && response.json::<Value>().await.ok().and_then(|value| value.get("error").and_then(Value::as_str).map(str::to_string)).as_deref() == Some("invalid_grant")
+        {
+            return Err(SenseNovaRefreshError::InvalidGrant);
+        }
+        return Err(SenseNovaRefreshError::Other(format!("SenseNova 登录续期返回 HTTP {}", status.as_u16())));
     }
     let value = response
         .json::<Value>()
         .await
         .map_err(|_| "SenseNova 续期响应无效".to_string())?;
+    sensenova_apply_auth(state, prior, &value).await.map_err(Into::into)
+}
+
+async fn sensenova_apply_auth(
+    state: &AppState,
+    prior: &SenseNovaAuthState,
+    value: &Value,
+) -> Result<SenseNovaAuthState, String> {
     let token = |key: &str| {
         value
             .get(key)
@@ -279,7 +278,6 @@ async fn sensenova_refresh_auth(
     } else {
         &prior.refresh
     };
-    sensenova_persist_auth(&state.hermes_home, prior, access, refresh)?;
     let expires_at = sensenova_access_expiry(access).or_else(|| {
         value
             .get("expires_in")
@@ -287,15 +285,86 @@ async fn sensenova_refresh_auth(
             .filter(|seconds| *seconds > 0)
             .and_then(|seconds| chrono::Utc::now().timestamp().checked_add(seconds))
     });
+    sensenova_persist_auth(&state.hermes_home, prior, access, refresh, expires_at)?;
     let auth = SenseNovaAuthState {
         expires_at,
-        source_access: provider_env_value(&state.hermes_home, "SENSENOVA_ACCESS_TOKEN"),
-        source_refresh: provider_env_value(&state.hermes_home, "SENSENOVA_REFRESH_TOKEN"),
+        source_access: access.into(),
+        source_refresh: refresh.into(),
         access: access.into(),
         refresh: refresh.into(),
     };
     *state.provider_usage_cache.sensenova_auth.lock().await = Some(auth.clone());
     Ok(auth)
+}
+
+fn sensenova_login_endpoints(usage_url: &str) -> Result<Value, String> {
+    let url = reqwest::Url::parse(usage_url).map_err(|_| "SenseNova 认证地址无效".to_string())?;
+    let base = url.origin().ascii_serialization();
+    if base == "https://platform.sensenova.cn" {
+        return Ok(serde_json::json!({
+            "oauth_base": base,
+            "iam_base": "https://iam.sensecoreapi.cn/iam/authn",
+            "jwks_url": "https://signin.sensecore.cn/.well-known/jwks.json",
+        }));
+    }
+    if url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "::1")) {
+        return Ok(serde_json::json!({
+            "oauth_base": base,
+            "iam_base": format!("{base}/iam/authn"),
+            "jwks_url": format!("{base}/.well-known/jwks.json"),
+        }));
+    }
+    Err("SenseNova 不支持此认证服务地址".into())
+}
+
+async fn sensenova_password_auth(
+    state: &AppState,
+    usage_url: &str,
+    prior: &SenseNovaAuthState,
+) -> Result<SenseNovaAuthState, String> {
+    if !sensenova_password_configured(&state.hermes_home) {
+        return Err("SenseNova 需要 SENSENOVA_USERNAME 和 SENSENOVA_PASSWORD".into());
+    }
+    let agent_dir = hermes_agent_dir(state);
+    let endpoints = sensenova_login_endpoints(usage_url)?;
+    let output = timeout(
+        Duration::from_secs(90),
+        Command::new(hermes_python_command(&agent_dir))
+            .arg("-c")
+            .arg(include_str!("sensenova_login.py"))
+            .env("SENSENOVA_USERNAME", provider_env_value(&state.hermes_home, "SENSENOVA_USERNAME"))
+            .env("SENSENOVA_PASSWORD", provider_env_value(&state.hermes_home, "SENSENOVA_PASSWORD"))
+            .env("SENSENOVA_AUTH_ENDPOINTS", endpoints.to_string())
+            .kill_on_drop(true)
+            .output(),
+    ).await.map_err(|_| "SenseNova 密码登录超时".to_string())?
+        .map_err(|_| "SenseNova 密码登录组件启动失败".to_string())?;
+    if !output.status.success() {
+        return Err("SenseNova 密码登录失败或需要交互验证".into());
+    }
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "SenseNova 密码登录响应无效".to_string())?;
+    if value.get("refresh_token").and_then(Value::as_str).is_none_or(str::is_empty) {
+        return Err("SenseNova 密码登录未返回 refresh token".into());
+    }
+    sensenova_apply_auth(state, prior, &value).await
+}
+
+async fn sensenova_renew_auth(
+    state: &AppState,
+    usage_url: &str,
+    prior: &SenseNovaAuthState,
+) -> Result<SenseNovaAuthState, String> {
+    if prior.refresh.is_empty()
+        || sensenova_access_expiry(&prior.refresh).is_some_and(|expiry| expiry <= chrono::Utc::now().timestamp())
+    {
+        return sensenova_password_auth(state, usage_url, prior).await;
+    }
+    match sensenova_refresh_auth(state, usage_url, prior).await {
+        Ok(auth) => Ok(auth),
+        Err(SenseNovaRefreshError::InvalidGrant) => sensenova_password_auth(state, usage_url, prior).await,
+        Err(SenseNovaRefreshError::Other(message)) => Err(message),
+    }
 }
 
 async fn sensenova_pool_response(
@@ -329,15 +398,17 @@ async fn fetch_sensenova_usage_from_url(state: &AppState, url: &str) -> Provider
     };
     let mut auth = sensenova_current_auth(state).await;
     if auth.access.is_empty() {
-        failure.errors.push("缺少 SENSENOVA_ACCESS_TOKEN".into());
-        return failure;
+        let renewed = sensenova_renew_auth(state, url, &auth).await;
+        auth = match renewed {
+            Ok(auth) => auth,
+            Err(error) => { failure.errors.push(error); return failure; }
+        };
     }
-    let proactive = !auth.refresh.is_empty()
-        && auth
+    let proactive = auth
             .expires_at
             .is_some_and(|expires| expires <= chrono::Utc::now().timestamp() + 120);
     if proactive {
-        auth = match sensenova_refresh_auth(state, url, &auth).await {
+        auth = match sensenova_renew_auth(state, url, &auth).await {
             Ok(auth) => auth,
             Err(error) => {
                 failure.errors.push(error);
@@ -353,10 +424,9 @@ async fn fetch_sensenova_usage_from_url(state: &AppState, url: &str) -> Provider
         }
     };
     let response = if response.status() == reqwest::StatusCode::UNAUTHORIZED
-        && !auth.refresh.is_empty()
         && !proactive
     {
-        auth = match sensenova_refresh_auth(state, url, &auth).await {
+        auth = match sensenova_renew_auth(state, url, &auth).await {
             Ok(auth) => auth,
             Err(error) => {
                 failure.errors.push(error);

@@ -166,3 +166,16 @@ fn extract_cookie_value(cookie: &str, name: &str) -> String {
         .find_map(|(key, value)| (key.trim() == name).then(|| value.trim().trim_matches('"').to_string()))
         .unwrap_or_default()
 }
+
+fn save_private_provider_session<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    let save = || -> anyhow::Result<()> {
+        let parent = path.parent().ok_or_else(|| anyhow::anyhow!("invalid session path"))?;
+        std::fs::create_dir_all(parent)?;
+        let mut file = tempfile::NamedTempFile::new_in(parent)?;
+        file.write_all(&serde_json::to_vec(value)?)?;
+        file.as_file().sync_all()?;
+        file.persist(path).map_err(|error| error.error)?;
+        Ok(())
+    };
+    save().map_err(|_| "私有会话缓存保存失败".to_string())
+}

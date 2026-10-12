@@ -28,15 +28,8 @@ fn save_mimo_service_cookie(
     hermes_home: &std::path::Path,
     values: &HashMap<String, String>,
 ) -> Result<(), String> {
-    let path = mimo_service_cookie_path(hermes_home);
-    let parent = path
-        .parent()
-        .ok_or_else(|| "MiMo 会话缓存路径无效".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|err| format!("创建 MiMo 会话缓存目录失败：{err}"))?;
-    let tmp = path.with_extension("json.tmp");
-    let body = serde_json::to_vec(values).map_err(|err| format!("序列化 MiMo 会话失败：{err}"))?;
-    std::fs::write(&tmp, body).map_err(|err| format!("写入 MiMo 会话缓存失败：{err}"))?;
-    std::fs::rename(tmp, path).map_err(|err| format!("保存 MiMo 会话缓存失败：{err}"))
+    save_private_provider_session(&mimo_service_cookie_path(hermes_home), values)
+        .map_err(|_| "MiMo 会话缓存保存失败".to_string())
 }
 
 async fn refresh_mimo_service_cookie(state: &AppState) -> Result<String, String> {

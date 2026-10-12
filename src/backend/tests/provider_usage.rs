@@ -3,15 +3,15 @@ mod provider_usage_tests {
     use super::*;
 
     #[test]
-    fn sensenova_catalog_requires_console_token_not_inference_key() {
+    fn sensenova_catalog_requires_console_login_not_inference_key() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join("config.yaml"), "custom_providers:\n  - name: sensenova\n    api_key: '[REDACTED]'\n").unwrap();
         let meta = provider_usage_catalog(temp.path()).into_iter().find(|item| item.provider == "sensenova").expect("SenseNova Token Plan card");
         assert!(meta.configured);
         assert!(!meta.query_ready);
         assert_eq!(meta.title, "SenseNova Token Plan 用量");
-        assert_eq!(meta.credential_hint, "SENSENOVA_ACCESS_TOKEN");
-        std::fs::write(temp.path().join(".env"), "SENSENOVA_ACCESS_TOKEN='[REDACTED]'\n").unwrap();
+        assert_eq!(meta.credential_hint, "SENSENOVA_USERNAME + SENSENOVA_PASSWORD");
+        write_sensenova_test_session(temp.path(), "[REDACTED]", "[REDACTED]", None);
         assert!(provider_usage_catalog(temp.path()).into_iter().find(|item| item.provider == "sensenova").unwrap().query_ready);
         assert_eq!(provider_icon_url("sensenova"), Some("https://platform.sensenova.cn/favicon.ico".into()));
     }
@@ -59,8 +59,8 @@ mod provider_usage_tests {
         let temp = tempfile::tempdir().unwrap();
         let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
         let missing = fetch_provider_usage_section(&state, "sensenova", None, true).await;
-        assert_eq!(missing.errors, ["缺少 SENSENOVA_ACCESS_TOKEN"]);
-        std::fs::write(temp.path().join(".env"), "SENSENOVA_ACCESS_TOKEN='[REDACTED]'\n").unwrap();
+        assert_eq!(missing.errors, ["SenseNova 需要 SENSENOVA_USERNAME 和 SENSENOVA_PASSWORD"]);
+        write_sensenova_test_session(temp.path(), "[REDACTED]", "[REDACTED]", None);
         let section = fetch_sensenova_usage_from_url(&state, &format!("http://{addr}/pool-usage")).await;
         assert!(section.errors.is_empty());
         assert_eq!(section.windows.len(), 5);
@@ -119,7 +119,8 @@ mod provider_usage_tests {
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join(".env");
-        std::fs::write(&path, "# retained\nUNRELATED='unchanged'\nSENSENOVA_ACCESS_TOKEN='[REDACTED]'\nSENSENOVA_REFRESH_TOKEN='[REDACTED]'\n").unwrap();
+        std::fs::write(&path, "# retained\nUNRELATED='unchanged'\n").unwrap();
+        write_sensenova_test_session(temp.path(), "[REDACTED]", "[REDACTED]", None);
         let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
         let section = fetch_sensenova_usage_from_url(&state, &format!("http://{addr}/pool-usage")).await;
         assert!(section.errors.is_empty(), "authenticated usage must recover after refresh");
@@ -127,12 +128,12 @@ mod provider_usage_tests {
         assert_eq!(section.pools.len(), 2);
         let saved = std::fs::read_to_string(&path).unwrap();
         assert!(saved.starts_with("# retained\nUNRELATED='unchanged'\n"));
-        assert!(saved.contains("SENSENOVA_ACCESS_TOKEN=[REDACTED]\n"), "updated access must be persisted");
-        assert!(saved.contains("SENSENOVA_REFRESH_TOKEN=[REDACTED]\n"), "refresh rotation must be persisted");
+        assert!(!saved.contains("SENSENOVA_ACCESS_TOKEN"), "temporary access must not be written into env");
+        assert!(!saved.contains("SENSENOVA_REFRESH_TOKEN"), "temporary refresh must not be written into env");
         assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
         #[cfg(unix)] {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(std::fs::metadata(sensenova_service_token_path(temp.path())).unwrap().permissions().mode() & 0o777, 0o600);
         }
     }
 
@@ -168,7 +169,7 @@ mod provider_usage_tests {
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let temp = tempfile::tempdir().unwrap();
         let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(serde_json::json!({"exp":chrono::Utc::now().timestamp()+60}).to_string());
-        std::fs::write(temp.path().join(".env"), format!("SENSENOVA_ACCESS_TOKEN=[REDACTED].{claims}.[REDACTED]\nSENSENOVA_REFRESH_TOKEN=[REDACTED]\n")).unwrap();
+        write_sensenova_test_session(temp.path(), &format!("[REDACTED].{claims}.[REDACTED]"), "[REDACTED]", None);
         let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
         let url = format!("http://{addr}/pool-usage");
         let (first, second) = tokio::join!(fetch_sensenova_usage_from_url(&state, &url), fetch_sensenova_usage_from_url(&state, &url));
@@ -179,7 +180,7 @@ mod provider_usage_tests {
         assert!(fetch_sensenova_usage_from_url(&restarted, &url).await.errors.is_empty());
         assert_eq!(refresh_calls.load(Ordering::SeqCst), 1);
         assert_eq!(usage_calls.load(Ordering::SeqCst), 3);
-        assert!(std::fs::read_to_string(temp.path().join(".env")).unwrap().contains("SENSENOVA_REFRESH_TOKEN=[REDACTED]\n"));
+        assert!(load_sensenova_service_auth(temp.path()).is_some_and(|auth| auth.refresh == "[REDACTED]"));
     }
 
     #[tokio::test]
@@ -211,19 +212,22 @@ mod provider_usage_tests {
             let temp = tempfile::tempdir().unwrap();
             let original = "OTHER=unchanged\nSENSENOVA_ACCESS_TOKEN=[REDACTED]\nSENSENOVA_REFRESH_TOKEN=[REDACTED]\n";
             std::fs::write(temp.path().join(".env"), original).unwrap();
+            write_sensenova_test_session(temp.path(), "[REDACTED]", "[REDACTED]", None);
+            let cache_before = std::fs::read(sensenova_service_token_path(temp.path())).unwrap();
             let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
             let section = fetch_sensenova_usage_from_url(&state, &format!("http://{addr}/pool-usage")).await;
             assert!(!section.errors.is_empty(), "failed renewal must remain visible");
             assert!(!followed.load(Ordering::SeqCst), "refresh must not follow redirects");
             assert!(section.pools.is_empty() && section.windows.is_empty());
             assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
-            assert!(std::fs::read_to_string(temp.path().join(".env")).unwrap() == original, "failed renewal must not replace saved credentials");
+            assert!(std::fs::read_to_string(temp.path().join(".env")).unwrap() == original, "failed renewal must not replace static configuration");
+            assert!(std::fs::read(sensenova_service_token_path(temp.path())).unwrap() == cache_before, "failed renewal must preserve prior service credentials");
             server.abort();
         }
     }
 
     #[tokio::test]
-    #[ignore = "opt-in real SenseNova renewal; rotates only its ~/.hermes/.env credentials"]
+    #[ignore = "opt-in real SenseNova renewal; rotates only its private service session cache"]
     async fn sensenova_live_refresh_smoke() {
         let home = PathBuf::from(env::var("SENSENOVA_LIVE_HOME").expect("explicit live home required"));
         let state = test_app_state("http://127.0.0.1:1".into(), &home);
@@ -232,8 +236,9 @@ mod provider_usage_tests {
         let refreshed = sensenova_refresh_auth(&state, SENSENOVA_POOL_USAGE_URL, &prior).await;
         assert!(refreshed.is_ok(), "real SenseNova renewal failed");
         let refreshed = refreshed.unwrap();
-        assert!(provider_env_value(&home, "SENSENOVA_ACCESS_TOKEN") == refreshed.access, "private access readback mismatch");
-        assert!(provider_env_value(&home, "SENSENOVA_REFRESH_TOKEN") == refreshed.refresh, "private refresh readback mismatch");
+        let saved = load_sensenova_service_auth(&home).unwrap();
+        assert!(saved.access == refreshed.access, "private access readback mismatch");
+        assert!(saved.refresh == refreshed.refresh, "private refresh readback mismatch");
         let section = fetch_sensenova_usage(&state).await;
         assert!(section.errors.is_empty(), "renewed real usage failed");
         assert!(!section.pools.is_empty());
@@ -248,12 +253,13 @@ mod provider_usage_tests {
             .route("/unauthorized", axum::routing::get(|| async { (axum::http::StatusCode::UNAUTHORIZED, "[REDACTED]") }))
             .route("/forbidden", axum::routing::get(|| async { (axum::http::StatusCode::FORBIDDEN, "[REDACTED]") }))
             .route("/html", axum::routing::get(|| async { "<html>[REDACTED]</html>" }))
-            .route("/schema", axum::routing::get(|| async { axum::Json(serde_json::json!({"message":"[REDACTED]"})) }));
+            .route("/schema", axum::routing::get(|| async { axum::Json(serde_json::json!({"message":"[REDACTED]"})) }))
+            .route("/oauth2/token", axum::routing::post(|| async { axum::Json(serde_json::json!({"access_token":"[REDACTED]", "refresh_token":"[REDACTED]", "expires_in":10800})) }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let temp = tempfile::tempdir().unwrap();
-        std::fs::write(temp.path().join(".env"), "SENSENOVA_ACCESS_TOKEN='[REDACTED]'\n").unwrap();
+        write_sensenova_test_session(temp.path(), "[REDACTED]", "[REDACTED]", None);
         let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
         for (path, expected) in [
             ("unauthorized", "SenseNova 积分查询返回 HTTP 401"),

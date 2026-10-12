@@ -4,6 +4,7 @@ mod tests {
 
     include!("tests/core.rs");
     include!("tests/skills.rs");
+    include!("tests/sensenova_auth.rs");
     include!("tests/models.rs");
     include!("tests/session_listing.rs");
     include!("tests/session_history.rs");

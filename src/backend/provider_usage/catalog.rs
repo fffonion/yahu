@@ -145,11 +145,14 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         (
             "sensenova",
             "SenseNova Token Plan 用量",
-            any_provider_env_value(hermes_home, &["SENSENOVA_ACCESS_TOKEN", "SENSENOVA_API_KEY"])
+            sensenova_password_configured(hermes_home)
+                || load_sensenova_service_auth(hermes_home).is_some()
+                || any_provider_env_value(hermes_home, &["SENSENOVA_API_KEY"])
                 || any_custom_provider_api_key(hermes_home, &["sensenova"]),
-            !provider_env_value(hermes_home, "SENSENOVA_ACCESS_TOKEN").is_empty(),
-            "SENSENOVA_ACCESS_TOKEN",
-            "配置 SenseNova 控制台网页登录的 access token；推理 API key 无法查询 Token Plan 积分。",
+            sensenova_password_configured(hermes_home)
+                || load_sensenova_service_auth(hermes_home).is_some_and(|auth| !auth.access.is_empty() || !auth.refresh.is_empty()),
+            "SENSENOVA_USERNAME + SENSENOVA_PASSWORD",
+            "配置 SenseNova 用户名和密码；临时 token 由 Yahu 私有会话缓存自动管理，推理 API key 无法查询 Token Plan 积分。",
         ),
         (
             "opencode",
