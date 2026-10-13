@@ -1,4 +1,4 @@
-"""Read the authorized skill roots for Yahu, including optional display copy."""
+"""Use Hermes' installed catalog, with a separate optional-skill library."""
 
 import json
 import os
@@ -6,11 +6,6 @@ import sys
 from pathlib import Path
 
 import yaml
-
-
-def yaml_mapping(text):
-    value = yaml.safe_load(text)
-    return value if isinstance(value, dict) else {}
 
 
 def read_frontmatter(path):
@@ -21,7 +16,8 @@ def read_frontmatter(path):
         return {}
     for index, line in enumerate(lines[1:], 1):
         if line.strip() == "---":
-            return yaml_mapping("\n".join(lines[1:index]))
+            value = yaml.safe_load("\n".join(lines[1:index]))
+            return value if isinstance(value, dict) else {}
     return {}
 
 
@@ -29,55 +25,83 @@ def display_copy(value, fallback):
     return value.strip() if isinstance(value, str) and value.strip() else fallback
 
 
-def inventory(roots, home):
-    config_path = home / "config.yaml"
+def enrich(row, *, installed, enabled, mutable):
     try:
-        config = yaml_mapping(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
-    except yaml.YAMLError:
-        raise ValueError("invalid skills configuration YAML") from None
-    skills_config = config.get("skills")
-    disabled_values = skills_config.get("disabled", []) if isinstance(skills_config, dict) else []
-    disabled = {name for name in disabled_values if isinstance(name, str)} if isinstance(disabled_values, list) else set()
-    found = {}
-    for root in roots:
+        frontmatter = read_frontmatter(Path(row["path"]))
+    except (OSError, UnicodeError, yaml.YAMLError):
+        frontmatter = {}
+    metadata = frontmatter.get("metadata")
+    hermes = metadata.get("hermes") if isinstance(metadata, dict) else None
+    hermes = hermes if isinstance(hermes, dict) else {}
+    name = row.get("load_name") or row["name"]
+    description = row.get("description") or ""
+    version = frontmatter.get("version", "")
+    return {
+        "name": name, "description": description,
+        "editorial_name": display_copy(hermes.get("editorial_name"), name),
+        "editorial_description": display_copy(hermes.get("editorial_description"), description),
+        "version": str(version) if isinstance(version, (str, int, float)) else "",
+        "category": row.get("category") or "uncategorized",
+        "installed": installed, "enabled": enabled, "mutable": mutable,
+    }
+
+
+def inventory(roots, home):
+    # Import the installed runtime; never start a chat or call the API server.
+    if os.environ.get("HERMES_AGENT_DIR"):
+        sys.path.insert(0, os.environ["HERMES_AGENT_DIR"])
+    import importlib.util
+    tools_spec = importlib.util.find_spec("tools")
+    for location in tools_spec.submodule_search_locations or [] if tools_spec else []:
+        runtime_root = Path(location).parent
+        if (runtime_root / "hermes_cli/config.py").is_file():
+            sys.path.insert(0, str(runtime_root))
+            break
+    from tools.skills_tool import (
+        _EXCLUDED_SKILL_DIRS, _get_disabled_skill_names, _parse_frontmatter,
+        _read_skill_text, _skill_catalog, _truncate_description,
+    )
+    from agent.skill_utils import (
+        is_disabled_entry, iter_skill_index_files, skill_matches_apps,
+        skill_matches_environment, skill_matches_platform,
+    )
+
+    disabled = _get_disabled_skill_names()
+    # One shared scan applies compatibility, root precedence, ambiguity and
+    # directory-name fallback exactly as Hermes skills_list does.
+    catalog = _skill_catalog(skip_disabled=True)
+    installed_names = {row["name"] for row in catalog}
+    installed = [enrich(
+        row, installed=True, enabled=not is_disabled_entry(row, disabled),
+        mutable=Path(row["path"]).resolve().is_relative_to((home / "skills").resolve()),
+    ) for row in catalog if row.get("load_name")]
+
+    optional = {}
+    for root in roots[1:]:
         root = root.resolve()
         if not root.is_dir():
             continue
-        for directory, dirs, files in os.walk(root, followlinks=False):
-            dirs[:] = sorted(name for name in dirs if name != ".archive")
-            if "SKILL.md" not in files:
-                continue
-            dirs[:] = []
-            path = Path(directory) / "SKILL.md"
-            if not path.resolve().is_relative_to(root):
+        for path in iter_skill_index_files(root, "SKILL.md"):
+            if any(part in _EXCLUDED_SKILL_DIRS for part in path.parts) or not path.resolve().is_relative_to(root):
                 continue
             try:
-                frontmatter = read_frontmatter(path)
-            except (OSError, UnicodeError, yaml.YAMLError):
+                frontmatter, body = _parse_frontmatter(_read_skill_text(path)[:4000])
+                if not (skill_matches_platform(frontmatter) and skill_matches_environment(frontmatter) and skill_matches_apps(frontmatter)):
+                    continue
+                name = frontmatter.get("name", path.parent.name)
+                if name in installed_names or name in optional:
+                    continue
+                description = frontmatter.get("description") or next((line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#")), "")
+                category = str(path.parent.relative_to(root).parent)
+                optional[name] = enrich({
+                    "name": name, "description": _truncate_description(description),
+                    "category": category if category != "." else "uncategorized", "path": path,
+                }, installed=False, enabled=False, mutable=False)
+            except (OSError, UnicodeError, ValueError, TypeError):
                 continue
-            name = frontmatter.get("name")
-            if not isinstance(name, str) or not name or name in found:
-                continue
-            description = frontmatter.get("description")
-            description = description if isinstance(description, str) else ""
-            metadata = frontmatter.get("metadata")
-            hermes = metadata.get("hermes") if isinstance(metadata, dict) else None
-            hermes = hermes if isinstance(hermes, dict) else {}
-            category = str(Path(directory).relative_to(root).parent)
-            version = frontmatter.get("version", "")
-            found[name] = {
-                "name": name,
-                "description": description,
-                "editorial_name": display_copy(hermes.get("editorial_name"), name),
-                "editorial_description": display_copy(hermes.get("editorial_description"), description),
-                "version": str(version) if isinstance(version, (str, int, float)) else "",
-                "category": category if category != "." else "uncategorized",
-                "enabled": name not in disabled,
-            }
-    return sorted(found.values(), key=lambda row: (row["category"], row["name"]))
+    order = lambda row: (row["category"], row["name"])
+    return {"object": "list", "data": sorted(installed, key=order), "optional": sorted(optional.values(), key=order)}
 
 
 if __name__ == "__main__":
-    print(json.dumps({"object": "list", "data": inventory(
-        [Path(root) for root in sys.argv[1:]], Path(os.environ["HERMES_HOME"])
-    )}, ensure_ascii=False))
+    print(json.dumps(inventory([Path(root) for root in sys.argv[1:]], Path(os.environ["HERMES_HOME"])), ensure_ascii=False))

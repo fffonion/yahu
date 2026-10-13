@@ -75,7 +75,7 @@ type SessionContextMenu = { session: Session; x: number; y: number } | null;
 type SkillContextMenu = { skill: Skill; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
 type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'hex' | 'none'; url?: string; editRequest?: number; totalSize?: number; truncated?: boolean };
-type Skill = { name: string; description?: string; editorial_name?: string; editorial_description?: string; version?: string; category?: string; enabled?: boolean };
+type Skill = { name: string; description?: string; editorial_name?: string; editorial_description?: string; version?: string; category?: string; enabled?: boolean; installed?: boolean; mutable?: boolean };
 type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y: number } | null;
 type WorkspaceContextMenu = { entry: WorkspaceEntry; x: number; y: number } | null;
 type DialogState = { variant: 'prompt' | 'confirm'; title: string; message: string; value?: string; danger?: boolean; resolve: (value: any) => void } | null;
@@ -1613,11 +1613,12 @@ export default function App() {
       const res = await fetch('/skills/list', { cache: 'no-store' });
       if (!res.ok) throw new Error(await res.text());
       const body = await res.json();
-      const list: Skill[] = body.data || body.skills || [];
+      const list: Skill[] = [...(body.data || body.skills || []), ...(body.optional || [])];
       setSkillList(list);
     } catch (err) { setStatus(tf('status.skillsUnavailable', errorMessage(err))); }
   }, []);
   const toggleSkillEnabled = useCallback(async (skill: Skill, enabled: boolean) => {
+    if (skill.installed === false) return;
     const res = await fetch(`/skills/toggle/${encodeURIComponent(skill.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
     if (!res.ok) { setStatus(tf('status.skillToggleFailed', await res.text())); return; }
     setSkillList((old) => {
@@ -1626,6 +1627,7 @@ export default function App() {
     setStatus(tf(enabled ? 'status.skillEnabled' : 'status.skillDisabled', skill.name));
   }, []);
   const openSkillMenu = (skill: Skill, event: React.MouseEvent) => {
+    if (skill.mutable === false) return;
     event.preventDefault();
     event.stopPropagation();
     const x = Math.min(event.clientX, window.innerWidth - 190);
@@ -1650,6 +1652,7 @@ export default function App() {
   };
   const skillEntryParentPath = (path: string) => path.split('/').filter(Boolean).slice(0, -1).join('/');
   const openSkillFileMenu = (skill: Skill, entry: WorkspaceEntry, event: React.MouseEvent) => {
+    if (skill.mutable === false) return;
     event.preventDefault();
     event.stopPropagation();
     const x = Math.min(event.clientX, window.innerWidth - 190);
@@ -4462,8 +4465,12 @@ function MarqueeText({ children }: { children: React.ReactNode }) {
 }
 
 function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnabled, openSkillMenu, filter, setFilter, expandedCats, setExpandedCats, closeMobileSidebar }: { skills: Skill[]; activeSkillName: string; selectSkill: (skill: Skill) => void; toggleSkillEnabled: (skill: Skill, enabled: boolean) => void; openSkillMenu: (skill: Skill, event: React.MouseEvent) => void; filter: string; setFilter: (v: string) => void; expandedCats: Set<string>; setExpandedCats: (v: Set<string>) => void; closeMobileSidebar: () => void }) {
-  const enabledCount = skills.filter((skill) => skill.enabled !== false).length;
-  const grouped = skills.reduce<Record<string, Skill[]>>((acc, skill) => { const cat = skill.category || 'uncategorized'; if (cat === '.archive') return acc; (acc[cat] ||= []).push(skill); return acc; }, {});
+  const [inventoryView, setInventoryView] = useState<'installed' | 'optional'>('installed');
+  const installedSkills = skills.filter((skill) => skill.installed !== false);
+  const optionalSkills = skills.filter((skill) => skill.installed === false);
+  const enabledCount = installedSkills.filter((skill) => skill.enabled !== false).length;
+  const visibleSkills = inventoryView === 'installed' ? installedSkills : optionalSkills;
+  const grouped = visibleSkills.reduce<Record<string, Skill[]>>((acc, skill) => { const cat = skill.category || 'uncategorized'; if (cat === '.archive') return acc; (acc[cat] ||= []).push(skill); return acc; }, {});
   const cats = Object.keys(grouped).sort();
   const query = filter.trim().toLowerCase();
   const filteredCats = query ? cats.filter((cat) => grouped[cat].some((s) => skillMatchesQuery(s, query))) : cats;
@@ -4506,7 +4513,7 @@ function SkillsSidebar({ skills, activeSkillName, selectSkill, toggleSkillEnable
     event.stopPropagation();
     suppressSkillClickRef.current = false;
   };
-  return <><div className="cron-sidebar-head"><div><h2>{t('skills.title')}</h2><p>{enabledCount} {t('skills.enabledCount')} | {skills.length} {t('skills.installed')}</p></div></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div ref={skillsListRef} className="skills-list sessions" onWheel={handleSkillWheel} onPointerDown={handleSkillPointerDown} onPointerMove={handleSkillPointerMove} onPointerUp={finishSkillPan} onPointerCancel={finishSkillPan} onClickCapture={handleSkillClickCapture}>{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} aria-expanded={expandedCats.has(cat)} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skillDisplayName(skill)}{skill.version ? <span className="skill-version">{skill.version}</span> : null}</span><span className="session-preview">{skillDisplayDescription(skill) || t('skills.noDescription')}</span></span><span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} /></button>)}</React.Fragment>)}</div></>;
+  return <><div className="cron-sidebar-head"><div><h2>{t('skills.title')}</h2><p>{enabledCount} {t('skills.enabledCount')} | {installedSkills.length} {t('skills.installed')}</p></div></div><div className="skills-inventory-tabs" role="tablist" aria-label={t('skills.library')}><button type="button" role="tab" aria-selected={inventoryView === 'installed'} onClick={() => setInventoryView('installed')}>{t('skills.installedLibrary')} <span>{installedSkills.length}</span></button><button type="button" role="tab" aria-selected={inventoryView === 'optional'} onClick={() => setInventoryView('optional')}>{t('skills.optionalLibrary')} <span>{optionalSkills.length}</span></button></div><div className="session-searchbar"><input className="filter" placeholder={t('skills.search')} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ gridColumn: '1 / -1' }} /></div><div ref={skillsListRef} className="skills-list sessions" onWheel={handleSkillWheel} onPointerDown={handleSkillPointerDown} onPointerMove={handleSkillPointerMove} onPointerUp={finishSkillPan} onPointerCancel={finishSkillPan} onClickCapture={handleSkillClickCapture}>{filteredCats.map((cat) => <React.Fragment key={cat}><div className="section-label" role="button" tabIndex={0} aria-expanded={expandedCats.has(cat)} onClick={() => toggleCat(cat)} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleCat(cat); } }}>{expandedCats.has(cat) ? <ChevronDown /> : <ChevronRight />} {cat}</div>{expandedCats.has(cat) && filteredSkills(cat).map((skill) => <button type="button" className={`skill-row session-item ${skill.name === activeSkillName ? 'active' : ''}`} key={skill.name} onClick={() => { selectSkill(skill); closeMobileSidebar(); }} onContextMenu={(ev) => openSkillMenu(skill, ev)}><span className="session-text"><span className="session-title">{skillDisplayName(skill)}{skill.version ? <span className="skill-version">{skill.version}</span> : null}</span><span className="session-preview">{skillDisplayDescription(skill) || t('skills.noDescription')}</span></span>{skill.installed !== false && <span className="skill-enable-toggle" role="switch" aria-checked={skill.enabled !== false} tabIndex={0} onClick={(ev) => { ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); }} onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); toggleSkillEnabled(skill, !(skill.enabled !== false)); } }} />} </button>)}</React.Fragment>)}</div></>;
 }
 type SkillBackup = { id?: string | number; version?: string | number; reason?: string };
 
@@ -4520,7 +4527,7 @@ function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarO
   const [rollbacking, setRollbacking] = useState(false);
   useEffect(() => {
     setBackups([]);
-    if (!skill) return;
+    if (!skill || skill.mutable === false) return;
     fetch(`/skills/backups?name=${encodeURIComponent(skill.name)}`, { cache: 'no-store' }).then((r) => r.ok ? r.json() : []).then((data) => setBackups(Array.isArray(data) ? data : [])).catch(() => {});
   }, [skill]);
   const doRollback = async (id: string) => {
@@ -4540,7 +4547,7 @@ function SkillMain({ skill, preview, setPreview, theme, setTheme, mobileSidebarO
     label: String(backup.version),
     description: String(backup.reason || t('skills.snapshot')),
   }));
-  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div className="skill-header-copy"><h1>{skillDisplayName(skill) || t('skills.title')}</h1><MarqueeText>{skillDisplayDescription(skill) || t('skills.select')}{skill?.version ? <span className="skill-version">{skill.version}</span> : null}</MarqueeText></div><HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} toolbarExtra={skill ? <DropdownControl icon={<History />} ariaLabel={t('skills.backups')} value="" options={historyOptions} onChange={doRollback} placement="down" iconOnly className="skill-history-dropdown" emptyLabel={t('skills.noVersions')} /> : null} /></main>;
+  return <main className="main-panel skills-main"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div className="skill-header-copy"><h1>{skillDisplayName(skill) || t('skills.title')}</h1><MarqueeText>{skillDisplayDescription(skill) || t('skills.select')}{skill?.version ? <span className="skill-version">{skill.version}</span> : null}</MarqueeText></div><HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview readOnly={skill?.mutable === false} preview={preview} setPreview={setPreview} emptyIcon={Puzzle} emptyTitle={t('skills.select')} emptyDesc={t('skills.selectHint')} saveUrl={skill ? (path: string) => `/skills/file?name=${encodeURIComponent(skill.name)}&path=${encodeURIComponent(path)}` : undefined} toolbarExtra={skill ? <DropdownControl icon={<History />} ariaLabel={t('skills.backups')} value="" options={historyOptions} onChange={doRollback} placement="down" iconOnly className="skill-history-dropdown" emptyLabel={t('skills.noVersions')} /> : null} /></main>;
 }
 function SkillWorkspaceAside({ skill, skillFileTree, expandedSkillPaths, toggleSkillFolder, openSkillFile, openSkillFileMenu }: { skill: Skill | null; skillFileTree: Record<string, WorkspaceEntry[]>; expandedSkillPaths: Set<string>; toggleSkillFolder: (entry: WorkspaceEntry) => void; openSkillFile: (skillName: string, path: string) => void; openSkillFileMenu: (skill: Skill, entry: WorkspaceEntry, event: React.MouseEvent) => void }) {
   const triggerSkillDownload = (skill: Skill) => {
@@ -4569,18 +4576,20 @@ type WorkspaceEditorPreviewProps = {
   emptyDesc?: string;
   saveUrl?: (path: string) => string;
   toolbarExtra?: React.ReactNode;
+  readOnly?: boolean;
 };
 
-function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl, toolbarExtra }: WorkspaceEditorPreviewProps) {
+function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl, toolbarExtra, readOnly = false }: WorkspaceEditorPreviewProps) {
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const startEdit = () => { setEditContent(preview.content || ''); setEditMode(true); };
   const cancelEdit = () => { setEditMode(false); setEditContent(''); };
   const copyEditContent = async () => { await navigator.clipboard.writeText(editContent); };
-  useEffect(() => { setEditMode(false); setEditContent(''); }, [preview.path]);
-  useEffect(() => { if (preview.editRequest && preview.kind === 'text') startEdit(); }, [preview.editRequest]);
+  useEffect(() => { setEditMode(false); setEditContent(''); }, [preview.path, readOnly]);
+  useEffect(() => { if (!readOnly && preview.editRequest && preview.kind === 'text') startEdit(); }, [preview.editRequest]);
   const saveEdit = async () => {
+    if (readOnly) return;
     setSaving(true);
     try {
       const target = saveUrl ? saveUrl(preview.path) : `/workspace/file?path=${encodeURIComponent(preview.path)}`;
@@ -4598,7 +4607,7 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   const readOnlyPreview = preview.kind === 'hex'
     ? <div className="workspace-hex-preview">{preview.truncated && <div className="workspace-hex-note">{tf('workspace.hexPreviewTruncated', formatFileSize(preview.totalSize || 0))}</div>}<pre className="workspace-hex-viewer">{preview.content}</pre></div>
     : <div className="workspace-text-preview">{textPreview}</div>;
-  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.copyContent')} title={t('workspace.copyContent')} onClick={copyEditContent}><Copy /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightSourceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : readOnlyPreview}</section>;
+  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!readOnly && !editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.copyContent')} title={t('workspace.copyContent')} onClick={copyEditContent}><Copy /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightSourceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : readOnlyPreview}</section>;
 }
 type WorkspaceBrowserProps = WorkspaceTreeProps & {
   preview: WorkspacePreview;

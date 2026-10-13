@@ -38,8 +38,8 @@ describe('skills UI', () => {
   test('skills header shows enabled and installed totals', () => {
     const source = app();
     const translations = i18n();
-    expect(source).toContain('const enabledCount = skills.filter((skill) => skill.enabled !== false).length;');
-    expect(source).toContain("{enabledCount} {t('skills.enabledCount')} | {skills.length} {t('skills.installed')}");
+    expect(source).toContain('const enabledCount = installedSkills.filter((skill) => skill.enabled !== false).length;');
+    expect(source).toContain("{enabledCount} {t('skills.enabledCount')} | {installedSkills.length} {t('skills.installed')}");
     expect(translations).toContain("'skills.enabledCount': { en: 'enabled', 'zh-CN': '已启用', 'zh-TW': '已啟用', ja: '有効' }");
     expect(translations).toContain("'skills.installed': { en: 'installed', 'zh-CN': '已安装', 'zh-TW': '已安裝', ja: 'インストール済み' }");
   });

@@ -37,6 +37,42 @@
     }
 
     #[tokio::test]
+    async fn skills_inventory_separates_optional_and_uses_hermes_name_and_platform_rules() {
+        let temp = tempfile::tempdir().unwrap();
+        for (relative, text) in [
+            ("skills/testing/unnamed", "# Unnamed\nFallback description\n"),
+            ("skills/testing/enabled", "---\nname: enabled\ndescription: Enabled\n---\n"),
+            ("skills/testing/disabled", "---\nname: disabled\ndescription: Disabled\n---\n"),
+            ("skills/testing/mac-only", "---\nname: mac-only\ndescription: Mac\nplatforms: [macos]\n---\n"),
+            ("hermes-agent/optional-skills/testing/candidate", "---\nname: candidate\ndescription: Optional\n---\n"),
+        ] {
+            let dir = temp.path().join(relative);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("SKILL.md"), text).unwrap();
+        }
+        std::fs::write(temp.path().join("config.yaml"), "skills:\n  disabled: [disabled]\n").unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
+        let response = skills_list(State(state.clone())).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let data = payload["data"].as_array().unwrap();
+        let names: HashSet<_> = data.iter().map(|row| row["name"].as_str().unwrap()).collect();
+        assert_eq!(names, HashSet::from(["unnamed", "enabled", "disabled"]));
+        assert_eq!(data.iter().filter(|row| row["enabled"] == true).count(), 2);
+        assert!(data.iter().all(|row| row["installed"] == true));
+        let optional = payload["optional"].as_array().unwrap();
+        assert_eq!(optional.len(), 1);
+        assert_eq!(optional[0]["name"], "candidate");
+        assert_eq!(optional[0]["installed"], false);
+        assert_eq!(optional[0]["enabled"], false);
+        assert_eq!(optional[0]["mutable"], false);
+        assert!(find_skill_dir(&state, "unnamed").is_ok());
+        let response = skill_toggle(State(state), AxumPath("candidate".into()), Json(SkillTogglePayload { enabled: true })).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "optional candidates must not be presented as installed toggles");
+    }
+
+    #[tokio::test]
     async fn skills_inventory_fallback_preserves_root_precedence_and_skips_archives() {
         let temp = tempfile::tempdir().unwrap();
         let user = temp.path().join("skills/testing/plain");

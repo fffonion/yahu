@@ -7,6 +7,8 @@ async fn skills_list(State(state): State<Arc<AppState>>) -> Response<Body> {
             .arg(include_str!("skills_inventory.py"))
             .args(skill_roots(&state))
             .env("HERMES_HOME", &state.hermes_home)
+            .env("HERMES_AGENT_DIR", &agent_dir)
+            .current_dir(&state.hermes_home)
             .kill_on_drop(true)
             .output(),
     )
@@ -259,8 +261,11 @@ async fn skill_toggle(
     AxumPath(name): AxumPath<String>,
     Json(payload): Json<SkillTogglePayload>,
 ) -> Response<Body> {
-    if find_skill_dir(&state, &name).is_err() {
-        return json_error(StatusCode::NOT_FOUND, "skill not found");
+    if let Err(err) = user_skill_dir(&state, &name) {
+        if err.to_string().contains("skill directory is not user-deletable") {
+            return json_error(StatusCode::FORBIDDEN, "optional skills must be installed before enabling");
+        }
+        return skill_mutation_error(err);
     }
     match set_skill_enabled(&state, &name, payload.enabled).await {
         Ok(()) => Json(serde_json::json!({"ok": true, "name": name, "enabled": payload.enabled}))
@@ -442,9 +447,8 @@ fn collect_skill_dirs(
         let Ok(text) = std::fs::read_to_string(&skill_md) else {
             return;
         };
-        let Some(name) = frontmatter_value(&text, "name") else {
-            return;
-        };
+        let name = frontmatter_value(&text, "name").filter(|value| !value.is_empty())
+            .unwrap_or_else(|| dir.file_name().and_then(OsStr::to_str).unwrap_or_default().to_string());
         let description = frontmatter_value(&text, "description").unwrap_or_default();
         let category = dir
             .parent()
@@ -499,6 +503,12 @@ fn frontmatter_value(text: &str, key: &str) -> Option<String> {
 }
 
 fn find_skill_dir(state: &AppState, name: &str) -> anyhow::Result<PathBuf> {
+    if name.contains('/') {
+        for root in skill_roots(state) {
+            let Ok(dir) = resolve_skill_file_path(&root, name) else { continue; };
+            if dir.join("SKILL.md").is_file() && !skill_path_is_archived(&root, &dir) { return Ok(dir); }
+        }
+    }
     let disabled = HashSet::new();
     let mut found = HashMap::<String, (SkillInfo, PathBuf)>::new();
     for root in skill_roots(state) {
