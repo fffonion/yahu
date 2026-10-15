@@ -135,6 +135,21 @@ fn hermes_agent_dir(state: &AppState) -> PathBuf {
         .unwrap_or_else(|_| state.hermes_home.join("hermes-agent"))
 }
 
+fn hermes_python_script(agent_dir: &Path, script: &str) -> Command {
+    let mut command = Command::new(hermes_python_command(agent_dir));
+    let explicit_python = env::var("HERMES_WEBUI_PYTHON").is_ok_and(|value| !value.trim().is_empty());
+    if !explicit_python && agent_dir.join(".hermes/bin/hermes").is_file() {
+        // Managed Hermes installations select and lease their dependencies at
+        // launch. A bare store/system Python does not carry that environment.
+        command.arg("-c").arg(
+            "import os,sys; from pathlib import Path; root=Path(sys.argv.pop(1)); code=sys.argv.pop(1); sys.path.insert(0,str(root)); from hermes_cli._launchers import runtime_command; argv=runtime_command(root,sys.argv[1:],code=code); os.execv(argv[0],argv)"
+        ).arg(agent_dir).arg(script);
+    } else {
+        command.arg("-c").arg(script);
+    }
+    command
+}
+
 fn hermes_python_command(agent_dir: &Path) -> PathBuf {
     if let Ok(python) = env::var("HERMES_WEBUI_PYTHON") {
         let trimmed = python.trim();

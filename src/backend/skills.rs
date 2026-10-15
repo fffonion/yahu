@@ -2,9 +2,7 @@ async fn skills_list(State(state): State<Arc<AppState>>) -> Response<Body> {
     let agent_dir = hermes_agent_dir(&state);
     let output = timeout(
         Duration::from_secs(20),
-        Command::new(hermes_python_command(&agent_dir))
-            .arg("-c")
-            .arg(include_str!("skills_inventory.py"))
+        hermes_python_script(&agent_dir, include_str!("skills_inventory.py"))
             .args(skill_roots(&state))
             .env("HERMES_HOME", &state.hermes_home)
             .env("HERMES_AGENT_DIR", &agent_dir)

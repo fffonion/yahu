@@ -1,4 +1,31 @@
     #[tokio::test]
+    async fn skills_inventory_uses_managed_runtime_without_legacy_venv() {
+        let temp = tempfile::tempdir().unwrap();
+        let agent = temp.path().join("hermes-agent");
+        std::fs::create_dir_all(agent.join(".hermes/bin")).unwrap();
+        std::fs::create_dir_all(agent.join("hermes_cli")).unwrap();
+        std::fs::write(agent.join(".hermes/bin/hermes"), "managed installation marker").unwrap();
+        std::fs::write(agent.join("hermes_cli/__init__.py"), "").unwrap();
+        std::fs::write(agent.join("hermes_cli/_launchers.py"), r#"
+import os, sys
+
+def runtime_command(root, args=(), *, code=None):
+    assert 'def inventory(' in code
+    assert os.environ['HERMES_HOME'] == str(root.parent)
+    script = "import json,sys; print(json.dumps({'data':[{'name':'managed-skill'}], 'optional':[], 'roots':sys.argv[1:]}))"
+    return [sys.executable, '-c', script, *args]
+"#).unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
+        let response = skills_list(State(state)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(payload["data"][0]["name"], "managed-skill");
+        assert_eq!(payload["roots"][0], temp.path().join("skills").to_string_lossy().as_ref());
+        assert_eq!(payload["roots"][1], agent.join("optional-skills").to_string_lossy().as_ref());
+    }
+
+    #[tokio::test]
     async fn skills_inventory_reads_editorial_locally_without_api() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join("skills/testing/canonical-skill");
