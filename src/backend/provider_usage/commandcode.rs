@@ -117,6 +117,7 @@ fn commandcode_cache_plan(
 async fn fetch_commandcode_usage(
     state: &AppState,
     cached_section: Option<&ProviderUsageSection>,
+    force: bool,
 ) -> ProviderUsageSection {
     let mut section = ProviderUsageSection {
         provider: "commandcode".into(),
@@ -149,7 +150,7 @@ async fn fetch_commandcode_usage(
             let token_matches = account_cache
                 .as_ref()
                 .is_none_or(|cache| cache.token_fingerprint == token_fingerprint);
-            if token_matches
+            if !force && token_matches
                 && let Some(cached) = cached_section.and_then(|section| {
                     provider_cached_account_section(section, &label, multi_account, now)
                 })

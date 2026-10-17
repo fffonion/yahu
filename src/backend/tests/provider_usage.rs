@@ -1342,6 +1342,60 @@ mod provider_usage_tests {
         assert_eq!(providers.len(), provider_usage_catalog(temp.path()).len());
     }
 
+    #[tokio::test]
+    async fn commandcode_forced_handler_refresh_bypasses_account_quota_wall() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        async fn reject_connect(State(calls): State<Arc<AtomicUsize>>) -> StatusCode {
+            calls.fetch_add(1, Ordering::SeqCst);
+            StatusCode::BAD_GATEWAY
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let proxy = axum::Router::new().fallback(reject_connect).with_state(calls.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, proxy).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("auth.json"), serde_json::json!({
+            "credential_pool": {"commandcode": [{"label": "account", "api_key": "[REDACTED]"}]}
+        }).to_string()).unwrap();
+        let mut state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        // An explicit loopback proxy proves whether an HTTPS request was attempted,
+        // without sending fixture credentials to the real provider.
+        state.client = reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all(format!("http://{address}")).unwrap())
+            .build().unwrap();
+        let state = Arc::new(state);
+        let now = chrono::Utc::now().timestamp();
+        let section: ProviderUsageSection = serde_json::from_value(serde_json::json!({
+            "provider": "commandcode", "title": "CommandCode 额度",
+            "description": "", "rows": [], "errors": [],
+            "windows": [
+                {"window": "周额度", "used": "100%", "reset": "0分钟", "reset_at": now - 1},
+                {"window": "月额度", "used": "99%", "reset": "1小时", "reset_at": now + 3600}
+            ]
+        })).unwrap();
+        save_shared_provider_section(&state, &section, now as f64);
+        *state.provider_usage_cache.payload.write().await = Some(ProviderUsagePayload {
+            sections: vec![section], ..Default::default()
+        });
+        *state.provider_usage_cache.fetched_at.write().await = Some(Instant::now());
+        let background = fetch_provider_usage_section(&state, "commandcode",
+            state.provider_usage_cache.payload.read().await.as_ref().and_then(|payload| payload.sections.first()), false).await;
+        assert!(background.errors.is_empty());
+        assert_eq!(background.windows.len(), 2);
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "non-forced queries may reuse an active quota wall");
+        let response = provider_usage_handler(State(state), Query(ProviderUsageQuery {
+            provider: Some("commandcode".into()), refresh: Some(true),
+        })).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let result: Value = serde_json::from_slice(&body).unwrap();
+        server.abort();
+        assert!(calls.load(Ordering::SeqCst) > 0, "force refresh must reach the upstream transport");
+        // A visible transport error must not be disguised as reused quota success.
+        assert!(!result["sections"][0]["errors"].as_array().unwrap().is_empty());
+    }
+
     #[test]
     fn commandcode_billing_requests_share_one_parallel_stage() {
         let source = include_str!("../provider_usage/commandcode.rs");

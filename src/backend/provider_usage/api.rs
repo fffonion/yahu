@@ -33,7 +33,7 @@ async fn fetch_provider_usage_section(
         "mimo" => fetch_mimo_usage(state).await,
         "sensenova" => fetch_sensenova_usage(state).await,
         "opencode" => fetch_opencode_usage(state).await,
-        "commandcode" => fetch_commandcode_usage(state, cached_section).await,
+        "commandcode" => fetch_commandcode_usage(state, cached_section, force).await,
         "codex" => fetch_codex_usage(state, cached_section, force).await,
         "grok" => fetch_grok_usage(state, cached_section, force).await,
         "zed-pro" => fetch_zed_pro_usage(state, cached_section, force).await,
