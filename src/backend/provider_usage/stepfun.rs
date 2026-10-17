@@ -417,7 +417,9 @@ fn stepfun_record_is_today(
         .map(|value| value.and_utc().timestamp() - timezone.local_minus_utc() as i64)
         .unwrap_or_else(|| now.timestamp());
     let day_end = day_start + 24 * 60 * 60;
-    start < day_end && end >= day_start
+    // Hourly buckets are half-open [start, end): yesterday's 23:00–00:00
+    // bucket ends at today's boundary and must not contribute to today's total.
+    start < day_end && end > day_start
 }
 
 fn stepfun_response_records(value: &Value) -> Result<(Vec<Value>, usize), String> {

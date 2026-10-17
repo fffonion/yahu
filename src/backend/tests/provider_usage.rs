@@ -1786,6 +1786,37 @@ mod provider_usage_tests {
     }
 
     #[test]
+    fn stepfun_daily_usage_excludes_previous_hour_ending_at_shanghai_midnight() {
+        let timestamp = |value: &str| {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .unwrap()
+                .timestamp_millis()
+        };
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-17T10:00:00+08:00")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let records = vec![
+            serde_json::json!({
+                "fromTime": timestamp("2026-10-16T23:00:00+08:00"),
+                "toTime": timestamp("2026-10-17T00:00:00+08:00"),
+                "modelId": "step-5-preview", "calls": 8,
+                "creditConsumed": 1_210_709,
+            }),
+            serde_json::json!({
+                "fromTime": timestamp("2026-10-17T00:00:00+08:00"),
+                "toTime": timestamp("2026-10-17T01:00:00+08:00"),
+                "modelId": "step-5-preview", "calls": 10,
+                "creditConsumed": 1_745_881,
+            }),
+        ];
+        let section = stepfun_usage_section_from_records_at(&records, records.len(), now, None);
+        assert_eq!(section.windows[0].used.as_deref(), Some("1745881 Credit"));
+        assert_eq!(section.description, "今日 1.75M · 调用次数 10");
+        // The month table must keep both records, independent of the daily summary.
+        assert_eq!(section.rows[0].input.as_deref(), Some("18"));
+    }
+
+    #[test]
     fn stepfun_plan_rate_limit_falls_back_to_credit_buckets() {
         let response = serde_json::json!({
             "status": 1,
