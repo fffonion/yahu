@@ -265,10 +265,11 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.session-text{gap:2px}.session-preview{font-size:11px}');
   });
 
-  test('fullscreen control uses browser capability rather than tablet width or orientation', () => {
+  test('fullscreen control is restricted to mobile UA without width or orientation limits', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain('const showFullscreenButton = isFullscreen || document.fullscreenEnabled;');
+    expect(source).toContain('const isMobileUserAgent = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent);');
+    expect(source).toContain('const showFullscreenButton = isMobileUserAgent && (isFullscreen || document.fullscreenEnabled);');
     expect(source).not.toContain('const isSmallLandscape =');
     expect(source).toContain('{showFullscreenButton && <button type="button" className="small-landscape-fullscreen-button"');
     expect(source).toContain('document.documentElement.requestFullscreen');

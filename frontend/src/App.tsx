@@ -248,6 +248,33 @@ function useMediaQuery(query: string) {
   }, [query]);
   return matches;
 }
+function useFullscreenControl() {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const isMobileUserAgent = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent);
+  const showFullscreenButton = isMobileUserAgent && (isFullscreen || document.fullscreenEnabled);
+  useEffect(() => {
+    const syncFullscreenState = () => setIsFullscreen(!!document.fullscreenElement);
+    syncFullscreenState();
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
+  }, []);
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    } catch {
+      // Fullscreen can be denied by the browser or platform; keep the control state unchanged.
+    }
+  }, []);
+  return { isFullscreen, showFullscreenButton, toggleFullscreen };
+}
+
+function FullscreenToolbarButton() {
+  const { isFullscreen, showFullscreenButton, toggleFullscreen } = useFullscreenControl();
+  if (!showFullscreenButton) return null;
+  return <button type="button" className="icon-btn fullscreen-toolbar-button" aria-label={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} title={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} onClick={toggleFullscreen}>{isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}</button>;
+}
+
 const isWorkspaceTextFile = (name: string) => /\.(md|txt|json|ya?ml|toml|csv|ts|tsx|js|jsx|py|rs|go|sh|css|html|lock)$/i.test(name) || /^(Makefile|Dockerfile|\.gitignore|\.dockerignore|\.env|\.npmrc|\.prettierrc|\.eslintrc)$/i.test(name);
 const jobId = (job: Job) => job.job_id || job.id || '';
 const jobSchedule = (schedule: Job['schedule']) => typeof schedule === 'string' ? schedule : (schedule?.display || schedule?.expr || t('cron.noSchedule'));
@@ -3090,6 +3117,7 @@ function ProviderUsageMain(props: {
         <div><h1>{t('usage.title')}</h1><span>{catalogLoading ? t('usage.loadingCache') : tf('usage.enabledCount', enabledCount, providers.length)}</span></div>
         <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings}>
           <button type="button" className="icon-btn provider-usage-global-refresh" onClick={props.refreshAll} disabled={Boolean(props.loading._all) || enabledCount === 0} aria-label={t('usage.refreshAllAria')} title={t('usage.refreshAllAria')}><RefreshCw className={props.loading._all ? 'spin' : ''} /></button>
+          <FullscreenToolbarButton />
         </HeaderToolstrip>
       </header>
       <section ref={providerUsageBodyRef} className="provider-usage-body">
@@ -3920,8 +3948,7 @@ function ChatMain(props: ChatMainProps) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
   const isMobile = useMediaQuery('(max-width: 760px)');
   const isCompactViewport = useMediaQuery('(max-width: 760px), (min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const showFullscreenButton = isFullscreen || document.fullscreenEnabled;
+  const { isFullscreen, showFullscreenButton, toggleFullscreen } = useFullscreenControl();
   const [statusBarCollapseToken, setStatusBarCollapseToken] = useState(0);
   const previousChatScrollTopRef = useRef<{ sessionId: string; scrollTop: number } | null>(null);
   const latestScrollGenerationRef = useRef(0);
@@ -3955,20 +3982,6 @@ function ChatMain(props: ChatMainProps) {
     cancelLatestViewportScroll();
     return cancelLatestViewportScroll;
   }, [cancelLatestViewportScroll, props.activeSessionId]);
-  useEffect(() => {
-    const syncFullscreenState = () => setIsFullscreen(!!document.fullscreenElement);
-    syncFullscreenState();
-    document.addEventListener('fullscreenchange', syncFullscreenState);
-    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
-  }, []);
-  const toggleFullscreen = useCallback(async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
-    } catch {
-      // Fullscreen can be denied by the browser or platform; keep the control state unchanged.
-    }
-  }, []);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const resizeComposerTextarea = useCallback(() => {
     const textarea = textareaRef.current;

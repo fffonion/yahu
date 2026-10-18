@@ -21,6 +21,14 @@ const section = (overrides: Partial<ProviderUsageSection> = {}): ProviderUsageSe
 });
 
 describe('provider usage view', () => {
+  test('header toolstrip includes the shared mobile-UA fullscreen control', () => {
+    const source = app();
+    const header = source.split('<header className="chat-header header-no-drawer provider-usage-header">')[1]?.split('</HeaderToolstrip>')[0] || '';
+    expect(header).toContain('<FullscreenToolbarButton />');
+    expect(source).toContain('function FullscreenToolbarButton()');
+    expect(source).toContain('className="icon-btn fullscreen-toolbar-button"');
+  });
+
   test('Vyce AI favicon is enlarged inside its existing clipped frame', () => {
     const styles = css();
     expect(styles).toContain('.provider-usage-brand-icon.brand-vyceai img{transform:scale(1.45)}');
