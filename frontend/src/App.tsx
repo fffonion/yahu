@@ -2770,7 +2770,7 @@ function providerTodayTokens(section: ProviderUsageSection | undefined): string 
 
 function providerTodayCost(section: ProviderUsageSection | undefined): string {
   const used = providerTodayWindow(section)?.used || '';
-  const last = used.split(' / ').at(-1) || '';
+  const last = used.split(' / ').pop() || '';
   return /^[¥$€£]/.test(last) ? last : '';
 }
 
@@ -4047,7 +4047,7 @@ function ChatMain(props: ChatMainProps) {
   useLayoutEffect(() => {
     const frame = window.requestAnimationFrame(updateLatestButton);
     return () => window.cancelAnimationFrame(frame);
-  }, [props.activeSessionId, props.hasNewer, props.messages.length, props.messages.at(-1)?.id, updateLatestButton]);
+  }, [props.activeSessionId, props.hasNewer, props.messages.length, props.messages[props.messages.length - 1]?.id, updateLatestButton]);
   const [subagentWindow, setSubagentWindow] = useState<{ sessionId: string; beforeTime: number | null | undefined }>(() => ({ sessionId: props.activeSessionId, beforeTime: null }));
   const updateSubagentWindow = useCallback(() => {
     const beforeTime = subagentBeforeTimeForVisibleRange(props.chatScrollRef.current, props.messages, props.hasNewer);
@@ -4273,7 +4273,7 @@ function ChatMain(props: ChatMainProps) {
     const resizeObserver = new ResizeObserver(scheduleSubagentWindowUpdate);
     resizeObserver.observe(scroller);
     return () => resizeObserver.disconnect();
-  }, [visibleMessages.length, props.activeSessionId, props.chatScrollRef, props.messages[0]?.id, props.messages.at(-1)?.id, scheduleSubagentWindowUpdate]);
+  }, [visibleMessages.length, props.activeSessionId, props.chatScrollRef, props.messages[0]?.id, props.messages[props.messages.length - 1]?.id, scheduleSubagentWindowUpdate]);
   return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}`}>
     <header className="chat-header"><MobileHeaderDrawerButton open={props.mobileSidebarOpen} onClick={props.toggleMobileSidebar} /><div className="chat-header-copy"><h1>{activeTitle}</h1><div className="chat-header-meta"><span className={`chat-total-count${props.historyTotal === null ? ' loading' : ''}`} aria-busy={props.historyTotal === null}>{props.messages.length || 0} loaded · <span>{props.historyTotal ?? '—'} total</span></span><div className="mobile-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div></div></div><div className="chat-header-actions"><div className="session-header-times" aria-label={t('chat.sessionTimes')}>{headerTimes.started && <time>{headerTimes.started}</time>}{headerTimes.latest && <time>{headerTimes.latest}</time>}</div><div className="desktop-chat-context"><ContextWindowMeter used={contextWindowUsage.used} approximate={contextWindowUsage.approximate} total={contextWindowTotal} /></div>
         <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings} /></div></header>
