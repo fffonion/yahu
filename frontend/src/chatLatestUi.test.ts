@@ -12,7 +12,7 @@ describe('chat latest navigation UI', () => {
     expect(source).toContain('className="chat-latest-overlay chat-floating-controls"');
     expect(source).toContain('className="chat-latest-button"');
     expect(source).toContain('const latestButtonVisible = props.hasNewer || showLatestButton;');
-    expect(source).toContain('{(latestButtonVisible || isSmallLandscape || isFullscreen) && <div className="chat-latest-overlay chat-floating-controls">');
+    expect(source).toContain('{(latestButtonVisible || showFullscreenButton) && <div className="chat-latest-overlay chat-floating-controls">');
     expect(source).toContain("props.loadMessageWindow(jumpSessionId, 'latest')");
     expect(source).toContain('forceOpenLatestDetailToken={forceOpenLatestDetailToken}');
     expect(source).toContain("aria-label={t('chat.jumpLatest')}");

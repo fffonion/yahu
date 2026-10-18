@@ -265,10 +265,12 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(styles).toContain('.session-text{gap:2px}.session-preview{font-size:11px}');
   });
 
-  test('small landscape shows a bottom-right fullscreen toggle that tracks browser fullscreen state', () => {
+  test('fullscreen control uses browser capability rather than tablet width or orientation', () => {
     const source = app();
     const styles = css();
-    expect(source).toContain("const isSmallLandscape = useMediaQuery('(min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');");
+    expect(source).toContain('const showFullscreenButton = isFullscreen || document.fullscreenEnabled;');
+    expect(source).not.toContain('const isSmallLandscape =');
+    expect(source).toContain('{showFullscreenButton && <button type="button" className="small-landscape-fullscreen-button"');
     expect(source).toContain('document.documentElement.requestFullscreen');
     expect(source).toContain('document.exitFullscreen');
     expect(source).toContain('document.addEventListener(\'fullscreenchange\', syncFullscreenState)');
@@ -276,6 +278,14 @@ describe('mobile WebUI layout and touch affordances', () => {
     expect(source).toContain('{isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}');
     expect(styles).toContain('.small-landscape-fullscreen-button{width:40px;height:40px;');
   });
+  test('portrait tablets keep fullscreen controls inside the viewport with workspace collapsed', () => {
+    const tabletGridRule = Array.from(css().matchAll(/@media\(max-width:900px\)\{([^}]+)\}/g))
+      .map((match) => match[1]).find((rule) => rule.includes('grid-template-columns')) || '';
+    expect(tabletGridRule).toContain('.app-shell.workspace-collapsed');
+    expect(tabletGridRule).toContain('.app-shell.nav-collapsed.workspace-collapsed');
+    expect(tabletGridRule).toContain('grid-template-columns:58px minmax(0,1fr)');
+  });
+
   test('mobile chat moves the context window indicator beside loaded and total metadata', () => {
     const source = app();
     const styles = css();

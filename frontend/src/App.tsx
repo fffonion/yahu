@@ -3920,8 +3920,8 @@ function ChatMain(props: ChatMainProps) {
   const active = props.sessions.find((s: Session) => s.id === props.activeSessionId) || props.activeSessionDetail;
   const isMobile = useMediaQuery('(max-width: 760px)');
   const isCompactViewport = useMediaQuery('(max-width: 760px), (min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
-  const isSmallLandscape = useMediaQuery('(min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const showFullscreenButton = isFullscreen || document.fullscreenEnabled;
   const [statusBarCollapseToken, setStatusBarCollapseToken] = useState(0);
   const previousChatScrollTopRef = useRef<{ sessionId: string; scrollTop: number } | null>(null);
   const latestScrollGenerationRef = useRef(0);
@@ -4294,9 +4294,9 @@ function ChatMain(props: ChatMainProps) {
         forceOpenLatestDetailToken={forceOpenLatestDetailToken}
       />
     </section>
-    {(latestButtonVisible || isSmallLandscape || isFullscreen) && <div className="chat-latest-overlay chat-floating-controls">
+    {(latestButtonVisible || showFullscreenButton) && <div className="chat-latest-overlay chat-floating-controls">
       {latestButtonVisible && <button type="button" className="chat-latest-button" aria-label={t('chat.jumpLatest')} title={t('chat.jumpLatest')} onClick={jumpToLatest} disabled={props.loadingMessages}><ChevronDown aria-hidden="true" /></button>}
-      {(isSmallLandscape || isFullscreen) && <button type="button" className="small-landscape-fullscreen-button" aria-label={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} title={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} onClick={toggleFullscreen}>{isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}</button>}
+      {showFullscreenButton && <button type="button" className="small-landscape-fullscreen-button" aria-label={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} title={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} onClick={toggleFullscreen}>{isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}</button>}
     </div>}
     <ChatImageLightbox items={chatLightboxImages} current={chatImageModal} onSelect={setChatImageModal} onClose={() => setChatImageModal(null)} />
     <ChatHtmlPreview current={chatHtmlPreview} onClose={() => setChatHtmlPreview(null)} />
