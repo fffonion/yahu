@@ -103,6 +103,18 @@ export function orderNewApiUsageRows(provider: string, rows: ProviderUsageRow[])
   return [...rows].sort((left, right) => tokenUsage(right) - tokenUsage(left));
 }
 
+export function minimaxDailyTokens(section: ProviderUsageSection | undefined): string {
+  if (section?.provider !== 'minimax') return '';
+  const daily = section.rows.find((row) => row.label === '日用量');
+  return daily?.output || daily?.input || '';
+}
+
+export function minimaxUsageRows(rows: ProviderUsageRow[]): ProviderUsageRow[] {
+  return rows
+    .filter((row) => ['周额度', '月额度', '周用量', '月用量'].includes(row.label))
+    .map((row) => ({ ...row, label: row.label.replace('额度', '用量') }));
+}
+
 export function providerVyceCalls(description: string | undefined): string {
   return description?.match(/(?:^|[；;])\s*(?:今日)?调用次数\s+(\d[\d,]*)(?=\s*(?:·|$))/)?.[1] || '';
 }

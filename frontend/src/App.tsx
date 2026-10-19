@@ -31,7 +31,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { formatProviderCredits, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { minimaxDailyTokens, minimaxUsageRows, formatProviderCredits, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
@@ -3133,6 +3133,7 @@ function ProviderUsageMain(props: {
             const multiAccount = enabled && accountCount >= 4;
             const balance = providerBalanceText(section?.description);
             const calls = provider.provider === 'vyceai' ? providerVyceCalls(section?.description) : '';
+            const minimaxDaily = enabled ? minimaxDailyTokens(section) : '';
             const titleMeta = providerTitleMeta(provider.provider, section?.description);
             const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'justwoker' || provider.provider === 'hcnsec' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud' || provider.provider === 'vyceai';
             const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
@@ -3143,6 +3144,7 @@ function ProviderUsageMain(props: {
               ? (loading ? t('usage.querying') : (section ? '' : provider.query_ready ? '' : t('usage.credentialsNeeded')))
               : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
             const subtitleDetails = [
+              ...(minimaxDaily ? [tf('usage.today', `${minimaxDaily} token`)] : []),
               ...(tableOnly && provider.provider !== 'vyceai' ? [providerTodayLabel(section)] : []),
               ...(provider.provider === 'vyceai' && providerTodayWindow(section) ? [providerTodayCost(section)] : []),
               ...(calls ? [`${t('usage.calls')} ${calls}`] : []),
@@ -3247,8 +3249,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
       {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\u00a0'}</p> : null}
     </article>;
   };
-  const minimaxRows = section.rows.filter((row) => ['日用量', '周额度', '月额度'].includes(row.label));
-  const tableRows = section.provider === 'minimax' ? minimaxRows : orderNewApiUsageRows(section.provider, section.rows);
+  const tableRows = section.provider === 'minimax' ? minimaxUsageRows(section.rows) : orderNewApiUsageRows(section.provider, section.rows);
   return <div className="provider-usage-data">
     {description && <p className="provider-usage-desc" dangerouslySetInnerHTML={{ __html: markdownBoldToHtml(description) }} />}
     {quotaWindows.length > 0 && !['agentrouter', 'justwoker', 'hcnsec', 'openrouter', 'deepseek', 'atlascloud'].includes(section.provider) && section.provider !== 'vyceai' && (accountGroups.length > 0

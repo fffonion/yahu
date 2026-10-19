@@ -21,6 +21,42 @@ const section = (overrides: Partial<ProviderUsageSection> = {}): ProviderUsageSe
 });
 
 describe('provider usage view', () => {
+  test('MiniMax daily tokens move to the subtitle without inventing missing usage', () => {
+    const dailyTokens = providerUsageModule.minimaxDailyTokens;
+    expect(typeof dailyTokens).toBe('function');
+    for (const value of ['12.34m', '0']) {
+      expect(dailyTokens(section({ provider: 'minimax', rows: [{ label: '日用量', output: value }] }))).toBe(value);
+    }
+    expect(dailyTokens(section({ provider: 'minimax', rows: [{ label: '日用量', input: '123' }] }))).toBe('123');
+    expect(dailyTokens(section({ provider: 'minimax' }))).toBe('');
+    expect(dailyTokens(section({ rows: [{ label: '日用量', output: '123' }] }))).toBe('');
+    expect(dailyTokens(undefined)).toBe('');
+  });
+
+  test('MiniMax table retains only weekly and monthly usage with current and cached labels', () => {
+    const usageRows = providerUsageModule.minimaxUsageRows;
+    expect(typeof usageRows).toBe('function');
+    for (const labels of [['周额度', '月额度'], ['周用量', '月用量']]) {
+      const rows = [{ label: '日用量', output: '12.34m' }, { label: labels[0], output: '50.00m' }, { label: labels[1], output: '90.00m' }, { label: 'general' }];
+      const original = structuredClone(rows);
+      rows.forEach(Object.freeze);
+      Object.freeze(rows);
+      expect(usageRows(rows)).toEqual([{ label: '周用量', output: '50.00m' }, { label: '月用量', output: '90.00m' }]);
+      expect(rows).toEqual(original);
+    }
+    expect(usageRows([])).toEqual([]);
+    expect(usageRows([{ label: '日用量', output: '0' }])).toEqual([]);
+  });
+
+  test('MiniMax wires daily subtitle and usage rows without changing quota windows', () => {
+    const source = app();
+    expect(source).toContain('minimaxDailyTokens(section)');
+    expect(source).toContain("...(minimaxDaily ? [tf('usage.today', `${minimaxDaily} token`)] : []),");
+    expect(source).toContain("section.provider === 'minimax' ? minimaxUsageRows(section.rows) : orderNewApiUsageRows(section.provider, section.rows)");
+    expect(source).toContain("const quotaWindows = section.windows.filter((win) => !win.window.includes('今日'));");
+    expect(source).toContain('quotaWindows.map(renderWindow)');
+  });
+
   test('empty subtitles reserve the same line box without placeholder copy', () => {
     const emptySubtitleRule = css().match(/\.provider-usage-subline>span:empty::before\{([^}]+)\}/)?.[1] || '';
     expect(emptySubtitleRule).toContain('content:"\\00a0"');
