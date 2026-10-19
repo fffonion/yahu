@@ -21,6 +21,11 @@ const section = (overrides: Partial<ProviderUsageSection> = {}): ProviderUsageSe
 });
 
 describe('provider usage view', () => {
+  test('empty subtitles reserve the same line box without placeholder copy', () => {
+    const emptySubtitleRule = css().match(/\.provider-usage-subline>span:empty::before\{([^}]+)\}/)?.[1] || '';
+    expect(emptySubtitleRule).toContain('content:"\\00a0"');
+  });
+
   test('header toolstrip includes the shared mobile-UA fullscreen control', () => {
     const source = app();
     const header = source.split('<header className="chat-header header-no-drawer provider-usage-header">')[1]?.split('</HeaderToolstrip>')[0] || '';
