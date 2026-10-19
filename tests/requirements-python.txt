@@ -1,0 +1,4 @@
+# Runtime imports exercised by the Python-backed integration tests.
+PyYAML==6.0.3
+ruamel.yaml==0.18.16
+requests==2.33.0

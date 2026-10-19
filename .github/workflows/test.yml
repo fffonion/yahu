@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/.ci/hermes-agent
     steps:
       - uses: actions/checkout@v4
 
@@ -19,6 +21,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+
+      - name: Check out Hermes Skills dependency
+        uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 8f05f890c581b729e039e9e636d0df9a92fe6105
+          path: .ci/hermes-agent
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: tests/requirements-python.txt
+
+      - name: Install Python integration dependencies
+        run: |
+          python -m pip install --requirement tests/requirements-python.txt
+          python -c "import yaml; import requests; import tools.skills_tool; import agent.skill_utils"
 
       - name: Public-source privacy checks
         run: |

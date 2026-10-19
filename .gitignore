@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+/.ci/hermes-agent/
 
 # Build output
 dist/
