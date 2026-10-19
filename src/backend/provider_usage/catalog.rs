@@ -38,7 +38,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
     let minimax_cookie = provider_env_value(hermes_home, "MINIMAX_COOKIE");
     let minimax_query_ready = !extract_cookie_value(&minimax_cookie, "minimax_group_id_v2").is_empty();
     let vyceai_cookie = provider_env_value(hermes_home, "VYCEAI_COOKIE");
-    let vyceai_query_ready = !extract_cookie_value(&vyceai_cookie, "session").is_empty();
+    let vyceai_query_ready = !vyceai_session_value(&vyceai_cookie).is_empty();
     let justwoker_query_ready = !justwoker_user_id.is_empty()
         && (!justwoker_cookie.is_empty() || !justwoker_token.is_empty());
     let entries = [
@@ -74,7 +74,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
                 || any_custom_provider_api_key(hermes_home, &["vyceai"]),
             vyceai_query_ready,
             "VYCEAI_COOKIE",
-            "配置 VYCEAI_COOKIE，需包含网页登录后的 session；推理 API key 无法查询账户用量。",
+            "配置 VYCEAI_COOKIE，可填写网页登录后的 session 值或包含 session 的完整 Cookie；推理 API key 无法查询账户用量。",
         ),
         (
             "openrouter",

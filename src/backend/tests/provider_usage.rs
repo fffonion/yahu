@@ -332,6 +332,7 @@ mod provider_usage_tests {
             ("cf_clearance=[REDACTED]", false),
             ("session=", false),
             ("session=[REDACTED]", true),
+            ("[REDACTED]", true),
         ] {
             std::fs::write(temp.path().join(".env"), format!("VYCEAI_COOKIE='{cookie}'\n")).unwrap();
             let meta = provider_usage_catalog(temp.path())
@@ -383,6 +384,8 @@ mod provider_usage_tests {
         assert!(section.errors.is_empty());
         assert!(section.rows.is_empty());
         assert_eq!(section.windows[0].used.as_deref(), Some("0 / 0 / $0.00"));
+        // The cookie field also accepts the session value copied without its name.
+        std::fs::write(temp.path().join(".env"), "VYCEAI_COOKIE='[REDACTED]'\n").unwrap();
         let section = fetch_vyceai_usage_from_url(&state, &format!("http://{addr}/user/dashboard")).await;
         assert_eq!(section.provider, "vyceai");
         assert!(section.errors.is_empty(), "{:?}", section.errors);

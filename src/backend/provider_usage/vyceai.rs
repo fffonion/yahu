@@ -1,3 +1,15 @@
+fn vyceai_session_value(cookie: &str) -> String {
+    let session = extract_cookie_value(cookie, "session");
+    if !session.is_empty() {
+        return session;
+    }
+    let value = cookie.trim();
+    if value.is_empty() || value.contains([';', '=']) || value.chars().any(char::is_whitespace) {
+        return String::new();
+    }
+    value.to_string()
+}
+
 fn fmt_vyceai_cost(cost: f64) -> String {
     if cost > 0.0 && cost < 0.0001 {
         format!("${cost}")
@@ -206,7 +218,7 @@ async fn fetch_vyceai_usage_from_url(state: &AppState, url: &str) -> ProviderUsa
         ..Default::default()
     };
     let cookie = provider_env_value(&state.hermes_home, "VYCEAI_COOKIE");
-    let session = extract_cookie_value(&cookie, "session");
+    let session = vyceai_session_value(&cookie);
     if session.is_empty() {
         section.errors.push("VYCEAI_COOKIE 缺少 session".into());
         return section;
@@ -245,7 +257,7 @@ fn vyceai_next_snapshot_delay(now: i64) -> Duration {
 async fn run_vyceai_snapshot_collector(state: Arc<AppState>) {
     loop {
         let cookie = provider_env_value(&state.hermes_home, "VYCEAI_COOKIE");
-        if !extract_cookie_value(&cookie, "session").is_empty() {
+        if !vyceai_session_value(&cookie).is_empty() {
             let section = fetch_vyceai_usage_from_url(&state, "https://vyceai.com/user/dashboard").await;
             if !section.errors.is_empty() {
                 warn!("Vyce AI daily snapshot capture failed");
