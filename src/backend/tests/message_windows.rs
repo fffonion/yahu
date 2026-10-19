@@ -553,7 +553,7 @@
     fn user_message_nav_items_include_position_excerpt_and_timestamp() {
         let messages = vec![
             serde_json::json!({"id": 1, "role": "system", "content": "setup"}),
-            serde_json::json!({"id": 2, "role": "user", "content": "[Alliumcepa Triplef|1698432746] first question", "timestamp": 1710000000}),
+            serde_json::json!({"id": 2, "role": "user", "content": "[Example User|10001] first question", "timestamp": 1710000000}),
             serde_json::json!({"id": 3, "role": "assistant", "content": "draft answer"}),
             serde_json::json!({"id": 4, "role": "assistant", "content": "final answer shown in navigator"}),
             serde_json::json!({"id": 5, "role": "user", "content": {"text": "second question with a lot of detail"}, "created_at": 1710000060}),

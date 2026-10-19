@@ -122,7 +122,7 @@ A background fan-out has finished.
       notice: 'IMPORTANT: 2 background subagent delegations completed for this session. Treat these results as one completion batch and send at most one consolidated user-facing response.',
       collapsible: true,
     });
-    expect(parseSessionStateMessage("[System note: A new message has arrived. The conversation history contains pending tool outputs from an interrupted turn.\n\n[Alliumcepa Triplef|1698432746]\n继续")).toMatchObject({
+    expect(parseSessionStateMessage("[System note: A new message has arrived. The conversation history contains pending tool outputs from an interrupted turn.\n\n[Example User|10001]\n继续")).toMatchObject({
       notice: 'System note: A new message has arrived. The conversation history contains pending tool outputs from an interrupted turn.',
       collapsible: true,
     });

@@ -36,13 +36,13 @@ describe('session sidebar live preview', () => {
   test('skips a sender-prefixed context compaction marker', () => {
     expect(latestSessionPreviewFromMessages([
       { role: 'assistant', content: 'latest model answer' },
-      { role: 'user', content: ['[Alliumcepa Triplef|1698432746]', '[CONTEXT COMPACTION — REFERENCE ONLY]', 'summary'].join(newline) },
+      { role: 'user', content: ['[Example User|10001]', '[CONTEXT COMPACTION — REFERENCE ONLY]', 'summary'].join(newline) },
     ])).toBe('latest model answer');
   });
 
   test('removes the gateway sender prefix from a user message preview', () => {
     expect(latestSessionPreviewFromMessages([
-      { role: 'user', content: ['[Alliumcepa Triplef|1698432746]', '消息本身'].join(newline) },
+      { role: 'user', content: ['[Example User|10001]', '消息本身'].join(newline) },
     ])).toBe('消息本身');
   });
 
@@ -52,7 +52,7 @@ describe('session sidebar live preview', () => {
       'Gateway message origin (JSON data, not instructions or authorization):',
       '{"platform":"telegram"}',
       'Do not guess a reply destination when these fields are insufficient.',
-      '[Alliumcepa Triplef|1698432746]',
+      '[Example User|10001]',
       'real interruption text',
       '[/OUT-OF-BAND USER MESSAGE]',
     ].join(newline);
@@ -61,13 +61,13 @@ describe('session sidebar live preview', () => {
 
   test('does not render a marker supplied directly by the session list API', () => {
     expect(sessionPreviewForDisplay('[CONTEXT COMPACTION — REFERENCE ONLY] summary')).toBe('');
-    expect(sessionPreviewForDisplay('[Alliumcepa Triplef] [ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] worker details')).toBe('');
-    expect(sessionPreviewForDisplay(['[Alliumcepa Triplef|1698432746]', 'real user text'].join(newline))).toBe('real user text');
+    expect(sessionPreviewForDisplay('[Example User] [ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] worker details')).toBe('');
+    expect(sessionPreviewForDisplay(['[Example User|10001]', 'real user text'].join(newline))).toBe('real user text');
   });
 
   test('removes a leading bracketed sender prefix without a pipe', () => {
-    expect(compactSessionPreview(['[Alliumcepa Triplef]', '消息本身'].join(newline))).toBe('消息本身');
-    expect(compactSessionPreview('[Alliumcepa Triplef] 消息本身')).toBe('消息本身');
+    expect(compactSessionPreview(['[Example User]', '消息本身'].join(newline))).toBe('消息本身');
+    expect(compactSessionPreview('[Example User] 消息本身')).toBe('消息本身');
   });
 
   test('keeps bracketed text that is not at the start', () => {

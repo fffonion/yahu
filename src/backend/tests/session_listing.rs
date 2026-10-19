@@ -400,7 +400,7 @@
             ("assistant", "new answer"),
             (
                 "user",
-                "[Alliumcepa Triplef] [CONTEXT COMPACTION — REFERENCE ONLY]\\ncompacted transcript",
+                "[Example User] [CONTEXT COMPACTION — REFERENCE ONLY]\\ncompacted transcript",
             ),
         ] {
             conn.execute(
@@ -436,7 +436,7 @@
             Json(serde_json::json!({
                 "object": "list",
                 "data": [
-                    {"id":"s1","source":"telegram","model":"minimax/m3","title":"Cache billing","preview":"[Alliumcepa Triplef|1698432746]\ntoken cache math","started_at":1.0,"message_count":1},
+                    {"id":"s1","source":"telegram","model":"minimax/m3","title":"Cache billing","preview":"[Example User|10001]\ntoken cache math","started_at":1.0,"message_count":1},
                     {"id":"content-only","source":"telegram","model":"minimax/m3","title":"Billing details","preview":"cache appears only in this message","started_at":1.5,"message_count":1},
                     {"id":"tool1","source":"tool","model":"minimax/m3","title":"Tool internal","preview":"cache","started_at":2.0,"message_count":1}
                 ],
@@ -1418,8 +1418,8 @@
                 active INTEGER NOT NULL DEFAULT 1
              );",
         ).unwrap();
-        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('old',NULL,'GFS路径过短原因 #1',1,10,'session_reset','telegram','agent:main:telegram:dm:1698432746','1698432746',NULL)", []).unwrap();
-        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('current',NULL,'GFS路径过短原因',10.007,NULL,NULL,'telegram','agent:main:telegram:dm:1698432746','1698432746',NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('old',NULL,'GFS路径过短原因 #1',1,10,'session_reset','telegram','agent:main:telegram:dm:10001','10001',NULL)", []).unwrap();
+        conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('current',NULL,'GFS路径过短原因',10.007,NULL,NULL,'telegram','agent:main:telegram:dm:10001','10001',NULL)", []).unwrap();
         conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('switch-root',NULL,'原会话标题',20,30,'session_switch','telegram','same-key','chat',NULL)", []).unwrap();
         conn.execute("INSERT INTO sessions (id,parent_session_id,title,started_at,ended_at,end_reason,source,session_key,chat_id,thread_id) VALUES ('switch-child','switch-root','错误的新会话标题',31,NULL,NULL,'telegram','same-key','chat',NULL)", []).unwrap();
         conn.execute("INSERT INTO messages (session_id,role,content,active) VALUES ('switch-root','assistant','旧消息',1)", []).unwrap();

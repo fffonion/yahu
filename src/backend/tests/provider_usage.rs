@@ -934,13 +934,13 @@ mod provider_usage_tests {
     fn codex_reset_failure_reuses_cached_description_for_each_account() {
         let cached = ProviderUsageSection {
             provider: "codex".into(),
-            description: "mayo：Reset：3个；到期：2小时后；me：Reset：1个".into(),
+            description: "account-a：Reset：3个；到期：2小时后；me：Reset：1个".into(),
             ..Default::default()
         };
-        let labels = vec!["mayo".to_string(), "me".to_string()];
+        let labels = vec!["account-a".to_string(), "me".to_string()];
         assert_eq!(
-            codex_cached_reset_description(Some(&cached), "mayo", &labels),
-            Some("mayo：Reset：3个；到期：2小时后".to_string())
+            codex_cached_reset_description(Some(&cached), "account-a", &labels),
+            Some("account-a：Reset：3个；到期：2小时后".to_string())
         );
         assert_eq!(
             codex_cached_reset_description(Some(&cached), "me", &labels),
@@ -1002,14 +1002,14 @@ mod provider_usage_tests {
             "rows": [],
             "errors": [],
             "windows": [
-                {"window": "mayo 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
-                {"window": "mayo 周额度", "used": "20%", "reset": "旧值", "reset_at": now + 7200},
+                {"window": "account-a 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
+                {"window": "account-a 周额度", "used": "20%", "reset": "旧值", "reset_at": now + 7200},
                 {"window": "me 周额度", "used": "100%", "reset": "旧值", "reset_at": now + 7200}
             ]
         }))
         .unwrap();
-        assert!(provider_account_should_skip_upstream(&section, "mayo", true, now));
-        assert!(!provider_account_should_skip_upstream(&section, "mayo", true, now + 3601));
+        assert!(provider_account_should_skip_upstream(&section, "account-a", true, now));
+        assert!(!provider_account_should_skip_upstream(&section, "account-a", true, now + 3601));
         assert!(!provider_account_should_skip_upstream(&section, "missing", true, now));
     }
 
@@ -1023,12 +1023,12 @@ mod provider_usage_tests {
             "rows": [],
             "errors": [],
             "windows": [
-                {"window": "mayo 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
-                {"window": "mayo 周额度", "used": "100%", "reset": "旧值", "reset_at": now + 7200}
+                {"window": "account-a 5h额度", "used": "100%", "reset": "旧值", "reset_at": now + 3600},
+                {"window": "account-a 周额度", "used": "100%", "reset": "旧值", "reset_at": now + 7200}
             ]
         }))
         .unwrap();
-        let refreshed = provider_cached_account_section(&section, "mayo", true, now).unwrap();
+        let refreshed = provider_cached_account_section(&section, "account-a", true, now).unwrap();
         assert_eq!(refreshed.windows[0].reset.as_deref(), Some("1小时"));
         assert_eq!(refreshed.windows[1].reset.as_deref(), Some("2小时"));
     }

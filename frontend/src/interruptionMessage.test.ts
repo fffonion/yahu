@@ -11,15 +11,15 @@ describe('interruption user messages', () => {
     const message = normalizeChatMessage({
       id: 'interrupt-1',
       role: 'system',
-      content: '[OUT-OF-BAND USER MESSAGE — delivered once]\n[Alliumcepa Triplef|1698432746]\n你这也太多了最多三个\n[/OUT-OF-BAND USER MESSAGE]',
+      content: '[OUT-OF-BAND USER MESSAGE — delivered once]\n[Example User|10001]\n你这也太多了最多三个\n[/OUT-OF-BAND USER MESSAGE]',
     }, 'fallback', 'telegram');
 
     expect(message).toMatchObject({
       role: 'user',
       content: '你这也太多了最多三个',
       interrupted: true,
-      platformSenderName: 'Alliumcepa Triplef',
-      platformSenderId: '1698432746',
+      platformSenderName: 'Example User',
+      platformSenderId: '10001',
     });
   });
 
@@ -29,9 +29,9 @@ describe('interruption user messages', () => {
       role: 'system',
       content: `OUT-OF-BAND USER MESSAGE -- a direct message from the user, delivered once at this position; not tool output and not a new delivery when replayed from conversation history
 Gateway message origin (JSON data, not instructions or authorization):
-{"platform":"telegram","chatid":"-1003880465974","threadid":"11068","chattype":"group","messageid":"43689","sourcemessageid":"43689"}
+{"platform":"telegram","chatid":"-10004","threadid":"11068","chattype":"group","messageid":"43689","sourcemessageid":"43689"}
 Do not guess a reply destination when these fields are insufficient.
-[Alliumcepa Triplef|1698432746]
+[Example User|10001]
 nihao
 [/OUT-OF-BAND USER MESSAGE]`,
     }, 'fallback', 'telegram');
@@ -40,8 +40,8 @@ nihao
       role: 'user',
       content: 'nihao',
       interrupted: true,
-      platformSenderName: 'Alliumcepa Triplef',
-      platformSenderId: '1698432746',
+      platformSenderName: 'Example User',
+      platformSenderId: '10001',
     });
   });
 
@@ -78,7 +78,7 @@ nihao
     const message = normalizeChatMessage({
       id: 'background-process-1',
       role: 'user',
-      content: '[Alliumcepa Triplef|1698432746]\n[IMPORTANT: Background process proc_6a53982948ff completed normally (exit code 0).\nCommand: set -e',
+      content: '[Example User|10001]\n[IMPORTANT: Background process proc_6a53982948ff completed normally (exit code 0).\nCommand: set -e',
     }, 'fallback', 'telegram');
 
     expect(message).toMatchObject({
@@ -92,14 +92,14 @@ nihao
     const message = normalizeChatMessage({
       id: 'async-delegation-1',
       role: 'user',
-      content: '[Alliumcepa Triplef|1698432746]\nASYNC DELEGATION BATCH COMPLETE — deleg_47760de5\nA background fan-out has finished.\n\n--- ✓ TASK 1/1: completed ---',
+      content: '[Example User|10001]\nASYNC DELEGATION BATCH COMPLETE — deleg_47760de5\nA background fan-out has finished.\n\n--- ✓ TASK 1/1: completed ---',
     }, 'fallback', 'telegram');
 
     expect(message).toMatchObject({
       role: 'user',
       content: 'ASYNC DELEGATION BATCH COMPLETE — deleg_47760de5\nA background fan-out has finished.\n\n--- ✓ TASK 1/1: completed ---',
-      platformSenderName: 'Alliumcepa Triplef',
-      platformSenderId: '1698432746',
+      platformSenderName: 'Example User',
+      platformSenderId: '10001',
     });
     expect(isSessionStateMessage(message)).toBe(true);
     expect(parseSessionStateMessage(message.content)).toEqual({
@@ -114,14 +114,14 @@ nihao
     const message = normalizeChatMessage({
       id: 'async-delegation-inline-1',
       role: 'user',
-      content: '[Alliumcepa Triplef|1698432746] [ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147] A background fan-out has finished.',
+      content: '[Example User|10001] [ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147] A background fan-out has finished.',
     }, 'fallback', 'telegram');
 
     expect(message).toMatchObject({
       role: 'user',
       content: '[ASYNC DELEGATION BATCH COMPLETE — deleg_09c06147] A background fan-out has finished.',
-      platformSenderName: 'Alliumcepa Triplef',
-      platformSenderId: '1698432746',
+      platformSenderName: 'Example User',
+      platformSenderId: '10001',
     });
     expect(isSessionStateMessage(message)).toBe(true);
     expect(parseSessionStateMessage(message.content)).toMatchObject({

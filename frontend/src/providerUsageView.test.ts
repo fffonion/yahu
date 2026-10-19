@@ -174,17 +174,17 @@ describe('provider usage view', () => {
   });
 
   test('Codex reset subtitle keeps positive accounts and omits zero-reset accounts', () => {
-    expect(providerCodexResetSubtitle('mayo：Reset：1个；到期：28天后；me：Reset：0个'))
-      .toBe('mayo：1个重置 28天后到期');
-    expect(providerCodexResetSubtitle('mayo：Reset：0个')).toBe('');
-    expect(providerCodexResetSubtitle('mayo：Reset：2个；当前可用：1个；到期：2小时后、5天后'))
-      .toBe('mayo：2个重置 2小时后、5天后到期');
+    expect(providerCodexResetSubtitle('account-a：Reset：1个；到期：28天后；me：Reset：0个'))
+      .toBe('account-a：1个重置 28天后到期');
+    expect(providerCodexResetSubtitle('account-a：Reset：0个')).toBe('');
+    expect(providerCodexResetSubtitle('account-a：Reset：2个；当前可用：1个；到期：2小时后、5天后'))
+      .toBe('account-a：2个重置 2小时后、5天后到期');
   });
 
   test('Codex mobile reset subtitle keeps only account names and reset durations', () => {
-    expect(providerCodexMobileResetSubtitle('mayo：Reset：2个；当前可用：1个；到期：16天后、29天后；me：Reset：2个；到期：29天后、30天后'))
-      .toBe('mayo: 16天, 29天; me: 29天, 30天');
-    expect(providerCodexMobileResetSubtitle('mayo：Reset：0个；me：Reset：1个；到期：2小时后')).toBe('me: 2小时');
+    expect(providerCodexMobileResetSubtitle('account-a：Reset：2个；当前可用：1个；到期：16天后、29天后；me：Reset：2个；到期：29天后、30天后'))
+      .toBe('account-a: 16天, 29天; me: 29天, 30天');
+    expect(providerCodexMobileResetSubtitle('account-a：Reset：0个；me：Reset：1个；到期：2小时后')).toBe('me: 2小时');
   });
 
   test('Codex card exposes the compact reset subtitle only to mobile layouts', () => {

@@ -5,7 +5,7 @@ import subprocess
 
 
 class RemotePage:
-    def __init__(self, serial='10.0.0.56:5555', package='io.github.fffonion.yahu'):
+    def __init__(self, serial=None, package='io.github.fffonion.yahu'):
         self.serial = serial
         self.port = int(self.adb('forward', 'tcp:0', 'localabstract:' + package + '/firefox-debugger-socket'))
         try:
@@ -17,7 +17,10 @@ class RemotePage:
             raise
 
     def adb(self, *args):
-        return subprocess.check_output(['adb', '-s', self.serial, *args], text=True).strip()
+        command = ['adb']
+        if self.serial is not None:
+            command.extend(['-s', self.serial])
+        return subprocess.check_output([*command, *args], text=True).strip()
 
     def _read(self):
         header = b''

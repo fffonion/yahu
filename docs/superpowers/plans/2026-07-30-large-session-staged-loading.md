@@ -142,7 +142,7 @@ Run `git diff --check` and inspect only task-related files while preserving unre
 
 - [x] **Step 4: Deploy**
 
-Build the frontend and release binary, install the release binary to `/home/wow/.local/bin/yahu`, restart only `yahu.service`, confirm active state and HTTP 200 at `/`.
+Build the frontend and release binary, install the release binary to `$HOME/.local/bin/yahu`, restart only `yahu.service`, confirm active state and HTTP 200 at `/`.
 
 - [x] **Step 5: Browser verification**
 

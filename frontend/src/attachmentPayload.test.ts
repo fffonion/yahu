@@ -8,11 +8,11 @@ describe('buildChatInputWithAttachments', () => {
       kind: 'binary',
       mime: 'application/pdf',
       size: 2048,
-      uploadedPath: '/home/wow/.hermes/cache/yahu_uploads/report.pdf',
+      uploadedPath: '/workspace/example/uploads/report.pdf',
     }]);
 
     expect(input).toContain('Attached file: report.pdf');
-    expect(input).toContain('Saved path: /home/wow/.hermes/cache/yahu_uploads/report.pdf');
+    expect(input).toContain('Saved path: /workspace/example/uploads/report.pdf');
     expect(input).not.toContain('not sent');
   });
 
@@ -23,11 +23,11 @@ describe('buildChatInputWithAttachments', () => {
       mime: 'image/png',
       size: 68,
       dataUrl: 'data:image/png;base64,abc',
-      uploadedPath: '/home/wow/.hermes/cache/yahu_uploads/cat.png',
+      uploadedPath: '/workspace/example/uploads/cat.png',
     }]) as any[];
 
     expect(Array.isArray(input)).toBe(true);
-    expect(input[0].text).toContain('Saved path: /home/wow/.hermes/cache/yahu_uploads/cat.png');
+    expect(input[0].text).toContain('Saved path: /workspace/example/uploads/cat.png');
     expect(input[1]).toEqual({ type: 'image_url', image_url: { url: 'data:image/png;base64,abc', detail: 'high' } });
   });
 });

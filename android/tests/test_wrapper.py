@@ -6,6 +6,12 @@ SOURCE = Path(__file__).resolve().parents[1] / 'app/src/io/github/fffonion/yahu/
 
 
 class ImmersiveNavigationTests(unittest.TestCase):
+    def test_default_endpoint_is_portable_loopback(self):
+        import xml.etree.ElementTree as ET
+        resources = ET.parse(SOURCE.parents[5] / 'res/values/strings.xml')
+        endpoint = next(item.text for item in resources.getroot().findall('string') if item.get('name') == 'server_url')
+        self.assertTrue(endpoint == 'http://localhost:9642', 'Default endpoint must use portable loopback')
+
     def test_native_select_prompts_have_an_android_presenter(self):
         source = SOURCE.read_text()
         self.assertIn('onChoicePrompt(GeckoSession current, ChoicePrompt prompt)', source)

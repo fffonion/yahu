@@ -94,36 +94,36 @@ describe('summarizeToolMessage', () => {
 
   test('patch summary shows the source-relative path before the field count', () => {
     const summary = summarizeToolMessage(
-      JSON.stringify({ success: true, resolved_path: '/home/wow/project/src/components/ToolCard.tsx', diff: 'changed', files_modified: ['/home/wow/project/src/components/ToolCard.tsx'] }),
+      JSON.stringify({ success: true, resolved_path: '/workspace/example/src/components/ToolCard.tsx', diff: 'changed', files_modified: ['/workspace/example/src/components/ToolCard.tsx'] }),
       'functions.patch',
-      { mode: 'replace', path: '/home/wow/project/src/components/ToolCard.tsx' },
+      { mode: 'replace', path: '/workspace/example/src/components/ToolCard.tsx' },
     );
     expect(summary.subtitle).toBe('src/components/ToolCard.tsx · 4 fields');
   });
 
   test('patch summary falls back to just the filename when no src segment is in the path', () => {
     const summary = summarizeToolMessage(
-      JSON.stringify({ success: true, resolved_path: '/home/wow/workspace/hermes-headless-webui/frontend/styles.css', diff: 'changed' }),
+      JSON.stringify({ success: true, resolved_path: '/workspace/example/frontend/styles.css', diff: 'changed' }),
       'functions.patch',
-      { mode: 'replace', path: '/home/wow/workspace/hermes-headless-webui/frontend/styles.css' },
+      { mode: 'replace', path: '/workspace/example/frontend/styles.css' },
     );
     expect(summary.subtitle).toBe('styles.css · 3 fields');
   });
 
   test('patch summary truncates long paths while keeping the filename intact', () => {
     const summary = summarizeToolMessage(
-      JSON.stringify({ success: true, resolved_path: '/home/wow/project/src/a/b/c/d/e/f/g/ToolCard.tsx', diff: 'changed' }),
+      JSON.stringify({ success: true, resolved_path: '/workspace/example/src/a/b/c/d/e/f/g/ToolCard.tsx', diff: 'changed' }),
       'functions.patch',
-      { mode: 'replace', path: '/home/wow/project/src/a/b/c/d/e/f/g/ToolCard.tsx' },
+      { mode: 'replace', path: '/workspace/example/src/a/b/c/d/e/f/g/ToolCard.tsx' },
     );
     expect(summary.subtitle).toBe('src/…/g/ToolCard.tsx · 3 fields');
   });
 
   test('patch summary shows the error message instead of path and field count', () => {
     const summary = summarizeToolMessage(
-      JSON.stringify({ success: false, error: 'new_string is not unique', resolved_path: '/home/wow/project/src/App.tsx' }),
+      JSON.stringify({ success: false, error: 'new_string is not unique', resolved_path: '/workspace/example/src/App.tsx' }),
       'functions.patch',
-      { mode: 'replace', path: '/home/wow/project/src/App.tsx' },
+      { mode: 'replace', path: '/workspace/example/src/App.tsx' },
     );
     expect(summary.subtitle).toBe('new_string is not unique');
   });
@@ -132,20 +132,20 @@ describe('summarizeToolMessage', () => {
     const summary = summarizeToolMessage(
       JSON.stringify({ content: '1|export const value = true;', total_lines: 240, file_size: 8192 }),
       'functions.read_file',
-      { path: '/home/wow/project/src/features/chat/tools/ToolMessage.tsx', offset: 1, limit: 200 },
+      { path: '/workspace/example/src/features/chat/tools/ToolMessage.tsx', offset: 1, limit: 200 },
     );
     expect(summary.subtitle).toBe('src/…/tools/ToolMessage.tsx · 3 fields');
-    expect(summary.filePath).toBe('/home/wow/project/src/features/chat/tools/ToolMessage.tsx');
+    expect(summary.filePath).toBe('/workspace/example/src/features/chat/tools/ToolMessage.tsx');
   });
 
   test('write file summary retains its source path and content in the invocation', () => {
     const summary = summarizeToolMessage(
       JSON.stringify({ bytes_written: 31, status: 'ok' }),
       'functions.write_file',
-      { path: '/home/wow/project/src/features/ToolMessage.tsx', content: 'export const value = true;' },
+      { path: '/workspace/example/src/features/ToolMessage.tsx', content: 'export const value = true;' },
     );
     expect(summary.subtitle).toBe('src/features/ToolMessage.tsx · 2 fields');
-    expect(summary.filePath).toBe('/home/wow/project/src/features/ToolMessage.tsx');
-    expect(summary.input).toEqual({ path: '/home/wow/project/src/features/ToolMessage.tsx', content: 'export const value = true;' });
+    expect(summary.filePath).toBe('/workspace/example/src/features/ToolMessage.tsx');
+    expect(summary.input).toEqual({ path: '/workspace/example/src/features/ToolMessage.tsx', content: 'export const value = true;' });
   });
 });

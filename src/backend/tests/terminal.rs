@@ -43,8 +43,8 @@
     #[test]
     fn terminal_home_uses_the_current_process_user_directory() {
         assert_eq!(
-            terminal_home_dir(Some(std::ffi::OsString::from("/home/test-user"))),
-            PathBuf::from("/home/test-user")
+            terminal_home_dir(Some(std::ffi::OsString::from("/workspace/example-home"))),
+            PathBuf::from("/workspace/example-home")
         );
         assert_eq!(terminal_home_dir(None), PathBuf::from("/"));
     }

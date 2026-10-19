@@ -20,6 +20,12 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Public-source privacy checks
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_privacy.py'
+          python3 scripts/check_privacy.py
+          python3 -m unittest discover -s android/tests -p 'test_*.py'
+
       - name: Bun install & build
         run: |
           bun install

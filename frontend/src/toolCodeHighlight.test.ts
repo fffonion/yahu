@@ -5,7 +5,7 @@ describe('tool code result highlighting', () => {
   test('separates read_file line numbers from syntax-highlighted source', () => {
     const lines = highlightedReadFileLines(
       '12|export const answer: number = 42;\n13|// retained comment',
-      '/home/wow/project/src/answer.ts',
+      '/workspace/example/src/answer.ts',
     );
 
     expect(lines).toHaveLength(2);

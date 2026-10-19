@@ -9,30 +9,30 @@ const css = () => readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 
 describe('platform sender labels in chat bubbles', () => {
   test('parses a platform sender prefix and removes it from visible message content', () => {
-    expect(parsePlatformSenderMessage('[Alliumcepa Triplef|1698432746]\nhello')).toEqual({
-      senderName: 'Alliumcepa Triplef',
-      senderId: '1698432746',
+    expect(parsePlatformSenderMessage('[Example User|10001]\nhello')).toEqual({
+      senderName: 'Example User',
+      senderId: '10001',
       content: 'hello',
     });
-    expect(parsePlatformSenderMessage('[Alliumcepa Triplef|1698432746] hello')).toEqual({
-      senderName: 'Alliumcepa Triplef',
-      senderId: '1698432746',
+    expect(parsePlatformSenderMessage('[Example User|10001] hello')).toEqual({
+      senderName: 'Example User',
+      senderId: '10001',
       content: 'hello',
     });
   });
 
   test('parses the current name-only prefix for Telegram messages', () => {
-    expect(parsePlatformSenderMessage('[Alliumcepa Triplef]\nhello', true)).toEqual({
-      senderName: 'Alliumcepa Triplef',
+    expect(parsePlatformSenderMessage('[Example User]\nhello', true)).toEqual({
+      senderName: 'Example User',
       content: 'hello',
     });
     expect(normalizeChatMessage({
       id: 'telegram-user',
       role: 'user',
-      content: '[Alliumcepa Triplef] hello',
+      content: '[Example User] hello',
     }, 'fallback', 'telegram')).toMatchObject({
       content: 'hello',
-      platformSenderName: 'Alliumcepa Triplef',
+      platformSenderName: 'Example User',
     });
   });
 
@@ -50,17 +50,17 @@ describe('platform sender labels in chat bubbles', () => {
   });
 
   test('strips a name-only sender before a reserved notice without a platform source', () => {
-    const rawContent = '[Alliumcepa Triplef] [ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] A background fan-out unit has finished.';
+    const rawContent = '[Example User] [ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] A background fan-out unit has finished.';
     const parsed = parsePlatformSenderMessage(rawContent);
     expect(parsed).toEqual({
-      senderName: 'Alliumcepa Triplef',
+      senderName: 'Example User',
       content: '[ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] A background fan-out unit has finished.',
     });
     const message = normalizeChatMessage({ id: 'name-only-async', role: 'user', content: rawContent }, 'fallback');
     expect(message).toMatchObject({
       role: 'user',
       content: '[ASYNC DELEGATION BATCH COMPLETE — deleg_4b198652] A background fan-out unit has finished.',
-      platformSenderName: 'Alliumcepa Triplef',
+      platformSenderName: 'Example User',
     });
     expect(isSessionStateMessage(message)).toBe(true);
   });
