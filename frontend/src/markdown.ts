@@ -155,7 +155,7 @@ export function markdownInline(text: string) {
   });
   let html = applyInlineFormatting(escapeHtml(withLinks));
   tokens.forEach((token, index) => {
-    html = html.replaceAll(placeholder(index), token);
+    html = html.split(placeholder(index)).join(token);
   });
   return html;
 }
