@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+layout.buildDirectory.set(file(providers.gradleProperty('yahuBuildDir').getOrElse('/out/gradle-build') + '/app'))
+
+android {
+    namespace = 'io.github.fffonion.yahu'
+    compileSdk {
+        version = release(37) { minorApiLevel = 2 }
+    }
+    buildToolsVersion = '36.0.0'
+    defaultConfig {
+        applicationId = 'io.github.fffonion.yahu'
+        minSdk = 26
+        targetSdk = 30
+        versionCode = 4
+        versionName = '0.2.1'
+        ndk { abiFilters.add('arm64-v8a') }
+    }
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src']
+            res.srcDirs = ['res', layout.buildDirectory.dir('generated/res/yahu').get().asFile]
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+    buildTypes {
+        release {
+            minifyEnabled = false
+            debuggable = true
+        }
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+            keepDebugSymbols.add('**/*.so')
+        }
+    }
+}
+
+tasks.register('prepareYahuIcon', Copy) {
+    from rootProject.file('../frontend/public/icon-192.png')
+    into layout.buildDirectory.dir('generated/res/yahu/drawable')
+    rename { 'yahu_icon.png' }
+}
+tasks.named('preBuild').configure { dependsOn 'prepareYahuIcon' }
+
+dependencies {
+    implementation 'org.mozilla.geckoview:geckoview:158.0.20261007201254'
+}
