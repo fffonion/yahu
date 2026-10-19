@@ -24,7 +24,10 @@ fn grok_proto_field(data: &[u8], wanted: u32) -> Option<(u8, Vec<u8>)> {
         let field = u32::try_from(tag >> 3).ok()?;
         let wire = u8::try_from(tag & 7).ok()?;
         let value = match wire {
-            0 => grok_proto_varint(data, &mut offset).ok()?.to_le_bytes().to_vec(),
+            0 => grok_proto_varint(data, &mut offset)
+                .ok()?
+                .to_le_bytes()
+                .to_vec(),
             1 => {
                 let end = offset.checked_add(8)?;
                 let value = data.get(offset..end)?.to_vec();
@@ -63,15 +66,46 @@ fn grok_proto_timestamp(data: &[u8]) -> Option<chrono::DateTime<chrono::Utc>> {
 }
 
 fn grok_web_billing_snapshot(body: &[u8]) -> Result<Value, String> {
-    if body.len() < 5 || body[0] & 0x80 != 0 {
+    if body.len() < 5 {
         return Err("gRPC 响应缺少有效的数据帧".to_string());
     }
-    let length = u32::from_be_bytes(body[1..5].try_into().unwrap()) as usize;
-    let end = 5usize
-        .checked_add(length)
-        .filter(|end| *end <= body.len())
-        .ok_or_else(|| "gRPC 响应数据帧被截断".to_string())?;
-    let credits = grok_proto_field(&body[5..end], 1)
+    let mut offset = 0usize;
+    let mut data = None;
+    while offset < body.len() {
+        let start = offset
+            .checked_add(5)
+            .filter(|end| *end <= body.len())
+            .ok_or_else(|| "gRPC 响应数据帧被截断".to_string())?;
+        let length = u32::from_be_bytes(body[offset + 1..start].try_into().unwrap()) as usize;
+        let end = start
+            .checked_add(length)
+            .filter(|end| *end <= body.len())
+            .ok_or_else(|| "gRPC 响应数据帧被截断".to_string())?;
+        let payload = &body[start..end];
+        match body[offset] {
+            0 => {
+                if data.is_none() {
+                    data = Some(payload);
+                }
+            }
+            0x80 => {
+                let trailers = std::str::from_utf8(payload)
+                    .map_err(|_| "gRPC 响应包含无效的结束帧".to_string())?;
+                for line in trailers.lines() {
+                    if let Some((name, status)) = line.split_once(':')
+                        && name.trim().eq_ignore_ascii_case("grpc-status")
+                        && let Some(error) = provider_grpc_status_error(status.trim())
+                    {
+                        return Err(error);
+                    }
+                }
+            }
+            _ => return Err("gRPC 响应包含不支持的帧格式".to_string()),
+        }
+        offset = end;
+    }
+    let data = data.ok_or_else(|| "gRPC 响应缺少有效的数据帧".to_string())?;
+    let credits = grok_proto_field(data, 1)
         .filter(|(wire, _)| *wire == 2)
         .map(|(_, value)| value)
         .ok_or_else(|| "gRPC 响应缺少额度信息".to_string())?;
@@ -174,6 +208,10 @@ async fn grok_refresh_access_token(
     Ok((access_token.to_string(), next_refresh.to_string()))
 }
 
+fn grok_auth_error(error: &str) -> bool {
+    error.starts_with("HTTP 401") || error.starts_with("gRPC 16：")
+}
+
 async fn grok_query_account(
     state: &AppState,
     account: &AuthCredentialEntry,
@@ -181,7 +219,7 @@ async fn grok_query_account(
     let first = grok_query_web_billing(state, &account.access_token).await;
     match first {
         Ok(payload) => Ok(payload),
-        Err(err) if err.starts_with("HTTP 401") => {
+        Err(err) if grok_auth_error(&err) => {
             let Some(refresh_token) = account.refresh_token.as_deref() else {
                 return Err(err);
             };
@@ -198,10 +236,7 @@ fn grok_billing_snapshot(
 ) -> Result<(String, f64, String, String, Option<i64>), String> {
     let config = payload.get("config").cloned().unwrap_or(Value::Null);
     let period = config.get("currentPeriod").cloned().unwrap_or(Value::Null);
-    let period_type = period
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let period_type = period.get("type").and_then(Value::as_str).unwrap_or("");
     let reset_raw = period
         .get("end")
         .or_else(|| config.get("billingPeriodEnd"))
@@ -246,7 +281,12 @@ fn grok_billing_snapshot(
     let reset = parsed_reset
         .map(|dt| {
             let local = dt.with_timezone(&chrono::Local);
-            format!("{}/{} {}", local.month(), local.day(), local.format("%H:%M"))
+            format!(
+                "{}/{} {}",
+                local.month(),
+                local.day(),
+                local.format("%H:%M")
+            )
         })
         .unwrap_or_else(|| "-".into());
     let tier = payload
@@ -290,13 +330,15 @@ async fn fetch_grok_usage(
             }
         })
         .collect::<Vec<_>>();
-    let mut fetched: Vec<(String, Result<Value, String>)> = futures_util::future::join_all(
-        live_accounts.iter().map(|account| async {
+    let mut fetched: Vec<(String, Result<Value, String>)> =
+        futures_util::future::join_all(live_accounts.iter().map(|account| async {
             jitter_delay().await;
-            (account.label.clone(), grok_query_account(state, account).await)
-        }),
-    )
-    .await;
+            (
+                account.label.clone(),
+                grok_query_account(state, account).await,
+            )
+        }))
+        .await;
     fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
     section.description = cached_section
         .map(|cached| cached.description.clone())
@@ -309,7 +351,11 @@ async fn fetch_grok_usage(
             Ok(payload) => match grok_billing_snapshot(&payload) {
                 Ok((window, used_percent, reset, tier, reset_at)) => {
                     section.windows.push(ProviderUsageWindow {
-                        window: if multi_account { format!("{label} {window}") } else { window },
+                        window: if multi_account {
+                            format!("{label} {window}")
+                        } else {
+                            window
+                        },
                         used: Some(format!("{used_percent:.1}%")),
                         reset: Some(reset),
                         reset_at,

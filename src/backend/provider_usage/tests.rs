@@ -3,9 +3,9 @@ mod mimo_auth_tests {
     use chrono::Datelike;
 
     use super::{
-        grok_billing_snapshot, mimo_auth_error, mimo_headers, mimo_usage_percent,
-        provider_reset_duration, provider_reset_text_local, should_skip_codex_cached_account,
-        grok_web_billing_snapshot,
+        grok_billing_snapshot, grok_web_billing_snapshot, mimo_auth_error, mimo_headers,
+        mimo_usage_percent, provider_reset_duration, provider_reset_text_local,
+        should_skip_codex_cached_account,
     };
 
     #[test]
@@ -41,8 +41,79 @@ mod mimo_auth_tests {
             }],
             ..Default::default()
         };
-        assert!(should_skip_codex_cached_account(&section, "account", now, false));
-        assert!(!should_skip_codex_cached_account(&section, "account", now, true));
+        assert!(should_skip_codex_cached_account(
+            &section, "account", now, false
+        ));
+        assert!(!should_skip_codex_cached_account(
+            &section, "account", now, true
+        ));
+    }
+
+    #[tokio::test]
+    async fn grok_http_empty_body_preserves_upstream_grpc_status() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 2048];
+            let received = socket.read(&mut request).await.unwrap();
+            assert!(received > 0);
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/grpc-web+proto\r\ngrpc-status: 14\r\ngrpc-message: [REDACTED]\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        });
+        let error = super::provider_http_post_bytes(
+            &reqwest::Client::builder().no_proxy().build().unwrap(),
+            &format!("http://{address}/billing"),
+            &[0, 0, 0, 0, 0],
+            &[],
+        )
+        .await
+        .unwrap_err();
+        server.await.unwrap();
+        assert_eq!(error, "gRPC 14：上游额度服务暂不可用");
+        assert!(!error.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn grok_trailer_errors_are_reported_even_after_a_data_frame() {
+        let data = b"\x00\x00\x00\x00\x15\x0a\x13\x0d\x00\x00\x80\x3f\x2a\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01";
+        for (status, expected) in [
+            (14, "gRPC 14：上游额度服务暂不可用"),
+            (16, "gRPC 16：上游额度查询认证失败"),
+        ] {
+            let text = format!("grpc-status: {status}\r\ngrpc-message: [REDACTED]\r\n");
+            let mut trailer = vec![0x80];
+            trailer.extend_from_slice(&(text.len() as u32).to_be_bytes());
+            trailer.extend_from_slice(text.as_bytes());
+            let mut combined = data.to_vec();
+            combined.extend_from_slice(&trailer);
+            for body in [trailer, combined] {
+                assert_eq!(grok_web_billing_snapshot(&body).unwrap_err(), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn grok_refreshes_only_authenticated_failure_statuses() {
+        assert!(super::grok_auth_error("HTTP 401 Unauthorized"));
+        assert!(super::grok_auth_error("gRPC 16：上游额度查询认证失败"));
+        for error in [
+            "gRPC 14：上游额度服务暂不可用",
+            "gRPC 7：上游拒绝额度访问权限",
+            "HTTP 403 Forbidden",
+        ] {
+            assert!(!super::grok_auth_error(error));
+        }
+    }
+
+    #[test]
+    fn grok_truncated_trailer_does_not_publish_partial_usage() {
+        let mut data = b"\x00\x00\x00\x00\x15\x0a\x13\x0d\x00\x00\x80\x3f\x2a\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01".to_vec();
+        data.extend_from_slice(&[0x80, 0, 0]);
+        assert_eq!(
+            grok_web_billing_snapshot(&data).unwrap_err(),
+            "gRPC 响应数据帧被截断"
+        );
     }
 
     #[test]
@@ -55,7 +126,7 @@ mod mimo_auth_tests {
 
     #[test]
     fn grok_web_frame_with_omitted_ratio_preserves_reset() {
-        let body = b"\x00\x00\x00\x00\x48\x0a\x46\x12\x00\x1a\x00\x22\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01\x2a\x0c\x08\xff\xbd\xec\xd4\x06\x10\x90\x99\x88\x9c\x01\x42\x1e\x08\x02\x12\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01\x1a\x0c\x08\xff\xbd\xec\xd4\x06\x10\x90\x99\x88\x9c\x01\x58\x01\x62\x00\x68\x01\x80\x00\x00";
+        let body = b"\x00\x00\x00\x00\x48\x0a\x46\x12\x00\x1a\x00\x22\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01\x2a\x0c\x08\xff\xbd\xec\xd4\x06\x10\x90\x99\x88\x9c\x01\x42\x1e\x08\x02\x12\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01\x1a\x0c\x08\xff\xbd\xec\xd4\x06\x10\x90\x99\x88\x9c\x01\x58\x01\x62\x00\x68\x01\x80\x00\x00\x00\x0fgrpc-status:0\r\n";
         let payload = grok_web_billing_snapshot(body).unwrap();
         let (window, used, reset, _, _) = grok_billing_snapshot(&payload).unwrap();
         assert_eq!(window, "周额度");
@@ -66,7 +137,12 @@ mod mimo_auth_tests {
             .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
             .map(|date| {
                 let local = date.with_timezone(&chrono::Local);
-                format!("{}/{} {}", local.month(), local.day(), local.format("%H:%M"))
+                format!(
+                    "{}/{} {}",
+                    local.month(),
+                    local.day(),
+                    local.format("%H:%M")
+                )
             })
             .unwrap();
         assert_eq!(reset, expected_reset);
@@ -123,9 +199,11 @@ mod mimo_auth_tests {
             "api-platform_ph=redacted",
             "https://platform.xiaomimimo.com/",
         );
-        assert!(headers
-            .iter()
-            .any(|(name, value)| name == "Cookie" && value == "api-platform_ph=redacted"));
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| name == "Cookie" && value == "api-platform_ph=redacted")
+        );
         assert!(headers.iter().all(|(name, _)| name != "Authorization"));
     }
 }
@@ -133,7 +211,7 @@ mod mimo_auth_tests {
 #[cfg(test)]
 mod zed_pro_tests {
     use super::{json_string_or_number, zed_account_snapshot, zed_usage_limit};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn student_plan_does_not_invent_a_monthly_percent() {

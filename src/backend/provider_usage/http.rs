@@ -20,7 +20,6 @@ async fn provider_http_get_json(
     serde_json::from_str::<Value>(&body).map_err(|err| format!("响应不是 JSON：{err}"))
 }
 
-
 async fn provider_http_get_json_retry(
     client: &reqwest::Client,
     url: &str,
@@ -57,6 +56,25 @@ async fn provider_http_post_json(
     serde_json::from_str::<Value>(&text).map_err(|err| format!("响应不是 JSON：{err}"))
 }
 
+fn provider_grpc_status_error(status: &str) -> Option<String> {
+    let Ok(code) = status.parse::<u32>() else {
+        return Some("gRPC 响应包含无效状态".to_string());
+    };
+    if code == 0 {
+        return None;
+    }
+    let detail = match code {
+        4 => "上游额度查询超时",
+        7 => "上游拒绝额度访问权限",
+        8 => "上游额度查询限流",
+        13 => "上游额度服务内部错误",
+        14 => "上游额度服务暂不可用",
+        16 => "上游额度查询认证失败",
+        _ => "上游额度查询失败",
+    };
+    Some(format!("gRPC {code}：{detail}"))
+}
+
 async fn provider_http_post_bytes(
     client: &reqwest::Client,
     url: &str,
@@ -72,10 +90,18 @@ async fn provider_http_post_bytes(
     }
     let response = request.send().await.map_err(|err| err.to_string())?;
     let status = response.status();
-    let body = response.bytes().await.map_err(|err| err.to_string())?;
     if !status.is_success() {
         return Err(format!("HTTP {status}"));
     }
+    if let Some(status) = response.headers().get("grpc-status") {
+        let status = status
+            .to_str()
+            .map_err(|_| "gRPC 响应包含无效状态".to_string())?;
+        if let Some(error) = provider_grpc_status_error(status) {
+            return Err(error);
+        }
+    }
+    let body = response.bytes().await.map_err(|err| err.to_string())?;
     Ok(body.to_vec())
 }
 
@@ -95,9 +121,10 @@ fn urlencoding_lite(value: &str) -> String {
 /// Random 200-1500ms delay so concurrent account queries don't hit upstream
 /// consoles at the same instant (mirrors the script's jitter).
 async fn jitter_delay() {
-    let millis = 200 + (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as u64 % 1_300)
-        .unwrap_or(0));
+    let millis = 200
+        + (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as u64 % 1_300)
+            .unwrap_or(0));
     sleep(Duration::from_millis(millis)).await;
 }
