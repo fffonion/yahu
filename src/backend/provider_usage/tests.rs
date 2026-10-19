@@ -1,11 +1,8 @@
 #[cfg(test)]
 mod mimo_auth_tests {
-    use chrono::Datelike;
-
     use super::{
-        grok_billing_snapshot, grok_web_billing_snapshot, mimo_auth_error, mimo_headers,
-        mimo_usage_percent, provider_reset_duration, provider_reset_text_local,
-        should_skip_codex_cached_account,
+        grok_billing_snapshot, mimo_auth_error, mimo_headers, mimo_usage_percent,
+        provider_reset_duration, provider_reset_text_local, should_skip_codex_cached_account,
     };
 
     #[test]
@@ -49,103 +46,208 @@ mod mimo_auth_tests {
         ));
     }
 
-    #[tokio::test]
-    async fn grok_http_empty_body_preserves_upstream_grpc_status() {
+    #[test]
+    fn grok_rest_request_uses_official_endpoint_and_headers() {
+        let client = reqwest::Client::new();
+        let request = super::grok_cli_request(
+            &client,
+            "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+            "[REDACTED]",
+            Some("[REDACTED]"),
+        )
+        .build()
+        .unwrap();
+        assert_eq!(request.method(), reqwest::Method::GET);
+        assert_eq!(request.url().path(), "/v1/billing");
+        assert_eq!(request.url().query(), Some("format=credits"));
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .is_some_and(|v| v == "Bearer [REDACTED]")
+        );
+        assert!(
+            request
+                .headers()
+                .get("x-userid")
+                .is_some_and(|v| v == "[REDACTED]")
+        );
+        assert_eq!(request.headers()["x-xai-token-auth"], "xai-grok-cli");
+        assert_eq!(request.headers()["accept"], "application/json");
+        assert_eq!(request.headers()["x-grok-client-mode"], "headless");
+        assert_eq!(
+            request.headers()["x-grok-client-version"],
+            env!("CARGO_PKG_VERSION")
+        );
+        assert!(request.body().is_none());
+        assert!(!request.headers().contains_key("x-grpc-web"));
+    }
+
+    async fn grok_test_server(
+        replies: Vec<(u16, serde_json::Value)>,
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = [0; 2048];
-            let received = socket.read(&mut request).await.unwrap();
-            assert!(received > 0);
-            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/grpc-web+proto\r\ngrpc-status: 14\r\ngrpc-message: [REDACTED]\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
-        });
-        let error = super::provider_http_post_bytes(
-            &reqwest::Client::builder().no_proxy().build().unwrap(),
-            &format!("http://{address}/billing"),
-            &[0, 0, 0, 0, 0],
-            &[],
-        )
-        .await
-        .unwrap_err();
-        server.await.unwrap();
-        assert_eq!(error, "gRPC 14：上游额度服务暂不可用");
-        assert!(!error.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn grok_trailer_errors_are_reported_even_after_a_data_frame() {
-        let data = b"\x00\x00\x00\x00\x15\x0a\x13\x0d\x00\x00\x80\x3f\x2a\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01";
-        for (status, expected) in [
-            (14, "gRPC 14：上游额度服务暂不可用"),
-            (16, "gRPC 16：上游额度查询认证失败"),
-        ] {
-            let text = format!("grpc-status: {status}\r\ngrpc-message: [REDACTED]\r\n");
-            let mut trailer = vec![0x80];
-            trailer.extend_from_slice(&(text.len() as u32).to_be_bytes());
-            trailer.extend_from_slice(text.as_bytes());
-            let mut combined = data.to_vec();
-            combined.extend_from_slice(&trailer);
-            for body in [trailer, combined] {
-                assert_eq!(grok_web_billing_snapshot(&body).unwrap_err(), expected);
+        let task = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for (status, payload) in replies {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                while !bytes.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let mut buffer = [0; 1024];
+                    let size = socket.read(&mut buffer).await.unwrap();
+                    assert!(size > 0 && bytes.len() + size <= 8192);
+                    bytes.extend_from_slice(&buffer[..size]);
+                }
+                let header_end = bytes
+                    .windows(4)
+                    .position(|part| part == b"\r\n\r\n")
+                    .unwrap()
+                    + 4;
+                let content_length = String::from_utf8_lossy(&bytes[..header_end])
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                while bytes.len() < header_end + content_length {
+                    let mut buffer = [0; 1024];
+                    let size = socket.read(&mut buffer).await.unwrap();
+                    assert!(size > 0 && bytes.len() + size <= 8192);
+                    bytes.extend_from_slice(&buffer[..size]);
+                }
+                requests.push(String::from_utf8(bytes).unwrap());
+                let body = payload.to_string();
+                let response = format!(
+                    "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
             }
+            requests
+        });
+        (format!("http://{address}/v1"), task)
+    }
+
+    fn grok_test_account(user_id: Option<&str>) -> super::AuthCredentialEntry {
+        super::AuthCredentialEntry {
+            label: "account".into(),
+            access_token: "[REDACTED]".into(),
+            refresh_token: None,
+            user_id: user_id.map(str::to_string),
         }
     }
 
-    #[test]
-    fn grok_refreshes_only_authenticated_failure_statuses() {
-        assert!(super::grok_auth_error("HTTP 401 Unauthorized"));
-        assert!(super::grok_auth_error("gRPC 16：上游额度查询认证失败"));
-        for error in [
-            "gRPC 14：上游额度服务暂不可用",
-            "gRPC 7：上游拒绝额度访问权限",
-            "HTTP 403 Forbidden",
-        ] {
-            assert!(!super::grok_auth_error(error));
-        }
-    }
-
-    #[test]
-    fn grok_truncated_trailer_does_not_publish_partial_usage() {
-        let mut data = b"\x00\x00\x00\x00\x15\x0a\x13\x0d\x00\x00\x80\x3f\x2a\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01".to_vec();
-        data.extend_from_slice(&[0x80, 0, 0]);
-        assert_eq!(
-            grok_web_billing_snapshot(&data).unwrap_err(),
-            "gRPC 响应数据帧被截断"
-        );
-    }
-
-    #[test]
-    fn grok_web_frame_ratio_uses_percentage_points() {
-        let body = b"\x00\x00\x00\x00\x15\x0a\x13\x0d\x00\x00\x80\x3f\x2a\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01";
-        let payload = grok_web_billing_snapshot(body).unwrap();
-        let (_, used, _, _, _) = grok_billing_snapshot(&payload).unwrap();
-        assert!((used - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn grok_web_frame_with_omitted_ratio_preserves_reset() {
-        let body = b"\x00\x00\x00\x00\x48\x0a\x46\x12\x00\x1a\x00\x22\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01\x2a\x0c\x08\xff\xbd\xec\xd4\x06\x10\x90\x99\x88\x9c\x01\x42\x1e\x08\x02\x12\x0c\x08\xff\xc8\xc7\xd4\x06\x10\x90\x99\x88\x9c\x01\x1a\x0c\x08\xff\xbd\xec\xd4\x06\x10\x90\x99\x88\x9c\x01\x58\x01\x62\x00\x68\x01\x80\x00\x00\x00\x0fgrpc-status:0\r\n";
-        let payload = grok_web_billing_snapshot(body).unwrap();
-        let (window, used, reset, _, _) = grok_billing_snapshot(&payload).unwrap();
-        assert_eq!(window, "周额度");
-        assert_eq!(used, 0.0);
-        let expected_reset = payload
-            .pointer("/config/currentPeriod/end")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-            .map(|date| {
-                let local = date.with_timezone(&chrono::Local);
-                format!(
-                    "{}/{} {}",
-                    local.month(),
-                    local.day(),
-                    local.format("%H:%M")
-                )
-            })
+    #[tokio::test]
+    async fn grok_rest_resolves_missing_identity_and_reads_json_credits() {
+        let credits = serde_json::json!({"config":{"creditUsagePercent":42.5,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2028-06-08T00:00:00Z"}}});
+        let (base, server) = grok_test_server(vec![
+            (200, serde_json::json!({"userId":"[REDACTED]"})),
+            (200, credits),
+        ])
+        .await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let payload = super::grok_query_billing_from_base(&client, &base, &grok_test_account(None))
+            .await
             .unwrap();
-        assert_eq!(reset, expected_reset);
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].starts_with("GET /v1/user HTTP/1.1"));
+        assert!(requests[1].starts_with("GET /v1/billing?format=credits HTTP/1.1"));
+        assert!(
+            requests[1]
+                .to_ascii_lowercase()
+                .contains("x-userid: [redacted]\r\n")
+        );
+        let (window, used, _, _, reset) = grok_billing_snapshot(&payload).unwrap();
+        assert_eq!(window, "周额度");
+        assert_eq!(used, 42.5);
+        assert!(reset.is_some());
+    }
+
+    #[tokio::test]
+    async fn grok_rest_retries_once_after_unauthorized() {
+        let credits = serde_json::json!({"config":{"creditUsagePercent":12.5,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2028-06-08T00:00:00Z"}}});
+        let (base, server) = grok_test_server(vec![
+            (401, serde_json::json!({"error":"[REDACTED]"})),
+            (
+                200,
+                serde_json::json!({"access_token":"[REDACTED]","refresh_token":"[REDACTED]"}),
+            ),
+            (200, credits),
+        ])
+        .await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut account = grok_test_account(Some("[REDACTED]"));
+        account.refresh_token = Some("[REDACTED]".into());
+        let payload =
+            super::grok_query_account_from_base(&client, &base, &format!("{base}/token"), &account)
+                .await
+                .unwrap();
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(requests[0].starts_with("GET /v1/billing?format=credits HTTP/1.1"));
+        assert!(requests[1].starts_with("POST /v1/token HTTP/1.1"));
+        assert!(requests[1].contains("grant_type=refresh_token"));
+        assert!(requests[2].starts_with("GET /v1/billing?format=credits HTTP/1.1"));
+        assert_eq!(grok_billing_snapshot(&payload).unwrap().1, 12.5);
+    }
+
+    #[tokio::test]
+    async fn grok_rest_does_not_refresh_on_permission_limits_or_service_failure() {
+        for status in [403, 429, 503] {
+            let (base, server) =
+                grok_test_server(vec![(status, serde_json::json!({"error":"[REDACTED]"}))]).await;
+            let client = reqwest::Client::builder().no_proxy().build().unwrap();
+            let mut account = grok_test_account(Some("[REDACTED]"));
+            account.refresh_token = Some("[REDACTED]".into());
+            let error = super::grok_query_account_from_base(
+                &client,
+                &base,
+                &format!("{base}/token"),
+                &account,
+            )
+            .await
+            .unwrap_err();
+            assert!(error.starts_with(&format!("HTTP {status}：")));
+            assert!(!error.contains("[REDACTED]"));
+            let requests = server.await.unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(requests[0].starts_with("GET /v1/billing?format=credits HTTP/1.1"));
+        }
+    }
+
+    #[tokio::test]
+    async fn grok_rest_rejects_missing_user_id_without_guessing_identity() {
+        let (base, server) = grok_test_server(vec![(200, serde_json::json!({}))]).await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let error = super::grok_query_billing_from_base(&client, &base, &grok_test_account(None))
+            .await
+            .unwrap_err();
+        assert_eq!(error, "Grok 用户信息缺少 userId");
+        assert_eq!(server.await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn grok_rest_stops_after_one_refresh_when_unauthorized_persists() {
+        let (base, server) = grok_test_server(vec![
+            (401, serde_json::json!({})),
+            (200, serde_json::json!({"access_token":"[REDACTED]"})),
+            (401, serde_json::json!({})),
+        ])
+        .await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut account = grok_test_account(Some("[REDACTED]"));
+        account.refresh_token = Some("[REDACTED]".into());
+        let error =
+            super::grok_query_account_from_base(&client, &base, &format!("{base}/token"), &account)
+                .await
+                .unwrap_err();
+        assert!(error.starts_with("HTTP 401："));
+        assert_eq!(server.await.unwrap().len(), 3);
     }
 
     #[test]

@@ -1,184 +1,94 @@
-const GROK_WEB_CREDITS_URL: &str =
-    "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
+const GROK_CLI_BASE_URL: &str = "https://cli-chat-proxy.grok.com/v1";
 const XAI_OAUTH_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
 const XAI_OAUTH_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
-fn grok_proto_varint(data: &[u8], offset: &mut usize) -> Result<u64, String> {
-    let mut value = 0u64;
-    for shift in (0..70).step_by(7) {
-        let byte = *data
-            .get(*offset)
-            .ok_or_else(|| "gRPC 响应的 varint 不完整".to_string())?;
-        *offset += 1;
-        value |= u64::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
-            return Ok(value);
-        }
+
+fn grok_cli_request(
+    client: &reqwest::Client,
+    url: &str,
+    token: &str,
+    user_id: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let mut request = client
+        .get(url)
+        .bearer_auth(token)
+        .header("X-XAI-Token-Auth", "xai-grok-cli")
+        .header("Accept", "application/json")
+        .header("x-grok-client-version", env!("CARGO_PKG_VERSION"))
+        .header("x-grok-client-mode", "headless")
+        .header("User-Agent", concat!("yahu/", env!("CARGO_PKG_VERSION")))
+        .timeout(PROVIDER_USAGE_TIMEOUT);
+    if let Some(user_id) = user_id {
+        request = request.header("x-userid", user_id);
     }
-    Err("gRPC 响应的 varint 溢出".to_string())
+    request
 }
 
-fn grok_proto_field(data: &[u8], wanted: u32) -> Option<(u8, Vec<u8>)> {
-    let mut offset = 0;
-    while offset < data.len() {
-        let tag = grok_proto_varint(data, &mut offset).ok()?;
-        let field = u32::try_from(tag >> 3).ok()?;
-        let wire = u8::try_from(tag & 7).ok()?;
-        let value = match wire {
-            0 => grok_proto_varint(data, &mut offset)
-                .ok()?
-                .to_le_bytes()
-                .to_vec(),
-            1 => {
-                let end = offset.checked_add(8)?;
-                let value = data.get(offset..end)?.to_vec();
-                offset = end;
-                value
-            }
-            2 => {
-                let length = usize::try_from(grok_proto_varint(data, &mut offset).ok()?).ok()?;
-                let end = offset.checked_add(length)?;
-                let value = data.get(offset..end)?.to_vec();
-                offset = end;
-                value
-            }
-            5 => {
-                let end = offset.checked_add(4)?;
-                let value = data.get(offset..end)?.to_vec();
-                offset = end;
-                value
-            }
-            _ => return None,
+async fn grok_cli_json(request: reqwest::RequestBuilder) -> Result<Value, String> {
+    let response = request
+        .send()
+        .await
+        .map_err(|_| "Grok 额度接口请求失败".to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        let detail = match status.as_u16() {
+            401 => "额度查询认证失败",
+            403 => "无额度查询权限",
+            429 => "额度查询限流",
+            502..=504 => "额度服务暂不可用",
+            _ => "额度查询失败",
         };
-        if field == wanted {
-            return Some((wire, value));
-        }
+        return Err(format!("HTTP {}：Grok {detail}", status.as_u16()));
     }
-    None
+    response
+        .json::<Value>()
+        .await
+        .map_err(|_| "Grok 额度接口返回无效 JSON".to_string())
 }
 
-fn grok_proto_timestamp(data: &[u8]) -> Option<chrono::DateTime<chrono::Utc>> {
-    let (_, seconds) = grok_proto_field(data, 1)?;
-    let seconds = i64::try_from(u64::from_le_bytes(seconds.try_into().ok()?)).ok()?;
-    let nanos = grok_proto_field(data, 2)
-        .and_then(|(_, value)| u64::from_le_bytes(value.try_into().ok()?).try_into().ok())
-        .unwrap_or(0);
-    chrono::DateTime::from_timestamp(seconds, nanos)
-}
-
-fn grok_web_billing_snapshot(body: &[u8]) -> Result<Value, String> {
-    if body.len() < 5 {
-        return Err("gRPC 响应缺少有效的数据帧".to_string());
-    }
-    let mut offset = 0usize;
-    let mut data = None;
-    while offset < body.len() {
-        let start = offset
-            .checked_add(5)
-            .filter(|end| *end <= body.len())
-            .ok_or_else(|| "gRPC 响应数据帧被截断".to_string())?;
-        let length = u32::from_be_bytes(body[offset + 1..start].try_into().unwrap()) as usize;
-        let end = start
-            .checked_add(length)
-            .filter(|end| *end <= body.len())
-            .ok_or_else(|| "gRPC 响应数据帧被截断".to_string())?;
-        let payload = &body[start..end];
-        match body[offset] {
-            0 => {
-                if data.is_none() {
-                    data = Some(payload);
-                }
-            }
-            0x80 => {
-                let trailers = std::str::from_utf8(payload)
-                    .map_err(|_| "gRPC 响应包含无效的结束帧".to_string())?;
-                for line in trailers.lines() {
-                    if let Some((name, status)) = line.split_once(':')
-                        && name.trim().eq_ignore_ascii_case("grpc-status")
-                        && let Some(error) = provider_grpc_status_error(status.trim())
-                    {
-                        return Err(error);
-                    }
-                }
-            }
-            _ => return Err("gRPC 响应包含不支持的帧格式".to_string()),
+async fn grok_query_billing_from_base(
+    client: &reqwest::Client,
+    base: &str,
+    account: &AuthCredentialEntry,
+) -> Result<Value, String> {
+    let base = base.trim_end_matches('/');
+    let user_id = match account
+        .user_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+    {
+        Some(user_id) => user_id.to_string(),
+        None => {
+            let profile = grok_cli_json(grok_cli_request(
+                client,
+                &format!("{base}/user"),
+                &account.access_token,
+                None,
+            ))
+            .await?;
+            profile
+                .get("userId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| "Grok 用户信息缺少 userId".to_string())?
+                .to_string()
         }
-        offset = end;
-    }
-    let data = data.ok_or_else(|| "gRPC 响应缺少有效的数据帧".to_string())?;
-    let credits = grok_proto_field(data, 1)
-        .filter(|(wire, _)| *wire == 2)
-        .map(|(_, value)| value)
-        .ok_or_else(|| "gRPC 响应缺少额度信息".to_string())?;
-    let used_percent = grok_proto_field(&credits, 1)
-        .filter(|(wire, value)| *wire == 5 && value.len() == 4)
-        .map(|(_, value)| f32::from_le_bytes(value.try_into().unwrap()) as f64)
-        .unwrap_or(0.0);
-    if !used_percent.is_finite() || !(0.0..=100.0).contains(&used_percent) {
-        return Err("gRPC 响应包含无效的额度比例".to_string());
-    }
-    let reset = grok_proto_field(&credits, 5)
-        .filter(|(wire, _)| *wire == 2)
-        .and_then(|(_, value)| grok_proto_timestamp(&value))
-        .or_else(|| {
-            grok_proto_field(&credits, 8)
-                .filter(|(wire, _)| *wire == 2)
-                .and_then(|(_, value)| {
-                    grok_proto_field(&value, 3)
-                        .filter(|(wire, _)| *wire == 2)
-                        .and_then(|(_, timestamp)| grok_proto_timestamp(&timestamp))
-                })
-        })
-        .ok_or_else(|| "gRPC 响应缺少额度重置时间".to_string())?;
-    Ok(serde_json::json!({
-        "config": {
-            "currentPeriod": {
-                "type": "USAGE_PERIOD_TYPE_WEEKLY",
-                "end": reset.to_rfc3339(),
-            },
-            "creditUsagePercent": used_percent,
-        }
-    }))
-}
-
-async fn grok_query_web_billing(state: &AppState, token: &str) -> Result<Value, String> {
-    let headers = vec![
-        ("Authorization".to_string(), format!("Bearer {token}")),
-        ("Accept".to_string(), "application/grpc-web+proto".to_string()),
-        (
-            "Content-Type".to_string(),
-            "application/grpc-web+proto".to_string(),
-        ),
-        ("X-Grpc-Web".to_string(), "1".to_string()),
-        (
-            "Origin".to_string(),
-            "https://grok.com".to_string(),
-        ),
-        (
-            "Referer".to_string(),
-            "https://grok.com/".to_string(),
-        ),
-        (
-            "User-Agent".to_string(),
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36".to_string(),
-        ),
-    ];
-    let body = provider_http_post_bytes(
-        &state.client,
-        GROK_WEB_CREDITS_URL,
-        &[0, 0, 0, 0, 0],
-        &headers,
-    )
-    .await?;
-    grok_web_billing_snapshot(&body)
+    };
+    grok_cli_json(grok_cli_request(
+        client,
+        &format!("{base}/billing?format=credits"),
+        &account.access_token,
+        Some(&user_id),
+    ))
+    .await
 }
 
 async fn grok_refresh_access_token(
-    state: &AppState,
+    client: &reqwest::Client,
+    token_url: &str,
     refresh_token: &str,
 ) -> Result<(String, String), String> {
-    let response = state
-        .client
-        .post(XAI_OAUTH_TOKEN_URL)
+    let response = client
+        .post(token_url)
         .timeout(PROVIDER_USAGE_TIMEOUT)
         .form(&[
             ("grant_type", "refresh_token"),
@@ -208,27 +118,42 @@ async fn grok_refresh_access_token(
     Ok((access_token.to_string(), next_refresh.to_string()))
 }
 
-fn grok_auth_error(error: &str) -> bool {
-    error.starts_with("HTTP 401") || error.starts_with("gRPC 16：")
+async fn grok_query_account_from_base(
+    client: &reqwest::Client,
+    base: &str,
+    token_url: &str,
+    account: &AuthCredentialEntry,
+) -> Result<Value, String> {
+    match grok_query_billing_from_base(client, base, account).await {
+        Err(error) if error.starts_with("HTTP 401：") => {
+            let Some(refresh_token) = account.refresh_token.as_deref() else {
+                return Err(error);
+            };
+            let (access_token, _) =
+                grok_refresh_access_token(client, token_url, refresh_token).await?;
+            let mut renewed = account.clone();
+            renewed.access_token = access_token;
+            grok_query_billing_from_base(client, base, &renewed).await
+        }
+        result => result,
+    }
 }
 
 async fn grok_query_account(
     state: &AppState,
     account: &AuthCredentialEntry,
 ) -> Result<Value, String> {
-    let first = grok_query_web_billing(state, &account.access_token).await;
-    match first {
-        Ok(payload) => Ok(payload),
-        Err(err) if grok_auth_error(&err) => {
-            let Some(refresh_token) = account.refresh_token.as_deref() else {
-                return Err(err);
-            };
-            let (access_token, _next_refresh) =
-                grok_refresh_access_token(state, refresh_token).await?;
-            grok_query_web_billing(state, &access_token).await
-        }
-        Err(err) => Err(err),
-    }
+    tokio::time::timeout(
+        PROVIDER_USAGE_TIMEOUT,
+        grok_query_account_from_base(
+            &state.client,
+            GROK_CLI_BASE_URL,
+            XAI_OAUTH_TOKEN_URL,
+            account,
+        ),
+    )
+    .await
+    .map_err(|_| "Grok 额度查询超时".to_string())?
 }
 
 fn grok_billing_snapshot(
