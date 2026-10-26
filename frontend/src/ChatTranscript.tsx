@@ -373,10 +373,28 @@ function StreamingFadeText({ text }: { text: string }) {
     if (typeof document === 'undefined') return text;
     const template = document.createElement('template');
     template.innerHTML = html;
+    // Only the recent tail needs individual animation nodes. Settled text stays
+    // in its original Markdown element as a normal text node.
+    const settledBefore = Math.max(0, (template.content.textContent || '').length - 160);
     let characterIndex = 0;
     let elementIndex = 0;
     const renderNode = (node: Node): React.ReactNode => {
-      if (node.nodeType === Node.TEXT_NODE) return streamGraphemes(node.textContent || '').map((grapheme) => <span className="stream-fade-char" key={`character:${characterIndex++}`}>{grapheme}</span>);
+      if (node.nodeType === Node.TEXT_NODE) {
+        const value = node.textContent || '';
+        if (characterIndex + value.length <= settledBefore) {
+          characterIndex += value.length;
+          return value;
+        }
+        let prefix = '';
+        const tail: React.ReactNode[] = [];
+        for (const grapheme of streamGraphemes(value)) {
+          const index = characterIndex;
+          characterIndex += grapheme.length;
+          if (characterIndex <= settledBefore) prefix += grapheme;
+          else tail.push(<span className="stream-fade-char" key={`character:${index}`}>{grapheme}</span>);
+        }
+        return [prefix, ...tail];
+      }
       if (node.nodeType !== Node.ELEMENT_NODE) return null;
       const element = node as HTMLElement;
       const props: Record<string, string> = {};
@@ -415,6 +433,8 @@ const MessageView = React.memo(function MessageView({ message, showReasoning = f
 
 function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, forceOpenToken = 0 }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenToken?: number }) {
   const [open, setOpen] = useState(() => !!item.defaultOpen);
+  // Mount once on first expansion; retain nested disclosure state on re-close.
+  const [hasOpened, setHasOpened] = useState(() => !!item.defaultOpen);
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const loadingRef = useRef(false);
@@ -453,6 +473,7 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, 
     if (item.defaultOpen || forceOpenToken > 0) followLatestRef.current = true;
   }, [forceOpenToken, item.defaultOpen]);
   useLayoutEffect(() => {
+    if (!open && !forceOpenToken) return;
     const group = detailGroupRef.current;
     const scroller = group?.closest<HTMLElement>('.chat-scroll');
     if (!scroller) return;
@@ -467,7 +488,7 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, 
       scroller.removeEventListener('scroll', onScroll);
       scroller.style.overflowAnchor = previousOverflowAnchor;
     };
-  }, []);
+  }, [open, forceOpenToken]);
   useLayoutEffect(() => {
     if (!open || (!item.defaultOpen && !forceOpenToken) || !detailMessages.length || !followLatestRef.current) return;
     const frame = window.requestAnimationFrame(() => {
@@ -478,12 +499,12 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, 
   }, [detailMessages, forceOpenToken, open]);
   return <>
     {commentary.map((message) => <MessageView key={`commentary:${message.id}`} message={message} showReasoning={showReasoning} assistantName={assistantName} />)}
-    {detailCount > 0 && <details ref={detailGroupRef} className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open || forceOpenToken > 0} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}>
+    {detailCount > 0 && <details ref={detailGroupRef} className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open || forceOpenToken > 0} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) { setHasOpened(true); loadDetails(); } }}>
       <summary className="turn-detail-summary"><span className="turn-detail-copy">{detailSummary}</span><ChevronRight className="tool-chevron turn-detail-arrow" aria-hidden="true" /></summary>
       <div className="turn-detail-body">
         {loading ? t('status.loading') : null}
         {error && <p className="error-text">{error}</p>}
-        {detailMessages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} suppressMessageAnchor={!open} />)}
+        {(hasOpened || open || forceOpenToken > 0) && detailMessages.map((message) => <MessageView key={message.id} message={message} showReasoning={showReasoning} assistantName={assistantName} suppressMessageAnchor={!open} />)}
       </div>
     </details>}
   </>;

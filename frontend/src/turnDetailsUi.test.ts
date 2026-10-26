@@ -41,7 +41,7 @@ describe('turn detail fold UI', () => {
     expect(styles).toContain('.turn-detail-arrow{justify-self:end}');
     expect(styles).toContain('.tool-chevron{width:15px;height:15px;color:var(--muted);transition:transform .15s ease}');
     expect(styles).toContain('.turn-detail-group[open] .turn-detail-arrow{transform:rotate(90deg)}');
-    expect(source).toContain("open={open || forceOpenToken > 0} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) loadDetails(); }}");
+    expect(source).toContain("open={open || forceOpenToken > 0} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) { setHasOpened(true); loadDetails(); } }}");
 
     expect(source).toContain("const detailAnchorId = String(item.messages[0]?.id || item.id);");
     expect(source).toContain('data-message-id={!open ? detailAnchorId : undefined}');

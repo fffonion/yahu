@@ -11,6 +11,7 @@ import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, modelMenuLabel, modelTriggerLabel, orderedModelOptions, providerDisplayName } from './modelDisplay';
 import { fallbackContextWindowForModel, latestMessageProviderForModel, resolvePreferredModelProvider as resolveModelProvider, selectModelOption } from './modelContext';
 import { ChatTranscript, type ChatMessage, type ChatTurnMetrics } from './ChatTranscript';
+import { startVisiblePolling } from './visiblePolling';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { latestSessionPreviewFromMessages, sessionPreviewForDisplay } from './sessionPreview';
 import { highlightSourceText } from './syntaxHighlight';
@@ -1846,22 +1847,20 @@ export default function App() {
   }, [mode, loadProviderUsageProvider, providerUsage]);
   useEffect(() => {
     if (mode !== 'usage' || !providerUsage) return;
-    const timer = window.setInterval(() => {
+    return startVisiblePolling(() => {
       const providers = providerUsage.providers
         .filter((provider) => providerUsageEnabled[provider.provider] && provider.query_ready && providerUsageAutoRefresh[provider.provider])
         .map((provider) => provider.provider);
-      if (providers.length) void Promise.all(providers.map((provider) => loadProviderUsageProvider(provider, true)));
+      if (providers.length) return Promise.all(providers.map((provider) => loadProviderUsageProvider(provider, true)));
     }, PROVIDER_USAGE_AUTO_REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(timer);
   }, [mode, loadProviderUsageProvider, providerUsage, providerUsageAutoRefresh, providerUsageEnabled]);
   useEffect(() => { const t = window.setTimeout(() => loadSessions(filter), 180); return () => window.clearTimeout(t); }, [filter, loadSessions]);
   useEffect(() => {
     if (mode !== 'chat') return;
-    const timer = window.setInterval(() => {
+    return startVisiblePolling(() => {
       if (sessionListRequestCountRef.current > 0) return;
-      void loadSessions(filter);
+      return loadSessions(filter);
     }, SESSION_LIST_REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(timer);
   }, [filter, loadSessions, mode]);
   useEffect(() => { if (mode === 'cron') loadCronJobs(); }, [mode, loadCronJobs]);
   useEffect(() => { if (mode === 'cron' && cronEditingId) loadCronOutput(cronEditingId); else setCronOutput(null); }, [mode, cronEditingId, loadCronOutput]);
@@ -1962,7 +1961,7 @@ export default function App() {
   }, [activeSession?.source, activeSessionId, clearNewMessages, loadUserMessageNav, scheduleContextWindowSnapshot]);
   useEffect(() => { streamingSessionIdRef.current = streamingSessionId; }, [streamingSessionId]);
   useEffect(() => {
-    if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
+    if (mode !== 'chat' || !activeSessionId || activeSessionId === DRAFT_SESSION_ID) return;
     const targetSessionId = activeSessionId;
     let cancelled = false;
     const probe = async () => {
@@ -1991,14 +1990,13 @@ export default function App() {
         });
       }
     };
-    probe();
-    const timer = window.setInterval(probe, 1500);
+    const stopPolling = startVisiblePolling(probe, 1500, true);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
       if (streamStatusProbeRef.current?.sessionId === targetSessionId) streamStatusProbeRef.current = null;
     };
-  }, [activeSessionId, headers, t]);
+  }, [activeSessionId, headers, mode, t]);
   useEffect(() => {
     if (!sessionMenu && !skillMenu && !skillFileMenu && !workspaceMenu) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSessionMenu(null); setSkillMenu(null); setSkillFileMenu(null); setWorkspaceMenu(null); } };

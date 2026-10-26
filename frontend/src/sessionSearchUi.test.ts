@@ -121,9 +121,9 @@ describe('session search and composer session model UI', () => {
     const app = source();
     expect(app).toContain("const SESSION_LIST_REFRESH_INTERVAL_MS = 3000;");
     expect(app).toContain("if (mode !== 'chat') return;");
-    expect(app).toContain('const timer = window.setInterval(() => {');
-    expect(app).toContain('void loadSessions(filter);');
-    expect(app).toContain('return () => window.clearInterval(timer);');
+    expect(app).toContain('return startVisiblePolling(() => {');
+    expect(app).toContain('return loadSessions(filter);');
+    expect(app).toContain('}, SESSION_LIST_REFRESH_INTERVAL_MS);');
   });
 
   test('session polling keeps an in-flight assistant preview over a stale API row', () => {
