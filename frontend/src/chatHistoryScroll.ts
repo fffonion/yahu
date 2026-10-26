@@ -47,9 +47,15 @@ export function shouldSyncMinimapToLatest(mode: StreamFollowMode, metrics: ChatS
   return isNearNewerBoundary(metrics, autoThresholdPx);
 }
 
-export function streamFollowIntentAfterScroll(previousScrollTop: number | null, metrics: ChatScrollMetrics, latestThresholdPx = 0): StreamFollowIntent {
-  if (previousScrollTop !== null && metrics.scrollTop < previousScrollTop) return 'away';
+export function streamFollowIntentAfterScroll(previousScrollTop: number | null, metrics: ChatScrollMetrics, latestThresholdPx = 1, previousLayout?: Pick<ChatScrollMetrics, 'scrollHeight' | 'clientHeight'>): StreamFollowIntent {
+  if (previousScrollTop === null) return null;
   const distanceFromLatest = metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight;
-  if (previousScrollTop !== null && metrics.scrollTop > previousScrollTop && distanceFromLatest <= latestThresholdPx) return 'follow';
+  // Composer/layout changes can clamp scrollTop downward while still at latest.
+  // The live edge wins over a negative delta; allow subpixel rounding only.
+  if (distanceFromLatest < latestThresholdPx) return 'follow';
+  if (metrics.scrollTop < previousScrollTop) {
+    if (previousLayout && (previousLayout.scrollHeight !== metrics.scrollHeight || previousLayout.clientHeight !== metrics.clientHeight)) return null;
+    return 'away';
+  }
   return null;
 }

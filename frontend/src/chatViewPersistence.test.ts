@@ -25,7 +25,7 @@ describe('chat view persistence', () => {
     expect(source).toContain('state.anchors[sessionId] = { id: anchor.id, topOffset: Number.isFinite(anchor.topOffset) ? anchor.topOffset : 0 };');
     expect(source).toContain('writeChatViewState(props.activeSessionId, el.scrollTop, anchor ? { id: anchor.id, topOffset: anchor.topOffset } : null);');
     expect(source).toContain("const followMode = followState.sessionId === watchedSessionId ? followState.mode : 'auto';");
-    expect(source).toContain("const wasNearBottom = followMode === 'follow' || (followMode === 'auto' && !!chatScrollRef.current && isNearBottom(chatScrollRef.current));");
+    expect(source).toContain("const wasNearBottom = !!chatScrollRef.current && !hasNewerRef.current && (isNearBottom(chatScrollRef.current, 1) || followMode === 'follow');");
     expect(source).not.toContain('const viewportMatchesSaved = !Number.isFinite(savedScrollTop)');
   });
 

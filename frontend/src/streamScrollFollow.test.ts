@@ -4,6 +4,12 @@ import { readFileSync } from 'node:fs';
 const source = () => readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 
 describe('streaming chat scroll follow', () => {
+  test('uses the actual latest page and edge for incoming messages and marker clearing', () => {
+    const app = source();
+    expect(app).toContain("const wasNearBottom = !!chatScrollRef.current && !hasNewerRef.current && (isNearBottom(chatScrollRef.current, 1) || followMode === 'follow');");
+    expect(app).toContain('if (!props.hasNewer && isNearBottom(el, 1) && props.newMessageCount > 0) props.onClearNewMessages();');
+    expect(app).toContain('const stick = !hasNewerRef.current && isNearBottom(chatScrollRef.current, 1);');
+  });
   test('prioritizes latest follow over a saved history anchor', () => {
     const app = source();
     const followMode = app.indexOf('if (followLatestUntilLayoutSettles) {');
@@ -39,7 +45,7 @@ describe('streaming chat scroll follow', () => {
   test('uses live user intent for watched streams without consulting persisted scroll', () => {
     const app = source();
     expect(app).toContain("const followMode = followState.sessionId === watchedSessionId ? followState.mode : 'auto';");
-    expect(app).toContain("const wasNearBottom = followMode === 'follow' || (followMode === 'auto' && !!chatScrollRef.current && isNearBottom(chatScrollRef.current));");
+    expect(app).toContain("const wasNearBottom = !!chatScrollRef.current && !hasNewerRef.current && (isNearBottom(chatScrollRef.current, 1) || followMode === 'follow');");
     expect(app).not.toContain('const viewportMatchesSaved = !Number.isFinite(savedScrollTop)');
   });
 
@@ -48,7 +54,7 @@ describe('streaming chat scroll follow', () => {
     expect(app).toContain('if (e.deltaY < 0) {');
     expect(app).toContain('previousChatScrollTopRef.current = null;');
     expect(app).toContain('const baselineFrame = window.requestAnimationFrame(() => {');
-    expect(app).toContain('previousChatScrollTopRef.current = { sessionId, scrollTop: scroller.scrollTop };');
+    expect(app).toContain('previousChatScrollTopRef.current = { sessionId, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight };');
     expect(app).toContain('const restoredScroll = props.consumeChatViewRestoreScroll(props.activeSessionId, el.scrollTop);');
     expect(app).toContain('const followIntent = restoredScroll ? null : streamFollowIntentAfterScroll(');
     expect(app).toContain('previousScroll?.sessionId === props.activeSessionId ? previousScroll.scrollTop : null');

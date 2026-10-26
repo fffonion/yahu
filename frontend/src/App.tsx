@@ -1935,7 +1935,7 @@ export default function App() {
         if (msg.role === 'user') void loadUserMessageNav(watchedSessionId);
         const followState = chatViewportFollowRef.current;
         const followMode = followState.sessionId === watchedSessionId ? followState.mode : 'auto';
-        const wasNearBottom = followMode === 'follow' || (followMode === 'auto' && !!chatScrollRef.current && isNearBottom(chatScrollRef.current));
+        const wasNearBottom = !!chatScrollRef.current && !hasNewerRef.current && (isNearBottom(chatScrollRef.current, 1) || followMode === 'follow');
         const prev = messagesRef.current;
         const next = sortMessagesInDisplayOrder(mergeWatchedMessage(prev, msg));
         messagesRef.current = next;
@@ -2248,7 +2248,7 @@ export default function App() {
         setHasNewer(false);
       }
     } catch (err) { setStatus(tf('status.cannotCreateSession', errorMessage(err))); setBusy(false); return; }
-    const stick = isNearBottom(chatScrollRef.current, 180);
+    const stick = !hasNewerRef.current && isNearBottom(chatScrollRef.current, 1);
     let payloadAttachments: Attachment[] = turnAttachments;
     try {
       payloadAttachments = await uploadAttachments(turnAttachments);
@@ -3949,7 +3949,7 @@ function ChatMain(props: ChatMainProps) {
   const isCompactViewport = useMediaQuery('(max-width: 760px), (min-width: 761px) and (max-width: 1180px) and (orientation: landscape) and (max-height: 820px)');
   const { isFullscreen, showFullscreenButton, toggleFullscreen } = useFullscreenControl();
   const [statusBarCollapseToken, setStatusBarCollapseToken] = useState(0);
-  const previousChatScrollTopRef = useRef<{ sessionId: string; scrollTop: number } | null>(null);
+  const previousChatScrollTopRef = useRef<{ sessionId: string; scrollTop: number; scrollHeight: number; clientHeight: number } | null>(null);
   const latestScrollGenerationRef = useRef(0);
   const latestScrollSessionRef = useRef(props.activeSessionId);
   const latestScrollHandlesRef = useRef<{ frame: number | null; timers: number[] }>({ frame: null, timers: [] });
@@ -3972,7 +3972,7 @@ function ChatMain(props: ChatMainProps) {
     const baselineFrame = window.requestAnimationFrame(() => {
       if (latestScrollSessionRef.current !== sessionId) return;
       const scroller = props.chatScrollRef.current;
-      if (scroller) previousChatScrollTopRef.current = { sessionId, scrollTop: scroller.scrollTop };
+      if (scroller) previousChatScrollTopRef.current = { sessionId, scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight };
     });
     return () => window.cancelAnimationFrame(baselineFrame);
   }, [props.activeSessionId, props.chatScrollRef]);
@@ -4086,8 +4086,10 @@ function ChatMain(props: ChatMainProps) {
     const followIntent = restoredScroll ? null : streamFollowIntentAfterScroll(
       previousScroll?.sessionId === props.activeSessionId ? previousScroll.scrollTop : null,
       el,
+      1,
+      previousScroll?.sessionId === props.activeSessionId ? previousScroll : undefined,
     );
-    previousChatScrollTopRef.current = { sessionId: props.activeSessionId, scrollTop: el.scrollTop };
+    previousChatScrollTopRef.current = { sessionId: props.activeSessionId, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (followIntent === 'away') cancelLatestViewportScroll();
     if (followIntent) props.onStreamFollowIntent(followIntent);
     const anchor = captureMessageScrollAnchor(el);
@@ -4098,7 +4100,7 @@ function ChatMain(props: ChatMainProps) {
     setShowLatestButton(chatLatestButtonVisible(el, props.hasNewer));
     updateActiveNavigatorIds();
     scheduleSubagentWindowUpdate();
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120 && props.newMessageCount > 0) props.onClearNewMessages();
+    if (!props.hasNewer && isNearBottom(el, 1) && props.newMessageCount > 0) props.onClearNewMessages();
   };
   const onWheel = (e: React.WheelEvent<HTMLElement>) => {
     collapseComposerForHistory();
@@ -4304,6 +4306,7 @@ function ChatMain(props: ChatMainProps) {
         newMessageBoundaryId={props.newMessageBoundaryId}
         loadTurnDetails={loadTranscriptTurnDetails}
         forceOpenLatestDetailToken={forceOpenLatestDetailToken}
+        getStreamFollowMode={getActiveStreamFollowMode}
       />
     </section>
     {(latestButtonVisible || showFullscreenButton) && <div className="chat-latest-overlay chat-floating-controls">

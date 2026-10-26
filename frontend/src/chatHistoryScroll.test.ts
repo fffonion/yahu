@@ -28,6 +28,17 @@ describe('chat history scroll triggers', () => {
     expect(shouldAutoLoadOlderForHiddenHistory({ scrollTop: 0, scrollHeight: 420, clientHeight: 640 }, true, true)).toBe(false);
   });
 
+  test('layout-driven clamping below a growing stream does not create upward intent', () => {
+    expect(streamFollowIntentAfterScroll(4969, { scrollTop: 4255, scrollHeight: 5525, clientHeight: 592 }, 1, { scrollHeight: 5561, clientHeight: 592 })).toBe(null);
+    expect(streamFollowIntentAfterScroll(4969, { scrollTop: 4255, scrollHeight: 5525, clientHeight: 592 }, 1, { scrollHeight: 5525, clientHeight: 592 })).toBe('away');
+  });
+
+  test('layout shrink at the latest edge keeps follow despite a lower scrollTop', () => {
+    expect(streamFollowIntentAfterScroll(4200, { scrollTop: 4146, scrollHeight: 4738, clientHeight: 592 })).toBe('follow');
+    expect(streamFollowIntentAfterScroll(4200, { scrollTop: 4145.5, scrollHeight: 4738, clientHeight: 592 })).toBe('follow');
+    expect(streamFollowIntentAfterScroll(4200, { scrollTop: 4136, scrollHeight: 4738, clientHeight: 592 })).toBe('away');
+  });
+
   test('user upward intent disables stream follow even inside the near-bottom threshold', () => {
     expect(streamFollowIntentAfterScroll(100, { scrollTop: 92, scrollHeight: 480, clientHeight: 369 })).toBe('away');
     expect(streamFollowIntentAfterScroll(100, { scrollTop: 99.75, scrollHeight: 480, clientHeight: 369 })).toBe('away');
@@ -35,7 +46,7 @@ describe('chat history scroll triggers', () => {
     expect(streamFollowIntentAfterScroll(92, { scrollTop: 110, scrollHeight: 480, clientHeight: 369 })).toBe(null);
     expect(streamFollowIntentAfterScroll(92, { scrollTop: 101, scrollHeight: 480, clientHeight: 369 })).toBe(null);
     expect(streamFollowIntentAfterScroll(null, { scrollTop: 111, scrollHeight: 480, clientHeight: 369 })).toBe(null);
-    expect(streamFollowIntentAfterScroll(111, { scrollTop: 111, scrollHeight: 480, clientHeight: 369 })).toBe(null);
+    expect(streamFollowIntentAfterScroll(111, { scrollTop: 111, scrollHeight: 480, clientHeight: 369 })).toBe('follow');
     expect(streamFollowIntentAfterScroll(92, { scrollTop: 100, scrollHeight: 900, clientHeight: 369 })).toBe(null);
   });
 

@@ -23,6 +23,12 @@ Both variables are optional when the `playwright` package and its matching Chrom
 - Additional assertions compare the complete Markdown DOM after removing animation wrappers, preserve Unicode grapheme clusters and existing tail-node identity, respect reduced motion, and verify completed-message rendering.
 - Timing is intentionally not an absolute pass/fail budget because host contention varies. Compare at least three interleaved baseline/candidate runs and use medians. Node budgets and functional assertions are deterministic.
 
+## Follow verification
+
+`bun scripts/verify-chat-follow.mjs` checks the deployed shell with browser-only data/event fixtures. It uses the same optional `PLAYWRIGHT_MODULE` / `CHROMIUM_EXECUTABLE` overrides as the resource harness. `YAHU_BASE_URL` defaults to loopback port 9642; `YAHU_ENV_FILE` defaults to the standard system-service environment file. The existing login key is used only in process memory and is never printed or saved. Every data route is mocked, and unexpected non-GET data requests fail the run; no conversation is created or modified.
+
+The script checks active asset parity and desktop/mobile latest, history-held, near-latest-but-held, restored-history, and return-to-latest scenarios through streamed updates and completion. Optional `YAHU_QA_OUT` saves synthetic screenshots and JSON receipts. Active stream status is intentionally enabled so default-open trailing details exercise their own scroll callbacks.
+
 ## Rendering policy
 
 Completed turn details mount on first expansion, then retain their nested UI state when closed again. Unopened groups do not parse/render their tool cards or register scroll callbacks. Streaming/explicitly opened groups continue to render immediately.

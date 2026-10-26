@@ -29,6 +29,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { findNewMessageSplitIndex } from './chatNewMessages';
+import type { StreamFollowMode } from './chatHistoryScroll';
 import { t, tf } from './i18n';
 import { markdownText } from './markdown';
 import { isAssistantToolPreludeMessage, isToolLikeMessage, visibleChatMessages } from './messageVisibility';
@@ -69,6 +70,7 @@ type ChatTranscriptProps = {
   newMessageBoundaryId?: string | null;
   loadTurnDetails?: LoadTurnDetails;
   forceOpenLatestDetailToken?: number;
+  getStreamFollowMode?: () => StreamFollowMode;
 };
 
 export const ChatTranscript = React.memo(function ChatTranscript({
@@ -82,6 +84,7 @@ export const ChatTranscript = React.memo(function ChatTranscript({
   newMessageBoundaryId,
   loadTurnDetails,
   forceOpenLatestDetailToken = 0,
+  getStreamFollowMode,
 }: ChatTranscriptProps) {
   const visibleMessages = useMemo(
     () => visibleMessagesOverride || visibleChatMessages<ChatMessage>(messages, showReasoning, showToolCalls),
@@ -110,7 +113,7 @@ export const ChatTranscript = React.memo(function ChatTranscript({
       const showSplit = splitIdx >= 0 && block.sourceIndexes.includes(splitIdx);
       return <React.Fragment key={block.id}>
         {showSplit && <NewMessagesSeparator />}
-        <DesktopTurnBlock block={block} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenDetailGroupId={forceOpenDetailGroupId} forceOpenLatestDetailToken={forceOpenLatestDetailToken} detailForceOpenToken={detailForceOpenToken} />
+        <DesktopTurnBlock block={block} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenDetailGroupId={forceOpenDetailGroupId} forceOpenLatestDetailToken={forceOpenLatestDetailToken} detailForceOpenToken={detailForceOpenToken} getStreamFollowMode={getStreamFollowMode} />
       </React.Fragment>;
     })}</>;
   }
@@ -120,7 +123,7 @@ export const ChatTranscript = React.memo(function ChatTranscript({
     const showSplit = splitIdx >= 0 && item.sourceIndexes.includes(splitIdx);
     let rendered: React.ReactNode;
     if (item.kind === 'detailGroup') {
-      rendered = <TurnDetailGroup item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? detailForceOpenToken : 0} />;
+      rendered = <TurnDetailGroup item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? detailForceOpenToken : 0} getStreamFollowMode={getStreamFollowMode} />;
     } else if (item.kind === 'specialContextGroup') {
       rendered = <SpecialContextGroup item={item} />;
     } else if (item.kind === 'sessionState') {
@@ -431,7 +434,7 @@ const MessageView = React.memo(function MessageView({ message, showReasoning = f
   </article>;
 });
 
-function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, forceOpenToken = 0 }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenToken?: number }) {
+function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, forceOpenToken = 0, getStreamFollowMode }: { item: TurnDetailGroupItem<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenToken?: number; getStreamFollowMode?: () => StreamFollowMode }) {
   const [open, setOpen] = useState(() => !!item.defaultOpen);
   // Mount once on first expansion; retain nested disclosure state on re-close.
   const [hasOpened, setHasOpened] = useState(() => !!item.defaultOpen);
@@ -491,12 +494,14 @@ function TurnDetailGroup({ item, showReasoning, assistantName, loadTurnDetails, 
   }, [open, forceOpenToken]);
   useLayoutEffect(() => {
     if (!open || (!item.defaultOpen && !forceOpenToken) || !detailMessages.length || !followLatestRef.current) return;
+    if (getStreamFollowMode?.() === 'away') return;
     const frame = window.requestAnimationFrame(() => {
+      if (getStreamFollowMode?.() === 'away') return;
       const scroller = detailGroupRef.current?.closest<HTMLElement>('.chat-scroll');
       if (scroller) scroller.scrollTop = scroller.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [detailMessages, forceOpenToken, open]);
+  }, [detailMessages, forceOpenToken, getStreamFollowMode, open]);
   return <>
     {commentary.map((message) => <MessageView key={`commentary:${message.id}`} message={message} showReasoning={showReasoning} assistantName={assistantName} />)}
     {detailCount > 0 && <details ref={detailGroupRef} className="turn-detail-group" data-message-id={!open ? detailAnchorId : undefined} open={open || forceOpenToken > 0} aria-label={detailSummary} onToggle={(event) => { const nextOpen = event.currentTarget.open; setOpen(nextOpen); if (nextOpen) { setHasOpened(true); loadDetails(); } }}>
@@ -550,12 +555,12 @@ function SessionStateMessage({ item }: { item: SessionStateMessageItem<ChatMessa
   </article>;
 }
 
-function DesktopTurnBlock({ block, showReasoning, assistantName, loadTurnDetails, forceOpenDetailGroupId, forceOpenLatestDetailToken, detailForceOpenToken }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenDetailGroupId?: string; forceOpenLatestDetailToken?: number; detailForceOpenToken?: number }) {
+function DesktopTurnBlock({ block, showReasoning, assistantName, loadTurnDetails, forceOpenDetailGroupId, forceOpenLatestDetailToken, detailForceOpenToken, getStreamFollowMode }: { block: TurnDetailBlock<ChatMessage>; showReasoning: boolean; assistantName?: string; loadTurnDetails?: LoadTurnDetails; forceOpenDetailGroupId?: string; forceOpenLatestDetailToken?: number; detailForceOpenToken?: number; getStreamFollowMode?: () => StreamFollowMode }) {
   const sessionStateOnly = block.items.length === 1 && block.items[0]?.kind === 'sessionState';
   const historyGapOnly = block.items.length === 1 && block.items[0]?.kind === 'message' && !!block.items[0].message.historyGap;
   return <article className={`desktop-turn-block${sessionStateOnly ? ' session-state-turn-block' : ''}${historyGapOnly ? ' history-gap-turn-block' : ''}`} data-turn-block-id={block.id}>
     {block.items.map((item) => {
-      if (item.kind === 'detailGroup') return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? detailForceOpenToken : 0} />;
+      if (item.kind === 'detailGroup') return <TurnDetailGroup key={item.id} item={item} showReasoning={showReasoning} assistantName={assistantName} loadTurnDetails={loadTurnDetails} forceOpenToken={item.id === forceOpenDetailGroupId ? detailForceOpenToken : 0} getStreamFollowMode={getStreamFollowMode} />;
       if (item.kind === 'specialContextGroup') return <SpecialContextGroup key={item.id} item={item} />;
       if (item.kind === 'sessionState') return <SessionStateMessage key={item.id} item={item} />;
       return <MessageView key={item.message.id || item.sourceIndexes.join('-')} message={item.message} showReasoning={showReasoning} assistantName={assistantName} />;

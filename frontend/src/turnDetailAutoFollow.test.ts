@@ -4,6 +4,11 @@ import { readFileSync } from 'node:fs';
 const source = () => readFileSync(new URL('./ChatTranscript.tsx', import.meta.url), 'utf8');
 
 describe('streaming turn detail auto-follow', () => {
+  test('never overrides the main chat viewport when the user is reading history', () => {
+    expect(source()).toContain("if (getStreamFollowMode?.() === 'away') return;");
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    expect(app).toContain('getStreamFollowMode={getActiveStreamFollowMode}');
+  });
   test('scrolls an opened streaming detail to its latest content', () => {
     const transcript = source();
     expect(transcript).toContain('const detailGroupRef = useRef<HTMLDetailsElement>(null);');
