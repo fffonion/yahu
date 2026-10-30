@@ -264,7 +264,7 @@ async fn fetch_grok_usage(
             )
         }))
         .await;
-    fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    fetched.sort_by_key(|item| item.0.to_lowercase());
     section.description = cached_section
         .map(|cached| cached.description.clone())
         .unwrap_or_default();

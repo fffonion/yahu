@@ -183,7 +183,7 @@ async fn fetch_commandcode_usage(
                 }),
         )
         .await;
-    fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    fetched.sort_by_key(|item| item.0.to_lowercase());
     let mut shared_cache = read_shared_provider_cache(state);
     shared_cache.commandcode_accounts = cached_account_metadata;
     for (label, result) in &fetched {

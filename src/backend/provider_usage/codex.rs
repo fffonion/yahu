@@ -178,7 +178,7 @@ async fn fetch_codex_usage_from_url(
             (label.clone(), codex_query_account(state, token, base_url).await)
         }))
         .await;
-    fetched.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    fetched.sort_by_key(|item| item.0.to_lowercase());
     let mut reset_descriptions = skipped_accounts
         .iter()
         .filter_map(|(label, cached)| {
