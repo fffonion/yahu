@@ -22,6 +22,13 @@ struct ProviderUsageCredit {
     balance: f64,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct ProviderDailyUsage {
+    account: String,
+    used: f64,
+    observed_since: i64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct ProviderUsageSection {
     provider: String,
@@ -33,6 +40,8 @@ struct ProviderUsageSection {
     credits: Vec<ProviderUsageCredit>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pools: Vec<SenseNovaPool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    daily: Vec<ProviderDailyUsage>,
     rows: Vec<ProviderUsageRow>,
     windows: Vec<ProviderUsageWindow>,
     errors: Vec<String>,
@@ -63,5 +72,6 @@ struct ProviderUsageCache {
     vyceai_refresh: Arc<Mutex<()>>,
     zed_daily_refresh: Arc<Mutex<()>>,
     sensenova_daily_refresh: Arc<Mutex<()>>,
+    quota_daily_refresh: [Arc<Mutex<()>>; 3],
     sensenova_auth: Arc<Mutex<Option<SenseNovaAuthState>>>,
 }

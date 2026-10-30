@@ -36,6 +36,7 @@ export type ProviderUsageSection = {
   captured_at?: number;
   credits?: ProviderUsageCredit[];
   pools?: SenseNovaPool[];
+  daily?: { account: string; used: number; observed_since: number }[];
   rows: ProviderUsageRow[];
   windows: ProviderUsageWindow[];
   errors: string[];

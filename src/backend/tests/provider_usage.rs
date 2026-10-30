@@ -1296,6 +1296,7 @@ mod provider_usage_tests {
                 captured_at: 1_700_000_000.0,
                 credits: Vec::new(),
                 pools: Vec::new(),
+                daily: Vec::new(),
                 rows: vec![ProviderUsageRow {
                     label: "gpt-test".into(),
                     hit_rate: None,

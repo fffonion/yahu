@@ -13,7 +13,11 @@ async fn fetch_provider_usage_section(
     cached_section: Option<&ProviderUsageSection>,
     force: bool,
 ) -> ProviderUsageSection {
-    let account_scoped = matches!(provider, "commandcode" | "codex" | "grok" | "zed-pro" | "sensenova");
+    let quota_index = ["codex", "grok", "opencode"].iter().position(|name| *name == provider);
+    let _quota_guard = if let Some(index) = quota_index {
+        Some(state.provider_usage_cache.quota_daily_refresh[index].lock().await)
+    } else { None };
+    let account_scoped = matches!(provider, "commandcode" | "codex" | "grok" | "opencode" | "zed-pro" | "sensenova");
     if !force && !account_scoped {
         let now = chrono::Utc::now().timestamp();
         if let Some(mut cached) = cached_section.and_then(|section| provider_cached_section(section, now)) {
@@ -40,6 +44,12 @@ async fn fetch_provider_usage_section(
         _ => ProviderUsageSection::default(),
     };
     section.captured_at = unix_now_seconds();
+    if quota_index.is_some()
+        && let Err(error) = provider_capture_quota_daily(state, &mut section, chrono::Utc::now().timestamp())
+        && section.errors.is_empty()
+    {
+        section.errors.push(error);
+    }
     section
 }
 
@@ -85,7 +95,7 @@ async fn provider_usage_handler(
                 }
             }
         }
-        for provider in ["zed-pro", "sensenova"] {
+        for provider in ["zed-pro", "sensenova", "codex", "grok", "opencode"] {
             if let Some(section) = provider_daily_snapshot_section(&state, provider, chrono::Utc::now().timestamp()) {
                 sections.retain(|s| s.provider != provider);
                 sections.push(section);
