@@ -38,6 +38,10 @@ describe('search_files result parsing', () => {
     });
   });
 
+  test('parses native file-search files arrays into clickable paths', () => {
+    expect(parseSearchFilesResult({ total_count: 2, files: ['project/a.ts', 'project/b.ts'] })?.files).toEqual(['project/a.ts', 'project/b.ts']);
+  });
+
   test('keeps explicit errors and rejects unrelated objects', () => {
     expect(parseSearchFilesResult({ total_count: 0, error: 'Search failed' })).toEqual({
       totalCount: 0,

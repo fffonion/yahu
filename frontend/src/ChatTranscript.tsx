@@ -40,6 +40,7 @@ import { highlightSourceText } from './syntaxHighlight';
 import { highlightedDiffLines, highlightedReadFileLines, highlightedSourceLines, type HighlightedToolCodeLine } from './toolCodeHighlight';
 import { summarizeToolMessage, type ToolSummary } from './toolMessage';
 import { streamGraphemes } from './streamGraphemes';
+import { toolWorkspacePath } from './workspaceToolPath';
 import {
   buildDesktopTurnBlocks,
   buildTurnDetailItems,
@@ -211,13 +212,13 @@ function SearchFilesResultView({ value }: { value: unknown }) {
     <div className="search-files-meta">{tf('tool.searchMatches', parsed.totalCount)}</div>
     {parsed.error && <div className="search-files-error">{parsed.error}</div>}
     {parsed.groups.map((group) => <section className="search-files-group" key={group.path}>
-      <div className="search-files-path" title={group.path}>{group.path}</div>
+      <button type="button" className="search-files-path" title={group.path} data-tool-path={group.path}>{group.path}</button>
       <pre className="tool-code-block search-files-code"><code>{group.matches.map((match, index) => <span className={`tool-code-line search-files-line${match.isMatch ? '' : ' context'}`} key={`${match.lineNumber}-${index}`}>
         <span className="tool-code-line-number" aria-hidden="true">{match.lineNumber}</span>
         <span className="tool-code-source" dangerouslySetInnerHTML={{ __html: highlightSourceText(match.content, group.path) || ' ' }} />
       </span>)}</code></pre>
     </section>)}
-    {parsed.files.length > 0 && <div className="search-files-list">{parsed.files.map((file) => <code className="search-files-file" key={file}>{file}</code>)}</div>}
+    {parsed.files.length > 0 && <div className="search-files-list">{parsed.files.map((file) => <button type="button" className="search-files-file" key={file} title={file} data-tool-path={file}>{file}</button>)}</div>}
     {empty && !parsed.error && <div className="search-files-empty">{t('tool.searchNoMatches')}</div>}
   </div>;
 }
@@ -304,7 +305,7 @@ const ToolMessageView = React.memo(function ToolMessageView({ message, suppressM
   const fullWidthTool = ['patch', 'read_file', 'write_file'].includes(canonicalToolName);
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
-      <button type="button" className="tool-summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+      <button type="button" className="tool-summary" data-tool-path={toolWorkspacePath(summary) ?? undefined} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
         <span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>
         <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>
         <span className="tool-subtitle">{summary.subtitle}</span>

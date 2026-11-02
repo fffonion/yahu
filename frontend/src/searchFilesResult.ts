@@ -50,11 +50,12 @@ function parseGroupedMatches(text: string): SearchFilesGroup[] {
 export function parseSearchFilesResult(value: unknown): ParsedSearchFilesResult | null {
   const record = parseJsonObject(value);
   if (!record) return null;
-  const recognized = ['total_count', 'matches_text', 'matches', 'error'].some((key) => Object.prototype.hasOwnProperty.call(record, key));
+  const recognized = ['total_count', 'matches_text', 'matches', 'files', 'error'].some((key) => Object.prototype.hasOwnProperty.call(record, key));
   if (!recognized) return null;
 
   const groups = typeof record.matches_text === 'string' ? parseGroupedMatches(record.matches_text) : [];
-  const files = Array.isArray(record.matches) ? record.matches.filter((item): item is string => typeof item === 'string' && !!item.trim()).map((item) => item.trim()) : [];
+  const fileValues = Array.isArray(record.files) ? record.files : record.matches;
+  const files = Array.isArray(fileValues) ? fileValues.filter((item): item is string => typeof item === 'string' && !!item.trim()).map((item) => item.trim()) : [];
   const explicitTotal = Number(record.total_count);
   const inferredTotal = groups.reduce((sum, group) => sum + group.matches.filter((match) => match.isMatch).length, 0) + files.length;
 
