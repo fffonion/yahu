@@ -2807,6 +2807,7 @@ function providerTodayLabel(section: ProviderUsageSection | undefined): string {
 }
 
 function providerBrandFavicon(provider: string): string {
+  if (provider === 'grok') return '/provider-icons/grok?v=2';
   return `/provider-icons/${encodeURIComponent(provider)}`;
 }
 

@@ -340,6 +340,10 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-title-row{display:flex;align-items:center;justify-content:space-between');
   });
 
+  test('Grok refreshes the cached icon when switching to its current brand', () => {
+    expect(app()).toContain("if (provider === 'grok') return '/provider-icons/grok?v=2';");
+  });
+
   test('AgentRouter uses the compact today-and-balance subtitle path', () => {
     const source = app();
     expect(source).toContain("const tableOnly = provider.provider === 'agentrouter'");

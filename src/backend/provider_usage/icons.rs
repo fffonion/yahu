@@ -37,7 +37,7 @@ fn provider_icon_url(provider: &str) -> Option<String> {
         ("opencode", "opencode.ai"),
         ("commandcode", "commandcode.ai"),
         ("codex", "openai.com"),
-        ("grok", "x.ai"),
+        ("grok", "grok.com"),
         ("zed-pro", "zed.dev"),
     ];
     let domain = domains

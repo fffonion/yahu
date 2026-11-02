@@ -282,6 +282,10 @@ mod provider_usage_tests {
         assert!(NEWAPI_LOGO_BYTES.starts_with(&[0x89, b'P', b'N', b'G']));
         assert_eq!(provider_icon_url("agentrouter"), None);
         assert_eq!(
+            provider_icon_url("grok"),
+            Some("https://www.google.com/s2/favicons?domain=grok.com&sz=64".to_string())
+        );
+        assert_eq!(
             provider_icon_url("openrouter"),
             Some("https://www.google.com/s2/favicons?domain=openrouter.ai&sz=64".to_string())
         );
