@@ -105,13 +105,25 @@ fn auth_json_credential_entries(
         .iter()
         .enumerate()
         .filter_map(|(index, entry)| {
-            let access_token = entry
-                .get("access_token")
-                .or_else(|| entry.get("api_key"))
-                .or_else(|| entry.get("token"))
+            let source_env = entry
+                .get("source")
                 .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|token| !token.is_empty())?;
+                .and_then(|source| source.strip_prefix("env:"));
+            let access_token = if let Some(key) = source_env {
+                provider_env_value(hermes_home, key)
+            } else {
+                entry
+                    .get("access_token")
+                    .or_else(|| entry.get("api_key"))
+                    .or_else(|| entry.get("token"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            if access_token.is_empty() {
+                return None;
+            }
             let label = entry
                 .get("label")
                 .and_then(Value::as_str)
@@ -128,7 +140,7 @@ fn auth_json_credential_entries(
             let user_id = json_string_or_number(entry.get("user_id"));
             Some(AuthCredentialEntry {
                 label,
-                access_token: access_token.to_string(),
+                access_token,
                 refresh_token,
                 user_id,
             })

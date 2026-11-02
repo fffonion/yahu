@@ -57,6 +57,10 @@ export interface ProviderUsagePayload {
   sections: ProviderUsageSection[];
 }
 
+export function providerUsesMultiAccountLayout(provider: string, enabled: boolean, count: number): boolean {
+  return enabled && count >= (provider === 'opencode' ? 3 : 4);
+}
+
 export type ProviderUsageAccountGroup = [account: string, windows: ProviderUsageWindow[]];
 
 export function providerUsagePercent(value: string | null | undefined): number | null {

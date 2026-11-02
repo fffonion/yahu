@@ -32,7 +32,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { minimaxDailyTokens, minimaxUsageRows, formatProviderCredits, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { providerUsesMultiAccountLayout, minimaxDailyTokens, minimaxUsageRows, formatProviderCredits, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
@@ -3177,7 +3177,7 @@ function ProviderUsageMain(props: {
             const loading = Boolean(props.loading[provider.provider]);
             const error = props.error[provider.provider];
             const accountCount = new Set((section?.windows || []).map((window) => providerAccountWindowParts(window.window)?.[0]).filter(Boolean)).size;
-            const multiAccount = enabled && accountCount >= 4;
+            const multiAccount = providerUsesMultiAccountLayout(provider.provider, enabled, accountCount);
             const balance = providerBalanceText(section?.description);
             const calls = provider.provider === 'vyceai' ? providerVyceCalls(section?.description) : '';
             const minimaxDaily = enabled ? minimaxDailyTokens(section) : '';
@@ -3271,7 +3271,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     if (!accountTones.has(account)) accountTones.set(account, nextAccountTone++ % 2);
     return `tone-${accountTones.get(account)}`;
   };
-  const accountScoped = ['commandcode', 'codex', 'grok', 'zed-pro', 'sensenova'].includes(section.provider);
+  const accountScoped = ['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova'].includes(section.provider);
   const quotaWindows = section.windows.filter((win) => !win.window.includes('今日'));
   const quotaWallPercent = section.provider === 'commandcode' ? 99 : 100;
   const accountGroups = accountScoped && quotaWindows.some((win) => providerAccountWindowParts(win.window))

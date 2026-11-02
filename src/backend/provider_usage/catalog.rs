@@ -2,6 +2,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
     let commandcode_pool = !auth_json_credential_pool(hermes_home, "commandcode").is_empty();
     let codex_pool = !auth_json_credential_pool(hermes_home, "openai-codex").is_empty();
     let grok_pool = !auth_json_credential_pool(hermes_home, "xai-oauth").is_empty();
+    let opencode_ready = !opencode_go_accounts(hermes_home).is_empty();
     let zed_pro_pool = !auth_json_credential_pool(hermes_home, "zed-pro").is_empty();
     let zed_session_cookie = !provider_env_value(hermes_home, "ZED_SESSION_COOKIE").is_empty();
     let zed_configured = zed_pro_pool || zed_session_cookie;
@@ -157,10 +158,10 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         (
             "opencode",
             "OpenCode Go 用量",
-            !provider_env_value(hermes_home, "OPENCODE_GO_API_KEY").is_empty(),
-            !provider_env_value(hermes_home, "OPENCODE_GO_API_KEY").is_empty(),
-            "OPENCODE_GO_API_KEY",
-            "配置 OPENCODE_GO_API_KEY；该 key 需关联有效的 OpenCode Go 订阅。",
+            opencode_ready,
+            opencode_ready,
+            "auth.json credential_pool.opencode-go 或 OPENCODE_GO_API_KEY",
+            "读取 auth.json 的 credential_pool.opencode-go 多账户；也支持 OPENCODE_GO_API_KEY，该 key 需关联有效的 OpenCode Go 订阅。",
         ),
         (
             "commandcode",

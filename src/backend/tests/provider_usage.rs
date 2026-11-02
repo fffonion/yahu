@@ -694,6 +694,74 @@ mod provider_usage_tests {
 
 
     #[test]
+    fn auth_json_pool_resolves_env_references_without_using_stale_inline_tokens() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(".env"), "YAHU_TEST_POOL_KEY=[REDACTED]\n").unwrap();
+        std::fs::write(temp.path().join("auth.json"), serde_json::json!({
+            "credential_pool": {"opencode-go": [
+                {"label":"alpha", "source":"env:YAHU_TEST_POOL_KEY", "access_token":"stale"},
+                {"label":"beta", "source":"manual", "access_token":"[REDACTED]"},
+                {"label":"missing", "source":"env:YAHU_TEST_MISSING_POOL_KEY", "access_token":"stale"}
+            ]}
+        }).to_string()).unwrap();
+        let pool = auth_json_credential_pool(temp.path(), "opencode-go");
+        assert_eq!(pool.len(), 2);
+        assert!(pool.iter().all(|(_, key)| key == "[REDACTED]"), "env credentials were not resolved safely");
+        assert_eq!(pool.iter().map(|(label,_)| label.as_str()).collect::<Vec<_>>(), ["alpha", "beta"]);
+    }
+
+    #[test]
+    fn opencode_catalog_recognizes_the_go_auth_pool_without_an_env_key() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("auth.json"), serde_json::json!({
+            "credential_pool": {"opencode-go": [{"label":"alpha", "access_token":"[REDACTED]"}]}
+        }).to_string()).unwrap();
+        let provider = provider_usage_catalog(temp.path()).into_iter().find(|p| p.provider == "opencode").unwrap();
+        assert!(provider.configured && provider.query_ready);
+        assert!(provider.credential_hint.contains("credential_pool.opencode-go"));
+    }
+
+    #[tokio::test]
+    async fn opencode_go_usage_queries_all_pool_accounts_and_isolates_failures() {
+        async fn usage(axum::extract::State(calls): axum::extract::State<Arc<std::sync::atomic::AtomicUsize>>, headers: axum::http::HeaderMap) -> axum::response::Response {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if headers.get("authorization").and_then(|h| h.to_str().ok()).is_some_and(|key| key.ends_with(" denied")) {
+                return (axum::http::StatusCode::FORBIDDEN, "sensitive response must not escape").into_response();
+            }
+            axum::Json(serde_json::json!({"usage": {
+                "rolling":{"status":"ok","percent":12,"resetsAt":"2030-01-01T00:00:00Z"},
+                "weekly":{"status":"ok","percent":34,"resetsAt":"2030-01-08T00:00:00Z"},
+                "monthly":{"status":"ok","percent":56,"resetsAt":"2030-02-01T00:00:00Z"}
+            }})).into_response()
+        }
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let app = axum::Router::new().route("/usage", axum::routing::get(usage)).with_state(calls.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(".env"), "YAHU_TEST_OPENCODE_KEY=[REDACTED]\n").unwrap();
+        std::fs::write(temp.path().join("auth.json"), serde_json::json!({"credential_pool":{"opencode-go":[
+            {"label":"alpha","source":"env:YAHU_TEST_OPENCODE_KEY"},
+            {"label":"beta","access_token":"[REDACTED] second"},
+            {"label":"gamma","access_token":"[REDACTED]","source":"manual"},
+            {"label":"denied","access_token":"[REDACTED] denied"}
+        ]}}).to_string()).unwrap();
+        // Duplicate credentials are queried once; an independent denied account cannot hide successful peers.
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let section = fetch_opencode_usage_from_url(&state, &format!("http://{addr}/usage")).await;
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+        assert_eq!(section.windows.len(), 6);
+        assert_eq!(section.windows[3].window, "beta 5h额度");
+        assert_eq!(section.windows[0].window, "alpha 5h额度");
+        assert_eq!(section.windows[2].used.as_deref(), Some("56%"));
+        assert_eq!(section.errors.len(), 1);
+        assert!(section.errors[0].starts_with("denied：查询失败："));
+        assert!(!section.errors[0].contains("sensitive response"));
+        assert!(!section.errors[0].contains("[REDACTED]"));
+    }
+
+    #[test]
     fn opencode_catalog_reuses_inference_key_env_for_usage() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -709,7 +777,7 @@ mod provider_usage_tests {
 
         assert!(provider.configured);
         assert!(provider.query_ready);
-        assert_eq!(provider.credential_hint, "OPENCODE_GO_API_KEY");
+        assert!(provider.credential_hint.contains("OPENCODE_GO_API_KEY"));
         assert!(provider.setup_hint.contains("Go 订阅"));
         assert!(!provider.setup_hint.contains("service account"));
         assert!(!provider.setup_hint.contains("Cookie"));
@@ -761,7 +829,7 @@ mod provider_usage_tests {
         assert!(section.windows.is_empty());
         assert_eq!(
             section.errors,
-            vec!["OpenCode Go 用量查询返回 403：当前 OPENCODE_GO_API_KEY 无 Go Plan 用量权限，需要使用关联 Go 订阅、权限更高的 key。"]
+            vec!["OpenCode Go 用量查询返回 403：当前账户 key 无 Go Plan 用量权限，需要使用关联 Go 订阅、权限更高的 key。"]
         );
     }
 

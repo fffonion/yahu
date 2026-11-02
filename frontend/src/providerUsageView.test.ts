@@ -87,7 +87,7 @@ describe('provider usage view', () => {
     expect(source).not.toContain("if (provider === 'sensenova') return description || '';");
   });
   test('SenseNova shares quota groups and displays integer credits beside quota labels', () => {
-    expect(app()).toContain("const accountScoped = ['commandcode', 'codex', 'grok', 'zed-pro', 'sensenova'].includes(section.provider);");
+    expect(app()).toContain("const accountScoped = ['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova'].includes(section.provider);");
     expect(app()).toContain('provider-usage-quota-remaining');
     expect(app()).toContain('usage.remainingCredit');
     expect(app()).toContain('usage.grantCredit');
@@ -247,9 +247,14 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-main{');
   });
 
-  test('provider cards use double height only when enabled with at least four accounts', () => {
+  test('OpenCode uses double height above two accounts while other providers retain their threshold', () => {
+    for (const count of [0, 1, 2]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(false);
+    for (const count of [3, 4, 5]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(true);
+    expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', false, 5)).toBe(false);
+    expect(providerUsageModule.providerUsesMultiAccountLayout('commandcode', true, 3)).toBe(false);
+    expect(providerUsageModule.providerUsesMultiAccountLayout('commandcode', true, 4)).toBe(true);
     const source = app();
-    expect(source).toContain('const multiAccount = enabled && accountCount >= 4;');
+    expect(source).toContain('const multiAccount = providerUsesMultiAccountLayout(provider.provider, enabled, accountCount);');
     expect(source).toContain("${multiAccount ? 'is-multi-account' : ''}");
   });
 
@@ -313,8 +318,8 @@ describe('provider usage view', () => {
     expect(source).toContain('is-multi-account');
     expect(source).toContain('orderProviderUsageAccountGroups');
     expect(source).toContain('const accountCount = new Set');
-    expect(source).toContain('const multiAccount = enabled && accountCount >= 4;');
-    expect(source).toContain("['commandcode', 'codex', 'grok', 'zed-pro', 'sensenova'].includes(section.provider)");
+    expect(source).toContain('const multiAccount = providerUsesMultiAccountLayout(provider.provider, enabled, accountCount);');
+    expect(source).toContain("['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova'].includes(section.provider)");
     expect(providerUsage()).toContain("hasQuotaWall: windows.some");
     expect(source).toContain('PROVIDER_USAGE_ORDER_KEY');
     expect(source).toContain('onDragStart');
