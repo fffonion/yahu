@@ -327,9 +327,9 @@ export function SubagentGoalPanel({ goal, nowSeconds, collapseToken }: { goal: P
     tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns),
     goal.todos.length ? tf('subagents.todoProgress', completedGoalTodos, goal.todos.length) : '',
   ].filter(Boolean).join(' · ');
-  return <details className="subagent-goal-panel" open={goalExpanded}>
+  return <details className="subagent-goal-panel" open={goalExpanded} data-status={goal.status}>
     <summary className="subagent-goal-summary" aria-label={t('goals.title')} onClick={(event) => { event.preventDefault(); setGoalExpanded((open) => !open); }}>
-      <span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>
+      <span className="subagent-status-icon subagent-goal-icon">{goal.status === 'done' ? <CheckCircle2 aria-hidden="true" /> : <Target aria-hidden="true" />}</span>
       <span className="subagent-goal-copy">
         <span className="subagent-goal-preview">{goal.text}</span>
         <small className="subagent-goal-meta">{goalMetadata}</small>

@@ -345,7 +345,7 @@
     }
 
     #[test]
-    fn completed_goal_is_not_loaded_as_a_standing_goal() {
+    fn completed_goal_remains_visible_with_its_time_and_steps() {
         let temp = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
         conn.execute_batch(
@@ -359,6 +359,10 @@
                 serde_json::json!({
                     "goal": "Archived completed goal",
                     "status": "done",
+                    "created_at": 100.0,
+                    "last_turn_at": 400.0,
+                    "subgoals": ["Preserve the result"],
+                    "milestones": [{ "turn": 2, "timestamp": 250.0, "verdict": "continue", "reason": "Verified progress" }],
                     "turns_used": 3,
                     "max_turns": 20,
                     "last_verdict": "done",
@@ -370,9 +374,14 @@
         .unwrap();
         drop(conn);
 
-        assert!(load_persistent_goal(temp.path(), "parent-1")
-            .unwrap()
-            .is_none());
+        let completed = load_persistent_goal(temp.path(), "parent-1").unwrap().unwrap();
+        assert_eq!(completed.status, "done");
+        assert_eq!(completed.created_at, 100.0);
+        assert_eq!(completed.last_turn_at, 400.0);
+        assert_eq!(completed.turns_used, 3);
+        assert_eq!(completed.subgoals, ["Preserve the result"]);
+        assert_eq!(completed.milestones.iter().map(|item| item.turn).collect::<Vec<_>>(), [3, 2]);
+        assert_eq!(completed.milestones[1].reason, "Verified progress");
     }
 
     #[test]
@@ -1587,8 +1596,7 @@
         assert_eq!(goal.created_at, 900.0);
         assert_eq!(goal.source_session_id, "tip");
 
-        // The newest incarnation finishing the goal hides the whole family goal
-        // instead of resurrecting the older paused record.
+        // Keep the newest finished goal, never the older paused incarnation.
         let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
         conn.execute(
             "UPDATE state_meta SET value = ?1 WHERE key = 'goal:tip'",
@@ -1597,6 +1605,16 @@
             ],
         )
         .unwrap();
+        drop(conn);
+        let completed = load_persistent_goal(temp.path(), "root").unwrap().unwrap();
+        assert_eq!(completed.status, "done");
+        assert_eq!(completed.text, "current running plan");
+        assert_eq!(completed.source_session_id, "tip");
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute(
+            "UPDATE state_meta SET value = ?1 WHERE key = 'goal:tip'",
+            [serde_json::json!({"goal": "current running plan", "status": "cleared", "created_at": 900.0}).to_string()],
+        ).unwrap();
         drop(conn);
         assert!(load_persistent_goal(temp.path(), "root").unwrap().is_none());
     }

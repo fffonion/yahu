@@ -2,7 +2,7 @@ import React from 'react';
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GoalMilestones, SubagentProgressNode } from './SubagentProgressCard';
+import { GoalMilestones, SubagentGoalPanel, SubagentProgressNode } from './SubagentProgressCard';
 import { setLang } from './i18n';
 import type { PersistentGoal, SubagentTreeNode } from './subagentProgress';
 
@@ -20,6 +20,34 @@ function goal(overrides: Partial<PersistentGoal>): PersistentGoal {
     ...overrides,
   };
 }
+
+describe('completed Goal panel', () => {
+  test('keeps the full goal, frozen elapsed time and recorded steps', () => {
+    const done = goal({
+      status: 'done', createdAt: 100, lastTurnAt: 5500, turnsUsed: 8,
+      subgoals: ['Preserve the verified result'],
+      todos: [{ id: 'verify', content: 'Verify the final build', status: 'completed' }],
+      milestones: [{ turn: 8, timestamp: 5500, verdict: 'done', reason: 'All checks passed' }],
+    });
+    const render = (nowSeconds: number) => renderToStaticMarkup(React.createElement(SubagentGoalPanel, { goal: done, nowSeconds }));
+    const html = render(6000);
+    expect(html).toContain('data-status="done"');
+    expect(html).toContain('Done');
+    expect(html).toContain('1 hr 30 min');
+    expect(html).toContain('8/20 turns');
+    expect(html).toContain('Preserve the verified result');
+    expect(html).toContain('Verify the final build');
+    expect(html).toContain('All checks passed');
+    expect(render(90000)).toBe(html);
+  });
+
+  test('uses the theme green accent only for completed goals', () => {
+    const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+    expect(css.includes('.subagent-goal-panel[data-status="done"]{--subagent-goal-accent:var(--green)}')).toBe(true);
+    const active = renderToStaticMarkup(React.createElement(SubagentGoalPanel, { goal: goal({}), nowSeconds: 100 }));
+    expect(active).not.toContain('data-status="done"');
+  });
+});
 
 describe('GoalMilestones', () => {
   test('renders every round newest first', () => {

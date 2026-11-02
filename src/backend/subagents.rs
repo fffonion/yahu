@@ -616,17 +616,17 @@ fn load_persistent_goal(
     let Some((created_at, _rank_turn, goal_source_id, value)) = best else {
         return Ok(None);
     };
-    // The newest record decides: a completed or cleared goal shows nothing —
-    // never fall back to an older incarnation's stale goal.
+    // The newest record decides: retain finished goals for display, while an
+    // explicit clear must not resurrect an older incarnation's stale goal.
     let raw_status = string_field(&value, "status").unwrap_or_else(|| "active".to_string());
-    if matches!(raw_status.as_str(), "done" | "cleared") {
+    if raw_status == "cleared" {
         return Ok(None);
     }
     let Some(text) = string_field(&value, "goal") else {
         return Ok(None);
     };
     let status = match raw_status.as_str() {
-        "paused" => raw_status,
+        "paused" | "done" => raw_status,
         _ => "active".to_string(),
     };
     let subgoals = value

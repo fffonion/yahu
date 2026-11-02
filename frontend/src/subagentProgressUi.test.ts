@@ -201,7 +201,7 @@ describe('subagent progress UI', () => {
     expect(source).toContain('setGoalExpanded(false)');
     expect(source).toContain('className="subagent-progress-stack"');
     expect(source).toContain('className="subagent-goal-panel" open={goalExpanded}');
-    expect(source).toContain('<span className="subagent-status-icon subagent-goal-icon"><Target aria-hidden="true" /></span>');
+    expect(source).toContain("goal.status === 'done' ? <CheckCircle2 aria-hidden=\"true\" /> : <Target aria-hidden=\"true\" />");
 
     expect(source).toContain('const goal = visibleSnapshot.goal;');
 
