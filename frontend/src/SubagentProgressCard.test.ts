@@ -41,6 +41,17 @@ describe('completed Goal panel', () => {
     expect(render(90000)).toBe(html);
   });
 
+  test('applies the same completion green to Goal content and completed todos', () => {
+    const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+    for (const selector of [
+      '.subagent-goal-panel .subagent-progress-todos li.completed',
+      '.subagent-goal-panel[data-status="done"] .subagent-goal-body',
+      '.subagent-goal-panel[data-status="done"] .subagent-goal-milestones li p',
+      '.subagent-goal-panel[data-status="done"] .subagent-goal-meta',
+      '.subagent-goal-panel[data-status="done"] .subagent-goal-footer',
+    ]) expect(css.includes(`${selector}{color:var(--green)}`)).toBe(true);
+  });
+
   test('uses the theme green accent only for completed goals', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
     expect(css.includes('.subagent-goal-panel[data-status="done"]{--subagent-goal-accent:var(--green)}')).toBe(true);

@@ -85,6 +85,8 @@ try {
     await page.waitForFunction(() => document.querySelector('.subagent-goal-panel')?.dataset.status === 'active');
     stage = `${width}-${theme}:expand`;
     await panel.locator('summary').click();
+    const activeColors = await panel.evaluate(e => ({ title: getComputedStyle(e.querySelector('.subagent-goal-preview')).color, subgoal: getComputedStyle(e.querySelector('.subagent-goal-subgoals li')).color, completedTodo: getComputedStyle(e.querySelector('.subagent-progress-todos li.completed')).color }));
+    assert(activeColors.title !== activeColors.completedTodo && activeColors.subgoal !== activeColors.completedTodo, 'unfinished Goal was colored as completed');
     stage = `${width}-${theme}:done-transition`;
     await emit(done);
     await page.waitForFunction(() => document.querySelector('.subagent-goal-panel')?.dataset.status === 'done');
@@ -97,8 +99,12 @@ try {
       const r = e.getBoundingClientRect(), style = getComputedStyle(e), preview = e.querySelector('.subagent-goal-preview');
       const sample = document.createElement('span'); sample.style.color = 'var(--green)'; document.body.append(sample);
       const green = getComputedStyle(sample).color; sample.remove();
-      return { top: r.top, bottom: r.bottom, width: r.width, green: getComputedStyle(preview).color === green, accent: style.getPropertyValue('--subagent-goal-accent').trim(), overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
+      const todoGreen = getComputedStyle(e.querySelector('.subagent-progress-todos li.completed')).color;
+      const completedParts = e.querySelectorAll('.subagent-goal-preview,.subagent-goal-meta,.subagent-goal-footer,.subagent-goal-subgoals li,.subagent-goal-milestones li p,.subagent-progress-todos li.completed .subagent-todo-box');
+      const sameCompletionGreen = todoGreen === green && [...completedParts].every(node => getComputedStyle(node).color === todoGreen);
+      return { top: r.top, bottom: r.bottom, width: r.width, sameCompletionGreen, green: getComputedStyle(preview).color === green, accent: style.getPropertyValue('--subagent-goal-accent').trim(), overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
     });
+    assert(geometry.sameCompletionGreen, 'completed Goal content does not match Todo green');
     assert(geometry.green && !geometry.overflow && geometry.top >= 0 && geometry.bottom <= 844, 'completed geometry or color mismatch');
     stage = `${width}-${theme}:expanded-capture`;
     if (out) await panel.screenshot({ path: `${out}/goal-${width}-${theme}-expanded.png` });
@@ -121,7 +127,7 @@ try {
     assert(await panel.locator('.subagent-goal-meta').textContent() === metadata, 'reload lost the archived duration');
     assert(JSON.stringify(assets(await page.content())) === JSON.stringify(expectedAssets), 'deployed assets mismatch');
     assert(errors === 0 && writes === 0, 'browser error or write request');
-    console.log(JSON.stringify({ viewport: width, theme, completedVisible: true, green: geometry.green, frozenDuration: true, stepsPreserved: true, survivesReload: true, errors, writes }));
+    console.log(JSON.stringify({ viewport: width, theme, completedVisible: true, green: geometry.green, sameCompletionGreen: geometry.sameCompletionGreen, frozenDuration: true, stepsPreserved: true, survivesReload: true, errors, writes }));
     await context.close();
   }
 } catch (error) {
