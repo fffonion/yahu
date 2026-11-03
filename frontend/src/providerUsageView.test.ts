@@ -251,6 +251,12 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-main{');
   });
 
+  test('OpenCode shares CommandCode vertical account strips at every account count', () => {
+    expect(css()).not.toContain('[data-provider-id="opencode"]:not(.is-multi-account)');
+    expect(css()).toContain('.provider-usage-account-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))');
+    expect(css()).toContain('.provider-usage-account-group .provider-usage-windows{display:flex;flex-direction:column');
+  });
+
   test('OpenCode uses double height above two accounts while other providers retain their threshold', () => {
     for (const count of [0, 1, 2]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(false);
     for (const count of [3, 4, 5]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(true);

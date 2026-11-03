@@ -18,13 +18,13 @@ try {
   const split = cookie.indexOf('=');
   const expectedAssets = assets(await readFile(new URL('../dist/index.html', import.meta.url), 'utf8'));
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE || undefined, headless: true, args: ['--no-sandbox'] });
-  for (const width of [1440, 390]) for (const [count, enabled] of [[2, true], [3, true], [4, true], [4, false]]) {
+  for (const width of [1440, 390]) for (const [count, enabled] of [[1, true], [2, true], [3, true], [4, true], [4, false]]) {
     stage = `${width}-${count}-${enabled}`;
     const context = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width === 390, hasTouch: width === 390, serviceWorkers: 'block' });
     await context.addCookies([{ name: cookie.slice(0, split), value: cookie.slice(split + 1), url: base, httpOnly: true, sameSite: 'Lax' }]);
     await context.addInitScript(enabled => {
       localStorage.setItem('lang', 'en');
-      localStorage.setItem('yahu.provider-usage.enabled.v1', JSON.stringify({ opencode: enabled }));
+      localStorage.setItem('yahu.provider-usage.enabled.v1', JSON.stringify({ opencode: enabled, commandcode: enabled }));
       class EmptyEvents { close() {} addEventListener() {} removeEventListener() {} }
       window.WebSocket = EmptyEvents; window.EventSource = EmptyEvents;
     }, enabled);
@@ -33,7 +33,8 @@ try {
     page.on('pageerror', () => errors++);
     const windows = Array.from({ length: count }, (_, i) => ['5h额度', '周额度', '月额度'].map((period, j) => ({ window: `Account ${i + 1} ${period}`, used: `${(i + 1) * 10 + j}%`, reset: '5小时', reset_at: 2000000000 }))).flat();
     const section = { provider: 'opencode', title: 'OpenCode Go 用量', description: 'Go Plan 额度', rows: [], windows, errors: [], captured_at: Date.now() / 1000 };
-    const payload = { fetched_at: Date.now() / 1000, providers: [{ provider: 'opencode', title: section.title, configured: true, query_ready: true, credential_hint: 'auth.json credential_pool.opencode-go', setup_hint: '' }], sections: [section] };
+    const reference = { ...section, provider: 'commandcode', title: 'CommandCode 用量', description: '' };
+    const payload = { fetched_at: Date.now() / 1000, providers: [section, reference].map(s => ({ provider: s.provider, title: s.title, configured: true, query_ready: true, credential_hint: '', setup_hint: '' })), sections: [section, reference] };
     await page.route('**/*', async route => {
       const req = route.request(), u = new URL(req.url()), p = u.pathname;
       if (u.origin !== base) return route.abort();
@@ -45,34 +46,52 @@ try {
     await page.goto(base + '/?opencode-accounts-qa=1#/usage');
     const card = page.locator('[data-provider-id="opencode"]');
     await card.waitFor();
-    if (enabled) await card.locator('.provider-usage-account-group').last().waitFor();
+    if (enabled) {
+      await card.locator('.provider-usage-account-group').last().waitFor();
+      await page.locator('[data-provider-id="commandcode"] .provider-usage-account-group').last().waitFor();
+    }
     assert(!((await card.textContent()) || '').includes('Go Plan 额度'), 'OpenCode plan description is still visible');
     const geometry = await card.evaluate(el => {
       const s = getComputedStyle(el);
-      const body = el.querySelector('.provider-usage-card-content');
-      const lastQuota = el.querySelector('.provider-usage-account-group:last-child .provider-usage-window:last-child');
-      const clipped = !!body && !!lastQuota && lastQuota.getBoundingClientRect().bottom > body.getBoundingClientRect().bottom + 1;
-      return { clipped, height: parseFloat(s.height), doubled: el.classList.contains('is-multi-account'), gridRow: s.gridRowStart, groups: [...el.querySelectorAll('.provider-usage-account-group')].map(group => [...group.querySelectorAll('.provider-usage-window')].map(window => { const r = window.getBoundingClientRect(); return { x: r.x, y: r.y }; })), overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
+      return { height: parseFloat(s.height), doubled: el.classList.contains('is-multi-account'), gridRow: s.gridRowStart, groups: [...el.querySelectorAll('.provider-usage-account-group')].map(group => [...group.querySelectorAll('.provider-usage-window')].map(window => { const r = window.getBoundingClientRect(); return { x: r.x, y: r.y }; })), overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
     });
     const doubled = enabled && count > 2;
     if (geometry.doubled !== doubled || (enabled && width > 760 && geometry.height !== (doubled ? 510 : 250))) console.log(JSON.stringify({ stage, geometry }));
     assert(geometry.doubled === doubled && (!enabled || width <= 760 || geometry.height === (doubled ? 510 : 250)), 'card height or threshold mismatch');
     assert(!geometry.overflow, 'horizontal overflow');
-    if (enabled && count === 2) assert(!geometry.clipped, 'regular two-account quotas are clipped');
+    if (enabled) {
+      const styles = await page.evaluate(() => [...document.querySelectorAll('[data-provider-id]')].map(card => {
+        const group = card.querySelector('.provider-usage-account-group');
+        const stack = group?.querySelector('.provider-usage-windows');
+        const quota = group?.querySelector('.provider-usage-window');
+        if (!group || !stack || !quota) return null;
+        const g = getComputedStyle(group), s = getComputedStyle(stack), q = getComputedStyle(quota);
+        return { provider: card.getAttribute('data-provider-id'), layout: [g.padding, s.display, s.flexDirection, s.gap, q.padding] };
+      }).filter(Boolean));
+      const actual = styles.find(s => s.provider === 'opencode');
+      const reference = styles.find(s => s.provider === 'commandcode');
+      assert(actual && reference && JSON.stringify(actual.layout) === JSON.stringify(reference.layout), 'account strip styles differ from CommandCode');
+      const quota = card.locator('.provider-usage-account-group:last-child .provider-usage-window:last-child');
+      await quota.scrollIntoViewIfNeeded();
+      assert(await quota.evaluate(el => { const r = el.getBoundingClientRect(), b = el.closest('.provider-usage-card-content').getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; }), 'last quota is inaccessible');
+    }
     if (doubled) assert(geometry.gridRow === 'span 2', 'card does not span two grid rows');
     if (enabled) {
       assert(geometry.groups.length === count, 'account group missing');
       assert(await card.locator('.provider-usage-window').count() === count * 3, 'quota window missing');
       for (const windows of geometry.groups) {
         assert(windows.length === 3, 'account does not retain all three quotas');
-        if (doubled) assert(windows.every(w => Math.abs(w.x - windows[0].x) < 1) && windows[2].y > windows[1].y && windows[1].y > windows[0].y, 'account quotas are not vertical');
-        else assert(windows.every(w => Math.abs(w.y - windows[0].y) < 1) && windows[2].x > windows[1].x, 'regular account layout is not horizontal');
+        assert(windows.every(w => Math.abs(w.x - windows[0].x) < 1) && windows[2].y > windows[1].y && windows[1].y > windows[0].y, 'account quotas are not vertical');
+      }
+      if (count >= 2) {
+        assert(geometry.groups[1][0].x > geometry.groups[0][0].x && Math.abs(geometry.groups[1][0].y - geometry.groups[0][0].y) < 1, 'account strips are not side by side');
       }
     }
     assert(JSON.stringify(assets(await page.content())) === JSON.stringify(expectedAssets), 'deployed assets mismatch');
     assert(errors === 0 && writes === 0, 'browser error or write request');
+    if (enabled) await card.locator('.provider-usage-card-content').evaluate(el => { el.scrollTop = 0; });
     if (out && enabled) await card.screenshot({ path: `${out}/opencode-${width}-${count}.png` });
-    console.log(JSON.stringify({ viewport: width, accounts: count, enabled, doubleHeight: doubled, verticalQuotas: doubled, height: geometry.height, errors, writes }));
+    console.log(JSON.stringify({ viewport: width, accounts: count, enabled, doubleHeight: doubled, verticalQuotas: enabled, height: geometry.height, errors, writes }));
     await context.close();
   }
 } catch (error) {
