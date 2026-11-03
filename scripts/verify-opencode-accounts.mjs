@@ -46,6 +46,7 @@ try {
     const card = page.locator('[data-provider-id="opencode"]');
     await card.waitFor();
     if (enabled) await card.locator('.provider-usage-account-group').last().waitFor();
+    assert(!((await card.textContent()) || '').includes('Go Plan 额度'), 'OpenCode plan description is still visible');
     const geometry = await card.evaluate(el => {
       const s = getComputedStyle(el);
       const body = el.querySelector('.provider-usage-card-content');

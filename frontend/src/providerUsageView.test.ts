@@ -102,6 +102,10 @@ describe('provider usage view', () => {
   });
 
 
+  test('OpenCode hides the Go Plan description even in cached sections', () => {
+    expect(app().includes("if (provider === 'opencode') return '';")).toBe(true);
+  });
+
   test('Vyce AI keeps calls in the subtitle and removes the body summary', () => {
     const source = app();
     expect(source).toContain("const calls = provider.provider === 'vyceai' ? providerVyceCalls(section?.description) : '';");

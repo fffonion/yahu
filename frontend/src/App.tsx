@@ -2870,6 +2870,7 @@ function providerBalanceText(description: string | undefined): string {
 }
 
 function providerDescriptionText(description: string | undefined, provider?: string): string {
+  if (provider === 'opencode') return '';
   if (provider === 'mimo' || provider === 'codex' || provider === 'sensenova' || provider === 'zed-pro') return '';
   return (description || '').replace(/余额\s+\*\*[^*]+\*\*；?\s*/g, '').trim();
 }
