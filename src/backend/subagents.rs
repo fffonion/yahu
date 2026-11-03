@@ -828,7 +828,7 @@ fn fetch_local_goal_todo_messages(
            AND ( \
                (role = 'user' AND content LIKE '[Your active task list was preserved across context compression]%') \
                OR (role = 'assistant' AND tool_calls LIKE '%todo%') \
-               OR (role = 'tool' AND tool_name = 'todo') \
+               OR (role = 'tool' AND tool_name IN ('todo', 'todo_list', 'functions.todo', 'functions.todo_list')) \
            ) \
          ORDER BY timestamp, id"
     );
@@ -2099,6 +2099,10 @@ fn load_subagent_context(
     None
 }
 
+fn is_todo_tool_name(name: &str) -> bool {
+    matches!(name.strip_prefix("functions.").unwrap_or(name), "todo" | "todo_list")
+}
+
 fn latest_todos_state(messages: &[Value]) -> Option<Vec<SubagentTodo>> {
     let mut current = Vec::<SubagentTodo>::new();
     let mut observed = false;
@@ -2113,10 +2117,10 @@ fn latest_todos_state(messages: &[Value]) -> Option<Vec<SubagentTodo>> {
         if message.get("role").and_then(Value::as_str) == Some("assistant") {
             for call in tool_calls(message.get("tool_calls")) {
                 let function = call.get("function").and_then(Value::as_object);
-                if function
+                if !function
                     .and_then(|value| value.get("name"))
                     .and_then(Value::as_str)
-                    != Some("todo")
+                    .is_some_and(is_todo_tool_name)
                 {
                     continue;
                 }
@@ -2143,7 +2147,7 @@ fn latest_todos_state(messages: &[Value]) -> Option<Vec<SubagentTodo>> {
             }
         }
         if message.get("role").and_then(Value::as_str) == Some("tool")
-            && string_field(message, "tool_name").as_deref() == Some("todo")
+            && string_field(message, "tool_name").as_deref().is_some_and(is_todo_tool_name)
         {
             let content = message.get("content").map(content_text).unwrap_or_default();
             if let Ok(value) = serde_json::from_str::<Value>(&content)

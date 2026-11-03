@@ -487,6 +487,52 @@
     }
 
     #[tokio::test]
+    async fn persistent_goal_recovers_native_todo_list_results_from_parent_api() {
+        async fn api_session() -> Json<Value> {
+            Json(serde_json::json!({"session":{"id":"parent-1","message_count":1}}))
+        }
+        async fn api_messages() -> Json<Value> {
+            let todos = (0..6).map(|i| serde_json::json!({
+                "id": format!("task-{i}"), "content": format!("Example task {i}"),
+                "status": if i == 0 {"completed"} else {"pending"}
+            })).collect::<Vec<_>>();
+            Json(serde_json::json!({"object":"list","data":[{
+                "role":"tool", "tool_name":"todo_list", "timestamp":200.0,
+                "content":serde_json::json!({"todos":todos,"revision":2,"summary":{}}).to_string()
+            }],"pagination":{}}))
+        }
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state(format!("http://{addr}"), temp.path());
+        let mut cache = CachedParentTodos::default();
+        let todos = fetch_parent_session_todos(&state, "parent-1", 100.0, &mut cache).await.unwrap();
+        assert_eq!(todos.len(), 6);
+        assert_eq!(todos[0].id, "task-0");
+        assert_eq!(todos[0].status, "completed");
+        assert_eq!(todos[5].id, "task-5");
+    }
+
+    #[test]
+    fn todo_tool_aliases_preserve_argument_merge_and_result_clear() {
+        for name in ["todo", "todo_list", "functions.todo", "functions.todo_list"] {
+            let messages = vec![
+                serde_json::json!({"role":"assistant","tool_calls":[{"function":{"name":name,"arguments":{"todos":[{"id":"task","content":"Example task","status":"pending"}]}}}]}),
+                serde_json::json!({"role":"assistant","tool_calls":[{"function":{"name":name,"arguments":{"merge":true,"todos":[{"id":"task","status":"completed"}]}}}]}),
+            ];
+            let todos = latest_todos(&messages);
+            assert_eq!(todos.len(), 1, "alias {name}");
+            assert_eq!(todos[0].status, "completed");
+            let clear = serde_json::json!({"role":"tool","tool_name":name,"content":"{\"todos\":[],\"revision\":3}"});
+            assert_eq!(latest_todos_state(&[clear]), Some(Vec::new()));
+        }
+    }
+
+    #[tokio::test]
     async fn replacing_a_goal_drops_todos_from_the_previous_goal_generation() {
         async fn api_session() -> Json<Value> {
             Json(serde_json::json!({
@@ -619,6 +665,10 @@
             ],
         )
         .unwrap();
+        conn.execute(
+            "INSERT INTO messages (session_id, role, tool_name, content, timestamp) VALUES (?1, 'tool', 'todo_list', ?2, 250.0)",
+            rusqlite::params!["parent-1", serde_json::json!({"todos":[{"id":"implementation","content":"Complete the implementation","status":"completed"}],"revision":2}).to_string()],
+        ).unwrap();
         drop(conn);
         let state = test_app_state("http://127.0.0.1:1".to_string(), temp.path());
 
@@ -628,6 +678,7 @@
         let todos = latest_todos_state_since(&messages, 100.0).unwrap();
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].id, "implementation");
+        assert_eq!(todos[0].status, "completed");
     }
 
     #[test]
