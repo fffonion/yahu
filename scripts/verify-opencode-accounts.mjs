@@ -71,6 +71,14 @@ try {
       const actual = styles.find(s => s.provider === 'opencode');
       const reference = styles.find(s => s.provider === 'commandcode');
       assert(actual && reference && JSON.stringify(actual.layout) === JSON.stringify(reference.layout), 'account strip styles differ from CommandCode');
+      const cardStructure = await card.locator('.provider-usage-account-group').evaluateAll(groups => groups.every(group => {
+        const outer = getComputedStyle(group);
+        return parseFloat(outer.borderTopWidth) > 0 && parseFloat(outer.borderRadius) > 0 && [...group.querySelectorAll('.provider-usage-window')].every(window => {
+          const inner = getComputedStyle(window);
+          return parseFloat(inner.borderTopWidth) === 0 && parseFloat(inner.borderRadius) === 0 && inner.backgroundColor === 'rgba(0, 0, 0, 0)';
+        });
+      }));
+      assert(cardStructure, 'each account must have one outer card without nested quota boxes');
       const quota = card.locator('.provider-usage-account-group:last-child .provider-usage-window:last-child');
       await quota.scrollIntoViewIfNeeded();
       assert(await quota.evaluate(el => { const r = el.getBoundingClientRect(), b = el.closest('.provider-usage-card-content').getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; }), 'last quota is inaccessible');

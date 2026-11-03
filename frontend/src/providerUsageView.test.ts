@@ -257,6 +257,11 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-account-group .provider-usage-windows{display:flex;flex-direction:column');
   });
 
+  test('OpenCode renders each account as one card without nested quota boxes', () => {
+    expect(css()).toContain('.provider-usage-provider-card[data-provider-id="opencode"] .provider-usage-account-group{border:1px solid');
+    expect(css()).toContain('.provider-usage-provider-card[data-provider-id="opencode"] .provider-usage-account-group .provider-usage-window{border:0;border-radius:0;background:transparent');
+  });
+
   test('OpenCode uses double height from two accounts while other providers retain their threshold', () => {
     for (const count of [0, 1]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(false);
     for (const count of [2, 3, 4, 5]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(true);
