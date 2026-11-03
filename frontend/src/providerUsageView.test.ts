@@ -54,7 +54,7 @@ describe('provider usage view', () => {
     expect(source).toContain("...(minimaxDaily ? [tf('usage.today', `${minimaxDaily} token`)] : []),");
     expect(source).toContain("section.provider === 'minimax' ? minimaxUsageRows(section.rows) : orderNewApiUsageRows(section.provider, section.rows)");
     expect(source).toContain("const quotaWindows = section.windows.filter((win) => !win.window.includes('今日'));");
-    expect(source).toContain('quotaWindows.map(renderWindow)');
+    expect(source).toContain("(section.provider === 'opencode' ? opencodeVisibleQuotaWindows(quotaWindows) : quotaWindows).map(renderWindow)");
   });
 
   test('empty subtitles reserve the same line box without placeholder copy', () => {
@@ -262,9 +262,9 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-provider-card[data-provider-id="opencode"] .provider-usage-account-group .provider-usage-window{border:0;border-radius:0;background:transparent');
   });
 
-  test('OpenCode uses double height from two accounts while other providers retain their threshold', () => {
-    for (const count of [0, 1]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(false);
-    for (const count of [2, 3, 4, 5]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(true);
+  test('OpenCode uses double height from three accounts while other providers retain their threshold', () => {
+    for (const count of [0, 1, 2]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(false);
+    for (const count of [3, 4, 5]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(true);
     expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', false, 2)).toBe(false);
     expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', false, 5)).toBe(false);
     expect(providerUsageModule.providerUsesMultiAccountLayout('commandcode', true, 3)).toBe(false);

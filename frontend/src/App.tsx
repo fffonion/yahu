@@ -32,7 +32,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { providerUsesMultiAccountLayout, minimaxDailyTokens, minimaxUsageRows, formatProviderCredits, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { opencodeVisibleQuotaWindows, providerUsesMultiAccountLayout, minimaxDailyTokens, minimaxUsageRows, formatProviderCredits, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
@@ -3304,7 +3304,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
       ? <div className="provider-usage-account-groups">{accountGroups.map(([account, windows], groupIndex) => {
         const visibleWindows = section.provider === 'commandcode'
           ? windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')
-          : windows;
+          : section.provider === 'opencode' ? opencodeVisibleQuotaWindows(windows) : windows;
         if (!visibleWindows.length) return null;
         const refreshing = loading && (section.provider === 'codex' || !providerUsageAccountHasActiveQuotaWall(windows, Date.now() / 1000, quotaWallPercent));
         const pool = section.provider === 'sensenova' ? section.pools?.find((item) => item.name === account) : undefined;
@@ -3312,7 +3312,7 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
           ? tf('usage.creditExpiring', formatProviderCredits(pool.nearest_grant_expiring_balance), new Date(pool.nearest_grant_expiry * 1000).toLocaleString()) : undefined;
         return <section className={`provider-usage-account-group tone-${groupIndex % 2}${refreshing ? ' is-loading' : ''}`} aria-busy={refreshing} key={account}><strong>{account}</strong><div className="provider-usage-windows">{refreshing ? <ProviderUsageAccountSkeleton count={visibleWindows.length} /> : visibleWindows.map(renderWindow)}</div>{pool?.grant_balance != null && <p className="provider-usage-window-reset" title={grantExpiry}>{tf('usage.grantCredit', formatProviderCredits(pool.grant_balance))}</p>}</section>;
       })}</div>
-      : <div className="provider-usage-windows">{quotaWindows.map(renderWindow)}</div>)}
+      : <div className="provider-usage-windows">{(section.provider === 'opencode' ? opencodeVisibleQuotaWindows(quotaWindows) : quotaWindows).map(renderWindow)}</div>)}
     {tableRows.length > 0 && <div className="provider-usage-table-wrap"><table className="provider-usage-table"><thead>{section.provider === 'minimax' ? <tr><th>{t('usage.period')}</th><th>token {t('usage.input')}</th></tr> : stepFunUsage ? <tr><th>{t('usage.model')}</th><th>{t('usage.calls')}</th><th>{t('usage.credit')}</th><th>{t('usage.timeRange')}</th><th>{t('usage.type')}</th></tr> : <tr><th>{t('usage.model')}</th><th>{section.provider === 'deepseek' ? t('usage.planInput') : t('usage.input')}</th><th>{section.provider === 'deepseek' ? t('usage.planOutput') : t('usage.output')}</th><th>{section.provider === 'deepseek' ? t('usage.cacheHitRate') : t('usage.hitRate')}</th><th>{section.provider === 'deepseek' ? t('usage.cost') : t('usage.amountUsage')}</th></tr>}</thead><tbody>
       {tableRows.map((row, index) => section.provider === 'minimax' ? <tr className="provider-usage-row" key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.output || row.input || '-'}</td></tr> : stepFunUsage ? <tr className="provider-usage-row" key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.input || '-'}</td><td>{row.output || '-'}</td><td>{row.hit_rate || '-'}</td><td>{row.cost_or_pct || '-'}</td></tr> : <tr className={`provider-usage-row ${rowTone(row.label)}`} key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.input || '-'}</td><td>{row.output || '-'}</td><td>{integerPercentText(row.hit_rate)}</td><td>{integerPercentText(row.cost_or_pct)}</td></tr>)}
     </tbody></table></div>}

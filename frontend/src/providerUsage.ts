@@ -58,7 +58,7 @@ export interface ProviderUsagePayload {
 }
 
 export function providerUsesMultiAccountLayout(provider: string, enabled: boolean, count: number): boolean {
-  return enabled && count >= (provider === 'opencode' ? 2 : 4);
+  return enabled && count >= (provider === 'opencode' ? 3 : 4);
 }
 
 export type ProviderUsageAccountGroup = [account: string, windows: ProviderUsageWindow[]];
@@ -74,6 +74,17 @@ export function providerUsagePercent(value: string | null | undefined): number |
   const used = Number(ratio[1].replace(/,/g, ''));
   const limit = Number(ratio[2].replace(/,/g, ''));
   return Number.isFinite(used) && Number.isFinite(limit) && limit > 0 ? Math.max(0, Math.min(100, used / limit * 100)) : null;
+}
+
+export function opencodeVisibleQuotaWindows(windows: ProviderUsageWindow[]): ProviderUsageWindow[] {
+  const period = (window: ProviderUsageWindow) => window.window.match(/(?:^| )(5h额度|周额度|月额度)$/)?.[1];
+  const five = windows.find(window => period(window) === '5h额度');
+  const week = windows.find(window => period(window) === '周额度');
+  // Equal or unknown percentages prefer the weekly window.
+  const short = five && week
+    ? (providerUsagePercent(five.used) ?? -1) > (providerUsagePercent(week.used) ?? -1) ? five : week
+    : five || week;
+  return [...(short ? [short] : []), ...windows.filter(window => period(window) === '月额度')];
 }
 
 export function providerUsageAccountHasActiveQuotaWall(
