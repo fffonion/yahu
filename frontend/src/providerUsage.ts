@@ -58,7 +58,7 @@ export interface ProviderUsagePayload {
 }
 
 export function providerUsesMultiAccountLayout(provider: string, enabled: boolean, count: number): boolean {
-  return enabled && count >= (provider === 'opencode' ? 3 : 4);
+  return enabled && count >= (provider === 'opencode' ? 2 : 4);
 }
 
 export type ProviderUsageAccountGroup = [account: string, windows: ProviderUsageWindow[]];

@@ -257,9 +257,10 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-account-group .provider-usage-windows{display:flex;flex-direction:column');
   });
 
-  test('OpenCode uses double height above two accounts while other providers retain their threshold', () => {
-    for (const count of [0, 1, 2]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(false);
-    for (const count of [3, 4, 5]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(true);
+  test('OpenCode uses double height from two accounts while other providers retain their threshold', () => {
+    for (const count of [0, 1]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(false);
+    for (const count of [2, 3, 4, 5]) expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', true, count)).toBe(true);
+    expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', false, 2)).toBe(false);
     expect(providerUsageModule.providerUsesMultiAccountLayout('opencode', false, 5)).toBe(false);
     expect(providerUsageModule.providerUsesMultiAccountLayout('commandcode', true, 3)).toBe(false);
     expect(providerUsageModule.providerUsesMultiAccountLayout('commandcode', true, 4)).toBe(true);

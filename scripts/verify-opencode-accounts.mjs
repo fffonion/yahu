@@ -18,7 +18,7 @@ try {
   const split = cookie.indexOf('=');
   const expectedAssets = assets(await readFile(new URL('../dist/index.html', import.meta.url), 'utf8'));
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE || undefined, headless: true, args: ['--no-sandbox'] });
-  for (const width of [1440, 390]) for (const [count, enabled] of [[1, true], [2, true], [3, true], [4, true], [4, false]]) {
+  for (const width of [1440, 390]) for (const [count, enabled] of [[1, true], [2, true], [3, true], [4, true], [2, false], [4, false]]) {
     stage = `${width}-${count}-${enabled}`;
     const context = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width === 390, hasTouch: width === 390, serviceWorkers: 'block' });
     await context.addCookies([{ name: cookie.slice(0, split), value: cookie.slice(split + 1), url: base, httpOnly: true, sameSite: 'Lax' }]);
@@ -55,7 +55,7 @@ try {
       const s = getComputedStyle(el);
       return { height: parseFloat(s.height), doubled: el.classList.contains('is-multi-account'), gridRow: s.gridRowStart, groups: [...el.querySelectorAll('.provider-usage-account-group')].map(group => [...group.querySelectorAll('.provider-usage-window')].map(window => { const r = window.getBoundingClientRect(); return { x: r.x, y: r.y }; })), overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
     });
-    const doubled = enabled && count > 2;
+    const doubled = enabled && count >= 2;
     if (geometry.doubled !== doubled || (enabled && width > 760 && geometry.height !== (doubled ? 510 : 250))) console.log(JSON.stringify({ stage, geometry }));
     assert(geometry.doubled === doubled && (!enabled || width <= 760 || geometry.height === (doubled ? 510 : 250)), 'card height or threshold mismatch');
     assert(!geometry.overflow, 'horizontal overflow');
