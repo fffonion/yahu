@@ -257,6 +257,10 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-account-group .provider-usage-windows{display:flex;flex-direction:column');
   });
 
+  test('OpenCode account cards use the shared quota-card corner radius', () => {
+    expect(css()).toMatch(/\.provider-usage-provider-card\[data-provider-id="opencode"\] \.provider-usage-account-group\{[^}]*border-radius:var\(--radius-md,10px\)/);
+  });
+
   test('OpenCode renders each account as one card without nested quota boxes', () => {
     expect(css()).toContain('.provider-usage-provider-card[data-provider-id="opencode"] .provider-usage-account-group{border:1px solid');
     expect(css()).toContain('.provider-usage-provider-card[data-provider-id="opencode"] .provider-usage-account-group .provider-usage-window{border:0;border-radius:0;background:transparent');

@@ -71,6 +71,8 @@ try {
       const actual = styles.find(s => s.provider === 'opencode');
       const reference = styles.find(s => s.provider === 'commandcode');
       assert(actual && reference && JSON.stringify(actual.layout) === JSON.stringify(reference.layout), 'account strip styles differ from CommandCode');
+      const sharedRadius = await page.locator('[data-provider-id="commandcode"] .provider-usage-window').first().evaluate(el => getComputedStyle(el).borderRadius);
+      assert(await card.locator('.provider-usage-account-group').evaluateAll((groups, radius) => groups.every(group => getComputedStyle(group).borderRadius === radius), sharedRadius), 'OpenCode account card radius differs from shared quota cards');
       const cardStructure = await card.locator('.provider-usage-account-group').evaluateAll(groups => groups.every(group => {
         const outer = getComputedStyle(group);
         return parseFloat(outer.borderTopWidth) > 0 && parseFloat(outer.borderRadius) > 0 && [...group.querySelectorAll('.provider-usage-window')].every(window => {
