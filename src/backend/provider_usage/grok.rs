@@ -170,6 +170,17 @@ fn grok_billing_snapshot(
     if period_type.is_empty() || reset_raw.is_null() {
         return Err("返回内容缺少可识别的额度周期".into());
     }
+    let period_start = period
+        .get("start")
+        .or_else(|| config.get("billingPeriodStart"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    // A live zero-usage account returns a complete period with no usage
+    // counters at all, so a fully identified period without any percent
+    // field is zero usage rather than missing data.
+    let identified_period = !period_type.is_empty()
+        && codex_timestamp(&reset_raw).is_some()
+        && codex_timestamp(&period_start).is_some();
     let used_percent = config
         .get("creditUsagePercent")
         .or_else(|| config.get("credit_usage_percent"))
@@ -190,6 +201,7 @@ fn grok_billing_snapshot(
                         .max_by(f64::total_cmp)
                 })
         })
+        .or_else(|| identified_period.then_some(0.0))
         .ok_or_else(|| "返回内容未提供周额度使用比例".to_string())?
         .clamp(0.0, 100.0);
     let window = if period_type.contains("WEEKLY") {

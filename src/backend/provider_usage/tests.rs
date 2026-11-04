@@ -267,6 +267,30 @@ mod mimo_auth_tests {
     }
 
     #[test]
+    fn grok_identified_period_without_usage_counters_means_zero_percent() {
+        // Live zero-usage shape: a complete weekly period with no
+        // creditUsagePercent and no productUsage entries at all.
+        let payload = serde_json::json!({
+            "config": {
+                "currentPeriod": {
+                    "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                    "start": "2026-11-04T10:58:19.180+00:00",
+                    "end": "2026-11-11T10:58:19.180+00:00"
+                },
+                "isUnifiedBillingUser": true,
+                "prepaidBalance": {"val": 0},
+                "billingPeriodStart": "2026-11-04T10:58:19.180+00:00",
+                "billingPeriodEnd": "2026-11-11T10:58:19.180+00:00"
+            }
+        });
+        let (window, used_percent, reset, _, reset_at) = grok_billing_snapshot(&payload).unwrap();
+        assert_eq!(window, "周额度");
+        assert_eq!(used_percent, 0.0);
+        assert_ne!(reset, "-");
+        assert!(reset_at.is_some());
+    }
+
+    #[test]
     fn grok_product_usage_percent_can_fill_missing_combined_percent() {
         let payload = serde_json::json!({
             "config": {
