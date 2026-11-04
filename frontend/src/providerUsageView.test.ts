@@ -257,6 +257,19 @@ describe('provider usage view', () => {
     expect(css()).toContain('.provider-usage-account-group .provider-usage-windows{display:flex;flex-direction:column');
   });
 
+  test('OpenDesign card connects through the device-authorization routes', () => {
+    const source = app();
+    expect(source).toContain('function OpenDesignConnect');
+    expect(source).toContain("fetch('/provider-auth/opendesign/start'");
+    expect(source).toContain("fetch('/provider-auth/opendesign/status'");
+    expect(source).toContain("fetch('/provider-auth/opendesign/cancel'");
+    expect(source).toContain("provider.provider === 'opendesign' && (!provider.query_ready");
+    expect(source).toContain('props.reloadCatalog();');
+    expect(source).toContain('reloadCatalog={loadProviderUsageCatalog}');
+    expect(i18n()).toContain("'usage.opendesignConnect'");
+    expect(css()).toContain('.provider-usage-opendesign-button{');
+  });
+
   test('OpenCode account cards use the shared quota-card corner radius', () => {
     expect(css()).toMatch(/\.provider-usage-provider-card\[data-provider-id="opencode"\] \.provider-usage-account-group\{[^}]*border-radius:var\(--radius-md,10px\)/);
   });

@@ -19,6 +19,7 @@ include!("provider_usage/mimo.rs");
 include!("provider_usage/sensenova.rs");
 include!("provider_usage/opencode.rs");
 include!("provider_usage/opendesign.rs");
+include!("provider_usage/opendesign_auth.rs");
 include!("provider_usage/commandcode.rs");
 include!("provider_usage/codex.rs");
 include!("provider_usage/grok.rs");

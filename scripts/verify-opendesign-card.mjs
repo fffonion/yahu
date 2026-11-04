@@ -18,7 +18,10 @@ try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 950 }, isMobile: width === 390, hasTouch: width === 390, serviceWorkers: 'block' });
     await context.addCookies([{ name: cookie.slice(0, split), value: cookie.slice(split + 1), url: base, httpOnly: true, sameSite: 'Lax' }]);
-    await context.addInitScript(() => localStorage.setItem('lang', 'zh'));
+    await context.addInitScript(() => {
+      localStorage.setItem('lang', 'zh');
+      localStorage.setItem('yahu.provider-usage.enabled.v1', JSON.stringify({ opendesign: true }));
+    });
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -45,6 +48,11 @@ try {
       };
     });
     assert(state.title === 'OpenDesign 用量', 'title mismatch');
+    const connect = card.locator('.provider-usage-opendesign-connect button');
+    assert(await connect.count() === 1, 'connect button missing');
+    assert((await connect.textContent() || '').trim().length > 0, 'connect button has no label');
+    const connectBox = await connect.evaluate((el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; });
+    assert(connectBox.w > 40 && connectBox.h >= 24, 'connect button is too small to tap');
     assert(state.image === '/provider-icons/opendesign', 'icon path mismatch');
     assert(state.imageLoaded, 'provider icon did not load');
     assert(!state.overflow, 'horizontal overflow');

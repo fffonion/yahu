@@ -13,6 +13,7 @@ mod tests {
     include!("tests/insights.rs");
     include!("tests/provider_usage.rs");
     include!("tests/provider_usage_opendesign.rs");
+    include!("tests/provider_usage_opendesign_auth.rs");
     include!("tests/provider_daily_quota.rs");
     include!("tests/subagents.rs");
     include!("tests/terminal.rs");

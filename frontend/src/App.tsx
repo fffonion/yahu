@@ -2718,7 +2718,7 @@ export default function App() {
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} setDeliver={setCronDeliver} editingId={cronEditingId} currentJob={activeCronJob} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} toggleCronPaused={toggleCronPaused} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} showToast={showToast} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={() => loadUsageInsights(usagePeriod, true)} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
-      {mode === 'usage' && <ProviderUsageMain payload={providerUsage} loading={providerUsageLoading} error={providerUsageError} enabled={providerUsageEnabled} autoRefresh={providerUsageAutoRefresh} toggleProvider={toggleProviderUsage} toggleProviderAutoRefresh={toggleProviderAutoRefresh} refreshProvider={(provider) => loadProviderUsageProvider(provider, true)} refreshAll={refreshEnabledProviderUsage} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'usage' && <ProviderUsageMain payload={providerUsage} loading={providerUsageLoading} error={providerUsageError} enabled={providerUsageEnabled} autoRefresh={providerUsageAutoRefresh} toggleProvider={toggleProviderUsage} toggleProviderAutoRefresh={toggleProviderAutoRefresh} refreshProvider={(provider) => loadProviderUsageProvider(provider, true)} refreshAll={refreshEnabledProviderUsage} reloadCatalog={loadProviderUsageCatalog} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {terminalMounted && <Suspense fallback={mode === 'terminal' ? <main className="main-panel terminal-main"><div className="terminal-loading">{t('terminal.loading')}</div></main> : null}><WebTerminal active={mode === 'terminal'} cwd={terminalCwd} theme={theme} onFontSizeChange={setTerminalFontSize} headerActions={<HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')}><button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clear')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-clear'))}><Eraser /></button><button type="button" className="icon-btn" aria-label={t('terminal.fontDecrease')} title={t('terminal.fontDecrease')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-font', { detail: -1 }))}><Minus /></button><output className="terminal-font-size" aria-label={t('terminal.fontSize')}>{terminalFontSize}px</output><button type="button" className="icon-btn" aria-label={t('terminal.fontIncrease')} title={t('terminal.fontIncrease')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-font', { detail: 1 }))}><Plus /></button><button type="button" className="icon-btn" aria-label={t('terminal.reconnect')} title={t('terminal.reconnect')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-reconnect'))}><RefreshCw /></button></HeaderToolstrip>} /></Suspense>}
       {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} codeWrap={codeWrap} setCodeWrap={setCodeWrap} mobileNavModes={mobileNavModes} setMobileNavModes={setMobileNavModes} showToast={showToast} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
@@ -2920,6 +2920,7 @@ function ProviderUsageMain(props: {
   toggleProviderAutoRefresh: (provider: string) => void;
   refreshProvider: (provider: string) => void;
   refreshAll: () => void;
+  reloadCatalog: () => void;
   theme: Theme;
   setTheme: (value: Theme) => void;
   mode: Mode;
@@ -3224,7 +3225,7 @@ function ProviderUsageMain(props: {
               </div>
               {!enabled ? <div className="provider-usage-off-state"><strong>{provider.configured ? t('usage.closed') : t('usage.notConfigured')}</strong><span>{provider.configured ? t('usage.enableToQuery') : t('usage.enableToConfigure')}</span></div> : <div className="provider-usage-card-content">
                 {!provider.query_ready && <div className="provider-usage-card-toolbar"><span className="provider-usage-credential-hint">{provider.credential_hint}</span></div>}
-                {!provider.query_ready ? <div className="provider-usage-setup"><strong>{t('usage.credentialsNeeded')}</strong><p>{provider.setup_hint}</p></div> : loading && accountCount <= 1 ? <ProviderUsageSkeleton /> : <>
+                {provider.provider === 'opendesign' && (!provider.query_ready || Boolean(section?.errors.some((item) => item.includes('授权已失效')))) ? <OpenDesignConnect onConnected={() => { props.reloadCatalog(); props.refreshProvider('opendesign'); }} /> : !provider.query_ready ? <div className="provider-usage-setup"><strong>{t('usage.credentialsNeeded')}</strong><p>{provider.setup_hint}</p></div> : loading && accountCount <= 1 ? <ProviderUsageSkeleton /> : <>
                   {error && <div className="provider-usage-banner provider-usage-error">{error}</div>}
                   {section && <ProviderUsageSectionView section={section} loading={loading} />}
 
@@ -3250,6 +3251,92 @@ function ProviderUsageMain(props: {
       </div>}
     </main>
   );
+}
+
+type OpenDesignConnectPhase = 'idle' | 'starting' | 'waiting' | 'connected' | 'error';
+
+function OpenDesignConnect({ onConnected }: { onConnected: () => void }) {
+  const [phase, setPhase] = useState<OpenDesignConnectPhase>('idle');
+  const [code, setCode] = useState('');
+  const [url, setUrl] = useState('');
+  const [message, setMessage] = useState('');
+  const timerRef = useRef<number | null>(null);
+  const popupRef = useRef<Window | null>(null);
+  const stopPolling = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+  useEffect(() => stopPolling, [stopPolling]);
+  const poll = useCallback(async () => {
+    try {
+      const res = await fetch('/provider-auth/opendesign/status', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      const body = await res.json() as { status?: string; error?: string };
+      if (!res.ok) {
+        stopPolling();
+        setPhase('error');
+        setMessage(body.error || t('usage.opendesignFailed'));
+        return;
+      }
+      if (body.status === 'connected') {
+        stopPolling();
+        setPhase('connected');
+        onConnected();
+      }
+    } catch {
+      // keep polling; a transient failure is not a failed approval
+    }
+  }, [onConnected, stopPolling]);
+  const start = useCallback(async () => {
+    if (phase === 'starting' || phase === 'waiting') return;
+    setPhase('starting');
+    setMessage('');
+    // Open the window inside the click gesture so popup blockers allow it.
+    popupRef.current = window.open('about:blank', '_blank');
+    try {
+      const res = await fetch('/provider-auth/opendesign/start', { method: 'POST', headers: { Accept: 'application/json' }, cache: 'no-store' });
+      const body = await res.json() as { user_code?: string; activation_url?: string; poll_interval_seconds?: number; error?: string };
+      if (!res.ok || !body.activation_url) throw new Error(body.error || t('usage.opendesignFailed'));
+      setCode(body.user_code || '');
+      setUrl(body.activation_url);
+      setPhase('waiting');
+      if (popupRef.current) popupRef.current.location.href = body.activation_url;
+      else window.open(body.activation_url, '_blank', 'noopener,noreferrer');
+      stopPolling();
+      timerRef.current = window.setInterval(() => { void poll(); }, Math.max(2, body.poll_interval_seconds || 2) * 1000);
+    } catch (error) {
+      popupRef.current?.close();
+      popupRef.current = null;
+      setPhase('error');
+      setMessage(error instanceof Error ? error.message : t('usage.opendesignFailed'));
+    }
+  }, [phase, poll, stopPolling]);
+  const cancel = useCallback(async () => {
+    stopPolling();
+    popupRef.current?.close();
+    popupRef.current = null;
+    setPhase('idle');
+    setCode('');
+    setUrl('');
+    await fetch('/provider-auth/opendesign/cancel', { method: 'POST', headers: { Accept: 'application/json' } }).catch(() => undefined);
+  }, [stopPolling]);
+  if (phase === 'waiting' || phase === 'starting') {
+    return <div className="provider-usage-opendesign-connect is-waiting">
+      <p>{t('usage.opendesignWaiting')}</p>
+      {code ? <p className="provider-usage-opendesign-code"><span>{t('usage.opendesignCode')}</span><strong>{code}</strong></p> : null}
+      <div className="provider-usage-opendesign-actions">
+        {url ? <a className="provider-usage-opendesign-link" href={url} target="_blank" rel="noopener noreferrer">{t('usage.opendesignOpenPage')}</a> : null}
+        <button type="button" onClick={cancel}>{t('usage.opendesignCancel')}</button>
+      </div>
+    </div>;
+  }
+  return <div className="provider-usage-opendesign-connect">
+    <button type="button" className="provider-usage-opendesign-button" onClick={start} disabled={phase === 'connected'}>
+      {phase === 'connected' ? t('usage.opendesignConnected') : t('usage.opendesignConnect')}
+    </button>
+    {phase === 'error' && message ? <p className="provider-usage-opendesign-error">{message}</p> : null}
+  </div>;
 }
 
 function ProviderUsageSkeleton() {

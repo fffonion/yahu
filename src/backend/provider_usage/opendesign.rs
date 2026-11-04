@@ -18,17 +18,27 @@ fn opendesign_credential(state: &AppState) -> OpenDesignCredential {
         return OpenDesignCredential {
             control_key,
             cookie: String::new(),
+            from_store: false,
+        };
+    }
+    if let Some(stored) = load_opendesign_stored_key(&state.hermes_home) {
+        return OpenDesignCredential {
+            control_key: stored.control_key,
+            cookie: String::new(),
+            from_store: true,
         };
     }
     OpenDesignCredential {
         control_key: String::new(),
         cookie: provider_env_value(&state.hermes_home, "OPENDESIGN_COOKIE"),
+        from_store: false,
     }
 }
 
 struct OpenDesignCredential {
     control_key: String,
     cookie: String,
+    from_store: bool,
 }
 
 fn opendesign_workspace_id(state: &AppState) -> String {
@@ -161,19 +171,19 @@ async fn opendesign_control_request(
 async fn opendesign_resolve_workspace(
     state: &AppState,
     base: &str,
+    credential: &OpenDesignCredential,
     cookie: &str,
     configured: &str,
 ) -> Result<String, String> {
     if !configured.is_empty() {
         return Ok(configured.to_string());
     }
-    let payload = opendesign_cookie_request(
-        state,
-        &format!("{base}/api/v1/workspaces/current"),
-        cookie,
-        "",
-    )
-    .await?;
+    let url = format!("{base}/api/v1/workspaces/current");
+    let payload = if credential.control_key.is_empty() {
+        opendesign_cookie_request(state, &url, cookie, "").await?
+    } else {
+        opendesign_control_request(state, &url, &credential.control_key, "").await?
+    };
     let active = payload
         .get("activeWorkspaceId")
         .and_then(Value::as_str)
@@ -203,6 +213,7 @@ async fn fetch_opendesign_usage_from_base(state: &AppState, base: &str) -> Provi
     let workspace = match opendesign_resolve_workspace(
         state,
         base,
+        &credential,
         &cookie,
         &opendesign_workspace_id(state),
     )
@@ -238,7 +249,16 @@ async fn fetch_opendesign_usage_from_base(state: &AppState, base: &str) -> Provi
             Ok(windows) => section.windows = windows,
             Err(err) => section.errors.push(err),
         },
-        Err(err) => section.errors.push(format!("额度查询失败：{}", opendesign_safe_error(&err))),
+        Err(err) => {
+            let safe = opendesign_safe_error(&err);
+            if credential.from_store && matches!(safe.as_str(), "HTTP 401" | "HTTP 403") {
+                section
+                    .errors
+                    .push("OpenDesign 授权已失效，请重新连接".into());
+            } else {
+                section.errors.push(format!("额度查询失败：{safe}"));
+            }
+        }
     }
     let wallet = if control_mode {
         opendesign_control_request(state, &wallet_url, &credential.control_key, &workspace).await
@@ -263,11 +283,6 @@ async fn fetch_opendesign_usage_from_base(state: &AppState, base: &str) -> Provi
 }
 
 async fn fetch_opendesign_usage(state: &AppState) -> ProviderUsageSection {
-    let base = provider_env_value(&state.hermes_home, "OPENDESIGN_API_BASE_URL");
-    let base = if base.is_empty() {
-        OPENDESIGN_API_BASE.to_string()
-    } else {
-        base.trim_end_matches('/').to_string()
-    };
+    let base = opendesign_api_base(&state.hermes_home);
     fetch_opendesign_usage_from_base(state, &base).await
 }

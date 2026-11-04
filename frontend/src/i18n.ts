@@ -403,6 +403,14 @@ const translations: Record<string, Record<string, string>> = {
   'usage.enableToQuery': { en: 'Enable to query this provider', 'zh-CN': '打开后查询此供应商', 'zh-TW': '開啟後查詢此供應商', ja: '有効にすると照会できます' },
   'usage.enableToConfigure': { en: 'Enable to view configuration help', 'zh-CN': '打开后查看配置说明', 'zh-TW': '開啟後查看設定說明', ja: '有効にすると設定方法を確認できます' },
 
+  'usage.opendesignConnect': { en: 'Connect OpenDesign', 'zh-CN': '连接 OpenDesign', 'zh-TW': '連結 OpenDesign', ja: 'OpenDesign を接続' },
+  'usage.opendesignConnected': { en: 'Connected', 'zh-CN': '已连接', 'zh-TW': '已連結', ja: '接続済み' },
+  'usage.opendesignWaiting': { en: 'Approve the sign-in in the opened page', 'zh-CN': '请在打开的页面中完成授权', 'zh-TW': '請在開啟的頁面完成授權', ja: '開いたページで承認してください' },
+  'usage.opendesignCode': { en: 'Code', 'zh-CN': '授权码', 'zh-TW': '授權碼', ja: '確認コード' },
+  'usage.opendesignOpenPage': { en: 'Open approval page', 'zh-CN': '打开授权页面', 'zh-TW': '開啟授權頁面', ja: '承認ページを開く' },
+  'usage.opendesignCancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-TW': '取消', ja: 'キャンセル' },
+  'usage.opendesignFailed': { en: 'Could not sign in', 'zh-CN': '连接失败，请重试', 'zh-TW': '連結失敗，請重試', ja: '接続に失敗しました' },
+
   'usage.autoRefresh': { en: 'Auto refresh (15 minutes)', 'zh-CN': '自动刷新（15分钟）', 'zh-TW': '自動重新整理（15 分鐘）', ja: '自動更新（15分）' },
   'usage.disableProvider': { en: 'Disable provider', 'zh-CN': '禁用供应商', 'zh-TW': '停用供應商', ja: 'プロバイダを無効化' },
   'usage.enableProvider': { en: 'Enable provider', 'zh-CN': '启用供应商', 'zh-TW': '啟用供應商', ja: 'プロバイダを有効化' },

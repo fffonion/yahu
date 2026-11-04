@@ -41,7 +41,9 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         &["OPENDESIGN_CONTROL_KEY", "VELA_CONTROL_KEY"],
     );
     let opendesign_cookie = provider_env_value(hermes_home, "OPENDESIGN_COOKIE");
-    let opendesign_query_ready = !opendesign_control.is_empty() || !opendesign_cookie.is_empty();
+    let opendesign_query_ready = !opendesign_control.is_empty()
+        || !opendesign_cookie.is_empty()
+        || load_opendesign_stored_key(hermes_home).is_some();
     let opendesign_configured = opendesign_query_ready
         || any_provider_env_value(hermes_home, &["HERMES_CUSTOM_AMR_LINK_OPEN_DESIGN_AI_API_KEY"])
         || any_custom_provider_api_key(
@@ -180,8 +182,8 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             "OpenDesign 用量",
             opendesign_configured,
             opendesign_query_ready,
-            "OPENDESIGN_COOKIE 或 OPENDESIGN_CONTROL_KEY",
-            "用量查询需要网页 Cookie 或 Control Key；推理 API key 无法查询额度。工作区 ID 可用 OPENDESIGN_WORKSPACE_ID 指定。",
+            "卡片内连接按钮（设备授权），或 OPENDESIGN_COOKIE / OPENDESIGN_CONTROL_KEY",
+            "点击卡片内的连接按钮完成授权，控制 Key 保存在 Yahu 私有文件；也支持网页 Cookie 或 Control Key。推理 API key 无法查询额度。工作区 ID 可用 OPENDESIGN_WORKSPACE_ID 指定。",
         ),
         (
             "commandcode",
