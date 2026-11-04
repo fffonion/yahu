@@ -35,6 +35,7 @@ fn provider_icon_url(provider: &str) -> Option<String> {
         ("stepfun", "stepfun.com"),
         ("kimi", "kimi.com"),
         ("opencode", "opencode.ai"),
+        ("opendesign", "open-design.ai"),
         ("commandcode", "commandcode.ai"),
         ("codex", "openai.com"),
         ("grok", "grok.com"),

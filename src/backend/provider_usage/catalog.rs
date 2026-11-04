@@ -36,6 +36,18 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         || !justwoker_token.is_empty()
         || any_provider_env_value(hermes_home, &["HERMES_CUSTOM_API_JUSTWOKER_ICU_API_KEY"])
         || any_custom_provider_api_key(hermes_home, &["justwoker", "justwoker-icu"]);
+    let opendesign_control = first_provider_env_value(
+        hermes_home,
+        &["OPENDESIGN_CONTROL_KEY", "VELA_CONTROL_KEY"],
+    );
+    let opendesign_cookie = provider_env_value(hermes_home, "OPENDESIGN_COOKIE");
+    let opendesign_query_ready = !opendesign_control.is_empty() || !opendesign_cookie.is_empty();
+    let opendesign_configured = opendesign_query_ready
+        || any_provider_env_value(hermes_home, &["HERMES_CUSTOM_AMR_LINK_OPEN_DESIGN_AI_API_KEY"])
+        || any_custom_provider_api_key(
+            hermes_home,
+            &["opendesign", "open-design", "amr-link-open-design-ai"],
+        );
     let minimax_cookie = provider_env_value(hermes_home, "MINIMAX_COOKIE");
     let minimax_query_ready = !extract_cookie_value(&minimax_cookie, "minimax_group_id_v2").is_empty();
     let vyceai_cookie = provider_env_value(hermes_home, "VYCEAI_COOKIE");
@@ -162,6 +174,14 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             opencode_ready,
             "auth.json credential_pool.opencode-go 或 OPENCODE_GO_API_KEY",
             "读取 auth.json 的 credential_pool.opencode-go 多账户；也支持 OPENCODE_GO_API_KEY，该 key 需关联有效的 OpenCode Go 订阅。",
+        ),
+        (
+            "opendesign",
+            "OpenDesign 用量",
+            opendesign_configured,
+            opendesign_query_ready,
+            "OPENDESIGN_COOKIE 或 OPENDESIGN_CONTROL_KEY",
+            "用量查询需要网页 Cookie 或 Control Key；推理 API key 无法查询额度。工作区 ID 可用 OPENDESIGN_WORKSPACE_ID 指定。",
         ),
         (
             "commandcode",

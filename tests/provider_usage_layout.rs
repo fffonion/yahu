@@ -24,6 +24,7 @@ fn provider_usage_sources_have_cohesive_owners() {
         ("mimo", "async fn fetch_mimo_usage"),
         ("sensenova", "async fn fetch_sensenova_usage"),
         ("opencode", "async fn fetch_opencode_usage"),
+        ("opendesign", "async fn fetch_opendesign_usage"),
         ("commandcode", "async fn fetch_commandcode_usage"),
         ("codex", "async fn fetch_codex_usage"),
         ("grok", "async fn fetch_grok_usage"),
