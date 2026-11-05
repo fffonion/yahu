@@ -31,6 +31,9 @@ export function clearSubagentSnapshotCache(): void {
 export function sameSubagentSnapshot(previous: SubagentProgressSnapshot, next: SubagentProgressSnapshot): boolean {
   if (previous.sessionId !== next.sessionId || previous.error !== next.error) return false;
   if (!sameGoal(previous.goal, next.goal) || previous.subagents.length !== next.subagents.length) return false;
+  // The goal-less session plan lives at the snapshot root; a cached snapshot from
+  // before the plan existed must not shadow the first frame that carries it.
+  if (!sameTodoArray(previous.todos ?? [], next.todos ?? [])) return false;
   return previous.subagents.every((item, index) => sameSubagent(item, next.subagents[index]));
 }
 

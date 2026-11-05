@@ -44,6 +44,13 @@ describe('subagent browser snapshot cache', () => {
 
     expect(sameSubagentSnapshot(previous, next)).toBe(true);
     expect(sameSubagentSnapshot(previous, snapshot({ error: 'temporary failure' }))).toBe(false);
+    // A cached snapshot from before the goal-less plan existed must not shadow
+    // the frame that finally carries it.
+    expect(sameSubagentSnapshot(previous, snapshot({ todos: [{ id: 't1', content: 'Plan', status: 'pending' }] }))).toBe(false);
+    expect(sameSubagentSnapshot(
+      snapshot({ todos: [{ id: 't1', content: 'Plan', status: 'pending' }] }),
+      snapshot({ todos: [{ id: 't1', content: 'Plan', status: 'completed' }] }),
+    )).toBe(false);
   });
 
   test('detects changed goal and subagent content', () => {
