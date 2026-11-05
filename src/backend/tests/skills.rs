@@ -7,25 +7,13 @@
         std::fs::write(agent.join(".hermes/bin/hermes"), "managed installation marker").unwrap();
         std::fs::write(agent.join("hermes_cli/__init__.py"), "").unwrap();
         std::fs::write(agent.join("hermes_cli/_launchers.py"), r#"
-import json, os, sys
-
-WORKER = '''
-import json, sys
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    request = json.loads(line)
-    body = {"data": [{"name": "managed-skill"}], "optional": [], "roots": request["roots"]}
-    sys.stdout.write(json.dumps({"id": request["id"], "ok": True, "body": body}) + "\\n")
-    sys.stdout.flush()
-'''
+import os, sys
 
 def runtime_command(root, args=(), *, code=None):
     assert 'def inventory(' in code
-    assert 'request.get("op")' in code
     assert os.environ['HERMES_HOME'] == str(root.parent)
-    return [sys.executable, '-c', WORKER, *args]
+    script = "import json,sys; print(json.dumps({'data':[{'name':'managed-skill'}], 'optional':[], 'roots':sys.argv[1:]}))"
+    return [sys.executable, '-c', script, *args]
 "#).unwrap();
         let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
         let response = skills_list(State(state)).await;
@@ -130,127 +118,4 @@ def runtime_command(root, args=(), *, code=None):
         assert_eq!(payload["data"][0]["editorial_name"], "plain");
         assert_eq!(payload["data"][0]["editorial_description"], "User copy");
         assert_eq!(payload["data"][0]["enabled"], true);
-    }
-
-    async fn skills_payload(state: &Arc<AppState>) -> serde_json::Value {
-        let response = skills_list(State(state.clone())).await;
-        assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-        serde_json::from_slice(&bytes).unwrap()
-    }
-
-    /// Installs a `_launchers.py` whose `runtime_command` starts the given
-    /// line-protocol worker script, i.e. what the managed runtime would do.
-    fn worker_launcher(temp: &tempfile::TempDir, body: &str) -> PathBuf {
-        let agent = temp.path().join("hermes-agent");
-        std::fs::create_dir_all(agent.join(".hermes/bin")).unwrap();
-        std::fs::create_dir_all(agent.join("hermes_cli")).unwrap();
-        std::fs::write(agent.join(".hermes/bin/hermes"), "managed installation marker").unwrap();
-        std::fs::write(agent.join("hermes_cli/__init__.py"), "").unwrap();
-        std::fs::write(agent.join("hermes_cli/_launchers.py"), body).unwrap();
-        agent
-    }
-
-    #[tokio::test]
-    async fn skills_inventory_reuses_one_worker_and_reflects_edits_immediately() {
-        let temp = tempfile::tempdir().unwrap();
-        let skill = temp.path().join("skills/testing/live/SKILL.md");
-        std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
-        std::fs::write(&skill, "---\nname: first-name\ndescription: First\n---\n").unwrap();
-        worker_launcher(&temp, r#"
-import json, os, sys
-
-WORKER = '''
-import json, os, sys
-from pathlib import Path
-
-home = Path(os.environ["HERMES_HOME"])
-with (home / "worker-starts.log").open("a", encoding="utf-8") as log:
-    log.write("start\\n")
-skill = home / "skills" / "testing" / "live" / "SKILL.md"
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    request = json.loads(line)
-    body = {"data": [], "optional": [], "roots": request["roots"]}
-    if skill.is_file():
-        text = skill.read_text(encoding="utf-8")
-        name = next(part.split(":", 1)[1].strip() for part in text.splitlines() if part.startswith("name:"))
-        body["data"] = [{"name": name}]
-    sys.stdout.write(json.dumps({"id": request["id"], "ok": True, "body": body}) + "\\n")
-    sys.stdout.flush()
-'''
-
-def runtime_command(root, args=(), *, code=None):
-    return [sys.executable, '-c', WORKER, *args]
-"#);
-        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
-        assert_eq!(skills_payload(&state).await["data"][0]["name"], "first-name");
-        std::fs::write(&skill, "---\nname: second-name\ndescription: Second\n---\n").unwrap();
-        assert_eq!(
-            skills_payload(&state).await["data"][0]["name"], "second-name",
-            "a skill edit must be visible on the very next request"
-        );
-        let starts = std::fs::read_to_string(temp.path().join("worker-starts.log")).unwrap();
-        assert_eq!(starts.lines().count(), 1, "both requests must share one warm inventory process");
-    }
-
-    #[tokio::test]
-    async fn skills_inventory_restarts_a_worker_that_exits() {
-        let temp = tempfile::tempdir().unwrap();
-        worker_launcher(&temp, r#"
-import json, os, sys
-
-WORKER = '''
-import json, os, sys
-from pathlib import Path
-
-with (Path(os.environ["HERMES_HOME"]) / "worker-starts.log").open("a", encoding="utf-8") as log:
-    log.write("start\\n")
-line = sys.stdin.readline().strip()
-request = json.loads(line)
-body = {"data": [{"name": "managed-skill"}], "optional": [], "roots": request["roots"]}
-sys.stdout.write(json.dumps({"id": request["id"], "ok": True, "body": body}) + "\\n")
-sys.stdout.flush()
-'''
-
-def runtime_command(root, args=(), *, code=None):
-    return [sys.executable, '-c', WORKER, *args]
-"#);
-        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
-        assert_eq!(skills_payload(&state).await["data"][0]["name"], "managed-skill");
-        assert_eq!(
-            skills_payload(&state).await["data"][0]["name"], "managed-skill",
-            "a dead worker must be replaced, not reported as a failure"
-        );
-        let starts = std::fs::read_to_string(temp.path().join("worker-starts.log")).unwrap();
-        assert_eq!(starts.lines().count(), 2, "the exited worker must be respawned");
-    }
-
-    #[tokio::test]
-    async fn skills_inventory_ignores_runtime_noise_on_stdout() {
-        let temp = tempfile::tempdir().unwrap();
-        worker_launcher(&temp, r#"
-import json, os, sys
-
-WORKER = '''
-import json, sys
-sys.stdout.write("warning: hermes runtime bootstrap chatter\\n")
-sys.stdout.flush()
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    request = json.loads(line)
-    body = {"data": [{"name": "managed-skill"}], "optional": [], "roots": request["roots"]}
-    sys.stdout.write(json.dumps({"id": request["id"], "ok": True, "body": body}) + "\\n")
-    sys.stdout.flush()
-'''
-
-def runtime_command(root, args=(), *, code=None):
-    return [sys.executable, '-c', WORKER, *args]
-"#);
-        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
-        assert_eq!(skills_payload(&state).await["data"][0]["name"], "managed-skill");
     }

@@ -10,7 +10,7 @@ use std::{
     path::{Component, Path, PathBuf},
     sync::{
         Arc, OnceLock,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -196,7 +196,6 @@ struct AppState {
     model_price_cache: Arc<RwLock<ModelPriceCache>>,
     insights_snapshot_refresh: Arc<Mutex<()>>,
     provider_usage_cache: Arc<ProviderUsageCache>,
-    skill_inventory: Arc<SkillInventorySlot>,
 }
 
 #[derive(Deserialize)]
@@ -330,13 +329,11 @@ pub async fn run() -> anyhow::Result<()> {
         model_price_cache: Arc::new(RwLock::new(ModelPriceCache::default())),
         insights_snapshot_refresh: Arc::new(Mutex::new(())),
         provider_usage_cache: Arc::new(ProviderUsageCache::default()),
-        skill_inventory: Arc::new(SkillInventorySlot::default()),
     });
     tokio::spawn(run_idle_cache_cleanup(state.clone()));
     tokio::spawn(run_insights_snapshot_collector(state.clone()));
     tokio::spawn(run_vyceai_snapshot_collector(state.clone()));
     tokio::spawn(run_provider_daily_snapshot_collector(state.clone()));
-    tokio::spawn(warm_skill_inventory(state.clone()));
 
     let app = Router::new()
         .route("/health", get(health))
