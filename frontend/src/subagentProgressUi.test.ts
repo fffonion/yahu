@@ -356,7 +356,7 @@ describe('subagent progress UI', () => {
     expect(cardSource).toContain('{!goal && sessionTodos.length > 0 && <SubagentPlanPanel todos={sessionTodos} collapseToken={collapseToken} />}');
     expect(cardSource).toContain('!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error && !sessionTodos.length');
     expect(cardSource).toContain('export function SubagentPlanPanel({ todos, collapseToken }');
-    expect(cardSource).toContain('const [planExpanded, setPlanExpanded] = useState(true);');
+    expect(cardSource).toContain('const [planExpanded, setPlanExpanded] = useState(false);');
     expect(cardSource).toContain('<SubagentTodoList todos={todos} className="subagent-goal-todos" />');
     expect(cardSource).toContain('tf(\'subagents.todoProgress\', completed, todos.length)');
     // The plan reuses the goal panel surface, so it inherits the same border/radius/sizing.

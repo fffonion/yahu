@@ -354,10 +354,10 @@ export function SubagentGoalPanel({ goal, nowSeconds, collapseToken }: { goal: P
  * surface as the goal panel minus goal-only rows: the todo list is the payload.
  */
 export function SubagentPlanPanel({ todos, collapseToken }: { todos: SubagentTodo[]; collapseToken?: number }) {
-  // A plan with no goal has no other content to read, so it opens expanded;
-  // collapse still works and a new session/collapse token restores it.
-  const [planExpanded, setPlanExpanded] = useState(true);
-  useEffect(() => setPlanExpanded(true), [collapseToken]);
+  // Folded like the goal panel: the summary shows the plan progress and one
+  // click reveals the rows. A new collapse token folds it again.
+  const [planExpanded, setPlanExpanded] = useState(false);
+  useEffect(() => setPlanExpanded(false), [collapseToken]);
   const completed = todos.filter((item) => item.status === 'completed').length;
   return <details className="subagent-goal-panel subagent-plan-panel" open={planExpanded} data-status="active">
     <summary className="subagent-goal-summary" aria-label={t('subagents.plan')} onClick={(event) => { event.preventDefault(); setPlanExpanded((open) => !open); }}>
