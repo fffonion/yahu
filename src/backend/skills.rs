@@ -1,25 +1,198 @@
+const SKILL_WORKER_TIMEOUT: Duration = Duration::from_secs(30);
+const SKILL_WORKER_FAILURE_LIMIT: u32 = 3;
+
+/// A warm, long-lived inventory process. Starting one costs a full Hermes
+/// runtime import plus plugin discovery (seconds); answering from a warm one
+/// costs a tree walk over stat data. Keeping the process is the fix: the
+/// per-request answer is still rebuilt from the files on disk every time.
+struct SkillInventoryWorker {
+    _child: tokio::process::Child,
+    stdin: tokio::process::ChildStdin,
+    stdout: tokio::io::BufReader<tokio::process::ChildStdout>,
+    sequence: u64,
+}
+
+#[derive(Default)]
+struct SkillInventorySlot {
+    worker: Mutex<Option<SkillInventoryWorker>>,
+    failures: AtomicU32,
+}
+
 async fn skills_list(State(state): State<Arc<AppState>>) -> Response<Body> {
-    let agent_dir = hermes_agent_dir(&state);
+    match skill_inventory(&state).await {
+        Ok(body) => Json(body).into_response(),
+        Err(err) => {
+            warn!(error = %err, "failed to read local skill inventory");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to read local skill inventory")
+        }
+    }
+}
+
+async fn skill_inventory(state: &AppState) -> anyhow::Result<serde_json::Value> {
+    if skill_worker_disabled() {
+        return one_shot_skill_inventory(state).await;
+    }
+    if state.skill_inventory.failures.load(Ordering::Relaxed) < SKILL_WORKER_FAILURE_LIMIT {
+        match worker_skill_inventory(state).await {
+            Ok(body) => {
+                state.skill_inventory.failures.store(0, Ordering::Relaxed);
+                return Ok(body);
+            }
+            Err(err) => {
+                let failures = state.skill_inventory.failures.fetch_add(1, Ordering::Relaxed) + 1;
+                warn!(error = %err, failures, "skill inventory worker unavailable; falling back to a one-shot scan");
+            }
+        }
+    }
+    one_shot_skill_inventory(state).await
+}
+
+fn skill_worker_disabled() -> bool {
+    env::var("HERMES_WEBUI_SKILLS_WORKER")
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "off" | "0" | "oneshot"))
+        .unwrap_or(false)
+}
+
+async fn worker_skill_inventory(state: &AppState) -> anyhow::Result<serde_json::Value> {
+    let mut slot = state.skill_inventory.worker.lock().await;
+    let roots: Vec<String> = skill_roots(state)
+        .iter()
+        .map(|root| root.to_string_lossy().into_owned())
+        .collect();
+    let mut last_error = anyhow::anyhow!("skill inventory worker unavailable");
+    for _attempt in 0..2 {
+        if slot.is_none() {
+            *slot = Some(spawn_skill_worker(state)?);
+        }
+        let worker = slot.as_mut().expect("worker is present");
+        worker.sequence += 1;
+        let sequence = worker.sequence;
+        let mut request = serde_json::to_vec(&serde_json::json!({
+            "id": sequence,
+            "roots": roots,
+            "home": state.hermes_home.to_string_lossy(),
+        }))?;
+        request.push(b'\n');
+        match timeout(SKILL_WORKER_TIMEOUT, worker.roundtrip(&request, sequence)).await {
+            Ok(Ok(body)) => return Ok(body),
+            Ok(Err(err)) => last_error = err,
+            Err(_) => last_error = anyhow::anyhow!("skill inventory worker timed out"),
+        }
+        warn!(error = %last_error, "restarting skill inventory worker");
+        *slot = None;
+    }
+    Err(last_error)
+}
+
+fn spawn_skill_worker(state: &AppState) -> anyhow::Result<SkillInventoryWorker> {
+    use std::process::Stdio;
+    let agent_dir = hermes_agent_dir(state);
+    let mut command = hermes_python_script(&agent_dir, include_str!("skills_inventory_worker.py"));
+    command
+        .env("HERMES_HOME", &state.hermes_home)
+        .env("HERMES_AGENT_DIR", &agent_dir)
+        .current_dir(&state.hermes_home)
+        .kill_on_drop(true)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("skill inventory worker stdin unavailable"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("skill inventory worker stdout unavailable"))?;
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut lines = tokio::io::BufReader::new(stderr).lines();
+            let mut budget = 20usize;
+            while let Ok(Some(line)) = lines.next_line().await {
+                if budget == 0 {
+                    continue;
+                }
+                budget -= 1;
+                warn!("skill inventory worker: {line}");
+            }
+        });
+    }
+    Ok(SkillInventoryWorker {
+        _child: child,
+        stdin,
+        stdout: tokio::io::BufReader::new(stdout),
+        sequence: 0,
+    })
+}
+
+impl SkillInventoryWorker {
+    async fn roundtrip(
+        &mut self,
+        request: &[u8],
+        sequence: u64,
+    ) -> anyhow::Result<serde_json::Value> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        self.stdin.write_all(request).await?;
+        self.stdin.flush().await?;
+        loop {
+            let mut line = String::new();
+            if self.stdout.read_line(&mut line).await? == 0 {
+                anyhow::bail!("skill inventory worker exited");
+            }
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+                // Runtime bootstrap warnings share stdout; skip non-protocol lines.
+                continue;
+            };
+            if payload.get("id").and_then(serde_json::Value::as_u64) != Some(sequence) {
+                continue;
+            }
+            if payload.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+                return payload
+                    .get("body")
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("skill inventory response has no body"));
+            }
+            let message = payload
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown worker error");
+            anyhow::bail!("skill inventory worker error: {message}");
+        }
+    }
+}
+
+async fn warm_skill_inventory(state: Arc<AppState>) {
+    match skill_inventory(&state).await {
+        Ok(_) => info!("skill inventory worker is warm"),
+        Err(err) => warn!(error = %err, "skill inventory warm-up failed"),
+    }
+}
+
+/// Escape hatch (``HERMES_WEBUI_SKILLS_WORKER=oneshot``) and the fallback used
+/// once the worker keeps failing: one process per request, seconds per call.
+async fn one_shot_skill_inventory(state: &AppState) -> anyhow::Result<serde_json::Value> {
+    let agent_dir = hermes_agent_dir(state);
     let output = timeout(
         Duration::from_secs(20),
         hermes_python_script(&agent_dir, include_str!("skills_inventory.py"))
-            .args(skill_roots(&state))
+            .args(skill_roots(state))
             .env("HERMES_HOME", &state.hermes_home)
             .env("HERMES_AGENT_DIR", &agent_dir)
             .current_dir(&state.hermes_home)
             .kill_on_drop(true)
             .output(),
     )
-    .await;
-    match output {
-        Ok(Ok(output)) if output.status.success() => {
-            match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                Ok(body) => Json(body).into_response(),
-                Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "invalid skill inventory response"),
-            }
-        }
-        _ => json_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to read local skill inventory"),
+    .await??;
+    if !output.status.success() {
+        anyhow::bail!("skill inventory script exited with {}", output.status);
     }
+    Ok(serde_json::from_slice(&output.stdout)?)
 }
 
 fn recent_skills_path(state: &AppState) -> PathBuf {
