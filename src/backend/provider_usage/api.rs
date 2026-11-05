@@ -96,7 +96,7 @@ async fn provider_usage_handler(
                 }
             }
         }
-        for provider in ["zed-pro", "sensenova", "codex", "grok", "opencode"] {
+        for provider in ["zed-pro", "sensenova", "codex", "grok", "opencode", "opendesign"] {
             if let Some(section) = provider_daily_snapshot_section(&state, provider, chrono::Utc::now().timestamp()) {
                 sections.retain(|s| s.provider != provider);
                 sections.push(section);

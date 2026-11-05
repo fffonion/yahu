@@ -137,6 +137,36 @@ mod opendesign_auth_tests {
         assert!(state_checks.load(std::sync::atomic::Ordering::SeqCst) >= 1);
     }
 
+    #[test]
+    fn opendesign_weekly_window_feeds_the_daily_counter() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let window = |label: &str, used: &str| crate::backend::ProviderUsageWindow {
+            window: label.into(),
+            used: Some(used.into()),
+            reset: Some("11/11 18:58".into()),
+            reset_at: Some(1793836800),
+        };
+        let mut first = crate::backend::ProviderUsageSection {
+            provider: "opendesign".into(),
+            windows: vec![window("5h额度", "90.0%"), window("周额度", "15.0%")],
+            ..Default::default()
+        };
+        provider_capture_quota_daily(&state, &mut first, 1_000).unwrap();
+        assert_eq!(first.daily.len(), 1, "only the weekly window is a daily counter");
+        assert_eq!(first.daily[0].account, "用量");
+        assert_eq!(first.daily[0].used, 0.0);
+
+        let mut later = crate::backend::ProviderUsageSection {
+            provider: "opendesign".into(),
+            windows: vec![window("5h额度", "5.0%"), window("周额度", "20.0%")],
+            ..Default::default()
+        };
+        provider_capture_quota_daily(&state, &mut later, 1_300).unwrap();
+        assert_eq!(later.daily.len(), 1);
+        assert!((later.daily[0].used - 5.0).abs() < 1e-9, "weekly delta becomes today's usage");
+    }
+
     #[tokio::test]
     async fn revoked_stored_key_asks_for_a_new_device_login() {
         let app = axum::Router::new()

@@ -240,7 +240,7 @@ async fn run_provider_daily_snapshot_collector(state: Arc<AppState>) {
             }
         };
         let quota = async {
-            for provider in ["codex", "grok", "opencode"] {
+            for provider in ["codex", "grok", "opencode", "opendesign"] {
                 if catalog.iter().any(|p| p.provider == provider && p.query_ready) {
                     let cached = shared_cached_section(&state, provider).map(|entry| entry.section);
                     let section = fetch_provider_usage_section(&state, provider, cached.as_ref(), true).await;

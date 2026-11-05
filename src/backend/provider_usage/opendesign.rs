@@ -279,6 +279,9 @@ async fn fetch_opendesign_usage_from_base(state: &AppState, base: &str) -> Provi
         }
         Err(err) => section.errors.push(format!("钱包查询失败：{}", opendesign_safe_error(&err))),
     }
+    if !section.windows.is_empty() {
+        let _ = provider_capture_quota_daily(state, &mut section, chrono::Utc::now().timestamp());
+    }
     section
 }
 
