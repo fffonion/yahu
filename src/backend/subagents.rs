@@ -91,6 +91,10 @@ struct SubagentSnapshot<'a> {
     generated_at: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     goal: Option<&'a PersistentGoalProjection>,
+    /// Main-session todos when no persistent goal owns them; the frontend
+    /// renders the same plan list without a goal header.
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    todos: &'a [SubagentTodo],
     subagents: &'a [SubagentProjection],
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<&'a str>,
@@ -190,15 +194,35 @@ async fn subagent_snapshot(
             }
         }
     }
-    Json(serde_json::json!({
+    let mut session_todos = Vec::new();
+    if goal.is_none() {
+        match timeout(
+            SUBAGENT_POLL_TIMEOUT,
+            fetch_parent_session_todos(&state, &session_id, 0.0, &mut parent_todo_cache),
+        )
+        .await
+        {
+            Ok(Ok(todos)) => session_todos = todos,
+            Ok(Err(err)) => {
+                warn!(session_id = %session_id, error = %err, "cannot restore session todos");
+            }
+            Err(_) => {
+                warn!(session_id = %session_id, "session todo snapshot timed out");
+            }
+        }
+    }
+    let mut body = serde_json::json!({
         "type": "subagents.snapshot",
         "session_id": session_id,
         "generated_at": unix_now_seconds(),
         "goal": goal,
         "subagents": subagents,
         "error": error,
-    }))
-    .into_response()
+    });
+    if !session_todos.is_empty() {
+        body["todos"] = serde_json::json!(session_todos);
+    }
+    Json(body).into_response()
 }
 
 fn append_subagent_error(current: Option<String>, message: String) -> Option<String> {
@@ -312,6 +336,7 @@ async fn run_subagent_feed(
     let mut parent_todo_cache = CachedParentTodos::default();
     let mut current_subagents = Vec::<SubagentProjection>::new();
     let mut current_goal = None::<PersistentGoalProjection>;
+    let mut current_todos = Vec::<SubagentTodo>::new();
     let mut last_fingerprint = String::new();
     let mut empty_streak = 0u32;
     let mut next_poll = Instant::now();
@@ -396,9 +421,30 @@ async fn run_subagent_feed(
                 }
             }
         }
+        let previous_todos = current_todos.clone();
+        if current_goal.is_none() {
+            match timeout(
+                SUBAGENT_POLL_TIMEOUT,
+                fetch_parent_session_todos(&state, &session_id, 0.0, &mut parent_todo_cache),
+            )
+            .await
+            {
+                Ok(Ok(todos)) => current_todos = todos,
+                Ok(Err(err)) => {
+                    warn!(session_id = %session_id, error = %err, "cannot restore session todos");
+                }
+                Err(_) => {
+                    warn!(session_id = %session_id, "session todo poll timed out");
+                }
+            }
+        } else {
+            current_todos.clear();
+        }
+        let todos_changed = current_todos != previous_todos;
         let fingerprint = serde_json::to_string(&(
             current_subagents.as_slice(),
             current_goal.as_ref(),
+            current_todos.as_slice(),
             error.as_deref(),
         ))
         .unwrap_or_default();
@@ -409,6 +455,7 @@ async fn run_subagent_feed(
                 session_id: &session_id,
                 generated_at: unix_now_seconds(),
                 goal: current_goal.as_ref(),
+                todos: &current_todos,
                 subagents: &current_subagents,
                 error: error.as_deref(),
             };
@@ -416,10 +463,10 @@ async fn run_subagent_feed(
                 sender.send_replace(text);
             }
         }
-        if current_subagents.is_empty() && current_goal.is_none() {
-            empty_streak = empty_streak.saturating_add(1);
-        } else {
+        if !current_subagents.is_empty() || current_goal.is_some() || todos_changed {
             empty_streak = 0;
+        } else {
+            empty_streak = empty_streak.saturating_add(1);
         }
         next_poll =
             Instant::now() + subagent_poll_delay(&current_subagents, current_goal.as_ref(), empty_streak);

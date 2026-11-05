@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, ChevronRight, Circle, LoaderCircle, Square, Target, XCircle } from 'lucide-react';
+import { Bot, CheckCircle2, CheckSquare, ChevronRight, Circle, LoaderCircle, Square, Target, XCircle } from 'lucide-react';
 import { ChatTranscript, type ChatMessage } from './ChatTranscript';
 import { t, tf } from './i18n';
 import {
@@ -226,7 +226,8 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   const displayTree = useMemo(() => latestSubagentRows(tree), [tree]);
   const selectedNode = useMemo(() => findSubagentTreeNode(displayTree, selectedNodeId), [displayTree, selectedNodeId]);
   const visibleTree = selectedNode ? [selectedNode] : displayTree;
-  if (!visibleSnapshot || visibleSnapshot.sessionId !== sessionId || (!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error)) return null;
+  const sessionTodos = visibleSnapshot?.todos ?? [];
+  if (!visibleSnapshot || visibleSnapshot.sessionId !== sessionId || (!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error && !sessionTodos.length)) return null;
 
   const goal = visibleSnapshot.goal;
   const preview = previewSubagent(visibleSnapshot.subagents);
@@ -267,6 +268,7 @@ export function SubagentProgressCard({ sessionId, beforeTime, showReasoning, sho
   if (standalone) return statusCard;
   return <div className="subagent-progress-stack">
     {showGoal && goal && <SubagentGoalPanel goal={goal} nowSeconds={nowSeconds} />}
+    {showGoal && !goal && sessionTodos.length > 0 && <SubagentPlanPanel todos={sessionTodos} collapseToken={collapseToken} />}
     {statusCard}
   </div>;
 }
@@ -286,6 +288,7 @@ export function SubagentProgressStack({ sessionId, beforeTime, showReasoning, sh
   const latestWindowStart = latestSnapshot ? latestSubagentWindowStart(latestSnapshot.subagents) : undefined;
   const showCursorBar = latestReady && shouldLoadHistoricalSubagentWindow(beforeTime, latestWindowStart);
   const goal = latestSnapshot?.goal;
+  const sessionTodos = latestSnapshot?.todos ?? [];
   const latestRunning = latestSnapshot?.subagents.some((item) => item.status === 'running') || false;
   const liveGoal = goal?.status === 'active';
   useEffect(() => {
@@ -296,6 +299,7 @@ export function SubagentProgressStack({ sessionId, beforeTime, showReasoning, sh
   }, [latestRunning, liveGoal]);
   return <div className="subagent-progress-stack">
     {goal && <SubagentGoalPanel goal={goal} nowSeconds={nowSeconds} collapseToken={collapseToken} />}
+    {!goal && sessionTodos.length > 0 && <SubagentPlanPanel todos={sessionTodos} collapseToken={collapseToken} />}
     {showCursorBar && <SubagentProgressCard sessionId={sessionId} beforeTime={beforeTime} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} showGoal={false} standalone tone="cursor" collapseToken={collapseToken} />}
     <SubagentProgressCard sessionId={sessionId} beforeTime={undefined} showReasoning={showReasoning} showToolCalls={showToolCalls} compact={compact} showGoal={false} standalone tone="latest" collapseToken={collapseToken} onSnapshotChange={handleLatestSnapshot} />
   </div>;
@@ -342,6 +346,29 @@ export function SubagentGoalPanel({ goal, nowSeconds, collapseToken }: { goal: P
       <GoalMilestones goal={goal} />
     </div>
     <footer className="subagent-goal-footer">{goalMetadata}</footer>
+  </details>;
+}
+
+/**
+ * The session plan (todo_list state) when no persistent goal owns it. Same
+ * surface as the goal panel minus goal-only rows: the todo list is the payload.
+ */
+export function SubagentPlanPanel({ todos, collapseToken }: { todos: SubagentTodo[]; collapseToken?: number }) {
+  const [planExpanded, setPlanExpanded] = useState(false);
+  useEffect(() => setPlanExpanded(false), [collapseToken]);
+  const completed = todos.filter((item) => item.status === 'completed').length;
+  return <details className="subagent-goal-panel subagent-plan-panel" open={planExpanded} data-status="active">
+    <summary className="subagent-goal-summary" aria-label={t('subagents.plan')} onClick={(event) => { event.preventDefault(); setPlanExpanded((open) => !open); }}>
+      <span className="subagent-status-icon subagent-goal-icon"><CheckSquare aria-hidden="true" /></span>
+      <span className="subagent-goal-copy">
+        <span className="subagent-goal-preview">{t('subagents.plan')}</span>
+        <small className="subagent-goal-meta">{tf('subagents.todoProgress', completed, todos.length)}</small>
+      </span>
+      <ChevronRight className="subagent-goal-chevron" aria-hidden="true" />
+    </summary>
+    <div className="subagent-goal-body">
+      <SubagentTodoList todos={todos} className="subagent-goal-todos" />
+    </div>
   </details>;
 }
 

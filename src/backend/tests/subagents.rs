@@ -517,6 +517,75 @@
         assert_eq!(todos[5].id, "task-5");
     }
 
+    async fn todo_api_state() -> (tempfile::TempDir, Arc<AppState>) {
+        async fn api_session() -> Json<Value> {
+            Json(serde_json::json!({"session": {"id": "parent-1", "message_count": 1}}))
+        }
+        async fn api_messages() -> Json<Value> {
+            Json(serde_json::json!({"object": "list", "data": [{
+                "role": "tool", "tool_name": "todo_list", "timestamp": 200.0,
+                "content": serde_json::json!({"todos": [
+                    {"id": "plan-1", "content": "Write the plan", "status": "in_progress"}
+                ], "revision": 1, "summary": {}}).to_string()
+            }], "pagination": {}}))
+        }
+        let app = Router::new()
+            .route("/api/sessions/{session_id}", get(api_session))
+            .route("/api/sessions/{session_id}/messages", get(api_messages));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state(format!("http://{addr}"), temp.path()));
+        (temp, state)
+    }
+
+    #[tokio::test]
+    async fn session_todos_are_exposed_without_a_goal() {
+        let (_temp, state) = todo_api_state().await;
+        let response = subagent_snapshot(
+            State(state),
+            AxumPath("parent-1".to_string()),
+            Query(SubagentWindowQuery { before: Some(1_000.0) }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let payload: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(payload["goal"].is_null(), "no goal must be invented");
+        assert_eq!(payload["todos"][0]["id"], "plan-1");
+        assert_eq!(payload["todos"][0]["content"], "Write the plan");
+        assert_eq!(payload["todos"][0]["status"], "in_progress");
+    }
+
+    #[tokio::test]
+    async fn goal_owned_todos_are_not_duplicated_at_the_snapshot_root() {
+        let (temp, state) = todo_api_state().await;
+        let conn = rusqlite::Connection::open(temp.path().join("state.db")).unwrap();
+        conn.execute_batch("CREATE TABLE state_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);").unwrap();
+        conn.execute(
+            "INSERT INTO state_meta (key, value) VALUES (?1, ?2)",
+            rusqlite::params![
+                "goal:parent-1",
+                serde_json::json!({"goal": "Finish the plan", "status": "active", "turns_used": 1, "max_turns": 5}).to_string()
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let response = subagent_snapshot(
+            State(state),
+            AxumPath("parent-1".to_string()),
+            Query(SubagentWindowQuery { before: Some(1_000.0) }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let payload: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(payload["goal"]["todos"][0]["id"], "plan-1");
+        assert!(payload.get("todos").is_none(), "the goal panel already owns the plan");
+    }
+
     #[test]
     fn todo_tool_aliases_preserve_argument_merge_and_result_clear() {
         for name in ["todo", "todo_list", "functions.todo", "functions.todo_list"] {

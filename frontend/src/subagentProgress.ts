@@ -62,6 +62,8 @@ export type SubagentProgressSnapshot = {
   sessionId: string;
   generatedAt?: number;
   goal?: PersistentGoal;
+  /** Main-session plan when no persistent goal owns it. */
+  todos?: SubagentTodo[];
   subagents: SubagentProgress[];
   error?: string;
 };
@@ -243,6 +245,7 @@ export function normalizeSubagentSnapshot(value: unknown, expectedSessionId: str
     sessionId: expectedSessionId,
     generatedAt: numberValue(raw.generated_at),
     goal: normalizePersistentGoal(raw.goal),
+    todos: Array.isArray(raw.todos) ? raw.todos.map(normalizeTodo).filter((item): item is SubagentTodo => !!item) : [],
     subagents,
     error: stringValue(raw.error) || undefined,
   };

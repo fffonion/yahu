@@ -140,6 +140,32 @@ describe('subagent progress websocket projection', () => {
     });
   });
 
+  test('keeps a goal-less session plan at the snapshot root', () => {
+    const snapshot = normalizeSubagentSnapshot({
+      type: 'subagents.snapshot',
+      session_id: 's1',
+      subagents: [],
+      todos: [
+        { id: 'a', content: 'Inspect the panel', status: 'completed' },
+        { id: 'b', content: 'Render the plan', status: 'in_progress' },
+      ],
+    }, 's1');
+    expect(snapshot?.goal).toBeUndefined();
+    expect(snapshot?.todos).toEqual([
+      { id: 'a', content: 'Inspect the panel', status: 'completed' },
+      { id: 'b', content: 'Render the plan', status: 'in_progress' },
+    ]);
+
+    const goalOwned = normalizeSubagentSnapshot({
+      type: 'subagents.snapshot',
+      session_id: 's1',
+      goal: { text: 'Ship it', status: 'active', turns_used: 1, max_turns: 5, todos: [{ id: 'g', content: 'Goal task', status: 'pending' }] },
+      subagents: [],
+    }, 's1');
+    expect(goalOwned?.goal?.todos).toHaveLength(1);
+    expect(goalOwned?.todos).toEqual([]);
+  });
+
   test('normalizes complete lazy-loaded conversation details without truncating text', () => {
     expect(subagentMessagesUrl('session/with space')).toBe('/chat/subagents/session%2Fwith%20space/messages');
     expect(normalizeSubagentMessages({ data: [

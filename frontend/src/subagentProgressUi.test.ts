@@ -240,7 +240,7 @@ describe('subagent progress UI', () => {
     expect(i18n()).toContain("'goals.turnProgress': { en: '{0}/{1} turns', 'zh-CN': '{0}/{1} 轮'");
     expect(i18n()).toContain("'goals.elapsedMinutes': { en: '{0} min', 'zh-CN': '{0} 分钟'");
     expect(i18n()).toContain("'goals.elapsedHoursMinutes': { en: '{0} hr {1} min', 'zh-CN': '{0} 小时 {1} 分钟'");
-    expect(source).toContain("if (!visibleSnapshot || visibleSnapshot.sessionId !== sessionId || (!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error)) return null;");
+    expect(source).toContain("if (!visibleSnapshot || visibleSnapshot.sessionId !== sessionId || (!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error && !sessionTodos.length)) return null;");
     expect(source).toContain('socket.onmessage = (event) => {\n        if (stopped) return;');
     expect(source).toContain("aria-label={`${completed ? node.task : t('subagents.title')}: ${statusLabel(node.status)}`}");
     expect(source).toContain('export function SubagentProgressStack');
@@ -348,5 +348,18 @@ describe('subagent progress UI', () => {
     expect(styles).toContain('.subagent-progress-panel-body{min-height:0;');
     expect(styles).toContain('@media(max-width:760px){.subagent-goal-summary{min-height:52px}.subagent-progress-overlay{padding:0}');
 
+  });
+
+  test('shows the session plan when no persistent goal owns it', () => {
+    const cardSource = card();
+    expect(cardSource).toContain('const sessionTodos = latestSnapshot?.todos ?? [];');
+    expect(cardSource).toContain('{!goal && sessionTodos.length > 0 && <SubagentPlanPanel todos={sessionTodos} collapseToken={collapseToken} />}');
+    expect(cardSource).toContain('!visibleSnapshot.goal && !visibleSnapshot.subagents.length && !visibleSnapshot.error && !sessionTodos.length');
+    expect(cardSource).toContain('export function SubagentPlanPanel({ todos, collapseToken }');
+    expect(cardSource).toContain('<SubagentTodoList todos={todos} className="subagent-goal-todos" />');
+    expect(cardSource).toContain('tf(\'subagents.todoProgress\', completed, todos.length)');
+    // The plan reuses the goal panel surface, so it inherits the same border/radius/sizing.
+    expect(cardSource).toContain('className="subagent-goal-panel subagent-plan-panel"');
+    expect(i18n()).toContain("'subagents.plan'");
   });
 });
