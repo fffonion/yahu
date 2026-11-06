@@ -84,7 +84,7 @@ describe('turn detail fold UI', () => {
     expect(source).toContain("return <main className={`main-panel chat-main-panel ${props.desktopCompactMessages ? 'desktop-compact-chat' : ''}${isMobile ? ' mobile-compact-chat' : ''}`}>"
     );
     expect(styles).toContain('.desktop-compact-chat .tool-detail,.mobile-compact-chat .tool-detail{border-top:0;background:transparent;padding:4px 0 0 38px;max-height:none}');
-    expect(styles).toContain('.desktop-compact-chat .msg-reasoning pre,.mobile-compact-chat .msg-reasoning pre{padding-left:21px}');
+    expect(styles).toContain('.desktop-compact-chat .msg-reasoning-body,.mobile-compact-chat .msg-reasoning-body{padding-left:21px}');
 
   });
 

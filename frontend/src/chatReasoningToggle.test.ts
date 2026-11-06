@@ -57,7 +57,9 @@ describe('chat reasoning display toggle', () => {
     const i18n = readFileSync(new URL('./i18n.ts', import.meta.url), 'utf8');
     expect(source).toContain('function reasoningSummaryLabel(message: ChatMessage): string');
     expect(source).toContain("const reasoningSummary = reasoningSummaryLabel(message);");
-    expect(source).toContain("<details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label={reasoningSummary}><summary><span className=\"reasoning-chevron\"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>");
+    // Reasoning is Markdown: the body is an md-content node, never a <pre>.
+    expect(source).toContain("<details className=\"msg-reasoning msg-reasoning-collapsed\" aria-label={reasoningSummary}><summary><span className=\"reasoning-chevron\"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><div className=\"md-content msg-reasoning-body\" dangerouslySetInnerHTML={{ __html: markdownText(message.reasoning) }} /></details>");
+    expect(source).not.toContain("<pre>{message.reasoning}</pre>");
 
     expect(i18n).toContain("'chat.reasoned'");
     expect(i18n).toContain("'zh-CN': '已思考'");
@@ -65,7 +67,7 @@ describe('chat reasoning display toggle', () => {
     expect(styles).toContain('.reasoning-chevron{display:inline-grid;place-items:center;width:15px;height:15px;color:var(--muted);transition:transform .15s ease;flex:0 0 auto}');
     expect(styles).toContain('.reasoning-chevron svg{width:15px;height:15px}');
     expect(styles).toContain('.msg-reasoning[open] .reasoning-chevron{transform:rotate(90deg)}');
-    expect(styles).toContain('.msg-reasoning-collapsed:not([open]) pre{display:none}');
+    expect(styles).toContain('.msg-reasoning-collapsed:not([open]) .msg-reasoning-body{display:none}');
   });
 
   test('composer has a session-only tool-call visibility toggle that defaults visible', () => {
@@ -106,7 +108,7 @@ describe('chat reasoning display toggle', () => {
     expect(styles).toContain('.composer-view-toggle{box-sizing:border-box;width:38px;height:38px;min-width:38px;max-width:38px;justify-content:center;padding:0;flex:0 0 38px}');
     expect(styles).toContain('.reasoning-view-toggle.active,.tool-call-view-toggle.active');
     expect(styles).toContain('.msg-reasoning');
-    expect(styles).toContain('.msg-reasoning pre');
+    expect(styles).toContain('.msg-reasoning-body');
 
     expect(cssRule(styles, '.msg-reasoning')).toContain('var(--surface-2)');
   });

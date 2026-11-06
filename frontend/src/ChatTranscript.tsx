@@ -426,7 +426,7 @@ const MessageView = React.memo(function MessageView({ message, showReasoning = f
         <time>{formatChatMessageTime(message.timestamp)}</time>
         {isPending && <span className="stream-state" aria-label={t('chat.streaming')}><span className="stream-dots"><i /><i /><i /></span></span>}
       </div>
-      {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><pre>{message.reasoning}</pre></details>}
+      {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><div className="md-content msg-reasoning-body" dangerouslySetInnerHTML={{ __html: markdownText(message.reasoning) }} /></details>}
       <div className="msg-body">
         {message.structuredContent ? <StructuredDataView value={message.structuredContent.value} /> : isPending && message.role === 'assistant' && message.content ? <StreamingFadeText text={message.content} /> : <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownText(message.content || (isPending ? '…' : '')) }} />}
       </div>
