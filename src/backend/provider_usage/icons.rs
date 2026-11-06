@@ -2,6 +2,9 @@
 /// share its project logo. The bytes are embedded so no provider site is contacted.
 const NEWAPI_VARIANT_PROVIDERS: &[&str] = &["agentrouter", "justwoker", "hcnsec"];
 const NEWAPI_LOGO_BYTES: &[u8] = include_bytes!("../assets/newapi-logo.png");
+/// WorkBuddy ships a crisp local SVG: the favicon service only offers a 40x40
+/// JPEG with a white matte, which reads as a white box on the dark card.
+const WORKBUDDY_ICON_BYTES: &[u8] = include_bytes!("../assets/workbuddy.svg");
 const PROVIDER_ICON_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_PROVIDER_ICON_BODY: usize = 4 * 1024 * 1024;
 
@@ -18,8 +21,16 @@ fn provider_icon_cache() -> &'static Mutex<HashMap<String, ProviderIconCacheEntr
     PROVIDER_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Icons served from the binary so no provider site is contacted.
+fn provider_icon_embedded_asset(provider: &str) -> Option<(&'static [u8], &'static str)> {
+    if provider == "workbuddy" {
+        return Some((WORKBUDDY_ICON_BYTES, "image/svg+xml"));
+    }
+    None
+}
+
 fn provider_icon_url(provider: &str) -> Option<String> {
-    if NEWAPI_VARIANT_PROVIDERS.contains(&provider) {
+    if NEWAPI_VARIANT_PROVIDERS.contains(&provider) || provider_icon_embedded_asset(provider).is_some() {
         return None;
     }
     if provider == "sensenova" {
@@ -58,10 +69,14 @@ fn provider_icon_url(provider: &str) -> Option<String> {
 }
 
 fn provider_icon_embedded() -> Response<Body> {
-    let mut response = Response::new(Body::from(NEWAPI_LOGO_BYTES));
+    provider_icon_embedded_bytes(NEWAPI_LOGO_BYTES, "image/png")
+}
+
+fn provider_icon_embedded_bytes(body: &'static [u8], content_type: &'static str) -> Response<Body> {
+    let mut response = Response::new(Body::from(body));
     *response.status_mut() = StatusCode::OK;
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=86400"),
@@ -95,6 +110,9 @@ async fn provider_icon(State(state): State<Arc<AppState>>, AxumPath(provider): A
     let provider = provider.to_ascii_lowercase();
     if NEWAPI_VARIANT_PROVIDERS.contains(&provider.as_str()) {
         return provider_icon_embedded();
+    }
+    if let Some((body, content_type)) = provider_icon_embedded_asset(&provider) {
+        return provider_icon_embedded_bytes(body, content_type);
     }
     let Some(upstream_url) = provider_icon_url(&provider) else {
         return json_error(StatusCode::NOT_FOUND, "unknown provider icon");

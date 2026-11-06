@@ -2905,9 +2905,15 @@ function providerResetDurationText(value: string): string {
   return hours >= 24 ? tf('usage.days', Math.ceil(hours / 24)) : tf('usage.hours', hours);
 }
 
-function providerAccountWindowParts(window: string): [string, string] | null {
+function providerAccountWindowParts(window: string, provider?: string): [string, string] | null {
   const match = window.match(/^(.*) (5h额度|周额度|月额度)$/);
-  return match ? [match[1], match[2]] : null;
+  if (match) return [match[1], match[2]];
+  // WorkBuddy credit packs are grouped per account as "account · pack".
+  if (provider === 'workbuddy') {
+    const credit = window.match(/^(.*) · ([^·]+)$/);
+    if (credit) return [credit[1].trim(), credit[2].trim()];
+  }
+  return null;
 }
 
 function ProviderUsageMain(props: {
@@ -3178,7 +3184,7 @@ function ProviderUsageMain(props: {
             const section = sections.find((item) => item.provider === provider.provider);
             const loading = Boolean(props.loading[provider.provider]);
             const error = props.error[provider.provider];
-            const accountCount = new Set((section?.windows || []).map((window) => providerAccountWindowParts(window.window)?.[0]).filter(Boolean)).size;
+            const accountCount = new Set((section?.windows || []).map((window) => providerAccountWindowParts(window.window, provider.provider)?.[0]).filter(Boolean)).size;
             const multiAccount = providerUsesMultiAccountLayout(provider.provider, enabled, accountCount);
             const balance = providerBalanceText(section?.description);
             const calls = provider.provider === 'vyceai' ? providerVyceCalls(section?.description) : '';
@@ -3359,12 +3365,12 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     if (!accountTones.has(account)) accountTones.set(account, nextAccountTone++ % 2);
     return `tone-${accountTones.get(account)}`;
   };
-  const accountScoped = ['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova'].includes(section.provider);
+  const accountScoped = ['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova', 'workbuddy'].includes(section.provider);
   const quotaWindows = section.windows.filter((win) => !win.window.includes('今日'));
   const quotaWallPercent = section.provider === 'commandcode' ? 99 : 100;
-  const accountGroups = accountScoped && quotaWindows.some((win) => providerAccountWindowParts(win.window))
+  const accountGroups = accountScoped && quotaWindows.some((win) => providerAccountWindowParts(win.window, section.provider))
     ? orderProviderUsageAccountGroups(Array.from(quotaWindows.reduce((groups, win) => {
-      const account = providerAccountWindowParts(win.window)?.[0] || win.window;
+      const account = providerAccountWindowParts(win.window, section.provider)?.[0] || win.window;
       const group = groups.get(account) || [];
       group.push(win);
       groups.set(account, group);
@@ -3372,14 +3378,14 @@ function ProviderUsageSectionView({ section, loading = false }: { section: Provi
     }, new Map<string, ProviderUsageWindow[]>()).entries()), quotaWallPercent)
     : [];
   const renderWindow = (win: ProviderUsageWindow, index: number) => {
-    const parts = providerAccountWindowParts(win.window);
+    const parts = providerAccountWindowParts(win.window, section.provider);
     const pool = section.provider === 'sensenova' ? section.pools?.find((item) => item.name === parts?.[0]) : undefined;
     const quota = pool?.quotas.find((item) => item.window === parts?.[1]);
     const quotaDetail = quota ? tf('usage.creditUsed', formatProviderCredits(quota.used), formatProviderCredits(quota.limit)) : undefined;
     const percent = providerUsagePercent(win.used);
     const progressPercent = percent === null ? null : Math.min(100, Math.max(0, percent));
     return <article className="provider-usage-window" key={`${win.window}-${index}`} title={quotaDetail}>
-      <div className="provider-usage-window-head"><strong>{accountScoped ? (providerAccountWindowParts(win.window)?.[1] || win.window) : win.window}{quota && <span className="provider-usage-quota-remaining" aria-label={tf('usage.remainingCredit', formatProviderCredits(quota.remaining))}>{formatProviderCredits(quota.remaining)}</span>}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{integerPercentText(win.used)}</span></div>
+      <div className="provider-usage-window-head"><strong>{accountScoped ? (providerAccountWindowParts(win.window, section.provider)?.[1] || win.window) : win.window}{quota && <span className="provider-usage-quota-remaining" aria-label={tf('usage.remainingCredit', formatProviderCredits(quota.remaining))}>{formatProviderCredits(quota.remaining)}</span>}</strong><span style={{ fontSize: '11px', lineHeight: 1 }}>{integerPercentText(win.used)}</span></div>
       {progressPercent !== null && <div className={`provider-usage-progress ${usagePercentTone(progressPercent)}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-valuetext={integerPercentText(win.used)}><span style={{ width: `${progressPercent}%` }} /></div>}
       {(win.reset && win.reset !== '-') || section.provider === 'commandcode' ? <p className="provider-usage-window-reset">{win.reset && win.reset !== '-' ? tf('usage.reset', providerResetDurationText(win.reset)) : '\u00a0'}</p> : null}
     </article>;

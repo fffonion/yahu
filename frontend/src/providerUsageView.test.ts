@@ -87,7 +87,7 @@ describe('provider usage view', () => {
     expect(source).not.toContain("if (provider === 'sensenova') return description || '';");
   });
   test('SenseNova shares quota groups and displays integer credits beside quota labels', () => {
-    expect(app()).toContain("const accountScoped = ['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova'].includes(section.provider);");
+    expect(app()).toContain("const accountScoped = ['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova', 'workbuddy'].includes(section.provider);");
     expect(app()).toContain('provider-usage-quota-remaining');
     expect(app()).toContain('usage.remainingCredit');
     expect(app()).toContain('usage.grantCredit');
@@ -352,7 +352,7 @@ describe('provider usage view', () => {
     expect(source).toContain('orderProviderUsageAccountGroups');
     expect(source).toContain('const accountCount = new Set');
     expect(source).toContain('const multiAccount = providerUsesMultiAccountLayout(provider.provider, enabled, accountCount);');
-    expect(source).toContain("['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova'].includes(section.provider)");
+    expect(source).toContain("['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova', 'workbuddy'].includes(section.provider)");
     expect(providerUsage()).toContain("hasQuotaWall: windows.some");
     expect(source).toContain('PROVIDER_USAGE_ORDER_KEY');
     expect(source).toContain('onDragStart');
@@ -464,6 +464,16 @@ describe('provider usage view', () => {
     expect(source).not.toContain("t('usage.noData')");
     expect(source).not.toContain("t('usage.noWindowData')");
     expect(backendRoutes()).toContain('.route("/provider-usage", get(provider_usage_handler))');
+  });
+
+  test('WorkBuddy credit packs group per account and drive the progress bar', () => {
+    const source = app();
+    expect(source).toContain("if (provider === 'workbuddy') {");
+    expect(source).toContain("const credit = window.match(/^(.*) · ([^·]+)$/);");
+    expect(source).toContain("'sensenova', 'workbuddy'].includes(section.provider)");
+    // "0.83 / 500" must stay parseable as a used/limit pair.
+    expect(providerUsageModule.providerUsagePercent('0.83 / 500')).toBeCloseTo(0.166, 3);
+    expect(providerUsageModule.providerUsagePercent('0 / 1500')).toBe(0);
   });
 
   test('i18n covers the usage nav and empty/error strings', () => {

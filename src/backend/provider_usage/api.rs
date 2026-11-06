@@ -17,7 +17,7 @@ async fn fetch_provider_usage_section(
     let _quota_guard = if let Some(index) = quota_index {
         Some(state.provider_usage_cache.quota_daily_refresh[index].lock().await)
     } else { None };
-    let account_scoped = matches!(provider, "commandcode" | "codex" | "grok" | "opencode" | "zed-pro" | "sensenova");
+    let account_scoped = matches!(provider, "commandcode" | "codex" | "grok" | "opencode" | "zed-pro" | "sensenova" | "workbuddy");
     if !force && !account_scoped {
         let now = chrono::Utc::now().timestamp();
         if let Some(mut cached) = cached_section.and_then(|section| provider_cached_section(section, now)) {
@@ -38,6 +38,7 @@ async fn fetch_provider_usage_section(
         "sensenova" => fetch_sensenova_usage(state).await,
         "opencode" => fetch_opencode_usage(state).await,
         "opendesign" => fetch_opendesign_usage(state).await,
+        "workbuddy" => fetch_workbuddy_usage(state).await,
         "commandcode" => fetch_commandcode_usage(state, cached_section, force).await,
         "codex" => fetch_codex_usage(state, cached_section, force).await,
         "grok" => fetch_grok_usage(state, cached_section, force).await,

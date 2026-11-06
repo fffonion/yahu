@@ -36,6 +36,7 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
         || !justwoker_token.is_empty()
         || any_provider_env_value(hermes_home, &["HERMES_CUSTOM_API_JUSTWOKER_ICU_API_KEY"])
         || any_custom_provider_api_key(hermes_home, &["justwoker", "justwoker-icu"]);
+    let workbuddy_pool = !auth_json_credential_pool(hermes_home, "workbuddy").is_empty();
     let opendesign_control = first_provider_env_value(
         hermes_home,
         &["OPENDESIGN_CONTROL_KEY", "VELA_CONTROL_KEY"],
@@ -184,6 +185,14 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             opendesign_query_ready,
             "卡片内连接按钮（设备授权），或 OPENDESIGN_COOKIE / OPENDESIGN_CONTROL_KEY",
             "点击卡片内的连接按钮完成授权，控制 Key 保存在 Yahu 私有文件；也支持网页 Cookie 或 Control Key。推理 API key 无法查询额度。工作区 ID 可用 OPENDESIGN_WORKSPACE_ID 指定。",
+        ),
+        (
+            "workbuddy",
+            "WorkBuddy 用量",
+            workbuddy_pool,
+            workbuddy_pool,
+            "auth.json credential_pool.workbuddy",
+            "用 Hermes 的 WorkBuddy 登录流程（设备码）写入凭据；Yahu 只读 auth.json，不做 token refresh。额度来自腾讯云代码助手计费接口，单位 credits。",
         ),
         (
             "commandcode",
