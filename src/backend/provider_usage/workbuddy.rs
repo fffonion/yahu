@@ -259,9 +259,6 @@ async fn fetch_workbuddy_usage_from_base(state: &AppState, base: &str) -> Provid
             }
         }
     }
-    if !section.windows.is_empty() {
-        section.description = "腾讯云代码助手 · credits".into();
-    }
     section
 }
 

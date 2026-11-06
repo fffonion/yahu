@@ -98,7 +98,7 @@ mod workbuddy_tests {
         assert_eq!(section.windows[0].reset_at, Some(1796054399));
         assert_eq!(section.windows[1].window, "个人版拉新权益包");
         assert_eq!(section.windows[1].used.as_deref(), Some("0 / 1500"));
-        assert_eq!(section.description, "腾讯云代码助手 · credits");
+        assert!(section.description.is_empty());
         assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
     }
 
