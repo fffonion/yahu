@@ -195,6 +195,30 @@ async fn skill_download(
         .unwrap()
 }
 
+/// Local build/runtime debris that never belongs in a published skill zip.
+const ARCHIVE_SKIPPED_DIRS: &[&str] = &[
+    ".archive",
+    "__pycache__",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".venv",
+    "node_modules",
+    ".git",
+    ".hg",
+    ".svn",
+    "__MACOSX",
+    ".DS_Store",
+];
+
+fn archive_path_is_skipped(rel_str: &str) -> bool {
+    rel_str.split(['/', '\\']).any(|part| {
+        ARCHIVE_SKIPPED_DIRS.contains(&part)
+            || part.ends_with(".pyc")
+            || part.ends_with(".pyo")
+    })
+}
+
 fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
     zip: &mut zip::ZipWriter<W>,
     dir: &std::path::Path,
@@ -202,19 +226,27 @@ fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
     options: &zip::write::SimpleFileOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+        let Ok(entry) = entry else { continue };
         let path = entry.path();
         let rel = path.strip_prefix(base)?;
         let rel_str = rel.to_string_lossy().to_string();
 
-        if rel_str.starts_with(".archive") || rel_str.contains("/.archive/") || rel_str.contains("\\.archive\\") {
+        if archive_path_is_skipped(&rel_str) {
             continue;
         }
 
         if path.is_dir() {
             add_dir_to_zip(zip, &path, base, options)?;
         } else {
-            let data = std::fs::read(&path)?;
+            // One unreadable file must not take the whole archive down: a stale
+            // root-owned cache file used to fail the download with EACCES.
+            let data = match std::fs::read(&path) {
+                Ok(data) => data,
+                Err(err) => {
+                    warn!(path = %path.display(), error = %err, "skipping unreadable skill file in archive");
+                    continue;
+                }
+            };
             zip.start_file(&rel_str, *options)?;
             zip.write_all(&data)?;
         }

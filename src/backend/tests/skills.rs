@@ -25,6 +25,40 @@ def runtime_command(root, args=(), *, code=None):
         assert_eq!(payload["roots"][1], agent.join("optional-skills").to_string_lossy().as_ref());
     }
 
+    #[test]
+    fn skill_zip_skips_build_caches_and_unreadable_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("demo-skill");
+        std::fs::create_dir_all(dir.join("references")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts/__pycache__")).unwrap();
+        std::fs::create_dir_all(dir.join("scripts/.ruff_cache/0.1")).unwrap();
+        std::fs::write(dir.join("SKILL.md"), "# Demo\n").unwrap();
+        std::fs::write(dir.join("references/notes.md"), "notes\n").unwrap();
+        std::fs::write(dir.join("scripts/run.py"), "print(1)\n").unwrap();
+        std::fs::write(dir.join("scripts/__pycache__/run.cpython-312.pyc"), "junk").unwrap();
+        std::fs::write(dir.join("scripts/.ruff_cache/0.1/hash"), "junk").unwrap();
+        let locked = dir.join("locked.bin");
+        std::fs::write(&locked, "secret").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(&mut buffer);
+        let options = zip::write::SimpleFileOptions::default();
+        let result = add_dir_to_zip(&mut zip, &dir, &dir, &options);
+        let finish = result.and_then(|()| zip.finish().map(|_| ()).map_err(Into::into));
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
+        finish.unwrap();
+
+        let mut names = zip::ZipArchive::new(std::io::Cursor::new(buffer.into_inner()))
+            .unwrap()
+            .file_names()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, vec!["SKILL.md", "references/notes.md", "scripts/run.py"]);
+    }
+
     #[tokio::test]
     async fn skills_inventory_reads_editorial_locally_without_api() {
         let temp = tempfile::tempdir().unwrap();
