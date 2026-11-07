@@ -173,6 +173,40 @@
     }
 
     #[test]
+    fn exact_variant_price_entry_beats_an_unlisted_sibling_prefix() {
+        // Gateway price lists carry sibling variants with different cache rates
+        // (e.g. `Model` at 0.03 vs `Model-1017` at 0.007 per million). A row for
+        // the dated variant must use its own entry, never the sibling's.
+        let ts = chrono::NaiveDate::from_ymd_opt(2026, 11, 6)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let rows = vec![
+            serde_json::json!({"source":"telegram","provider":"kong-ai-gateway","model":"deepseek-ai/DeepSeek-V4.1-Flash-1017","started_at":ts,"input_tokens":1_000_000,"output_tokens":1_000_000,"cache_read_tokens":1_000_000_000,"estimated_cost_usd":0.0}),
+        ];
+        let overrides = price_override_catalog_from_bytes(
+            br#"{"version":1,"prices":{"kong-ai-gateway/deepseek-ai/DeepSeek-V4.1-Flash":{"input_per_million":0.3,"output_per_million":1.2,"cache_read_per_million":0.03,"cache_write_per_million":0.0},"kong-ai-gateway/deepseek-ai/DeepSeek-V4.1-Flash-1017":{"input_per_million":0.3,"output_per_million":1.2,"cache_read_per_million":0.007,"cache_write_per_million":0.0}}}"#,
+        )
+        .unwrap();
+
+        let body = aggregate_usage_insights_with_overrides_at_offset(
+            &rows,
+            ts,
+            &ModelPriceCatalog::new(),
+            &overrides,
+            1,
+            0,
+        );
+
+        // 1M in * 0.3 + 1M out * 1.2 + 1000M cache_read * 0.007
+        let cost = body["models"][0]["totals"]["cost_usd"].as_f64().unwrap();
+        assert!((cost - 8.5).abs() < 1e-6, "unexpected cost {cost}");
+        assert_eq!(body["models"][0]["totals"]["unpriced_tokens"], 0);
+    }
+
+    #[test]
     fn insights_aggregates_recent_api_session_rows_by_model_without_db() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()
