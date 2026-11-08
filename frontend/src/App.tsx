@@ -746,6 +746,9 @@ export default function App() {
   const pinnedSessionTitlesRef = useRef<Record<string, string>>(readPinnedSessionTitles());
   const routeEventHashRef = useRef('');
   const scrollLatestAfterRenderRef = useRef<{ sessionId: string; mode: 'follow' | 'restore' } | null>(null);
+  // The session whose viewport the user has taken over by scrolling. Once set, saved-position
+  // and stored-anchor restoration must not fight the user's own scrolling for that session.
+  const chatViewTookOverRef = useRef<string>('');
   const chatViewRestoreGenerationRef = useRef(0);
   const chatViewRestoreDisposeRef = useRef<(() => void) | null>(null);
   const chatViewRestoreScrollRef = useRef<ProgrammaticChatScroll | null>(null);
@@ -776,7 +779,7 @@ export default function App() {
   useEffect(() => { historyTotalRef.current = historyTotal; }, [historyTotal]);
   useEffect(() => { newMessageBoundaryIdRef.current = newMessageBoundaryId; }, [newMessageBoundaryId]);
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
-  useEffect(() => { writeChatViewState(activeSessionId); }, [activeSessionId]);
+  useEffect(() => { chatViewTookOverRef.current = ''; writeChatViewState(activeSessionId); }, [activeSessionId]);
   useEffect(() => () => { if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current); }, []);
   const cancelChatViewRestore = useCallback(() => {
     chatViewRestoreGenerationRef.current += 1;
@@ -785,6 +788,10 @@ export default function App() {
     chatViewRestoreDisposeRef.current = null;
     dispose?.();
   }, []);
+  const markChatViewTookOver = useCallback(() => {
+    chatViewTookOverRef.current = activeSessionId;
+    cancelChatViewRestore();
+  }, [activeSessionId, cancelChatViewRestore]);
   const consumeChatViewRestoreScroll = useCallback((sessionId: string, scrollTop: number): boolean => {
     const target = chatViewRestoreScrollRef.current;
     if (!target) return false;
@@ -2027,14 +2034,21 @@ export default function App() {
     if (pendingScroll) scrollLatestAfterRenderRef.current = null;
     const scroller = chatScrollRef.current;
     if (!scroller || pendingJumpMessageIdRef.current) return;
+    const tookOver = chatViewTookOverRef.current === activeSessionId;
     const pendingHistoryScroll = pendingHistoryScrollAnchorRef.current;
-    const pendingAnchor = pendingHistoryScroll?.sessionId === activeSessionId ? pendingHistoryScroll.anchor : readChatViewAnchor(activeSessionId);
-    const savedTop = readChatViewPosition(activeSessionId);
+    // A user takeover only suppresses the persisted anchor and saved top; an own
+    // older-page anchor was captured around an insertion and must still be honored.
+    const ownAnchor = pendingHistoryScroll?.sessionId === activeSessionId ? pendingHistoryScroll.anchor : null;
+    const pendingAnchor = ownAnchor || (tookOver ? null : readChatViewAnchor(activeSessionId));
+    const savedTop = tookOver ? null : readChatViewPosition(activeSessionId);
     let attempts = 0;
     let anchorRestored = false;
     let disposed = false;
     let resizeFrame: number | null = null;
     const followLatestUntilLayoutSettles = scrollMode === 'follow' || (scrollMode === 'restore' && !pendingAnchor && !Number.isFinite(savedTop));
+    // The user owns the viewport: do not re-clamp their scroll position from a saved
+    // top, a stored anchor, or a ResizeObserver pass while they are reading.
+    if (tookOver && !followLatestUntilLayoutSettles && !ownAnchor) return;
     const rememberRestoredPosition = (previousTop: number) => {
       if (Math.abs(scroller.scrollTop - previousTop) <= 0.01) return;
       const token = ++chatViewRestoreScrollTokenRef.current;
@@ -2068,7 +2082,7 @@ export default function App() {
       pendingHistoryScrollAnchorRef.current = null;
       if (Number.isFinite(savedTop)) {
         scroller.scrollTop = Math.min(Math.max(0, Number(savedTop)), Math.max(0, scroller.scrollHeight - scroller.clientHeight));
-      } else {
+      } else if (!tookOver) {
         scroller.scrollTop = scroller.scrollHeight;
       }
       rememberRestoredPosition(previousTop);
@@ -2705,7 +2719,7 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain onRevealWorkspacePath={revealWorkspaceToolPath} sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} prepareLatestFollow={prepareLatestFollow} onStreamFollowIntent={applyStreamFollowIntent} getStreamFollowMode={streamFollowModeForSession} consumeChatViewRestoreScroll={consumeChatViewRestoreScroll} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} />
+        <ChatMain onRevealWorkspacePath={revealWorkspaceToolPath} sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} prepareLatestFollow={prepareLatestFollow} onStreamFollowIntent={applyStreamFollowIntent} getStreamFollowMode={streamFollowModeForSession} consumeChatViewRestoreScroll={consumeChatViewRestoreScroll} onChatViewTookOver={markChatViewTookOver} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} />
         <WorkspaceAside onNavigate={() => { workspaceRevealRequest.current += 1; }} selectedPath={workspaceSelectedPath} rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => { setMode('workspace'); setSidebarCollapsed(false); writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path }); setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path }); }} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
@@ -4038,6 +4052,7 @@ type ChatMainProps = {
   onStreamFollowIntent: (intent: Exclude<StreamFollowIntent, null>) => void;
   getStreamFollowMode: (sessionId: string) => StreamFollowMode;
   consumeChatViewRestoreScroll: (sessionId: string, scrollTop: number) => boolean;
+  onChatViewTookOver: () => void;
   contextWindowSnapshot: ContextWindowSnapshot | null;
   showReasoning: boolean;
   setShowReasoning: React.Dispatch<React.SetStateAction<boolean>>;
@@ -4233,6 +4248,10 @@ function ChatMain(props: ChatMainProps) {
       1,
       previousScroll?.sessionId === props.activeSessionId ? previousScroll : undefined,
     );
+    // A genuine non-restore move means the reader now owns the viewport: drop pending
+    // restoration so delayed restore passes cannot snap the list back under their scroll.
+    const userScrolled = !restoredScroll && previousScroll?.sessionId === props.activeSessionId && Math.abs(el.scrollTop - previousScroll.scrollTop) > 0.5;
+    if (userScrolled) props.onChatViewTookOver();
     previousChatScrollTopRef.current = { sessionId: props.activeSessionId, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
     if (followIntent === 'away') cancelLatestViewportScroll();
     if (followIntent) props.onStreamFollowIntent(followIntent);

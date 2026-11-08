@@ -40,7 +40,8 @@ describe('chat view persistence', () => {
     const source = app();
     expect(source).toContain('const pendingHistoryScrollAnchorRef = useRef<{ sessionId: string; anchor: MessageScrollAnchor } | null>(null);');
     expect(source).toContain("pendingHistoryScrollAnchorRef.current = anchor ? { sessionId, anchor } : null;");
-    expect(source).toContain('pendingHistoryScroll?.sessionId === activeSessionId ? pendingHistoryScroll.anchor : readChatViewAnchor(activeSessionId)');
+    expect(source).toContain('const ownAnchor = pendingHistoryScroll?.sessionId === activeSessionId ? pendingHistoryScroll.anchor : null;');
+    expect(source).toContain('const pendingAnchor = ownAnchor || (tookOver ? null : readChatViewAnchor(activeSessionId));');
     expect(source).toContain('const savedAnchor = readChatViewAnchor(activeSessionId);');
     expect(source).toContain('? { sessionId: activeSessionId, anchor: { id: savedAnchor.id, topOffset: savedAnchor.topOffset } }');
     expect(source).toContain("scrollLatestAfterRenderRef.current = { sessionId: activeSessionId, mode: 'restore' };");
