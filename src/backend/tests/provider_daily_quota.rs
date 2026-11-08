@@ -61,6 +61,59 @@ mod provider_daily_quota_tests {
     }
 
     #[test]
+    fn quota_daily_epoch_changes_at_full_usage_do_not_replay_quota() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let now = 1_793_325_600;
+        let mut section = ProviderUsageSection { provider: "codex".into(), title: "Codex 额度".into(), ..Default::default() };
+        let counters = HashMap::from([("alpha".into(), (now + 604800, 100.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now).unwrap();
+        for observation in 1..=4 {
+            let counters = HashMap::from([("alpha".into(), (now + 604800 + observation * 300, 100.0))]);
+            provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now + observation * 300).unwrap();
+        }
+        assert_eq!(serde_json::to_value(&section).unwrap()["daily"][0]["used"], 0.0);
+        let counters = HashMap::from([("alpha".into(), (now + 606000, 0.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now + 1500).unwrap();
+        assert_eq!(serde_json::to_value(&section).unwrap()["daily"][0]["used"], 0.0);
+        let counters = HashMap::from([("alpha".into(), (now + 606000, 5.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now + 1800).unwrap();
+        assert_eq!(serde_json::to_value(&section).unwrap()["daily"][0]["used"], 5.0);
+    }
+
+    #[test]
+    fn quota_daily_epoch_change_without_reset_counts_later_increment() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let now = 1_793_325_600;
+        let mut section = ProviderUsageSection { provider: "codex".into(), title: "Codex 额度".into(), ..Default::default() };
+        let counters = HashMap::from([("alpha".into(), (now + 604800, 20.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now).unwrap();
+        let counters = HashMap::from([("alpha".into(), (now + 1209600, 20.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now + 300).unwrap();
+        assert_eq!(serde_json::to_value(&section).unwrap()["daily"][0]["used"], 0.0);
+        let counters = HashMap::from([("alpha".into(), (now + 1209600, 25.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now + 600).unwrap();
+        assert_eq!(serde_json::to_value(&section).unwrap()["daily"][0]["used"], 5.0);
+        let counters = HashMap::from([("alpha".into(), (now + 1814400, 2.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now + 900).unwrap();
+        assert_eq!(serde_json::to_value(&section).unwrap()["daily"][0]["used"], 7.0);
+    }
+
+    #[test]
+    fn quota_daily_elapsed_reset_counts_usage_in_the_new_window() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+        let now = 1_793_325_600;
+        let mut section = ProviderUsageSection { provider: "codex".into(), title: "Codex 额度".into(), ..Default::default() };
+        let counters = HashMap::from([("alpha".into(), (now + 300, 95.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now).unwrap();
+        let counters = HashMap::from([("alpha".into(), (now + 86400, 25.0))]);
+        provider_observed_daily(&state, &mut section, "codex", "percentage_points", counters, now + 600).unwrap();
+        assert_eq!(serde_json::to_value(&section).unwrap()["daily"][0]["used"], 25.0);
+    }
+
+    #[test]
     fn quota_daily_partial_account_failure_preserves_other_account_and_disk_baseline() {
         let temp = tempfile::tempdir().unwrap();
         let state = test_app_state("http://127.0.0.1:1".into(), temp.path());

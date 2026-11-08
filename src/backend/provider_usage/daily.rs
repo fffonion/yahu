@@ -5,6 +5,8 @@ struct ProviderDailyCounter {
     #[serde(default)]
     today: f64,
     #[serde(default)]
+    epoch_pending_reset: bool,
+    #[serde(default)]
     observed_since: i64,
 }
 
@@ -66,6 +68,7 @@ fn provider_observed_daily(
                             epoch: *epoch,
                             high_water: *value,
                             today: 0.0,
+                            epoch_pending_reset: false,
                             observed_since: now,
                         },
                     )
@@ -81,15 +84,33 @@ fn provider_observed_daily(
     for (key, (epoch, value)) in counters {
         if let Some(previous) = snapshot.counters.get_mut(&key) {
             if epoch != previous.epoch {
-                snapshot.today += value;
-                previous.today += value;
                 previous.epoch = epoch;
-                previous.high_water = value;
+                previous.epoch_pending_reset = value >= previous.high_water;
+                if !previous.epoch_pending_reset {
+                    snapshot.today += value;
+                    previous.today += value;
+                    previous.high_water = value;
+                }
             } else {
-                let increment = (value - previous.high_water).max(0.0);
-                snapshot.today += increment;
-                previous.today += increment;
-                previous.high_water = previous.high_water.max(value);
+                if previous.epoch_pending_reset {
+                    if value < previous.high_water {
+                        snapshot.today += value;
+                        previous.today += value;
+                        previous.high_water = value;
+                        previous.epoch_pending_reset = false;
+                    } else if value > previous.high_water {
+                        let increment = value - previous.high_water;
+                        snapshot.today += increment;
+                        previous.today += increment;
+                        previous.high_water = value;
+                        previous.epoch_pending_reset = false;
+                    }
+                } else {
+                    let increment = (value - previous.high_water).max(0.0);
+                    snapshot.today += increment;
+                    previous.today += increment;
+                    previous.high_water = previous.high_water.max(value);
+                }
             }
         } else {
             // A newly observed pool/account starts at its own baseline, never at historical usage.
@@ -99,6 +120,7 @@ fn provider_observed_daily(
                     epoch,
                     high_water: value,
                     today: 0.0,
+                    epoch_pending_reset: false,
                     observed_since: now,
                 },
             );
