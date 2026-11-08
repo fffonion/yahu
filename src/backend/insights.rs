@@ -1665,9 +1665,11 @@ fn official_deepseek_price(model: &str, captured_at: f64) -> Option<ModelPrice> 
         .unwrap_or_else(|| normalized.strip_prefix("deepseek-").unwrap_or(normalized));
     let peak_price = match model_name {
         name if name == "v4-flash" || name.starts_with("v4-flash-") || name == "v4.1-flash" || name.starts_with("v4.1-flash-") || name == "chat" || name.starts_with("chat-") || name == "reasoner" || name.starts_with("reasoner-") => ModelPrice {
-            input_per_million: 0.44,
-            output_per_million: 1.32,
-            cache_read_per_million: 0.014,
+            // DeepSeek V4.1 Flash peak rates (api-docs.deepseek.com/quick_start/pricing):
+            // $0.30 cache-miss input, $1.20 output, $0.006 cache hit. Off-peak is half.
+            input_per_million: 0.30,
+            output_per_million: 1.20,
+            cache_read_per_million: 0.006,
             cache_write_per_million: 0.0,
         },
         "v4-pro" => ModelPrice {

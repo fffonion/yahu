@@ -596,7 +596,10 @@
 
         let body = aggregate_usage_insights_with_prices(&rows, off_peak_ts, &catalog, 1);
 
-        assert!((body["totals"]["estimated_cost_usd"].as_f64().unwrap() - 2.661).abs() < 0.000001);
+        // Published DeepSeek V4.1 Flash peak rates: $0.30 in / $1.20 out / $0.006 cache read;
+        // off-peak is half. One peak row + one off-peak row of 1M each:
+        // peak 1.506 + off-peak 0.753.
+        assert!((body["totals"]["estimated_cost_usd"].as_f64().unwrap() - 2.259).abs() < 0.000001);
     }
 
     #[test]
@@ -634,6 +637,79 @@
 
         assert!((body["totals"]["estimated_cost_usd"].as_f64().unwrap() - 0.4228).abs() < 0.000001);
         assert_eq!(body["totals"]["unpriced_tokens"], 0);
+    }
+
+    #[test]
+    fn opendesign_deepseek_rows_use_one_flat_peak_price_regardless_of_capture_hour() {
+        // opendesign resells deepseek-flash at a single published rate, so its rows must not
+        // swing with the DeepSeek peak/off-peak clock.
+        let peak_ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
+            .unwrap()
+            .and_hms_opt(2, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp() as f64;
+        let off_peak_ts = peak_ts + 10.0 * 3600.0;
+        let rows = [peak_ts, off_peak_ts]
+            .into_iter()
+            .enumerate()
+            .map(|(index, captured_at)| {
+                serde_json::json!({
+                    "id": format!("opendesign-flash-{index}"),
+                    "source": "telegram",
+                    "provider": "opendesign",
+                    "model": "deepseek-v4.1-flash",
+                    "captured_at": captured_at,
+                    "started_at": captured_at,
+                    "last_active": captured_at,
+                    "input_tokens": 1_000_000,
+                    "output_tokens": 1_000_000,
+                    "cache_read_tokens": 1_000_000
+                })
+            })
+            .collect::<Vec<_>>();
+        let overrides = price_override_catalog_from_bytes(
+            br#"{"version":1,"prices":{"opendesign/deepseek-v4.1-flash":{"input_per_million":0.3,"output_per_million":1.2,"cache_read_per_million":0.006,"cache_write_per_million":0.0},"opendesign/deepseek-v4-1-flash-261017":{"input_per_million":0.3,"output_per_million":1.2,"cache_read_per_million":0.006,"cache_write_per_million":0.0}}}"#,
+        )
+        .unwrap();
+
+        let body = aggregate_usage_insights_with_overrides_at_offset(
+            &rows,
+            off_peak_ts,
+            &ModelPriceCatalog::new(),
+            &overrides,
+            1,
+            0,
+        );
+
+        // Both the peak-hour and off-peak-hour rows bill 1.506, so 3.012 total.
+        let cost = body["totals"]["estimated_cost_usd"].as_f64().unwrap();
+        assert!((cost - 3.012).abs() < 0.000001, "unexpected cost {cost}");
+
+        let mut hyphen_rows = rows.clone();
+        hyphen_rows.push(serde_json::json!({
+            "id": "opendesign-flash-261017",
+            "source": "telegram",
+            "provider": "opendesign",
+            "model": "deepseek-v4-1-flash-261017",
+            "captured_at": off_peak_ts,
+            "started_at": off_peak_ts,
+            "last_active": off_peak_ts,
+            "input_tokens": 1_000_000,
+            "output_tokens": 1_000_000,
+            "cache_read_tokens": 1_000_000
+        }));
+        let hyphen_body = aggregate_usage_insights_with_overrides_at_offset(
+            &hyphen_rows,
+            off_peak_ts,
+            &ModelPriceCatalog::new(),
+            &overrides,
+            1,
+            0,
+        );
+        // The hyphenated variant is priced too: 3.012 + 1.506, nothing left unpriced.
+        assert!((hyphen_body["totals"]["estimated_cost_usd"].as_f64().unwrap() - 4.518).abs() < 0.000001);
+        assert_eq!(hyphen_body["totals"]["unpriced_tokens"], 0);
     }
 
     #[test]
