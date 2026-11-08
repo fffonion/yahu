@@ -293,8 +293,9 @@ function toolIconTone(toolName: string): string {
   return 'default';
 }
 
-const ToolMessageView = React.memo(function ToolMessageView({ message, suppressMessageAnchor = false }: { message: ChatMessage; suppressMessageAnchor?: boolean }) {
+const ToolMessageView = React.memo(function ToolMessageView({ message, showReasoning = false, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; suppressMessageAnchor?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const reasoningSummary = reasoningSummaryLabel(message);
   const summary = useMemo(
     () => summarizeToolMessage(message.content, message.toolName, message.toolInput),
     [message.content, message.toolName, message.toolInput],
@@ -305,6 +306,7 @@ const ToolMessageView = React.memo(function ToolMessageView({ message, suppressM
   const fullWidthTool = ['patch', 'read_file', 'write_file'].includes(canonicalToolName);
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
+      {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><div className="md-content msg-reasoning-body" dangerouslySetInnerHTML={{ __html: markdownText(message.reasoning) }} /></details>}
       <button type="button" className="tool-summary" data-tool-path={toolWorkspacePath(summary) ?? undefined} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
         <span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>
         <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>
@@ -412,7 +414,7 @@ function StreamingFadeText({ text }: { text: string }) {
 
 const MessageView = React.memo(function MessageView({ message, showReasoning = false, assistantName, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; assistantName?: string; suppressMessageAnchor?: boolean }) {
   if (message.historyGap) return <HistoryCoverageGap message={message} />;
-  if (isToolLikeMessage(message)) return <ToolMessageView message={message} suppressMessageAnchor={suppressMessageAnchor} />;
+  if (isToolLikeMessage(message)) return <ToolMessageView message={message} showReasoning={showReasoning} suppressMessageAnchor={suppressMessageAnchor} />;
   const isPending = !!message.pending;
   const isToolPrelude = isAssistantToolPreludeMessage(message);
   const senderLabel = messageSenderLabel(message, assistantName);

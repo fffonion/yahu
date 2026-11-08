@@ -82,7 +82,12 @@ function isEmptyAssistantToolCallPlaceholder(message: MessageVisibilityInput): b
 }
 
 export function shouldRenderMessage(message: MessageVisibilityInput, showReasoning = false, showToolCalls = true): boolean {
-  if (isEmptyAssistantToolCallPlaceholder(message)) return false;
+  if (isEmptyAssistantToolCallPlaceholder(message)) {
+    // A tool-call turn often carries the model's thinking with no assistant text. When
+    // reasoning is visible, keep the turn so its thinking block renders on the tool card;
+    // the placeholder only collapses when there is nothing to show.
+    if (!(showReasoning && String(message.reasoning || '').trim())) return false;
+  }
   if (isToolLikeMessage(message)) return showToolCalls;
   if (message.pending) return true;
   if (String(message.content || '').trim()) return true;
