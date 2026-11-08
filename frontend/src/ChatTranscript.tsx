@@ -56,7 +56,7 @@ import {
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool';
 export type ChatTurnMetrics = { elapsedMs?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number; costUsd?: number };
-export type ChatMessage = { id: string; role: Role; content: string; structuredContent?: { value: unknown }; reasoning?: string; timestamp?: string | number; pending?: boolean; interrupted?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; historyGap?: { after: number; before: number }; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
+export type ChatMessage = { id: string; role: Role; content: string; structuredContent?: { value: unknown }; reasoning?: string; toolReasoning?: string; timestamp?: string | number; pending?: boolean; interrupted?: boolean; toolName?: string; toolInput?: unknown; toolCalls?: unknown; toolCallId?: string; tokenCount?: number; turnMetrics?: ChatTurnMetrics; turnDetails?: TurnDetailMetadata; historyGap?: { after: number; before: number }; model?: string; provider?: string; platformSenderName?: string; platformSenderId?: string };
 
 type LoadTurnDetails = (detail: TurnDetailMetadata) => Promise<ChatMessage[]>;
 
@@ -295,7 +295,7 @@ function toolIconTone(toolName: string): string {
 
 const ToolMessageView = React.memo(function ToolMessageView({ message, showReasoning = false, suppressMessageAnchor = false }: { message: ChatMessage; showReasoning?: boolean; suppressMessageAnchor?: boolean }) {
   const [expanded, setExpanded] = useState(false);
-  const reasoningSummary = reasoningSummaryLabel(message);
+  const toolReasoningSummary = reasoningSummaryLabel({ ...message, reasoning: message.toolReasoning });
   const summary = useMemo(
     () => summarizeToolMessage(message.content, message.toolName, message.toolInput),
     [message.content, message.toolName, message.toolInput],
@@ -306,7 +306,7 @@ const ToolMessageView = React.memo(function ToolMessageView({ message, showReaso
   const fullWidthTool = ['patch', 'read_file', 'write_file'].includes(canonicalToolName);
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
-      {message.reasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={reasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{reasoningSummary}</span></summary><div className="md-content msg-reasoning-body" dangerouslySetInnerHTML={{ __html: markdownText(message.reasoning) }} /></details>}
+      {message.toolReasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={toolReasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{toolReasoningSummary}</span></summary><div className="md-content msg-reasoning-body" dangerouslySetInnerHTML={{ __html: markdownText(message.toolReasoning) }} /></details>}
       <button type="button" className="tool-summary" data-tool-path={toolWorkspacePath(summary) ?? undefined} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
         <span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>
         <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>

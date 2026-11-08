@@ -656,3 +656,4 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .msg-reasoning-body table{width:100%;border-collapse:collapse;font-size:12px}
 .msg-reasoning-body th,.msg-reasoning-body td{padding:5px 7px;border-bottom:1px solid var(--border);text-align:left}
 .msg-reasoning-body hr{border:0;border-top:1px solid var(--border);margin:9px 0}
+.tool-card .msg-reasoning{margin:0 0 8px}

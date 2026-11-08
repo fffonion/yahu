@@ -82,12 +82,7 @@ function isEmptyAssistantToolCallPlaceholder(message: MessageVisibilityInput): b
 }
 
 export function shouldRenderMessage(message: MessageVisibilityInput, showReasoning = false, showToolCalls = true): boolean {
-  if (isEmptyAssistantToolCallPlaceholder(message)) {
-    // A tool-call turn often carries the model's thinking with no assistant text. When
-    // reasoning is visible, keep the turn so its thinking block renders on the tool card;
-    // the placeholder only collapses when there is nothing to show.
-    if (!(showReasoning && String(message.reasoning || '').trim())) return false;
-  }
+  if (isEmptyAssistantToolCallPlaceholder(message)) return false;
   if (isToolLikeMessage(message)) return showToolCalls;
   if (message.pending) return true;
   if (String(message.content || '').trim()) return true;
@@ -145,10 +140,45 @@ export function withToolCallInputs<T extends MessageVisibilityInput>(messages: T
   return changed ? result : messages;
 }
 
-export function renderableMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): T[] {
+/**
+ * A tool-call turn carries the model thinking with no assistant text, so it is hidden as a
+ * placeholder and the thinking never reaches a row. Copy that thinking onto the matching
+ * `tool` result (by tool-call id) so the tool card can show it, without adding a row that
+ * would change how turns are grouped into detail blocks.
+ */
+export function withToolCallReasoning<T extends MessageVisibilityInput>(messages: T[]): Array<T & { toolReasoning?: string }> {
+  const reasoningByCallId = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !Array.isArray(message.toolCalls)) continue;
+    const text = String(message.reasoning || '').trim();
+    if (!text) continue;
+    for (const raw of message.toolCalls as unknown[]) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const call = raw as Record<string, unknown>;
+      for (const id of [call.call_id, call.id, call.tool_call_id]) {
+        const key = String(id || '').trim();
+        if (key && !reasoningByCallId.has(key)) reasoningByCallId.set(key, text);
+      }
+    }
+  }
+  if (!reasoningByCallId.size) return messages;
+  let changed = false;
+  const result = messages.map((message) => {
+    if (message.role !== 'tool') return message;
+    if (String(message.reasoning || '').trim()) return message;
+    const key = String(message.toolCallId || '').trim();
+    const text = key ? reasoningByCallId.get(key) : undefined;
+    if (!text) return message;
+    changed = true;
+    return { ...message, toolReasoning: text };
+  });
+  return changed ? result : messages;
+}
+
+export function renderableMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): Array<T & { toolReasoning?: string }> {
   return messages.filter((message) => shouldRenderMessage(message, showReasoning, showToolCalls));
 }
 
-export function visibleChatMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): T[] {
-  return renderableMessages(withToolCallInputs(messages), showReasoning, showToolCalls);
+export function visibleChatMessages<T extends MessageVisibilityInput>(messages: T[], showReasoning = false, showToolCalls = true): Array<T & { toolReasoning?: string }> {
+  return renderableMessages(withToolCallReasoning(withToolCallInputs(messages)), showReasoning, showToolCalls);
 }
