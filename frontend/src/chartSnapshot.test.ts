@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import {
-  buildChartSnapshotSvgDocument,
+  buildSnapshotSvgDocument,
   decideSnapshotDelivery,
   planSnapshotPixels,
   SNAPSHOT_HIDDEN_SELECTORS,
@@ -11,7 +11,7 @@ import {
 
 const module_ = () => readFileSync(new URL('./chartSnapshot.ts', import.meta.url), 'utf8');
 
-describe('insights chart snapshot', () => {
+describe('insights content snapshot', () => {
   test('file name carries the metric and period', () => {
     expect(snapshotFileName('cost_usd', 7)).toBe('yahu-insights-7d-cost_usd.png');
     expect(snapshotFileName('total_tokens', 30)).toBe('yahu-insights-30d-total_tokens.png');
@@ -19,9 +19,9 @@ describe('insights chart snapshot', () => {
   });
 
   test('svg document is sized from the element box, not the viewport', () => {
-    const document_ = buildChartSnapshotSvgDocument(1200, 640, '<rect width="1200" height="640" fill="#000"/>');
-    expect(document_).toContain('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640">');
-    expect(document_).toContain('<rect width="1200" height="640" fill="#000"/>');
+    const document_ = buildSnapshotSvgDocument(1200, 1810, '<div xmlns="http://www.w3.org/1999/xhtml" style="width:1200px;height:1810px"></div>');
+    expect(document_).toContain('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1810" viewBox="0 0 1200 1810">');
+    expect(document_).toContain('width:1200px;height:1810px');
   });
 
   test('pixel size scales from the element box', () => {
@@ -35,9 +35,15 @@ describe('insights chart snapshot', () => {
     expect(decideSnapshotDelivery({ canShareFiles: false, canDownload: false })).toBe('none');
   });
 
-  test('the style pass copies layout plus paint so axes and legend survive', () => {
+  test('the style pass copies layout plus paint so every card survives', () => {
     const props: readonly string[] = SNAPSHOT_STYLE_PROPS;
-    for (const prop of ['position', 'top', 'left', 'width', 'height', 'font-family', 'fill', 'stroke', 'opacity', 'z-index']) {
+    for (const prop of [
+      'display', 'position', 'top', 'left', 'width', 'height', 'padding-top',
+      'font-family', 'font-size', 'line-height', 'letter-spacing',
+      'grid-template-columns', 'gap', 'flex-direction', 'border-radius',
+      'background-color', 'color', 'opacity', 'z-index',
+      'fill', 'stroke', 'stroke-width', 'text-anchor',
+    ]) {
       expect(props).toContain(prop);
     }
   });
@@ -47,18 +53,22 @@ describe('insights chart snapshot', () => {
     expect(SNAPSHOT_HIDDEN_SELECTORS).toContain('.chart-stack-toggle');
   });
 
-  test('the rasterizer never emits a foreignObject element (Chromium taints the canvas)', () => {
-    expect(module_()).not.toContain('<foreignObject');
+  test('the whole subtree is cloned with inlined styles into one foreignObject', () => {
+    const source = module_();
+    expect(source).toContain('inlineSnapshotStyles');
+    expect(source).toContain('new XMLSerializer().serializeToString(clone)');
+    expect(source).toContain('<foreignObject');
+    expect(source).toContain('element.scrollWidth');
+    expect(source).toContain('element.scrollHeight');
+    expect(source).not.toContain("querySelectorAll('.chart-y-axis span')");
+    expect(source).not.toContain("querySelectorAll('.usage-share-segment')");
   });
 
-  test('HTML-only chart parts are redrawn as SVG text and rects', () => {
+  test('oversized canvases are capped below the Chromium limit', () => {
     const source = module_();
-    expect(source).toContain("querySelectorAll('.chart-y-axis span')");
-    expect(source).toContain("querySelectorAll('.chart-axis span')");
-    expect(source).toContain("querySelectorAll('.chart-legend span')");
-    expect(source).toContain("querySelectorAll('.usage-share-segment')");
-    expect(source).toContain("querySelectorAll('.usage-share-indicator')");
-    expect(source).toContain('text-anchor');
+    expect(source).toContain('maxDimension');
+    expect(source).toContain('MAX_CANVAS_DIMENSION = 16384');
+    expect(source).toContain('maxDimension / longest');
   });
 });
 
@@ -74,10 +84,10 @@ describe('insights snapshot wiring', () => {
     expect(header).toContain('insights-snapshot');
   });
 
-  test('the button captures only the chart card and shares or downloads it', () => {
+  test('the button captures the whole content area and shares or downloads it', () => {
     const source = app();
-    expect(source).toContain("document.querySelector<HTMLElement>('.insights-chart-card')");
-    expect(source).toContain('await captureElementPng(card, { scale: 2, background })');
+    expect(source).toContain("document.querySelector<HTMLElement>('.insights-content')");
+    expect(source).toContain('await captureElementPng(panel, { scale: 2, background })');
     expect(source).toContain('await deliverSnapshot(blob, snapshotFileName(props.metric, props.period))');
   });
 });

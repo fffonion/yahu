@@ -3437,14 +3437,14 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   const [chartStacked, setChartStacked] = useState(false);
   const [modelQuery, setModelQuery] = useState('');
   const snapshotChart = async () => {
-    const card = document.querySelector<HTMLElement>('.insights-chart-card');
-    if (!card) return;
+    const panel = document.querySelector<HTMLElement>('.insights-content') || document.querySelector<HTMLElement>('.insights-chart-card');
+    if (!panel) return;
     try {
       const background = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0b0d12';
-      const blob = await captureElementPng(card, { scale: 2, background });
+      const blob = await captureElementPng(panel, { scale: 2, background });
       await deliverSnapshot(blob, snapshotFileName(props.metric, props.period));
     } catch (error) {
-      console.error('chart snapshot failed', error);
+      console.error('insights snapshot failed', error);
     }
   };
   const periodData = props.insights?.periods?.find((item) => item.days === props.period);
