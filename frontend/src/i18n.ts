@@ -271,6 +271,8 @@ const translations: Record<string, Record<string, string>> = {
   'insights.unavailable': { en: 'Usage insights unavailable', 'zh-CN': '用量洞察不可用', 'zh-TW': '用量洞察不可用', ja: '使用量インサイトは利用できません' },
   'insights.lastTokens': { en: 'Last {0} · {1} tokens', 'zh-CN': '最近 {0} · {1} tokens', 'zh-TW': '最近 {0} · {1} tokens', ja: '直近{0} · {1} tokens' },
   'insights.refreshUsage': { en: 'Refresh usage', 'zh-CN': '刷新用量', 'zh-TW': '重新整理用量', ja: '使用量を更新' },
+  'insights.snapshot': { en: 'Snapshot chart', 'zh-CN': '截图图表', 'zh-TW': '擷取圖表', ja: 'チャートを画像保存' },
+  'insights.snapshotFailed': { en: 'Could not save the chart image', 'zh-CN': '图表截图失败', 'zh-TW': '圖表擷取失敗', ja: 'チャート画像を保存できませんでした' },
   'insights.usageControls': { en: 'Usage controls', 'zh-CN': '用量控制', 'zh-TW': '用量控制', ja: '使用量コントロール' },
   'insights.usageMetric': { en: 'Usage metric', 'zh-CN': '用量指标', 'zh-TW': '用量指標', ja: '使用量メトリック' },
   'insights.metric.total_tokens': { en: 'Total', 'zh-CN': '总量', 'zh-TW': '總量', ja: '合計' },

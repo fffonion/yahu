@@ -1,11 +1,12 @@
 import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Bot, Brain, CalendarClock, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChartNoAxesColumnIncreasing, Circle as SelectionMark, CircleHelp, Clock3, Code, Copy, Download, Eraser, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Minus, MoreVertical, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, Turtle, UserRound, Users, Video, Volume2, X } from 'lucide-react';
+import { ArrowUp, Bot, Brain, CalendarClock, Camera, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChartNoAxesColumnIncreasing, Circle as SelectionMark, CircleHelp, Clock3, Code, Copy, Download, Eraser, Eye, FileText, Folder, Globe, GripVertical, History, Home, Image as ImageIcon, Info, Layers, Lightbulb, LineChart, List, Maximize2, MessageSquare, Minimize2, Minus, MoreVertical, Network, Palette, Paperclip, Pause, Pencil, Pin, PinOff, Play, PlayCircle as PlayMark, Plus, Puzzle, RefreshCw, Repeat, Save, Search, Send, Server, Settings, SlidersHorizontal, Square, Star, Terminal, Trash2, Turtle, UserRound, Users, Video, Volume2, X } from 'lucide-react';
 import { buildChatInputWithAttachments } from './attachmentPayload';
 import { buildChatRequestBody } from './chatRequest';
 import { normalizeReasoningEffort, REASONING_EFFORTS, sessionReasoningEffort, type ReasoningEffort } from './reasoningEffort';
 import { buildCronPatch, cronEditableValues } from './cronEditor';
 import { waitForCronRunOutput } from './cronRunOutput';
 import { errorMessage, isAbortError } from './errorMessage';
+import { captureElementPng, deliverSnapshot, snapshotFileName } from './chartSnapshot';
 import { formatFileSize } from './formatFileSize';
 import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, modelMenuLabel, modelTriggerLabel, orderedModelOptions, providerDisplayName } from './modelDisplay';
@@ -3435,6 +3436,17 @@ const markdownBoldToHtml = (text: string) => text
 function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void }) {
   const [chartStacked, setChartStacked] = useState(false);
   const [modelQuery, setModelQuery] = useState('');
+  const snapshotChart = async () => {
+    const card = document.querySelector<HTMLElement>('.insights-chart-card');
+    if (!card) return;
+    try {
+      const background = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0b0d12';
+      const blob = await captureElementPng(card, { scale: 2, background });
+      await deliverSnapshot(blob, snapshotFileName(props.metric, props.period));
+    } catch (error) {
+      console.error('chart snapshot failed', error);
+    }
+  };
   const periodData = props.insights?.periods?.find((item) => item.days === props.period);
   const totals = periodData?.totals || emptyTotals();
   const allModels = useMemo(() => (props.insights?.models || [])
@@ -3464,7 +3476,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
   return <main className={`main-panel insights-main ${showSkeleton ? 'insights-loading' : ''}`}>
     <header className="chat-header header-no-drawer insights-header">
       <div><h1>{t('insights.title')}</h1><span>{showSkeleton ? t('insights.loadingUsage') : props.error || tf('insights.lastTokens', periodLabel, fmtTokens(totals.total_tokens))}</span></div>
-      <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings}><button className="icon-btn mobile-icon-only insights-refresh" onClick={props.refresh} disabled={props.loading} title={t('insights.refreshUsage')}><RefreshCw /></button></HeaderToolstrip>
+      <HeaderToolstrip theme={props.theme} setTheme={props.setTheme} mode={props.mode} onNavigateToSettings={props.onNavigateToSettings}><button type="button" className="icon-btn insights-snapshot" onClick={snapshotChart} disabled={showSkeleton} title={t('insights.snapshot')} aria-label={t('insights.snapshot')}><Camera /></button><button className="icon-btn mobile-icon-only insights-refresh" onClick={props.refresh} disabled={props.loading} title={t('insights.refreshUsage')}><RefreshCw /></button></HeaderToolstrip>
     </header>
     <section className="insights-content">
       <div className="insights-toolbar" aria-label={t('insights.usageControls')}>
