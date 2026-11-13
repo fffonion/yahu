@@ -1,3 +1,14 @@
+const WORKSPACE_REVIEW_MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024;
+const WORKSPACE_REVIEW_JSON_BODY_LIMIT: usize = WORKSPACE_REVIEW_MAX_CONTENT_BYTES * 6 + 1024;
+const WORKSPACE_GIT_TIMEOUT: Duration = Duration::from_secs(8);
+const WORKSPACE_DIFF_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Deserialize)]
+struct WorkspaceReviewPayload {
+    filename: String,
+    content: String,
+}
+
 async fn workspace_list(
     State(state): State<Arc<AppState>>,
     Query(query): Query<WorkspaceQuery>,
@@ -119,6 +130,81 @@ async fn workspace_file(
     builder.body(Body::from(bytes)).unwrap()
 }
 
+async fn workspace_diff(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<WorkspaceQuery>,
+) -> Response<Body> {
+    let rel = query.path.unwrap_or_default();
+    let root = match fs::canonicalize(&state.workspace).await {
+        Ok(root) => root,
+        Err(err) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("cannot resolve workspace root: {err}"),
+            );
+        }
+    };
+    let file = match resolve_workspace_path(&root, &rel) {
+        Ok(path) => path,
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
+    };
+    let meta = match fs::metadata(&file).await {
+        Ok(meta) => meta,
+        Err(err) => return json_error(StatusCode::NOT_FOUND, &format!("cannot stat file: {err}")),
+    };
+    if !meta.is_file() {
+        return json_error(StatusCode::BAD_REQUEST, "path is not a file");
+    }
+    let canonical_file = match fs::canonicalize(&file).await {
+        Ok(path) if path.starts_with(&root) => path,
+        Ok(_) => return json_error(StatusCode::BAD_REQUEST, "workspace path escapes root"),
+        Err(err) => {
+            return json_error(StatusCode::NOT_FOUND, &format!("cannot resolve file: {err}"));
+        }
+    };
+    let Some(parent) = canonical_file.parent() else {
+        return json_error(StatusCode::BAD_REQUEST, "file has no parent directory");
+    };
+    let Some(name) = canonical_file.file_name() else {
+        return json_error(StatusCode::BAD_REQUEST, "file has no name");
+    };
+
+    let is_git = run_workspace_git(git_is_inside_work_tree_args(parent))
+        .await
+        .is_some_and(|output| {
+            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
+        });
+    let has_head = is_git
+        && run_workspace_git(git_verify_head_args(parent))
+            .await
+            .is_some_and(|output| output.status.success());
+    let (diff, truncated) = if is_git {
+        match run_workspace_git(git_diff_args(parent, name)).await {
+            Some(output) if output.status.success() => {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let (text, text_truncated) = truncate_utf8(&text, WORKSPACE_DIFF_MAX_BYTES);
+                (
+                    text.to_owned(),
+                    output.stdout.len() > WORKSPACE_DIFF_MAX_BYTES || text_truncated,
+                )
+            }
+            _ => (String::new(), false),
+        }
+    } else {
+        (String::new(), false)
+    };
+
+    Json(serde_json::json!({
+        "path": rel,
+        "abs": canonical_file.to_string_lossy().into_owned(),
+        "diff": diff,
+        "is_git": is_git,
+        "has_head": has_head,
+        "truncated": truncated,
+    }))
+    .into_response()
+}
+
 fn workspace_path_is_text(path: &Path) -> bool {
     path.extension()
         .and_then(OsStr::to_str)
@@ -227,6 +313,99 @@ async fn workspace_save(
     Json(serde_json::json!({ "ok": true, "path": rel })).into_response()
 }
 
+async fn workspace_review_report(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<WorkspaceReviewPayload>,
+) -> Response<Body> {
+    if let Err(err) = validate_review_filename(&payload.filename) {
+        return json_error(StatusCode::BAD_REQUEST, &err.to_string());
+    }
+    if payload.content.is_empty() || payload.content.len() > WORKSPACE_REVIEW_MAX_CONTENT_BYTES {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "review content must be non-empty and at most 2 MB",
+        );
+    }
+
+    let root = match fs::canonicalize(&state.workspace).await {
+        Ok(root) => root,
+        Err(err) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("cannot resolve workspace root: {err}"),
+            );
+        }
+    };
+    let review_dir = match resolve_workspace_path(&root, ".yahu-reviews") {
+        Ok(path) => path,
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
+    };
+    if let Err(err) = fs::create_dir_all(&review_dir).await {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("cannot create review directory: {err}"),
+        );
+    }
+    let review_dir = match fs::canonicalize(&review_dir).await {
+        Ok(path) if path.starts_with(&root) => path,
+        Ok(_) => return json_error(StatusCode::BAD_REQUEST, "review directory escapes root"),
+        Err(err) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("cannot resolve review directory: {err}"),
+            );
+        }
+    };
+    let target = review_dir.join(&payload.filename);
+    match fs::symlink_metadata(&target).await {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return json_error(StatusCode::BAD_REQUEST, "review target must not be a symlink");
+        }
+        Ok(meta) if !meta.is_file() => {
+            return json_error(StatusCode::BAD_REQUEST, "review target is not a file");
+        }
+        Ok(_) => match fs::canonicalize(&target).await {
+            Ok(path) if path.starts_with(&review_dir) => {}
+            Ok(_) => return json_error(StatusCode::BAD_REQUEST, "review target escapes directory"),
+            Err(err) => {
+                return json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("cannot resolve review target: {err}"),
+                );
+            }
+        },
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("cannot inspect review target: {err}"),
+            );
+        }
+    }
+    if let Err(err) = fs::write(&target, &payload.content).await {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("cannot write review report: {err}"),
+        );
+    }
+    let abs = match fs::canonicalize(&target).await {
+        Ok(path) if path.starts_with(&root) && path.starts_with(&review_dir) => path,
+        Ok(_) => return json_error(StatusCode::BAD_REQUEST, "review target escapes root"),
+        Err(err) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("cannot resolve review report: {err}"),
+            );
+        }
+    };
+
+    Json(serde_json::json!({
+        "rel": format!(".yahu-reviews/{}", payload.filename),
+        "abs": abs.to_string_lossy().into_owned(),
+    }))
+    .into_response()
+}
+
 fn resolve_workspace_path(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
     let mut clean = PathBuf::new();
     for component in Path::new(rel).components() {
@@ -267,6 +446,81 @@ fn workspace_destination_path(root: &Path, rel: &str, new_name: &str) -> anyhow:
     Ok(target)
 }
 
+fn validate_review_filename(name: &str) -> anyhow::Result<()> {
+    if name.trim().is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains(['/', '\\', '\0'])
+    {
+        anyhow::bail!("review filename must be a single file name");
+    }
+    match Path::new(name).components().next() {
+        Some(Component::Normal(component)) if component == OsStr::new(name) => Ok(()),
+        _ => anyhow::bail!("review filename must be a single file name"),
+    }
+}
+
+fn git_args(dir: &Path, args: &[&OsStr]) -> Vec<OsString> {
+    let mut command_args = Vec::with_capacity(args.len() + 2);
+    command_args.push(OsString::from("-C"));
+    command_args.push(dir.as_os_str().to_owned());
+    command_args.extend(args.iter().map(|arg| arg.to_os_string()));
+    command_args
+}
+
+fn git_is_inside_work_tree_args(dir: &Path) -> Vec<OsString> {
+    git_args(
+        dir,
+        &[OsStr::new("rev-parse"), OsStr::new("--is-inside-work-tree")],
+    )
+}
+
+fn git_verify_head_args(dir: &Path) -> Vec<OsString> {
+    git_args(
+        dir,
+        &[
+            OsStr::new("rev-parse"),
+            OsStr::new("--verify"),
+            OsStr::new("HEAD"),
+        ],
+    )
+}
+
+fn git_diff_args(dir: &Path, name: &OsStr) -> Vec<OsString> {
+    git_args(
+        dir,
+        &[
+            OsStr::new("diff"),
+            OsStr::new("--no-ext-diff"),
+            OsStr::new("--no-color"),
+            OsStr::new("HEAD"),
+            OsStr::new("--"),
+            name,
+        ],
+    )
+}
+
+async fn run_workspace_git(args: Vec<OsString>) -> Option<std::process::Output> {
+    timeout(
+        WORKSPACE_GIT_TIMEOUT,
+        Command::new("git").kill_on_drop(true).args(args).output(),
+    )
+    .await
+    .ok()?
+    .ok()
+}
+
+fn truncate_utf8(text: &str, cap: usize) -> (&str, bool) {
+    if text.len() <= cap {
+        return (text, false);
+    }
+    let mut end = cap;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (&text[..end], true)
+}
+
 fn rel_parent(rel: &str) -> String {
     Path::new(rel)
         .parent()
@@ -287,4 +541,46 @@ fn rel_join(parent: &str, name: &str) -> String {
 fn system_time_string(t: SystemTime) -> Option<String> {
     let secs = t.duration_since(UNIX_EPOCH).ok()?.as_secs();
     Some(secs.to_string())
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn workspace_diff_args_include_parent_and_basename_in_order() {
+        let args = git_diff_args(Path::new("/workspace/project"), OsStr::new("note.md"));
+
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("-C"),
+                OsString::from("/workspace/project"),
+                OsString::from("diff"),
+                OsString::from("--no-ext-diff"),
+                OsString::from("--no-color"),
+                OsString::from("HEAD"),
+                OsString::from("--"),
+                OsString::from("note.md"),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_review_filename_validation_rejects_paths_and_accepts_safe_name() {
+        for name in ["", "a/b", "a\\b", ".", "..", "bad\0name"] {
+            assert!(validate_review_filename(name).is_err(), "accepted {name:?}");
+        }
+
+        assert!(validate_review_filename("review-20261110-120000.md").is_ok());
+    }
+
+    #[test]
+    fn workspace_diff_truncation_preserves_utf8_boundary() {
+        let (text, truncated) = truncate_utf8("aéz", 2);
+
+        assert_eq!(text, "a");
+        assert!(truncated);
+    }
 }

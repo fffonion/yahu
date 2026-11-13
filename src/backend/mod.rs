@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
     env,
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     io::{Read, Write},
     net::IpAddr,
     path::{Component, Path, PathBuf},
@@ -19,7 +19,7 @@ use axum::{
     Json, Router,
     body::{Body, to_bytes},
     extract::{
-        Path as AxumPath, Query, State,
+        DefaultBodyLimit, Path as AxumPath, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, HeaderValue, Method, Request, Response, StatusCode, Uri, header},
@@ -342,6 +342,12 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/logout", post(logout))
         .route("/workspace/list", get(workspace_list))
         .route("/workspace/file", get(workspace_file).put(workspace_save))
+        .route("/workspace/diff", get(workspace_diff))
+        .route(
+            "/workspace/review",
+            post(workspace_review_report)
+                .layer(DefaultBodyLimit::max(WORKSPACE_REVIEW_JSON_BODY_LIMIT)),
+        )
         // Keep route shape discoverable for regression tests: .route("/workspace/item", patch(workspace_rename).delete(workspace_delete))
         .route(
             "/workspace/item",
