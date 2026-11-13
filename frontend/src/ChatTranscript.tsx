@@ -304,15 +304,19 @@ const ToolMessageView = React.memo(function ToolMessageView({ message, showReaso
   const toolName = summary.toolName;
   const canonicalToolName = toolName.replace(/^functions\./, '');
   const fullWidthTool = ['patch', 'read_file', 'write_file'].includes(canonicalToolName);
+  const reviewPath = toolWorkspacePath(summary);
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
       {message.toolReasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={toolReasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{toolReasoningSummary}</span></summary><div className="md-content msg-reasoning-body" dangerouslySetInnerHTML={{ __html: markdownText(message.toolReasoning) }} /></details>}
-      <button type="button" className="tool-summary" data-tool-path={toolWorkspacePath(summary) ?? undefined} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-        <span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>
-        <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>
-        <span className="tool-subtitle">{summary.subtitle}</span>
-        <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
-      </button>
+      <div className="tool-head" style={{ display: 'flex', alignItems: 'center', gap: 2, paddingRight: 4 }}>
+        <button type="button" className="tool-summary" data-tool-path={reviewPath ?? undefined} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+          <span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>
+          <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>
+          <span className="tool-subtitle">{summary.subtitle}</span>
+          <ChevronRight className={`tool-chevron ${expanded ? 'open' : ''}`} />
+        </button>
+        {reviewPath ? <button type="button" className="icon-btn tool-review-btn" data-workspace-review={reviewPath} title={t('workspace.review')} aria-label={t('workspace.review')}><MessageSquare /></button> : null}
+      </div>
       {expanded && <div className={`tool-detail${fullWidthTool ? ' tool-detail-wide' : ''}${canonicalToolName === 'patch' ? ' tool-detail-patch' : ''}`}>
         {summary.input !== undefined && <ToolDetailSection title={t('tool.invocation')} value={summary.input} summary={summary} mode="input" />}
         <ToolDetailSection title={t('tool.result')} value={summary.result} summary={summary} />

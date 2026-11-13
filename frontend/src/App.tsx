@@ -12,6 +12,7 @@ import { createStreamAnimator } from './streamAnimator';
 import { currentModelDisplayOption, modelMenuLabel, modelTriggerLabel, orderedModelOptions, providerDisplayName } from './modelDisplay';
 import { fallbackContextWindowForModel, latestMessageProviderForModel, resolvePreferredModelProvider as resolveModelProvider, selectModelOption } from './modelContext';
 import { ChatTranscript, type ChatMessage, type ChatTurnMetrics } from './ChatTranscript';
+import { ReviewPane } from './ReviewPane';
 import { startVisiblePolling } from './visiblePolling';
 import { sessionDisplayTitle, sessionHeaderTimes } from './sessionTime';
 import { latestSessionPreviewFromMessages, sessionPreviewForDisplay } from './sessionPreview';
@@ -678,6 +679,7 @@ export default function App() {
   const [workspaceTree, setWorkspaceTree] = useState<Record<string, WorkspaceEntry[]>>({});
   const [expandedWorkspacePaths, setExpandedWorkspacePaths] = useState<Set<string>>(() => new Set(['']));
   const [preview, setPreview] = useState<WorkspacePreview>({ path: '', content: '', kind: 'none' });
+  const [reviewSession, setReviewSession] = useState<{ active: boolean; path: string; files: string[] } | null>(null);
   const [workspaceSelectedPath, setWorkspaceSelectedPath] = useState<string>();
   const workspaceRevealRequest = useRef(0);
   useEffect(() => { workspaceRevealRequest.current += 1; }, [workspaceCollapsed, mode, activeSessionId]);
@@ -2424,7 +2426,7 @@ export default function App() {
   };
 
   const downloadEntry = useCallback((entry: WorkspaceEntry) => { const a = document.createElement('a'); a.href = `/workspace/file?path=${encodeURIComponent(entry.path)}&download=1`; a.download = entry.name; a.click(); }, []);
-  const openWorkspaceEntry = useCallback(async (entry: WorkspaceEntry, options?: { edit?: boolean; route?: boolean }, isCurrent?: () => boolean) => {
+  const openWorkspaceEntry = useCallback(async (entry: WorkspaceEntry, options?: { edit?: boolean; route?: boolean; onLoaded?: (kind: WorkspacePreview['kind']) => void }, isCurrent?: () => boolean) => {
     const request = isCurrent ? workspaceRevealRequest.current : ++workspaceRevealRequest.current;
     const canApply = isCurrent || (() => request === workspaceRevealRequest.current);
     if (entry.kind === 'dir') {
@@ -2441,10 +2443,12 @@ export default function App() {
     if (blob.type.startsWith('image/')) {
       setPreview({ path: entry.path, content: '', kind: 'image', url: URL.createObjectURL(blob) });
       if (options?.edit) setStatus(t('workspace.itemNotEditable'));
+      options?.onLoaded?.('image');
     } else if (blob.type.startsWith('text/') || isWorkspaceTextFile(entry.name)) {
       const content = await blob.text();
       if (!canApply()) return;
       setPreview({ path: entry.path, content, kind: 'text', editRequest: options?.edit ? Date.now() : undefined });
+      options?.onLoaded?.('text');
     } else {
       const totalSize = Number(res.headers.get('x-yahu-file-size')) || entry.size || blob.size;
       const content = formatHexDump(new Uint8Array(await blob.arrayBuffer()));
@@ -2457,9 +2461,48 @@ export default function App() {
         truncated: res.headers.get('x-yahu-preview-truncated') === '1',
       });
       if (options?.edit) setStatus(t('workspace.itemNotEditable'));
+      options?.onLoaded?.('hex');
     }
     if (options?.route !== false) writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
   }, [toggleWorkspaceFolder, writeHashRoute, showToast]);
+  const startWorkspaceReview = useCallback(async (path: string) => {
+    if (!path) return;
+    setMode('workspace');
+    setSidebarCollapsed(false);
+    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path });
+    let loadedKind: WorkspacePreview['kind'] | null = null;
+    await openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false, onLoaded: (kind) => { loadedKind = kind; } });
+    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path });
+    if (!loadedKind) return;
+    if (loadedKind !== 'text') {
+      setReviewSession(null);
+      showToast(t('workspace.itemNotEditable'));
+      return;
+    }
+    setReviewSession((old) => ({ active: true, path, files: old && old.files.includes(path) ? old.files : [...(old?.files ?? []), path] }));
+  }, [openWorkspaceEntry, showToast, writeHashRoute]);
+  const selectReviewFile = useCallback(async (path: string) => {
+    if (!path) return;
+    setReviewSession((old) => old ? { active: true, path, files: old.files.includes(path) ? old.files : [...old.files, path] } : { active: true, path, files: [path] });
+    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path });
+    await openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false });
+  }, [openWorkspaceEntry, writeHashRoute]);
+  const removeReviewFile = useCallback((path: string) => {
+    const current = reviewSession;
+    if (!current) return;
+    const files = current.files.filter((file) => file !== path);
+    if (files.length === 0) { setReviewSession(null); return; }
+    const nextPath = current.path === path ? files[0] : current.path;
+    setReviewSession({ active: true, path: nextPath, files });
+    if (nextPath !== current.path) {
+      writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: nextPath });
+      void openWorkspaceEntry({ name: basename(nextPath), path: nextPath, kind: 'file' }, { route: false });
+    }
+  }, [openWorkspaceEntry, reviewSession, writeHashRoute]);
+  const exitWorkspaceReview = useCallback(() => { setReviewSession(null); }, []);
+  const submitWorkspaceReview = useCallback(() => {
+    setReviewSession((old) => old ? { active: true, path: old.path, files: [old.path] } : null);
+  }, []);
   const revealWorkspaceToolPath = useCallback(async (toolPath: string) => {
     if (workspaceCollapsed || mode !== 'chat') return;
     const request = ++workspaceRevealRequest.current;
@@ -2720,12 +2763,12 @@ export default function App() {
       </div>}
 
       {mode === 'chat' && <>
-        <ChatMain onRevealWorkspacePath={revealWorkspaceToolPath} sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} prepareLatestFollow={prepareLatestFollow} onStreamFollowIntent={applyStreamFollowIntent} getStreamFollowMode={streamFollowModeForSession} consumeChatViewRestoreScroll={consumeChatViewRestoreScroll} onChatViewTookOver={markChatViewTookOver} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} />
+        <ChatMain onRevealWorkspacePath={revealWorkspaceToolPath} sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} prepareLatestFollow={prepareLatestFollow} onStreamFollowIntent={applyStreamFollowIntent} getStreamFollowMode={streamFollowModeForSession} consumeChatViewRestoreScroll={consumeChatViewRestoreScroll} onChatViewTookOver={markChatViewTookOver} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} onStartWorkspaceReview={startWorkspaceReview} />
         <WorkspaceAside onNavigate={() => { workspaceRevealRequest.current += 1; }} selectedPath={workspaceSelectedPath} rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => { setMode('workspace'); setSidebarCollapsed(false); writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path }); setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path }); }} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
 
-      {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'workspace' && <WorkspaceMain preview={preview} setPreview={setPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} review={reviewSession} onToggleReview={startWorkspaceReview} onSelectReviewFile={selectReviewFile} onRemoveReviewFile={removeReviewFile} onExitReview={exitWorkspaceReview} onSubmittedReview={submitWorkspaceReview} />}
       {mode === 'skills' && <>
         <SkillMain skill={selectedSkill} preview={skillPreview} setPreview={setSkillPreview} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} showToast={showToast} />
         <SkillWorkspaceAside skill={selectedSkill} skillFileTree={skillFileTree} expandedSkillPaths={expandedSkillPaths} toggleSkillFolder={toggleSkillFolder} openSkillFile={openSkillFile} openSkillFileMenu={openSkillFileMenu} />
@@ -4112,6 +4155,7 @@ type ChatMainProps = {
   onClearNewMessages: () => void;
   skills: Skill[];
   onRevealWorkspacePath: (path: string) => void;
+  onStartWorkspaceReview: (path: string) => void;
 };
 
 function ChatMain(props: ChatMainProps) {
@@ -4419,6 +4463,14 @@ function ChatMain(props: ChatMainProps) {
     setChatImageModal(found || { key: `adhoc:${path || src}`, messageId: '', path, name: link.dataset.chatImageName || basename(path || src), src, downloadUrl: `${src}${src.includes('?') ? '&' : '?'}download=1` });
   };
   const onChatAreaClick = (event: React.MouseEvent<HTMLElement>) => {
+    const reviewTarget = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-workspace-review]') : null;
+    if (reviewTarget) {
+      const reviewPath = reviewTarget.getAttribute('data-workspace-review') || '';
+      event.preventDefault();
+      event.stopPropagation();
+      if (reviewPath) props.onStartWorkspaceReview(reviewPath);
+      return;
+    }
     const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-tool-path]') : null;
     if (target?.dataset.toolPath) props.onRevealWorkspacePath(target.dataset.toolPath);
     onChatMediaClick(event);
@@ -4599,14 +4651,20 @@ type WorkspaceMainProps = {
   toggleMobileSidebar: () => void;
   mode: Mode;
   onNavigateToSettings: () => void;
+  review?: { active: boolean; files: string[] } | null;
+  onToggleReview?: (path: string) => void;
+  onSelectReviewFile?: (path: string) => void;
+  onRemoveReviewFile?: (path: string) => void;
+  onExitReview?: () => void;
+  onSubmittedReview?: () => void;
 };
 
 function WorkspaceAside(props: WorkspaceAsideProps) {
   if (props.collapsed) return <aside className="workspace workspace-collapsed"><div className="workspace-collapsed-actions"><button className="workspace-rail-btn" title={t('workspace.expand')} aria-label={t('workspace.expand')} onClick={() => props.setCollapsed(false)}><ChevronLeft /></button></div></aside>;
   return <aside className="workspace" onClickCapture={props.onNavigate}><WorkspaceBrowser selectedPath={props.selectedPath} rootEntries={props.rootEntries} workspaceTree={props.workspaceTree} expandedWorkspacePaths={props.expandedWorkspacePaths} toggleWorkspaceFolder={props.toggleWorkspaceFolder} openWorkspaceEntry={props.openWorkspaceEntry} downloadEntry={props.downloadEntry} preview={props.preview} setPreview={props.setPreview} compact setCollapsed={props.setCollapsed} openWorkspaceMenu={props.openWorkspaceMenu} openFullPreview={props.openFullPreview} /></aside>;
 }
-function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings }: WorkspaceMainProps) {
-  return <main className="main-panel workspace-main" data-mobile-workspace="true"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} /></main>;
+function WorkspaceMain({ preview, setPreview, theme, setTheme, mobileSidebarOpen, toggleMobileSidebar, mode, onNavigateToSettings, review, onToggleReview, onSelectReviewFile, onRemoveReviewFile, onExitReview, onSubmittedReview }: WorkspaceMainProps) {
+  return <main className="main-panel workspace-main" data-mobile-workspace="true"><header className="chat-header"><MobileHeaderDrawerButton open={mobileSidebarOpen} onClick={toggleMobileSidebar} /><div><h1>{t('workspace.title')}</h1><span>{t('workspace.editor')}</span></div><HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={onNavigateToSettings} /></header><WorkspaceEditorPreview preview={preview} setPreview={setPreview} review={review} onToggleReview={onToggleReview} onSelectReviewFile={onSelectReviewFile} onRemoveReviewFile={onRemoveReviewFile} onExitReview={onExitReview} onSubmittedReview={onSubmittedReview} /></main>;
 }
 
 type WorkspaceTreeRowsProps = Pick<WorkspaceTreeProps, 'workspaceTree' | 'expandedWorkspacePaths' | 'selectedPath' | 'toggleWorkspaceFolder' | 'downloadEntry' | 'openWorkspaceMenu'> & {
@@ -4771,9 +4829,15 @@ type WorkspaceEditorPreviewProps = {
   saveUrl?: (path: string) => string;
   toolbarExtra?: React.ReactNode;
   readOnly?: boolean;
+  review?: { active: boolean; files: string[] } | null;
+  onToggleReview?: (path: string) => void;
+  onSelectReviewFile?: (path: string) => void;
+  onRemoveReviewFile?: (path: string) => void;
+  onExitReview?: () => void;
+  onSubmittedReview?: () => void;
 };
 
-function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl, toolbarExtra, readOnly = false }: WorkspaceEditorPreviewProps) {
+function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, emptyDesc, saveUrl, toolbarExtra, readOnly = false, review, onToggleReview, onSelectReviewFile, onRemoveReviewFile, onExitReview, onSubmittedReview }: WorkspaceEditorPreviewProps) {
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
@@ -4801,7 +4865,7 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
   const readOnlyPreview = preview.kind === 'hex'
     ? <div className="workspace-hex-preview">{preview.truncated && <div className="workspace-hex-note">{tf('workspace.hexPreviewTruncated', formatFileSize(preview.totalSize || 0))}</div>}<pre className="workspace-hex-viewer">{preview.content}</pre></div>
     : <div className="workspace-text-preview">{textPreview}</div>;
-  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!readOnly && !editMode && preview.kind === 'text' && <button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.copyContent')} title={t('workspace.copyContent')} onClick={copyEditContent}><Copy /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => setPreview({ path: '', content: '', kind: 'none' })}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightSourceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : readOnlyPreview}</section>;
+  return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!readOnly && !editMode && preview.kind === 'text' && !review?.active && <><button className="icon-btn workspace-review-toggle" aria-label={t('workspace.review')} title={t('workspace.review')} onClick={() => onToggleReview?.(preview.path)}><MessageSquare /></button><button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button></>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.copyContent')} title={t('workspace.copyContent')} onClick={copyEditContent}><Copy /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => { if (review?.active) onExitReview?.(); setPreview({ path: '', content: '', kind: 'none' }); }}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightSourceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : review?.active && preview.kind === 'text' ? <ReviewPane path={preview.path} files={review.files} onSelectFile={(path) => onSelectReviewFile?.(path)} onRemoveFile={(path) => onRemoveReviewFile?.(path)} onExit={() => onExitReview?.()} onSubmitted={() => onSubmittedReview?.()} /> : readOnlyPreview}</section>;
 }
 type WorkspaceBrowserProps = WorkspaceTreeProps & {
   preview: WorkspacePreview;

@@ -21,6 +21,7 @@ export type ReviewPaneProps = {
   onSelectFile: (path: string) => void;
   onRemoveFile: (path: string) => void;
   onExit: () => void;
+  onSubmitted?: (abs: string) => void;
 };
 
 type ReviewMode = 'unified' | 'split';
@@ -123,7 +124,7 @@ function CommentEditor({ initialBody, onCommit, onCancel }: { initialBody: strin
   );
 }
 
-export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit }: ReviewPaneProps) {
+export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, onSubmitted }: ReviewPaneProps) {
   const [view, setView] = useState<PaneView>({ status: 'loading' });
   const [mode, setMode] = useState<ReviewMode>('unified');
   const [narrow, setNarrow] = useState(false);
@@ -241,6 +242,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit }: 
       setReview(null);
       setDraft(null);
       setSubmitState({ status: 'done', abs });
+      onSubmitted?.(abs);
     } catch (error) {
       setSubmitState({ status: 'error', message: statusText(error) });
     }
