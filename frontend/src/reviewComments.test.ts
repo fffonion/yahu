@@ -75,7 +75,8 @@ describe('review comment storage', () => {
     addComment(storage, 'src/z.ts', { side: 'new', line: 12 }, 'remove with file');
     const removed = removeFile(storage, 'src/z.ts');
     expect(removed.files).toEqual(['src/a.ts']);
-    expect(removed.comments.every(({ path }) => path !== 'src/z.ts')).toBe(true);
+    // Removing a chip must keep the written comments in the session.
+    expect(removed.comments.some(({ path }) => path === 'src/z.ts')).toBe(true);
     expect(loadReview(storage)).toEqual(removed);
 
     clearReview(storage);

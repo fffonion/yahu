@@ -78,8 +78,9 @@ export function addFile(storage: Storage, path: string): ReviewState {
 
 export function removeFile(storage: Storage, path: string): ReviewState {
   const state = currentOrStart(storage);
+  // Drop the file from the review list but keep its comments: removing a chip
+  // must not silently delete text the user already wrote.
   state.files = state.files.filter((filePath) => filePath !== path);
-  state.comments = state.comments.filter((comment) => comment.path !== path);
   return persist(storage, state);
 }
 

@@ -356,38 +356,24 @@ async fn workspace_review_report(
             );
         }
     };
-    let target = review_dir.join(&payload.filename);
-    match fs::symlink_metadata(&target).await {
-        Ok(meta) if meta.file_type().is_symlink() => {
+    let target = match create_review_report(&review_dir, &payload.filename, &payload.content).await {
+        Ok(target) => target,
+        Err(ReviewWriteError::Symlink) => {
             return json_error(StatusCode::BAD_REQUEST, "review target must not be a symlink");
         }
-        Ok(meta) if !meta.is_file() => {
+        Err(ReviewWriteError::NotFile) => {
             return json_error(StatusCode::BAD_REQUEST, "review target is not a file");
         }
-        Ok(_) => match fs::canonicalize(&target).await {
-            Ok(path) if path.starts_with(&review_dir) => {}
-            Ok(_) => return json_error(StatusCode::BAD_REQUEST, "review target escapes directory"),
-            Err(err) => {
-                return json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    &format!("cannot resolve review target: {err}"),
-                );
-            }
-        },
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => {
+        Err(ReviewWriteError::Escapes) => {
+            return json_error(StatusCode::BAD_REQUEST, "review target escapes directory");
+        }
+        Err(ReviewWriteError::Io(err)) => {
             return json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("cannot inspect review target: {err}"),
+                &format!("cannot write review report: {err}"),
             );
         }
-    }
-    if let Err(err) = fs::write(&target, &payload.content).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("cannot write review report: {err}"),
-        );
-    }
+    };
     let abs = match fs::canonicalize(&target).await {
         Ok(path) if path.starts_with(&root) && path.starts_with(&review_dir) => path,
         Ok(_) => return json_error(StatusCode::BAD_REQUEST, "review target escapes root"),
@@ -446,6 +432,68 @@ fn workspace_destination_path(root: &Path, rel: &str, new_name: &str) -> anyhow:
     Ok(target)
 }
 
+enum ReviewWriteError {
+    Symlink,
+    NotFile,
+    Escapes,
+    Io(std::io::Error),
+}
+
+fn review_alternative_name(name: &str, attempt: usize) -> String {
+    let path = Path::new(name);
+    let stem = path.file_stem().and_then(OsStr::to_str).unwrap_or("review");
+    let extension = path.extension().and_then(OsStr::to_str).unwrap_or("md");
+    format!("{stem}-{attempt}.{extension}")
+}
+
+/// Create the report with `create_new` so a second submit in the same second
+/// never overwrites the first report; collisions get a numeric suffix.
+async fn create_review_report(
+    dir: &Path,
+    name: &str,
+    content: &str,
+) -> Result<PathBuf, ReviewWriteError> {
+    for attempt in 0..16 {
+        let candidate = if attempt == 0 {
+            dir.join(name)
+        } else {
+            dir.join(review_alternative_name(name, attempt))
+        };
+        match fs::symlink_metadata(&candidate).await {
+            Ok(meta) if meta.file_type().is_symlink() => return Err(ReviewWriteError::Symlink),
+            Ok(meta) if !meta.is_file() => return Err(ReviewWriteError::NotFile),
+            Ok(_) => match fs::canonicalize(&candidate).await {
+                Ok(path) if path.starts_with(dir) => {}
+                Ok(_) => return Err(ReviewWriteError::Escapes),
+                Err(err) => return Err(ReviewWriteError::Io(err)),
+            },
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(ReviewWriteError::Io(err)),
+        }
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+            .await
+        {
+            Ok(mut file) => {
+                if let Err(err) =
+                    tokio::io::AsyncWriteExt::write_all(&mut file, content.as_bytes()).await
+                {
+                    return Err(ReviewWriteError::Io(err));
+                }
+                return Ok(candidate);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(ReviewWriteError::Io(err)),
+        }
+    }
+    Err(ReviewWriteError::Io(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "too many review reports with the same name",
+    )))
+}
+
 fn validate_review_filename(name: &str) -> anyhow::Result<()> {
     if name.trim().is_empty()
         || name == "."
@@ -490,6 +538,9 @@ fn git_diff_args(dir: &Path, name: &OsStr) -> Vec<OsString> {
     git_args(
         dir,
         &[
+            // `--` does not stop git from reading magic pathspecs such as
+            // `:(exclude)*`; literals keep the diff to the one named file.
+            OsStr::new("--literal-pathspecs"),
             OsStr::new("diff"),
             OsStr::new("--no-ext-diff"),
             OsStr::new("--no-color"),
@@ -557,6 +608,7 @@ mod workspace_tests {
             vec![
                 OsString::from("-C"),
                 OsString::from("/workspace/project"),
+                OsString::from("--literal-pathspecs"),
                 OsString::from("diff"),
                 OsString::from("--no-ext-diff"),
                 OsString::from("--no-color"),
@@ -564,6 +616,14 @@ mod workspace_tests {
                 OsString::from("--"),
                 OsString::from("note.md"),
             ]
+        );
+    }
+
+    #[test]
+    fn workspace_review_alternative_name_keeps_stem_and_extension() {
+        assert_eq!(
+            review_alternative_name("review-20261110-120000.md", 2),
+            "review-20261110-120000-2.md"
         );
     }
 
