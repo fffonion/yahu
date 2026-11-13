@@ -112,6 +112,7 @@ async fn skill_files(
         root: root.display().to_string(),
         path: rel,
         entries,
+        roots: None,
     })
     .into_response()
 }

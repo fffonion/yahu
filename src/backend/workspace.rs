@@ -7,6 +7,8 @@ const WORKSPACE_DIFF_MAX_BYTES: usize = 2 * 1024 * 1024;
 struct WorkspaceReviewPayload {
     filename: String,
     content: String,
+    #[serde(default)]
+    path: Option<String>,
 }
 
 async fn workspace_list(
@@ -14,8 +16,42 @@ async fn workspace_list(
     Query(query): Query<WorkspaceQuery>,
 ) -> Response<Body> {
     let rel = query.path.unwrap_or_default();
-    let dir = match resolve_workspace_path(&state.workspace, &rel) {
-        Ok(path) => path,
+    let roots = &state.workspace_roots;
+    let roots_info = || -> Option<Vec<WorkspaceRootInfo>> {
+        (roots.len() > 1).then(|| {
+            roots
+                .iter()
+                .enumerate()
+                .map(|(index, root)| WorkspaceRootInfo {
+                    name: root.name.clone(),
+                    path: root.path.display().to_string(),
+                    index,
+                })
+                .collect()
+        })
+    };
+    if roots.len() > 1 && rel.trim().is_empty() {
+        let entries = roots
+            .iter()
+            .enumerate()
+            .map(|(index, root)| WorkspaceEntry {
+                name: root.name.clone(),
+                path: format!("@{index}"),
+                kind: "dir".to_string(),
+                size: None,
+                modified: None,
+            })
+            .collect();
+        return Json(WorkspaceList {
+            root: roots[0].path.display().to_string(),
+            path: rel,
+            entries,
+            roots: roots_info(),
+        })
+        .into_response();
+    }
+    let (_, dir) = match resolve_workspace_entry(roots, &rel) {
+        Ok(resolved) => resolved,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
     };
     let mut reader = match fs::read_dir(&dir).await {
@@ -54,9 +90,10 @@ async fn workspace_list(
             .cmp(&(b.kind.as_str() != "dir", b.name.to_lowercase()))
     });
     Json(WorkspaceList {
-        root: state.workspace.display().to_string(),
+        root: roots[0].path.display().to_string(),
         path: rel,
         entries,
+        roots: roots_info(),
     })
     .into_response()
 }
@@ -66,8 +103,8 @@ async fn workspace_file(
     Query(query): Query<WorkspaceQuery>,
 ) -> Response<Body> {
     let rel = query.path.unwrap_or_default();
-    let file = match resolve_workspace_path(&state.workspace, &rel) {
-        Ok(path) => path,
+    let (_, file) = match resolve_workspace_entry(&state.workspace_roots, &rel) {
+        Ok(resolved) => resolved,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
     };
     let meta = match fs::metadata(&file).await {
@@ -135,19 +172,11 @@ async fn workspace_diff(
     Query(query): Query<WorkspaceQuery>,
 ) -> Response<Body> {
     let rel = query.path.unwrap_or_default();
-    let root = match fs::canonicalize(&state.workspace).await {
-        Ok(root) => root,
-        Err(err) => {
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("cannot resolve workspace root: {err}"),
-            );
-        }
-    };
-    let file = match resolve_workspace_path(&root, &rel) {
-        Ok(path) => path,
+    let (root_index, file) = match resolve_workspace_entry(&state.workspace_roots, &rel) {
+        Ok(resolved) => resolved,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
     };
+    let root = &state.workspace_roots[root_index].path;
     let meta = match fs::metadata(&file).await {
         Ok(meta) => meta,
         Err(err) => return json_error(StatusCode::NOT_FOUND, &format!("cannot stat file: {err}")),
@@ -156,7 +185,7 @@ async fn workspace_diff(
         return json_error(StatusCode::BAD_REQUEST, "path is not a file");
     }
     let canonical_file = match fs::canonicalize(&file).await {
-        Ok(path) if path.starts_with(&root) => path,
+        Ok(path) if path.starts_with(root) => path,
         Ok(_) => return json_error(StatusCode::BAD_REQUEST, "workspace path escapes root"),
         Err(err) => {
             return json_error(StatusCode::NOT_FOUND, &format!("cannot resolve file: {err}"));
@@ -237,15 +266,15 @@ async fn workspace_rename(
     if rel.trim().is_empty() {
         return json_error(StatusCode::BAD_REQUEST, "path is required");
     }
-    let source = match resolve_workspace_path(&state.workspace, &rel) {
-        Ok(path) => path,
+    let (_, source) = match resolve_workspace_entry(&state.workspace_roots, &rel) {
+        Ok(resolved) => resolved,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
     };
     if fs::metadata(&source).await.is_err() {
         return json_error(StatusCode::NOT_FOUND, "workspace item not found");
     }
-    let target = match workspace_destination_path(&state.workspace, &rel, &payload.name) {
-        Ok(path) => path,
+    let target = match workspace_destination_path(&state.workspace_roots, &rel, &payload.name) {
+        Ok((_, path)) => path,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
     };
     if fs::metadata(&target).await.is_ok() {
@@ -270,8 +299,8 @@ async fn workspace_delete(
     if rel.trim().is_empty() {
         return json_error(StatusCode::BAD_REQUEST, "path is required");
     }
-    let path = match resolve_workspace_path(&state.workspace, &rel) {
-        Ok(path) => path,
+    let (_, path) = match resolve_workspace_entry(&state.workspace_roots, &rel) {
+        Ok(resolved) => resolved,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
     };
     let meta = match fs::metadata(&path).await {
@@ -300,8 +329,8 @@ async fn workspace_save(
     if rel.trim().is_empty() {
         return json_error(StatusCode::BAD_REQUEST, "path is required");
     }
-    let file = match resolve_workspace_path(&state.workspace, &rel) {
-        Ok(path) => path,
+    let (_, file) = match resolve_workspace_entry(&state.workspace_roots, &rel) {
+        Ok(resolved) => resolved,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
     };
     if let Err(err) = fs::write(&file, &payload.content).await {
@@ -327,19 +356,17 @@ async fn workspace_review_report(
         );
     }
 
-    let root = match fs::canonicalize(&state.workspace).await {
-        Ok(root) => root,
-        Err(err) => {
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("cannot resolve workspace root: {err}"),
-            );
-        }
-    };
-    let review_dir = match resolve_workspace_path(&root, ".yahu-reviews") {
-        Ok(path) => path,
-        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
-    };
+    let root_index = payload
+        .path
+        .as_deref()
+        .and_then(|path| resolve_workspace_entry(&state.workspace_roots, path).ok())
+        .map_or(0, |(index, _)| index);
+    let root = state.workspace_roots[root_index].path.clone();
+    let review_dir = root.join(".yahu-reviews");
+    let canonical_dir = fs::canonicalize(&review_dir).await.unwrap_or_else(|_| review_dir.clone());
+    if !canonical_dir.starts_with(&root) {
+        return json_error(StatusCode::BAD_REQUEST, "review directory escapes root");
+    }
     if let Err(err) = fs::create_dir_all(&review_dir).await {
         return json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -392,9 +419,32 @@ async fn workspace_review_report(
     .into_response()
 }
 
-fn resolve_workspace_path(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
+/// Resolve a request path to (root index, absolute path). With one root the
+/// grammar is unchanged; with several roots every path must start with
+/// `@<index>/` so requests can never cross roots.
+fn resolve_workspace_entry(roots: &[WorkspaceRoot], rel: &str) -> anyhow::Result<(usize, PathBuf)> {
+    let (index, inner) = if roots.len() > 1 {
+        let trimmed = rel.trim_start_matches('/');
+        if trimmed.is_empty() {
+            (0usize, String::new())
+        } else {
+            let (prefix, rest) = match trimmed.split_once('/') {
+                Some((prefix, rest)) => (prefix, rest.to_string()),
+                None => (trimmed, String::new()),
+            };
+            let index = prefix
+                .strip_prefix('@')
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|value| *value < roots.len())
+                .ok_or_else(|| anyhow::anyhow!("workspace path must start with @<root>"))?;
+            (index, rest)
+        }
+    } else {
+        (0, rel.to_string())
+    };
+    let root = &roots[index].path;
     let mut clean = PathBuf::new();
-    for component in Path::new(rel).components() {
+    for component in Path::new(&inner).components() {
         match component {
             Component::Normal(seg) => clean.push(seg),
             Component::CurDir => {}
@@ -408,10 +458,14 @@ fn resolve_workspace_path(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
     if !canonical.starts_with(root) {
         anyhow::bail!("workspace path escapes root");
     }
-    Ok(canonical)
+    Ok((index, canonical))
 }
 
-fn workspace_destination_path(root: &Path, rel: &str, new_name: &str) -> anyhow::Result<PathBuf> {
+fn workspace_destination_path(
+    roots: &[WorkspaceRoot],
+    rel: &str,
+    new_name: &str,
+) -> anyhow::Result<(usize, PathBuf)> {
     let trimmed = new_name.trim();
     if trimmed.is_empty() || trimmed.contains('\0') {
         anyhow::bail!("new name must be a single file name");
@@ -421,15 +475,15 @@ fn workspace_destination_path(root: &Path, rel: &str, new_name: &str) -> anyhow:
         (Some(Component::Normal(_)), None) => {}
         _ => anyhow::bail!("new name must be a single file name"),
     }
-    let source = resolve_workspace_path(root, rel)?;
+    let (index, source) = resolve_workspace_entry(roots, rel)?;
     let parent = source
         .parent()
         .ok_or_else(|| anyhow::anyhow!("workspace item has no parent"))?;
     let target = parent.join(trimmed);
-    if !target.starts_with(root) {
+    if !target.starts_with(&roots[index].path) {
         anyhow::bail!("workspace path escapes root");
     }
-    Ok(target)
+    Ok((index, target))
 }
 
 enum ReviewWriteError {
@@ -642,5 +696,54 @@ mod workspace_tests {
 
         assert_eq!(text, "a");
         assert!(truncated);
+    }
+
+    #[test]
+    fn workspace_entry_resolves_single_root_without_prefix() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("sub")).unwrap();
+        let roots = [WorkspaceRoot {
+            name: "root".to_string(),
+            path: root.path().canonicalize().unwrap(),
+        }];
+
+        let (index, path) = resolve_workspace_entry(&roots, "sub").unwrap();
+        assert_eq!(index, 0);
+        assert!(path.ends_with("sub"));
+        assert!(resolve_workspace_entry(&roots, "../escape").is_err());
+    }
+
+    #[test]
+    fn workspace_entry_requires_root_prefix_in_multi_root_mode() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        std::fs::write(second.path().join("note.md"), "x").unwrap();
+        let roots = [
+            WorkspaceRoot {
+                name: "first".to_string(),
+                path: first.path().canonicalize().unwrap(),
+            },
+            WorkspaceRoot {
+                name: "second".to_string(),
+                path: second.path().canonicalize().unwrap(),
+            },
+        ];
+
+        let (index, path) = resolve_workspace_entry(&roots, "@1/note.md").unwrap();
+        assert_eq!(index, 1);
+        assert!(path.ends_with("note.md"));
+
+        let (index, path) = resolve_workspace_entry(&roots, "@0").unwrap();
+        assert_eq!(index, 0);
+        assert_eq!(path, roots[0].path);
+
+        assert!(resolve_workspace_entry(&roots, "@2/note.md").is_err());
+        assert!(resolve_workspace_entry(&roots, "note.md").is_err());
+        assert!(resolve_workspace_entry(&roots, "@0/../escape").is_err());
+
+        let (index, target) = workspace_destination_path(&roots, "@1/note.md", "renamed.md").unwrap();
+        assert_eq!(index, 1);
+        assert!(target.starts_with(&roots[1].path));
+        assert!(target.ends_with("renamed.md"));
     }
 }

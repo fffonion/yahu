@@ -56,17 +56,21 @@
         let nested = workspace.path().join("nested folder");
         std::fs::create_dir(&nested).unwrap();
         std::fs::write(workspace.path().join("file.txt"), "x").unwrap();
+        let roots = [WorkspaceRoot {
+            name: "workspace".to_string(),
+            path: workspace.path().to_path_buf(),
+        }];
 
         assert_eq!(
-            terminal_working_dir(workspace.path(), Some("nested folder"), home.path()).unwrap(),
+            terminal_working_dir(&roots, Some("nested folder"), home.path()).unwrap(),
             nested
         );
         assert_eq!(
-            terminal_working_dir(workspace.path(), None, home.path()).unwrap(),
+            terminal_working_dir(&roots, None, home.path()).unwrap(),
             home.path()
         );
-        assert!(terminal_working_dir(workspace.path(), Some("../outside"), home.path()).is_err());
-        assert!(terminal_working_dir(workspace.path(), Some("file.txt"), home.path()).is_err());
+        assert!(terminal_working_dir(&roots, Some("../outside"), home.path()).is_err());
+        assert!(terminal_working_dir(&roots, Some("file.txt"), home.path()).is_err());
     }
 
     #[test]

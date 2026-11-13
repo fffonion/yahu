@@ -169,6 +169,9 @@ struct Args {
     #[arg(long, env = "HERMES_WEBUI_WORKSPACE", default_value = ".")]
     workspace: PathBuf,
 
+    #[arg(long, env = "HERMES_WEBUI_WORKSPACES", value_delimiter = ',')]
+    workspaces: Vec<PathBuf>,
+
     #[arg(long, env = "HERMES_HOME")]
     hermes_home: Option<PathBuf>,
 
@@ -182,7 +185,7 @@ struct AppState {
     api_key: Option<String>,
     auth_key: Option<String>,
     insecure: bool,
-    workspace: PathBuf,
+    workspace_roots: Arc<Vec<WorkspaceRoot>>,
     hermes_home: PathBuf,
     image_dir: PathBuf,
     updates: broadcast::Sender<String>,
@@ -210,6 +213,21 @@ struct WorkspaceList {
     root: String,
     path: String,
     entries: Vec<WorkspaceEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    roots: Option<Vec<WorkspaceRootInfo>>,
+}
+
+#[derive(Clone)]
+struct WorkspaceRoot {
+    name: String,
+    path: PathBuf,
+}
+
+#[derive(Serialize)]
+struct WorkspaceRootInfo {
+    name: String,
+    path: String,
+    index: usize,
 }
 
 #[derive(Serialize)]
@@ -287,7 +305,28 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
 
-    let workspace = args.workspace.canonicalize().unwrap_or(args.workspace);
+    let declared: Vec<PathBuf> = if args.workspaces.is_empty() {
+        vec![args.workspace.clone()]
+    } else {
+        args.workspaces.clone()
+    };
+    let mut workspace_roots: Vec<WorkspaceRoot> = Vec::new();
+    for path in declared {
+        let canonical = path.canonicalize().unwrap_or(path);
+        if workspace_roots.iter().any(|root| root.path == canonical) {
+            continue;
+        }
+        let name = canonical
+            .file_name()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| canonical.display().to_string());
+        workspace_roots.push(WorkspaceRoot {
+            name,
+            path: canonical,
+        });
+    }
     let hermes_home = args.hermes_home.unwrap_or_else(|| {
         std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -315,7 +354,7 @@ pub async fn run() -> anyhow::Result<()> {
             .or_else(|| std::env::var("HERMES_API_KEY").ok()),
         auth_key: args.auth_key,
         insecure: args.insecure,
-        workspace,
+        workspace_roots: Arc::new(workspace_roots),
         hermes_home,
         image_dir,
         updates,

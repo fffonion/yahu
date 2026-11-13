@@ -236,6 +236,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           filename: reviewFileName(),
+          path,
           content: buildReviewReport(current, { workspace: abs || window.location.origin, generatedAt: Date.now() }),
         }),
       });

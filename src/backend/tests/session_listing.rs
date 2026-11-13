@@ -8,7 +8,10 @@
             api_key: None,
             auth_key: None,
             insecure: true,
-            workspace: root.to_path_buf(),
+            workspace_roots: Arc::new(vec![WorkspaceRoot {
+                name: "workspace".to_string(),
+                path: root.to_path_buf(),
+            }]),
             hermes_home: root.to_path_buf(),
             image_dir: root.to_path_buf(),
             updates,

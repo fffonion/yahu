@@ -76,11 +76,15 @@ fn terminal_home_dir(home: Option<std::ffi::OsString>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-fn terminal_working_dir(workspace: &Path, cwd: Option<&str>, home: &Path) -> anyhow::Result<PathBuf> {
+fn terminal_working_dir(
+    roots: &[WorkspaceRoot],
+    cwd: Option<&str>,
+    home: &Path,
+) -> anyhow::Result<PathBuf> {
     let Some(cwd) = cwd.filter(|value| !value.is_empty()) else {
         return Ok(home.to_path_buf());
     };
-    let path = resolve_workspace_path(workspace, cwd)?;
+    let (_, path) = resolve_workspace_entry(roots, cwd)?;
     if !path.is_dir() {
         anyhow::bail!("terminal cwd is not a workspace directory");
     }
@@ -139,7 +143,7 @@ async fn web_terminal_websocket(
         return StatusCode::FORBIDDEN.into_response();
     }
     let home = terminal_home_dir(env::var_os("HOME"));
-    let cwd = match terminal_working_dir(&state.workspace, query.cwd.as_deref(), &home) {
+    let cwd = match terminal_working_dir(&state.workspace_roots, query.cwd.as_deref(), &home) {
         Ok(path) => path,
         Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     };

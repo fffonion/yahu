@@ -25,3 +25,30 @@ export function workspaceToolParents(path: string): string[] {
   const parts = path.split('/').filter(Boolean);
   return ['', ...parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'))];
 }
+
+export type WorkspaceRootInfo = { name: string; path: string; index: number };
+
+/**
+ * Map a tool/file path onto the workspace path grammar. One root keeps the
+ * plain relative form; several roots require the `@<index>/` prefix and only
+ * paths that live under a declared root qualify.
+ */
+export function workspaceRootPrefix(path: string, roots: WorkspaceRootInfo[]): string | null {
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  if (roots.length === 0) return null;
+  if (roots.length === 1) return workspaceRelativeToolPath(trimmed, roots[0].path);
+  if (!trimmed.startsWith('/')) {
+    // Relative paths belong to the default root.
+    return workspaceRelativeToolPath(trimmed, roots[0].path);
+  }
+  const ordered = [...roots].sort((left, right) => right.path.length - left.path.length);
+  for (const root of ordered) {
+    if (trimmed === root.path) return `@${root.index}`;
+    if (!trimmed.startsWith(`${root.path}/`)) continue;
+    const rel = workspaceRelativeToolPath(trimmed, root.path);
+    if (rel === null) return null;
+    return rel ? `@${root.index}/${rel}` : `@${root.index}`;
+  }
+  return null;
+}

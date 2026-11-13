@@ -46,7 +46,7 @@ import { SubagentProgressStack } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive, shouldForwardSubagentWheel } from './subagentProgress';
 import { currentNavigatorId } from './chatUserNavigator';
 import { WorkspaceEntryIcon } from './workspaceIcons';
-import { workspaceRelativeToolPath, workspaceToolParents } from './workspaceToolPath';
+import { workspaceRelativeToolPath, workspaceRootPrefix, workspaceToolParents, type WorkspaceRootInfo } from './workspaceToolPath';
 import { addFile as addReviewFile, removeFile as removeReviewStorageFile } from './reviewComments';
 import { skillDisplayName, skillDisplayDescription, skillMatchesQuery } from './skillDisplay';
 
@@ -671,6 +671,7 @@ export default function App() {
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [newMessageBoundaryId, setNewMessageBoundaryId] = useState('');
   const [workspacePath, setWorkspacePath] = useState('');
+  const [workspaceRoots, setWorkspaceRoots] = useState<WorkspaceRootInfo[]>([]);
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
   const [skillList, setSkillList] = useState<Skill[]>([]);
   const [selectedSkillName, setSelectedSkillName] = useState('');
@@ -1598,7 +1599,9 @@ export default function App() {
     const res = await fetch(`/workspace/list?path=${encodeURIComponent(path || '')}`);
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     const body = await res.json();
-    return { root: String(body.root || ''), path: body.path || path || '', entries: (body.entries || []) as WorkspaceEntry[] };
+    const roots = Array.isArray(body.roots) ? (body.roots as WorkspaceRootInfo[]) : [];
+    if (roots.length > 0) setWorkspaceRoots(roots);
+    return { root: String(body.root || ''), path: body.path || path || '', entries: (body.entries || []) as WorkspaceEntry[], roots };
   }, []);
 
   const loadWorkspace = useCallback(async (path = workspacePath) => {
@@ -2474,9 +2477,12 @@ export default function App() {
       // Chat file tool cards hand over resolved_path, which Hermes reports as
       // an absolute path; the workspace API rejects absolute paths outright.
       try {
-        const root = await fetchWorkspaceEntries('');
-        const expanded = path.startsWith('~/') ? root.root + path.slice(1) : path;
-        const relative = workspaceRelativeToolPath(expanded, root.root);
+        const body = await fetchWorkspaceEntries('');
+        const roots = workspaceRoots.length > 0
+          ? workspaceRoots
+          : [{ name: body.root, path: body.root, index: 0 }];
+        const expanded = path.startsWith('~/') ? roots[0].path + path.slice(1) : path;
+        const relative = workspaceRootPrefix(expanded, roots);
         if (relative === null || relative === '') { showToast(tf('review.outsideWorkspace', path)); return; }
         targetPath = relative;
       } catch {
@@ -2502,7 +2508,7 @@ export default function App() {
     setReviewSession((old) => ({ active: true, path: targetPath, files: old && old.files.includes(targetPath) ? old.files : [...(old?.files ?? []), targetPath] }));
     writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: targetPath });
     setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: targetPath });
-  }, [fetchWorkspaceEntries, openWorkspaceEntry, showToast, writeHashRoute]);
+  }, [fetchWorkspaceEntries, openWorkspaceEntry, showToast, workspaceRoots, writeHashRoute]);
   const selectReviewFile = useCallback(async (path: string) => {
     if (!path) return;
     const request = ++workspaceReviewRequest.current;

@@ -242,7 +242,11 @@
         ));
         std::fs::create_dir_all(&root).unwrap();
 
-        let err = resolve_workspace_path(&root, "../outside.txt").unwrap_err();
+        let roots = [WorkspaceRoot {
+            name: "root".to_string(),
+            path: root.clone(),
+        }];
+        let err = resolve_workspace_entry(&roots, "../outside.txt").unwrap_err();
 
         assert!(err.to_string().contains("invalid workspace path"));
         std::fs::remove_dir_all(root).ok();
@@ -261,7 +265,11 @@
         std::fs::create_dir_all(&nested).unwrap();
         std::fs::write(nested.join("note.txt"), "hello").unwrap();
 
-        let resolved = resolve_workspace_path(&root, "nested/note.txt").unwrap();
+        let roots = [WorkspaceRoot {
+            name: "root".to_string(),
+            path: root.clone(),
+        }];
+        let (_, resolved) = resolve_workspace_entry(&roots, "nested/note.txt").unwrap();
 
         assert_eq!(resolved, nested.join("note.txt").canonicalize().unwrap());
         std::fs::remove_dir_all(root).ok();
@@ -306,7 +314,11 @@
         std::fs::create_dir_all(&nested).unwrap();
         std::fs::write(nested.join("old.txt"), "hello").unwrap();
 
-        let target = workspace_destination_path(&root, "nested/old.txt", "new.txt").unwrap();
+        let roots = [WorkspaceRoot {
+            name: "root".to_string(),
+            path: root.clone(),
+        }];
+        let (_, target) = workspace_destination_path(&roots, "nested/old.txt", "new.txt").unwrap();
 
         assert_eq!(target, nested.join("new.txt"));
         std::fs::remove_dir_all(root).ok();
@@ -324,7 +336,11 @@
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("old.txt"), "hello").unwrap();
 
-        let err = workspace_destination_path(&root, "old.txt", "../bad.txt").unwrap_err();
+        let roots = [WorkspaceRoot {
+            name: "root".to_string(),
+            path: root.clone(),
+        }];
+        let err = workspace_destination_path(&roots, "old.txt", "../bad.txt").unwrap_err();
 
         assert!(
             err.to_string()
