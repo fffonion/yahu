@@ -94,4 +94,13 @@ describe('review diff helpers', () => {
     expect(lines[0]?.html).not.toContain('<tag>');
     expect(lines[1]?.html).toContain('tok-keyword');
   });
+
+  test('drops a leading byte-order mark before numbering', () => {
+    const lines = numberedFileLines('\uFEFFfirst\nsecond', 'src/example.ts');
+
+    expect(lines.map(({ newLine, text }) => ({ newLine, text })).slice(0, 2)).toEqual([
+      { newLine: 1, text: 'first' },
+      { newLine: 2, text: 'second' },
+    ]);
+  });
 });

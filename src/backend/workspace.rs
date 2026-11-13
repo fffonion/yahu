@@ -178,7 +178,7 @@ async fn workspace_diff(
         && run_workspace_git(git_verify_head_args(parent))
             .await
             .is_some_and(|output| output.status.success());
-    let (diff, truncated) = if is_git {
+    let (diff, truncated) = if is_git && has_head {
         match run_workspace_git(git_diff_args(parent, name)).await {
             Some(output) if output.status.success() => {
                 let text = String::from_utf8_lossy(&output.stdout);

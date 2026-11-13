@@ -63,10 +63,14 @@ describe('review comment storage', () => {
     const ordered = commentsFor(loadReview(storage)!, 'src/z.ts');
     expect(ordered.map(({ anchor }) => anchor.line)).toEqual([3, 8]);
 
-    const updated = updateComment(storage, firstComment!.id, 'updated note');
+    const updated = updateComment(storage, firstComment!.id, '  updated note  ');
     const updatedComment = updated.comments.find(({ id }) => id === firstComment!.id);
     expect(updatedComment?.body).toBe('updated note');
     expect(updatedComment?.updatedAt).toBeGreaterThanOrEqual(firstComment!.createdAt);
+
+    // A blank edit must not wipe an existing comment.
+    const unchanged = updateComment(storage, firstComment!.id, '   ');
+    expect(unchanged.comments.find(({ id }) => id === firstComment!.id)?.body).toBe('updated note');
 
     const deleted = deleteComment(storage, firstComment!.id);
     expect(deleted.comments.some(({ id }) => id === firstComment!.id)).toBe(false);

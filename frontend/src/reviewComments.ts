@@ -102,10 +102,12 @@ export function addComment(storage: Storage, path: string, anchor: ReviewAnchor,
 }
 
 export function updateComment(storage: Storage, id: string, body: string): ReviewState {
+  const trimmedBody = body.trim();
+  if (!trimmedBody) return loadReview(storage) ?? createReview(Date.now());
   const state = currentOrStart(storage);
   const comment = state.comments.find((item) => item.id === id);
   if (!comment) return state;
-  comment.body = body;
+  comment.body = trimmedBody;
   comment.updatedAt = Date.now();
   return persist(storage, state);
 }

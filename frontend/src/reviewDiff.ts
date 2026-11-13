@@ -137,8 +137,9 @@ export function buildSplitRows(lines: ReviewLine[]): SplitRow[] {
 }
 
 export function numberedFileLines(content: string, filePath: string): ReviewLine[] {
-  if (content.length === 0) return [];
-  const lines = content.split(/\r?\n/);
+  const body = content.replace(/^\uFEFF/, '');
+  if (body.length === 0) return [];
+  const lines = body.split(/\r?\n/);
   if (lines[lines.length - 1] === '') lines.pop();
 
   return lines.map((text, index) => ({
