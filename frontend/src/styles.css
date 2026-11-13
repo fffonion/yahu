@@ -657,3 +657,89 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .msg-reasoning-body th,.msg-reasoning-body td{padding:5px 7px;border-bottom:1px solid var(--border);text-align:left}
 .msg-reasoning-body hr{border:0;border-top:1px solid var(--border);margin:9px 0}
 .tool-card .msg-reasoning{margin:0 0 8px}
+
+/* Code review pane — GitHub-style unified / split diff with inline comments. */
+:root{--diff-add:rgba(46,160,67,.18);--diff-add-strong:#2ea043;--diff-del:rgba(248,81,73,.16);--diff-del-strong:#f85149;--diff-gutter-bg:color-mix(in srgb,var(--surface-2) 80%,transparent)}
+.review-pane{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);min-width:0;height:100%;overflow:auto;background:var(--surface);color:var(--text)}
+.review-head{display:grid;gap:6px;min-width:0}
+.review-toolbar{position:sticky;top:0;z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;padding:8px 10px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(10px)}
+.review-file-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0;max-width:100%}
+.review-file-chip{display:inline-flex;align-items:center;min-width:0;max-width:100%;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);color:var(--muted);overflow:hidden}
+.review-file-chip.active{border-color:color-mix(in srgb,var(--accent) 55%,var(--border));background:var(--accent-soft);color:var(--text)}
+.review-file-chip-open{min-width:0;max-width:min(46vw,320px);border:0;background:transparent;color:inherit;font:inherit;font-size:12px;padding:4px 2px 4px 10px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.review-file-chip-remove{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;margin-right:2px;border:0;border-radius:999px;background:transparent;color:inherit;cursor:pointer}
+.review-file-chip-remove:hover{background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger)}
+.review-file-chip-remove svg,.review-exit-button svg,.review-add-comment svg,.review-copy-prompt svg{width:13px;height:13px}
+.review-view-toggle{display:inline-flex;flex:0 0 auto;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);overflow:hidden}
+.review-view-btn{border:0;background:transparent;color:var(--muted);font-size:12px;padding:5px 11px;cursor:pointer}
+.review-view-btn.active{background:var(--accent-soft);color:var(--accent)}
+.review-view-btn:disabled{opacity:.45;cursor:not-allowed}
+.review-toolbar-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.review-submit{display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;border-radius:999px;background:var(--accent);color:var(--surface);font-size:12px;font-weight:600;padding:6px 12px;cursor:pointer}
+.review-submit:disabled{opacity:.55;cursor:not-allowed}
+.review-submit-count{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border-radius:999px;background:color-mix(in srgb,var(--surface) 82%,transparent);color:var(--text);font-size:11px;font-variant-numeric:tabular-nums}
+.review-exit-button{display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--muted);cursor:pointer}
+.review-exit-button:hover{background:var(--accent-soft);color:var(--accent)}
+.review-notice{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
+.review-submit-result{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:6px 10px 0;padding:7px 10px;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:var(--radius-md);background:color-mix(in srgb,var(--accent-soft) 46%,var(--surface));font-size:12px}
+.review-submit-result-path{min-width:0;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text)}
+.review-copy-prompt{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);color:var(--text);font-size:11px;padding:4px 9px;cursor:pointer}
+.review-copy-prompt:hover{background:var(--accent-soft);color:var(--accent)}
+.review-submit-failed{flex-direction:column;align-items:flex-start;gap:2px;border-color:color-mix(in srgb,var(--danger) 45%,var(--border));background:color-mix(in srgb,var(--danger) 9%,transparent);color:var(--danger)}
+.review-submit-error-detail{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.review-diff-body{min-width:0;overflow:auto;overscroll-behavior:contain}
+.review-loading{color:var(--muted);padding:16px 12px;font-size:12px}
+.review-error{color:var(--danger);padding:16px 12px;font-size:12px;overflow-wrap:anywhere}
+.review-diff-table{width:100%;border-collapse:collapse;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.review-gutter{position:relative;width:1%;min-width:max-content;padding:0 6px;text-align:right;color:var(--muted);background:var(--diff-gutter-bg);border-right:1px solid color-mix(in srgb,var(--border) 60%,transparent);user-select:none;font-variant-numeric:tabular-nums;white-space:nowrap;vertical-align:top}
+.review-gutter-number{display:block}
+.review-add-comment{position:absolute;inset-inline-start:1px;top:0;bottom:0;display:grid;place-items:center;width:16px;padding:0;border:0;border-radius:4px;background:var(--surface);color:var(--accent);opacity:0;cursor:pointer;transition:opacity .12s ease}
+.review-gutter:hover .review-add-comment,.review-add-comment:hover,.review-add-comment:focus-visible{opacity:1}
+.review-add-comment:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.review-marker{width:1.6ch;min-width:1.6ch;padding:0 2px;text-align:center;color:var(--muted);background:var(--diff-gutter-bg);user-select:none;font-weight:700;vertical-align:top}
+.review-marker-add{color:var(--diff-add-strong)}
+.review-marker-remove{color:var(--diff-del-strong)}
+.review-code-cell{padding:0 10px 0 4px;white-space:pre;overflow-wrap:normal;vertical-align:top;tab-size:2}
+.review-code-cell.left{border-right:1px solid color-mix(in srgb,var(--border) 60%,transparent)}
+.review-code{display:block;min-width:max-content}
+.review-code-sign{display:inline-block;width:1ch;color:var(--muted);user-select:none}
+.review-diff-row.review-row-add{background:var(--diff-add);border-left:3px solid var(--diff-add-strong)}
+.review-diff-row.review-row-del{background:var(--diff-del);border-left:3px solid var(--diff-del-strong)}
+.review-cell-add{background:var(--diff-add);border-left:3px solid var(--diff-add-strong)}
+.review-cell-del{background:var(--diff-del);border-left:3px solid var(--diff-del-strong)}
+.review-row-file{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
+.review-row-hunk{background:color-mix(in srgb,var(--accent-2) 10%,transparent);color:var(--accent-2)}
+.review-row-meta{color:var(--muted);font-style:italic}
+.review-full-row{padding:2px 10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.review-thread-row{background:color-mix(in srgb,var(--surface) 88%,var(--bg))}
+.review-thread-cell{padding:6px 10px 8px;vertical-align:top}
+.review-thread{display:grid;gap:8px}
+.review-comment-card{display:grid;gap:5px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);padding:8px 10px;font:12.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
+.review-comment-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.review-comment-anchor{color:var(--muted);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.review-comment-actions{display:flex;gap:4px}
+.review-comment-edit,.review-comment-delete{border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:11px;padding:2px 5px;cursor:pointer}
+.review-comment-edit:hover{background:var(--accent-soft);color:var(--accent)}
+.review-comment-delete:hover{background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger)}
+.review-comment-body{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
+.review-comment-editor{display:grid;gap:6px;max-width:720px}
+.review-comment-input{width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);color:var(--text);resize:vertical;font:12.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
+.review-comment-editor-actions{display:flex;gap:6px}
+.review-comment-save{border:1px solid transparent;border-radius:var(--radius-md);background:var(--accent);color:var(--surface);font-size:12px;padding:5px 11px;cursor:pointer}
+.review-comment-cancel{border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);color:var(--text);font-size:12px;padding:5px 11px;cursor:pointer}
+.review-unified-table,.review-split-table{width:100%;color:var(--text)}
+.review-source-row{vertical-align:top}
+.review-raw-row td{background:inherit}
+.review-split-row td{vertical-align:top}
+.review-code-cell.unified{padding-inline-end:16px}
+.review-submit-result-label{color:var(--muted);font-weight:600}
+@media (max-width:760px){
+.review-toolbar{padding:6px 8px;gap:6px}
+.review-split-table{display:none}
+.review-gutter{padding:0 3px;font-size:11px}
+.review-diff-table{width:100%;table-layout:fixed}
+.review-code-cell{padding:0 6px 0 2px;white-space:pre-wrap;overflow-wrap:anywhere}
+.review-code{min-width:0;overflow-wrap:anywhere}
+.review-thread-cell{padding:6px 8px 8px}
+.review-comment-editor{max-width:none}
+}
