@@ -743,3 +743,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-thread-cell{padding:6px 8px 8px}
 .review-comment-editor{max-width:none}
 }
+
+@media (hover: none) {
+.review-add-comment{opacity:.75}
+}

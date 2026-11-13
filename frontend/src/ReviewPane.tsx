@@ -23,6 +23,7 @@ export type ReviewPaneProps = {
   onRemoveFile: (path: string) => void;
   onExit: () => void;
   onSubmitted?: (abs: string) => void;
+  onFilesChanged?: (files: string[]) => void;
 };
 
 type ReviewMode = 'unified' | 'split';
@@ -125,7 +126,7 @@ function CommentEditor({ initialBody, onCommit, onCancel }: { initialBody: strin
   );
 }
 
-export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, onSubmitted }: ReviewPaneProps) {
+export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, onSubmitted, onFilesChanged }: ReviewPaneProps) {
   const [view, setView] = useState<PaneView>({ status: 'loading' });
   const [mode, setMode] = useState<ReviewMode>('unified');
   const [narrow, setNarrow] = useState(false);
@@ -140,6 +141,8 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     const token = requestRef.current + 1;
     requestRef.current = token;
     setDraft(null);
+    setSubmitState({ status: 'idle' });
+    setCopied(false);
 
     if (!path) {
       setView({ status: 'idle' });
@@ -156,7 +159,9 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         const payload = (await res.json()) as DiffPayload;
         if (token !== requestRef.current) return;
         setAbs(typeof payload.abs === 'string' ? payload.abs : '');
-        setReview(addFile(window.sessionStorage, path));
+        const stored = addFile(window.sessionStorage, path);
+        setReview(stored);
+        onFilesChanged?.(stored.files);
         const diffText = typeof payload.diff === 'string' ? payload.diff : '';
         if (diffText.trim().length > 0) {
           setView({ status: 'ready', lines: parseUnifiedDiff(diffText, path), hasDiff: true, truncated: Boolean(payload.truncated) });

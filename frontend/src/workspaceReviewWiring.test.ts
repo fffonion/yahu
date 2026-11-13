@@ -29,10 +29,11 @@ describe('workspace review wiring', () => {
     const text = slice(app(), 'const startWorkspaceReview = useCallback', 'const selectReviewFile = useCallback');
     expect(text).toContain("setMode('workspace')");
     expect(text).toContain('setSidebarCollapsed(false)');
-    expect(text).toContain("writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path })");
-    expect(text).toContain('setWorkspaceRouteTarget({ workspaceKind: \'file\', workspacePath: path })');
-    expect(text).toContain("openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false, onLoaded:");
-    expect(text).toContain('setReviewSession((old) => ({ active: true, path, files:');
+    expect(text).toContain('const relative = workspaceRelativeToolPath(path, root.root);');
+    expect(text).toContain("writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: targetPath })");
+    expect(text).toContain('setWorkspaceRouteTarget({ workspaceKind: \'file\', workspacePath: targetPath })');
+    expect(text).toContain("openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' }, { route: false, onLoaded:");
+    expect(text).toContain('setReviewSession((old) => ({ active: true, path: targetPath, files:');
   });
 
   test('a non-text preview never enters review', () => {
@@ -40,14 +41,15 @@ describe('workspace review wiring', () => {
     expect(text).toContain('if (!loadedKind) return;');
     expect(text).toContain("if (loadedKind !== 'text')");
     expect(text).toContain('setReviewSession(null);');
-    expect(text).toContain("t('workspace.itemNotEditable')");
+    expect(text).toContain("t('review.notTextFile')");
   });
 
   test('removing the current file falls back to the next remaining file', () => {
     const text = slice(app(), 'const removeReviewFile = useCallback', 'const exitWorkspaceReview = useCallback');
-    expect(text).toContain('const files = current.files.filter((file) => file !== path);');
+    expect(text).toContain('const stored = removeReviewStorageFile(storage, path);');
+    expect(text).toContain('const files = stored.files;');
     expect(text).toContain('if (files.length === 0) { setReviewSession(null); return; }');
-    expect(text).toContain('const nextPath = current.path === path ? files[0] : current.path;');
+    expect(text).toContain('const nextPath = !current || current.path === path ? files[0] : current.path;');
   });
 
   test('the workspace header offers a Review toggle next to Edit', () => {
