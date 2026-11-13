@@ -21,7 +21,7 @@ describe('workspace review wiring', () => {
     expect(text).toContain('const startWorkspaceReview = useCallback(async (path: string) =>');
     expect(text).toContain('const selectReviewFile = useCallback(async (path: string) =>');
     expect(text).toContain('const removeReviewFile = useCallback((path: string) =>');
-    expect(text).toContain('const exitWorkspaceReview = useCallback(() => { setReviewSession(null); }, []);');
+    expect(text).toContain('const exitWorkspaceReview = useCallback(() => { workspaceReviewRequest.current += 1; setReviewSession(null); }, []);');
     expect(text).toContain('const submitWorkspaceReview = useCallback(() => {');
   });
 
@@ -38,7 +38,7 @@ describe('workspace review wiring', () => {
 
   test('a non-text preview never enters review', () => {
     const text = slice(app(), 'const startWorkspaceReview = useCallback', 'const selectReviewFile = useCallback');
-    expect(text).toContain('if (!loadedKind) return;');
+    expect(text).toContain('if (!isCurrent() || !loadedKind) return;');
     expect(text).toContain("if (loadedKind !== 'text')");
     expect(text).toContain('setReviewSession(null);');
     expect(text).toContain("t('review.notTextFile')");

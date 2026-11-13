@@ -683,6 +683,7 @@ export default function App() {
   const [reviewSession, setReviewSession] = useState<{ active: boolean; path: string; files: string[] } | null>(null);
   const [workspaceSelectedPath, setWorkspaceSelectedPath] = useState<string>();
   const workspaceRevealRequest = useRef(0);
+  const workspaceReviewRequest = useRef(0);
   useEffect(() => { workspaceRevealRequest.current += 1; }, [workspaceCollapsed, mode, activeSessionId]);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [activeSessionDetail, setActiveSessionDetail] = useState<Session | null>(null);
@@ -2487,9 +2488,11 @@ export default function App() {
     // Load the preview before touching the hash: a hash write fires the route
     // effect which bumps workspaceRevealRequest, and that would make this
     // load's canApply() fail and silently skip the review activation.
+    const request = ++workspaceReviewRequest.current;
+    const isCurrent = () => request === workspaceReviewRequest.current;
     let loadedKind: WorkspacePreview['kind'] | null = null;
-    await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' }, { route: false, onLoaded: (kind) => { loadedKind = kind; } }, () => true);
-    if (!loadedKind) return;
+    await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' }, { route: false, onLoaded: (kind) => { loadedKind = kind; } }, isCurrent);
+    if (!isCurrent() || !loadedKind) return;
     if (loadedKind !== 'text') {
       setReviewSession(null);
       showToast(t('review.notTextFile'));
@@ -2501,11 +2504,15 @@ export default function App() {
   }, [fetchWorkspaceEntries, openWorkspaceEntry, showToast, writeHashRoute]);
   const selectReviewFile = useCallback(async (path: string) => {
     if (!path) return;
+    const request = ++workspaceReviewRequest.current;
+    const isCurrent = () => request === workspaceReviewRequest.current;
     setReviewSession((old) => old ? { active: true, path, files: old.files.includes(path) ? old.files : [...old.files, path] } : { active: true, path, files: [path] });
-    await openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false }, () => true);
+    await openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false }, isCurrent);
+    if (!isCurrent()) return;
     writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path });
   }, [openWorkspaceEntry, writeHashRoute]);
   const removeReviewFile = useCallback((path: string) => {
+    workspaceReviewRequest.current += 1;
     const storage = window.sessionStorage;
     const stored = removeReviewStorageFile(storage, path);
     const files = stored.files;
@@ -2521,7 +2528,7 @@ export default function App() {
   const syncReviewFiles = useCallback((files: string[]) => {
     setReviewSession((old) => (old ? { active: true, path: old.path, files } : null));
   }, []);
-  const exitWorkspaceReview = useCallback(() => { setReviewSession(null); }, []);
+  const exitWorkspaceReview = useCallback(() => { workspaceReviewRequest.current += 1; setReviewSession(null); }, []);
   const submitWorkspaceReview = useCallback(() => {
     const current = reviewSession;
     if (!current) return;
