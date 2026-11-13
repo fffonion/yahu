@@ -2475,8 +2475,9 @@ export default function App() {
       // an absolute path; the workspace API rejects absolute paths outright.
       try {
         const root = await fetchWorkspaceEntries('');
-        const relative = workspaceRelativeToolPath(path, root.root);
-        if (relative === null || relative === '') { showToast(tf('workspace.routeUnavailable', path)); return; }
+        const expanded = path.startsWith('~/') ? root.root + path.slice(1) : path;
+        const relative = workspaceRelativeToolPath(expanded, root.root);
+        if (relative === null || relative === '') { showToast(tf('review.outsideWorkspace', path)); return; }
         targetPath = relative;
       } catch {
         showToast(tf('workspace.previewFailed', 'root'));

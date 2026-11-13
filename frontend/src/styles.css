@@ -687,10 +687,10 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-copy-prompt:hover{background:var(--accent-soft);color:var(--accent)}
 .review-submit-failed{flex-direction:column;align-items:flex-start;gap:2px;border-color:color-mix(in srgb,var(--danger) 45%,var(--border));background:color-mix(in srgb,var(--danger) 9%,transparent);color:var(--danger)}
 .review-submit-error-detail{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
-.review-diff-body{min-width:0;overflow:auto;overscroll-behavior:contain}
+.review-diff-body{min-width:0;overflow:auto;overscroll-behavior:contain;padding:12px}
 .review-loading{color:var(--muted);padding:16px 12px;font-size:12px}
 .review-error{color:var(--danger);padding:16px 12px;font-size:12px;overflow-wrap:anywhere}
-.review-diff-table{width:100%;border-collapse:collapse;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.review-diff-table{width:100%;border-collapse:collapse;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--editor-bg);border:1px solid var(--border);border-radius:var(--radius-md)}
 .review-gutter{position:relative;width:1%;min-width:max-content;padding:0 6px;text-align:right;color:var(--muted);background:var(--diff-gutter-bg);border-right:1px solid color-mix(in srgb,var(--border) 60%,transparent);user-select:none;font-variant-numeric:tabular-nums;white-space:nowrap;vertical-align:top}
 .review-gutter-number{display:block}
 .review-add-comment{position:absolute;inset-inline-start:1px;top:0;bottom:0;display:grid;place-items:center;width:16px;padding:0;border:0;border-radius:4px;background:var(--surface);color:var(--accent);opacity:0;cursor:pointer;transition:opacity .12s ease}
@@ -701,7 +701,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-marker-remove{color:var(--diff-del-strong)}
 .review-code-cell{padding:0 10px 0 4px;white-space:pre;overflow-wrap:normal;vertical-align:top;tab-size:2}
 .review-code-cell.left{border-right:1px solid color-mix(in srgb,var(--border) 60%,transparent)}
-.review-code{display:block;min-width:max-content}
+.review-code{display:inline-block;min-width:max-content}
 .review-code-sign{display:inline-block;width:1ch;color:var(--muted);user-select:none}
 .review-diff-row.review-row-add{background:var(--diff-add);border-left:3px solid var(--diff-add-strong)}
 .review-diff-row.review-row-del{background:var(--diff-del);border-left:3px solid var(--diff-del-strong)}
@@ -722,7 +722,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-comment-edit:hover{background:var(--accent-soft);color:var(--accent)}
 .review-comment-delete:hover{background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger)}
 .review-comment-body{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
-.review-comment-editor{display:grid;gap:6px;max-width:720px}
+.review-comment-editor{display:grid;gap:6px;max-width:min(720px,100%);min-width:0}
 .review-comment-input{width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);color:var(--text);resize:vertical;font:12.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
 .review-comment-editor-actions{display:flex;gap:6px}
 .review-comment-save{border:1px solid transparent;border-radius:var(--radius-md);background:var(--accent);color:var(--surface);font-size:12px;padding:5px 11px;cursor:pointer}
@@ -747,3 +747,9 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 @media (hover: none) {
 .review-add-comment{opacity:.75}
 }
+
+.app-shell.code-wrap .review-code-cell{white-space:pre-wrap}
+.app-shell.code-wrap .review-code{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.review-thread-cell{max-width:100%;min-width:0}
+
+.review-prompt-fallback{width:100%;max-width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-2);color:var(--text);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:6px 8px}

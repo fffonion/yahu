@@ -134,7 +134,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   const [abs, setAbs] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle' });
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const requestRef = useRef(0);
 
   useEffect(() => {
@@ -142,7 +142,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     requestRef.current = token;
     setDraft(null);
     setSubmitState({ status: 'idle' });
-    setCopied(false);
+    setCopyState('idle');
 
     if (!path) {
       setView({ status: 'idle' });
@@ -229,7 +229,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     const current = review;
     if (!current || current.comments.length === 0) return;
     setSubmitState({ status: 'submitting' });
-    setCopied(false);
+    setCopyState('idle');
     try {
       const res = await fetch('/workspace/review', {
         method: 'POST',
@@ -258,12 +258,35 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   };
 
   const copyPrompt = async (abs: string) => {
+    const text = reviewReportPrompt(abs);
+    let done = false;
     try {
-      await navigator.clipboard.writeText(reviewReportPrompt(abs));
-      setCopied(true);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        done = true;
+      }
     } catch {
-      setCopied(false);
+      done = false;
     }
+    if (!done) {
+      // The async clipboard API rejects without document focus or permission;
+      // fall back to the legacy copy path so the button still does something.
+      try {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.top = '-1000px';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        done = document.execCommand('copy');
+        area.remove();
+      } catch {
+        done = false;
+      }
+    }
+    setCopyState(done ? 'copied' : 'failed');
   };
 
   const gutterCell = (line: ReviewLine | undefined, side: 'old' | 'new', canComment: boolean, key: string) => {
@@ -508,8 +531,18 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
               onClick={() => void copyPrompt(submitState.abs)}
             >
               <Copy aria-hidden="true" />
-              <span>{copied ? t('review.copied') : t('review.copyPrompt')}</span>
+              <span>{copyState === 'copied' ? t('review.copied') : copyState === 'failed' ? t('review.copyFailed') : t('review.copyPrompt')}</span>
             </button>
+            {copyState === 'failed' ? (
+              <textarea
+                className="review-prompt-fallback"
+                readOnly
+                rows={3}
+                value={reviewReportPrompt(submitState.abs)}
+                onClick={(event) => event.currentTarget.select()}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            ) : null}
           </div>
         ) : null}
         {submitState.status === 'error' ? (

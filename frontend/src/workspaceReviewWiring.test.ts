@@ -29,7 +29,8 @@ describe('workspace review wiring', () => {
     const text = slice(app(), 'const startWorkspaceReview = useCallback', 'const selectReviewFile = useCallback');
     expect(text).toContain("setMode('workspace')");
     expect(text).toContain('setSidebarCollapsed(false)');
-    expect(text).toContain('const relative = workspaceRelativeToolPath(path, root.root);');
+    expect(text).toContain('const expanded = path.startsWith(\'~/\') ? root.root + path.slice(1) : path;');
+    expect(text).toContain('const relative = workspaceRelativeToolPath(expanded, root.root);');
     expect(text).toContain("writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: targetPath })");
     expect(text).toContain('setWorkspaceRouteTarget({ workspaceKind: \'file\', workspacePath: targetPath })');
     expect(text).toContain("openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' }, { route: false, onLoaded:");

@@ -227,6 +227,8 @@ describe('page i18n coverage', () => {
       'review.copied',
       'review.noDiff',
       'review.notTextFile',
+      'review.copyFailed',
+      'review.outsideWorkspace',
       'review.files',
       'review.pending',
       'review.exit',

@@ -264,6 +264,8 @@ const translations: Record<string, Record<string, string>> = {
   'review.copied': { en: 'Prompt copied', 'zh-CN': '提示词已复制', 'zh-TW': '提示詞已複製', ja: 'プロンプトをコピーしました' },
   'review.noDiff': { en: 'No diff for this file — reviewing the file content', 'zh-CN': '此文件没有 diff，改为审查文件内容', 'zh-TW': '此檔案沒有 diff，改為審查檔案內容', ja: 'このファイルに diff がありません。ファイル内容をレビューします' },
   'review.notTextFile': { en: 'Only text files can be reviewed', 'zh-CN': '只有文本文件可以审查', 'zh-TW': '只有文字檔可以審查', ja: 'テキストファイルのみレビューできます' },
+  'review.copyFailed': { en: 'Copy failed — select the prompt manually', 'zh-CN': '复制失败，请手动选择提示词', 'zh-TW': '複製失敗，請手動選取提示詞', ja: 'コピーに失敗しました。手動でプロンプトを選択してください' },
+  'review.outsideWorkspace': { en: 'File is outside the workspace, so it cannot be reviewed: {0}', 'zh-CN': '文件不在工作区内，无法审查：{0}', 'zh-TW': '檔案不在工作區內，無法審查：{0}', ja: 'ファイルがワークスペース外のためレビューできません: {0}' },
   'review.files': { en: 'Files', 'zh-CN': '文件', 'zh-TW': '檔案', ja: 'ファイル' },
   'review.pending': { en: 'Pending comments', 'zh-CN': '待提交评论', 'zh-TW': '待提交評論', ja: '未送信コメント' },
   'review.exit': { en: 'Exit review', 'zh-CN': '退出审查', 'zh-TW': '退出審查', ja: 'レビューを終了' },
