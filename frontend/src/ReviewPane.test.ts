@@ -41,7 +41,7 @@ describe('review pane data flow', () => {
     expect(source).toContain("method: 'POST'");
     expect(source).toContain("'content-type': 'application/json'");
     expect(source).toContain('filename: reviewFileName(),');
-    expect(source).toContain('buildReviewReport(current, { workspace: window.location.origin, generatedAt: Date.now() })');
+    expect(source).toContain('buildReviewReport(current, { workspace: abs || window.location.origin, generatedAt: Date.now() })');
     expect(source).toContain('navigator.clipboard.writeText(reviewReportPrompt(abs))');
     expect(source).toContain('typeof payload.abs === \'string\'');
     expect(source).toContain('payload.abs.length > 0 ? payload.abs : window.location.origin');

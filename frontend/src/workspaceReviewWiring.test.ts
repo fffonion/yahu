@@ -110,7 +110,7 @@ describe('workspace review wiring', () => {
   test('ReviewPane reports a successful submission through the optional callback', () => {
     const text = reviewPane();
     expect(text).toContain('onSubmitted?: (abs: string) => void;');
-    expect(text).toContain('setSubmitState({ status: \'done\', abs });');
-    expect(text).toContain('onSubmitted?.(abs);');
+    expect(text).toContain("setSubmitState({ status: 'done', abs: reportPath });");
+    expect(text).toContain('onSubmitted?.(reportPath);');
   });
 });

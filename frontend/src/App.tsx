@@ -2469,10 +2469,11 @@ export default function App() {
     if (!path) return;
     setMode('workspace');
     setSidebarCollapsed(false);
-    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path });
+    // Load the preview before touching the hash: a hash write fires the route
+    // effect which bumps workspaceRevealRequest, and that would make this
+    // load's canApply() fail and silently skip the review activation.
     let loadedKind: WorkspacePreview['kind'] | null = null;
-    await openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false, onLoaded: (kind) => { loadedKind = kind; } });
-    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path });
+    await openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false, onLoaded: (kind) => { loadedKind = kind; } }, () => true);
     if (!loadedKind) return;
     if (loadedKind !== 'text') {
       setReviewSession(null);
@@ -2480,12 +2481,14 @@ export default function App() {
       return;
     }
     setReviewSession((old) => ({ active: true, path, files: old && old.files.includes(path) ? old.files : [...(old?.files ?? []), path] }));
+    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path });
+    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path });
   }, [openWorkspaceEntry, showToast, writeHashRoute]);
   const selectReviewFile = useCallback(async (path: string) => {
     if (!path) return;
     setReviewSession((old) => old ? { active: true, path, files: old.files.includes(path) ? old.files : [...old.files, path] } : { active: true, path, files: [path] });
+    await openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false }, () => true);
     writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path });
-    await openWorkspaceEntry({ name: basename(path), path, kind: 'file' }, { route: false });
   }, [openWorkspaceEntry, writeHashRoute]);
   const removeReviewFile = useCallback((path: string) => {
     const current = reviewSession;

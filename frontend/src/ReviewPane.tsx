@@ -4,6 +4,7 @@ import { t, tf } from './i18n';
 import { buildSplitRows, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
 import {
   addComment,
+  addFile,
   clearReview,
   commentsFor,
   deleteComment,
@@ -129,6 +130,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   const [mode, setMode] = useState<ReviewMode>('unified');
   const [narrow, setNarrow] = useState(false);
   const [review, setReview] = useState<ReviewState | null>(() => loadReview(window.sessionStorage));
+  const [abs, setAbs] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle' });
   const [copied, setCopied] = useState(false);
@@ -153,6 +155,8 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const payload = (await res.json()) as DiffPayload;
         if (token !== requestRef.current) return;
+        setAbs(typeof payload.abs === 'string' ? payload.abs : '');
+        setReview(addFile(window.sessionStorage, path));
         const diffText = typeof payload.diff === 'string' ? payload.diff : '';
         if (diffText.trim().length > 0) {
           setView({ status: 'ready', lines: parseUnifiedDiff(diffText, path), hasDiff: true, truncated: Boolean(payload.truncated) });
@@ -227,7 +231,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           filename: reviewFileName(),
-          content: buildReviewReport(current, { workspace: window.location.origin, generatedAt: Date.now() }),
+          content: buildReviewReport(current, { workspace: abs || window.location.origin, generatedAt: Date.now() }),
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -237,12 +241,12 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
       } catch {
         payload = {};
       }
-      const abs = typeof payload.abs === 'string' && payload.abs.length > 0 ? payload.abs : window.location.origin;
+      const reportPath = typeof payload.abs === 'string' && payload.abs.length > 0 ? payload.abs : window.location.origin;
       clearReview(window.sessionStorage);
       setReview(null);
       setDraft(null);
-      setSubmitState({ status: 'done', abs });
-      onSubmitted?.(abs);
+      setSubmitState({ status: 'done', abs: reportPath });
+      onSubmitted?.(reportPath);
     } catch (error) {
       setSubmitState({ status: 'error', message: statusText(error) });
     }
