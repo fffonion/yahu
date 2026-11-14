@@ -263,6 +263,8 @@ const translations: Record<string, Record<string, string>> = {
   'review.copyPrompt': { en: 'Copy prompt', 'zh-CN': '复制提示词', 'zh-TW': '複製提示詞', ja: 'プロンプトをコピー' },
   'review.copied': { en: 'Prompt copied', 'zh-CN': '提示词已复制', 'zh-TW': '提示詞已複製', ja: 'プロンプトをコピーしました' },
   'review.noDiff': { en: 'No diff for this file — reviewing the file content', 'zh-CN': '此文件没有 diff，改为审查文件内容', 'zh-TW': '此檔案沒有 diff，改為審查檔案內容', ja: 'このファイルに diff がありません。ファイル内容をレビューします' },
+  'review.untracked': { en: 'New file, not tracked by git — reviewing the file content', 'zh-CN': '新文件，未被 git 跟踪，改为审查文件内容', 'zh-TW': '新檔案，未被 git 追蹤，改為審查檔案內容', ja: 'git 未追跡の新規ファイルです。ファイル内容をレビューします' },
+  'review.baseDiff': { en: 'Diff against {0}', 'zh-CN': '对比 {0} 的差异', 'zh-TW': '對比 {0} 的差異', ja: '{0} との差分' },
   'review.notTextFile': { en: 'Only text files can be reviewed', 'zh-CN': '只有文本文件可以审查', 'zh-TW': '只有文字檔可以審查', ja: 'テキストファイルのみレビューできます' },
   'review.copyFailed': { en: 'Copy failed — select the prompt manually', 'zh-CN': '复制失败，请手动选择提示词', 'zh-TW': '複製失敗，請手動選取提示詞', ja: 'コピーに失敗しました。手動でプロンプトを選択してください' },
   'review.outsideWorkspace': { en: 'File is outside the workspace, so it cannot be reviewed: {0}', 'zh-CN': '文件不在工作区内，无法审查：{0}', 'zh-TW': '檔案不在工作區內，無法審查：{0}', ja: 'ファイルがワークスペース外のためレビューできません: {0}' },

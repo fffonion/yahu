@@ -35,6 +35,8 @@ type DiffPayload = {
   is_git?: boolean;
   has_head?: boolean;
   truncated?: boolean;
+  untracked?: boolean;
+  base?: string | null;
 };
 
 type ReviewUploadPayload = {
@@ -46,7 +48,7 @@ type PaneView =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; lines: ReviewLine[]; hasDiff: boolean; truncated: boolean };
+  | { status: 'ready'; lines: ReviewLine[]; hasDiff: boolean; truncated: boolean; untracked: boolean; base: string | null };
 
 type SubmitState =
   | { status: 'idle' }
@@ -164,7 +166,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         onFilesChanged?.(stored.files);
         const diffText = typeof payload.diff === 'string' ? payload.diff : '';
         if (diffText.trim().length > 0) {
-          setView({ status: 'ready', lines: parseUnifiedDiff(diffText, path), hasDiff: true, truncated: Boolean(payload.truncated) });
+          setView({ status: 'ready', lines: parseUnifiedDiff(diffText, path), hasDiff: true, truncated: Boolean(payload.truncated), untracked: false, base: typeof payload.base === 'string' ? payload.base : null });
           return;
         }
         const fileRes = await fetch(`/workspace/file?path=${encodeURIComponent(path)}`);
@@ -172,7 +174,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         if (!fileRes.ok) throw new Error(`${fileRes.status} ${fileRes.statusText}`);
         const content = await fileRes.text();
         if (token !== requestRef.current) return;
-        setView({ status: 'ready', lines: numberedFileLines(content, path), hasDiff: false, truncated: false });
+        setView({ status: 'ready', lines: numberedFileLines(content, path), hasDiff: false, truncated: false, untracked: Boolean(payload.untracked), base: typeof payload.base === 'string' ? payload.base : null });
       } catch (error) {
         if (token !== requestRef.current) return;
         setView({ status: 'error', message: statusText(error) });
@@ -443,7 +445,9 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
 
   const notices: string[] = [];
   if (view.status === 'ready') {
-    if (!view.hasDiff || lines.length === 0) notices.push(t('review.noDiff'));
+    if (view.untracked) notices.push(t('review.untracked'));
+    if (view.base) notices.push(tf('review.baseDiff', view.base));
+    if ((!view.hasDiff && !view.untracked && !view.base) || lines.length === 0) notices.push(t('review.noDiff'));
     if (view.truncated) notices.push(t('review.truncated'));
   }
 

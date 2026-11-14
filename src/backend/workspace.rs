@@ -207,7 +207,7 @@ async fn workspace_diff(
         && run_workspace_git(git_verify_head_args(parent))
             .await
             .is_some_and(|output| output.status.success());
-    let (diff, truncated) = if is_git && has_head {
+    let (mut diff, mut truncated) = if is_git && has_head {
         match run_workspace_git(git_diff_args(parent, name)).await {
             Some(output) if output.status.success() => {
                 let text = String::from_utf8_lossy(&output.stdout);
@@ -222,6 +222,42 @@ async fn workspace_diff(
     } else {
         (String::new(), false)
     };
+    // A clean work tree is common in agent worktrees whose work sits on a
+    // branch above the merge base; new files are untracked entirely. Report
+    // both so review can still show what changed instead of an empty diff.
+    let mut untracked = false;
+    let mut base: Option<String> = None;
+    if is_git && has_head && diff.is_empty() {
+        if let Some(output) = run_workspace_git(git_status_porcelain_args(parent, name))
+            .await
+            .filter(|output| output.status.success())
+        {
+            untracked = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.starts_with("??"));
+        }
+        if !untracked {
+            for candidate in ["origin/HEAD", "origin/main", "origin/master", "main", "master"] {
+                let exists = run_workspace_git(git_ref_exists_args(parent, candidate))
+                    .await
+                    .is_some_and(|output| output.status.success());
+                if !exists {
+                    continue;
+                }
+                if let Some(output) = run_workspace_git(git_diff_base_args(parent, candidate, name))
+                    .await
+                    .filter(|output| output.status.success() && !output.stdout.is_empty())
+                {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    let (text, text_truncated) = truncate_utf8(&text, WORKSPACE_DIFF_MAX_BYTES);
+                    diff = text.to_owned();
+                    truncated = output.stdout.len() > WORKSPACE_DIFF_MAX_BYTES || text_truncated;
+                    base = Some(candidate.to_owned());
+                    break;
+                }
+            }
+        }
+    }
 
     Json(serde_json::json!({
         "path": rel,
@@ -230,6 +266,8 @@ async fn workspace_diff(
         "is_git": is_git,
         "has_head": has_head,
         "truncated": truncated,
+        "untracked": untracked,
+        "base": base,
     }))
     .into_response()
 }
@@ -605,6 +643,48 @@ fn git_diff_args(dir: &Path, name: &OsStr) -> Vec<OsString> {
     )
 }
 
+fn git_status_porcelain_args(dir: &Path, name: &OsStr) -> Vec<OsString> {
+    let mut args = git_args(
+        dir,
+        &[
+            OsStr::new("--literal-pathspecs"),
+            OsStr::new("status"),
+            OsStr::new("--porcelain=v1"),
+        ],
+    );
+    args.push(OsString::from("--"));
+    args.push(name.to_os_string());
+    args
+}
+
+fn git_ref_exists_args(dir: &Path, reference: &str) -> Vec<OsString> {
+    git_args(
+        dir,
+        &[
+            OsStr::new("rev-parse"),
+            OsStr::new("--verify"),
+            OsStr::new("--quiet"),
+            OsStr::new(reference),
+        ],
+    )
+}
+
+fn git_diff_base_args(dir: &Path, base: &str, name: &OsStr) -> Vec<OsString> {
+    let mut args = git_args(
+        dir,
+        &[
+            OsStr::new("--literal-pathspecs"),
+            OsStr::new("diff"),
+            OsStr::new("--no-ext-diff"),
+            OsStr::new("--no-color"),
+        ],
+    );
+    args.push(OsString::from(format!("{base}...HEAD")));
+    args.push(OsString::from("--"));
+    args.push(name.to_os_string());
+    args
+}
+
 async fn run_workspace_git(args: Vec<OsString>) -> Option<std::process::Output> {
     timeout(
         WORKSPACE_GIT_TIMEOUT,
@@ -667,6 +747,46 @@ mod workspace_tests {
                 OsString::from("--no-ext-diff"),
                 OsString::from("--no-color"),
                 OsString::from("HEAD"),
+                OsString::from("--"),
+                OsString::from("note.md"),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_diff_base_args_wrap_the_merge_base_range() {
+        let args = git_diff_base_args(
+            Path::new("/workspace/project"),
+            "origin/main",
+            OsStr::new("note.md"),
+        );
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("-C"),
+                OsString::from("/workspace/project"),
+                OsString::from("--literal-pathspecs"),
+                OsString::from("diff"),
+                OsString::from("--no-ext-diff"),
+                OsString::from("--no-color"),
+                OsString::from("origin/main...HEAD"),
+                OsString::from("--"),
+                OsString::from("note.md"),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_diff_status_args_limit_the_pathspec_to_one_file() {
+        let args = git_status_porcelain_args(Path::new("/workspace/project"), OsStr::new("note.md"));
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("-C"),
+                OsString::from("/workspace/project"),
+                OsString::from("--literal-pathspecs"),
+                OsString::from("status"),
+                OsString::from("--porcelain=v1"),
                 OsString::from("--"),
                 OsString::from("note.md"),
             ]

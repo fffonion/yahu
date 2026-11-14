@@ -14,6 +14,14 @@ function slice(text: string, start: string, end: string): string {
 }
 
 describe('workspace review wiring', () => {
+  test('the subagent overlay dispatches review clicks outside the chat scroller', () => {
+    const text = app();
+    expect(text).toContain('const onSubagentAreaClick = (event: React.MouseEvent<HTMLElement>) => {');
+    expect(text).toContain("const reviewTarget = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-workspace-review]') : null;");
+    expect(text).toContain('if (reviewPath) props.onStartWorkspaceReview(reviewPath);');
+    expect(text).toContain('<div className="subagent-progress-overlay" onWheel={onStatusOverlayWheel} onClick={onSubagentAreaClick}>');
+  });
+
   test('App imports ReviewPane and tracks a review session', () => {
     const text = app();
     expect(text).toContain("import { ReviewPane } from './ReviewPane';");

@@ -14,6 +14,16 @@ describe('review pane data flow', () => {
     expect(source).toContain('if (token !== requestRef.current) return;');
   });
 
+  test('surfaces untracked files and merge-base diffs instead of a bare no-diff notice', () => {
+    const source = pane();
+    expect(source).toContain('untracked?: boolean;');
+    expect(source).toContain('base?: string | null;');
+    expect(source).toContain('untracked: Boolean(payload.untracked)');
+    expect(source).toContain("if (view.untracked) notices.push(t('review.untracked'));");
+    expect(source).toContain("if (view.base) notices.push(tf('review.baseDiff', view.base));");
+    expect(source).toContain("(!view.hasDiff && !view.untracked && !view.base)");
+  });
+
   test('reuses the shared diff parsers instead of re-implementing hunk math', () => {
     const source = pane();
     expect(source).toContain("from './reviewDiff'");
