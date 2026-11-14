@@ -188,12 +188,16 @@ describe('review pane styles', () => {
     expect(css).toContain('position:sticky');
   });
 
-  test('narrow screens hide the split table and avoid horizontal overflow', () => {
+  test('narrow screens hide the split table and scroll long lines horizontally', () => {
     const css = styles();
     expect(css).toContain('@media (max-width:760px)');
     expect(css).toContain('.review-split-table{display:none}');
-    expect(css).toContain('table-layout:fixed');
-    expect(css).toContain('overflow-wrap:anywhere');
-    expect(css).toContain('.review-gutter{padding:0 3px;font-size:11px}');
+    expect(css).toContain('.review-view-toggle{display:none}');
+    expect(css).toContain('.review-toolbar-actions{flex:1 1 100%;margin-left:0;gap:8px}');
+    expect(css).toContain('.review-diff-body{padding:8px;overflow-x:auto;overscroll-behavior-x:contain');
+    expect(css).toContain('.review-diff-table{table-layout:auto;width:max-content;min-width:100%}');
+    expect(css).toContain('.review-code-cell{white-space:pre;overflow-wrap:normal');
+    expect(css).toContain('.review-file-chips{flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto');
+    expect(css).toContain('.review-gutter{padding:0 5px 0 28px;font-size:11px}');
   });
 });

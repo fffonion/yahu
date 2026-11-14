@@ -734,18 +734,35 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-code-cell.unified{padding-inline-end:16px}
 .review-submit-result-label{color:var(--muted);font-weight:600}
 @media (max-width:760px){
-.review-toolbar{padding:6px 8px;gap:6px}
+.review-toolbar{flex-wrap:wrap;gap:8px;padding:8px 10px}
+.review-file-chips{flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;padding-bottom:2px;scrollbar-width:thin}
+.review-file-chip{flex:0 0 auto;min-height:30px}
+.review-file-chip-open{max-width:62vw;font-size:12.5px;padding:6px 2px 6px 10px}
+.review-file-chip-remove{width:28px;height:28px}
+.review-view-toggle{display:none}
+.review-toolbar-actions{flex:1 1 100%;margin-left:0;gap:8px}
+.review-submit{flex:1 1 auto;justify-content:center;min-height:36px;font-size:13px;padding:8px 14px}
+.review-exit-button{width:36px;height:36px;flex:0 0 36px;border-radius:12px;border-color:transparent;background:transparent}
 .review-split-table{display:none}
-.review-gutter{padding:0 3px;font-size:11px}
-.review-diff-table{width:100%;table-layout:fixed}
-.review-code-cell{padding:0 6px 0 2px;white-space:pre-wrap;overflow-wrap:anywhere}
-.review-code{min-width:0;overflow-wrap:anywhere}
-.review-thread-cell{padding:6px 8px 8px}
+.review-diff-body{padding:8px;overflow-x:auto;overscroll-behavior-x:contain;-webkit-mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 14px),transparent 100%);mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 14px),transparent 100%)}
+.review-diff-table{table-layout:auto;width:max-content;min-width:100%}
+.review-gutter{padding:0 5px 0 28px;font-size:11px}
+.review-code-cell{white-space:pre;overflow-wrap:normal;padding:0 10px 0 5px}
+.review-code{min-width:max-content;white-space:pre}
+.review-add-comment{width:26px;inset-inline-start:0}
+.review-thread-cell{padding:8px 10px 10px;position:sticky;left:0;vertical-align:top}
+.review-thread,.review-comment-editor{width:calc(100vw - 36px);max-width:calc(100vw - 36px)}
+.review-comment-card{padding:10px 12px}
+.review-comment-actions{gap:8px}
+.review-comment-edit,.review-comment-delete{min-height:28px;padding:4px 8px;font-size:12px}
 .review-comment-editor{max-width:none}
+.review-comment-card{padding:10px 12px}
+.review-submit-result{margin:8px 10px 0}
 }
 
 @media (hover: none) {
-.review-add-comment{opacity:.75}
+.review-add-comment{opacity:.4}
+.review-add-comment:active{opacity:1}
 }
 
 .app-shell.code-wrap .review-code-cell{white-space:pre-wrap}
