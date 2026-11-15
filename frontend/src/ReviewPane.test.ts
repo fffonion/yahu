@@ -20,8 +20,9 @@ describe('review pane data flow', () => {
     expect(source).toContain('base?: string | null;');
     expect(source).toContain('untracked: Boolean(payload.untracked)');
     expect(source).toContain("if (view.untracked) notices.push(t('review.untracked'));");
-    expect(source).toContain("if (view.base) notices.push(tf('review.baseDiff', view.base));");
-    expect(source).toContain("(!view.hasDiff && !view.untracked && !view.base)");
+    expect(source).toContain("if (view.hasDiff && view.base) notices.push(tf('review.baseDiff', view.base));");
+    expect(source).toContain("if (!view.hasDiff && view.base) notices.push(tf('review.noChangesInRange', view.base));");
+    expect(source).toContain('!view.hasDiff && !view.untracked && !view.base');
   });
 
   test('offers a compare-range menu with commits and a branch base', () => {
@@ -36,6 +37,14 @@ describe('review pane data flow', () => {
     expect(source).toContain("t('review.rangeSingle')");
     expect(source).toContain('{commit.short} · {commit.date}');
     expect(source).toContain('}, [path, rangeKey]);');
+  });
+
+  test('loads older compare ranges on demand and labels an empty selected range', () => {
+    const source = pane();
+    expect(source).toContain('skip=${rangeCommits.length}');
+    expect(source).toContain('setRangeInfo((current) =>');
+    expect(source).toContain("t('review.loadOlder')");
+    expect(source).toContain("tf('review.noChangesInRange', view.base)");
   });
 
   test('reuses the shared diff parsers instead of re-implementing hunk math', () => {

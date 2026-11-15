@@ -2,6 +2,9 @@ const WORKSPACE_REVIEW_MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024;
 const WORKSPACE_REVIEW_JSON_BODY_LIMIT: usize = WORKSPACE_REVIEW_MAX_CONTENT_BYTES * 6 + 1024;
 const WORKSPACE_GIT_TIMEOUT: Duration = Duration::from_secs(8);
 const WORKSPACE_DIFF_MAX_BYTES: usize = 2 * 1024 * 1024;
+const WORKSPACE_LOG_PAGE_SIZE: usize = 20;
+// The diff endpoint clamps commits:N to 500; keep the menu within that range.
+const WORKSPACE_LOG_MAX_SKIP: usize = 480;
 
 #[derive(Deserialize)]
 struct WorkspaceReviewPayload {
@@ -373,6 +376,10 @@ async fn workspace_commits(
     Query(query): Query<WorkspaceQuery>,
 ) -> Response<Body> {
     let rel = query.path.unwrap_or_default();
+    let skip = query.skip.unwrap_or(0);
+    if skip > WORKSPACE_LOG_MAX_SKIP || skip % WORKSPACE_LOG_PAGE_SIZE != 0 {
+        return json_error(StatusCode::BAD_REQUEST, "invalid commit page offset");
+    }
     let resolved = match resolve_workspace_file(&state, &rel).await {
         Ok(resolved) => resolved,
         Err((status, message)) => return json_error(status, &message),
@@ -389,7 +396,7 @@ async fn workspace_commits(
             .await
             .is_some_and(|output| output.status.success());
 
-    let default_base = if is_git && has_head {
+    let default_base = if skip == 0 && is_git && has_head {
         first_existing_ref(parent).await
     } else {
         None
@@ -410,33 +417,33 @@ async fn workspace_commits(
 
     let mut commits = Vec::new();
     let log_output = if is_git && has_head {
-        run_workspace_git(git_log_args(parent))
+        run_workspace_git(git_log_args(parent, skip))
             .await
             .filter(|output| output.status.success())
     } else {
         None
     };
-    {
-        if let Some(output) = log_output {
-            for line in String::from_utf8_lossy(&output.stdout).lines() {
-                let mut parts = line.split('\u{1f}');
-                let (Some(sha), Some(short), Some(date), Some(subject)) =
-                    (parts.next(), parts.next(), parts.next(), parts.next())
-                else {
-                    continue;
-                };
-                if sha.is_empty() {
-                    continue;
-                }
-                commits.push(serde_json::json!({
-                    "sha": sha,
-                    "short": short,
-                    "date": date,
-                    "subject": subject,
-                }));
+    if let Some(output) = log_output {
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let mut parts = line.split('\u{1f}');
+            let (Some(sha), Some(short), Some(date), Some(subject)) =
+                (parts.next(), parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            if sha.is_empty() {
+                continue;
             }
+            commits.push(serde_json::json!({
+                "sha": sha,
+                "short": short,
+                "date": date,
+                "subject": subject,
+            }));
         }
     }
+    let has_more = commits.len() > WORKSPACE_LOG_PAGE_SIZE && skip < WORKSPACE_LOG_MAX_SKIP;
+    commits.truncate(WORKSPACE_LOG_PAGE_SIZE);
 
     Json(serde_json::json!({
         "path": rel,
@@ -446,6 +453,7 @@ async fn workspace_commits(
         "base": default_base,
         "ahead": ahead,
         "commits": commits,
+        "has_more": has_more,
     }))
     .into_response()
 }
@@ -879,16 +887,18 @@ fn git_diff_ref_args(dir: &Path, reference: &str, name: &OsStr) -> Vec<OsString>
     args
 }
 
-fn git_log_args(dir: &Path) -> Vec<OsString> {
-    git_args(
+fn git_log_args(dir: &Path, skip: usize) -> Vec<OsString> {
+    let mut args = git_args(
         dir,
         &[
             OsStr::new("log"),
             OsStr::new("--format=%H\u{1f}%h\u{1f}%cs\u{1f}%s"),
-            OsStr::new("--max-count=20"),
-            OsStr::new("HEAD"),
         ],
-    )
+    );
+    args.push(OsString::from(format!("--max-count={}", WORKSPACE_LOG_PAGE_SIZE + 1)));
+    args.push(OsString::from(format!("--skip={skip}")));
+    args.push(OsString::from("HEAD"));
+    args
 }
 
 fn git_rev_list_count_args(dir: &Path, base: &str) -> Vec<OsString> {
@@ -1012,8 +1022,8 @@ mod workspace_tests {
     }
 
     #[test]
-    fn workspace_log_args_request_machine_separated_commit_fields() {
-        let args = git_log_args(Path::new("/workspace/project"));
+    fn workspace_log_args_request_a_bounded_page_with_an_extra_row() {
+        let args = git_log_args(Path::new("/workspace/project"), 20);
         assert_eq!(
             args,
             vec![
@@ -1021,7 +1031,8 @@ mod workspace_tests {
                 OsString::from("/workspace/project"),
                 OsString::from("log"),
                 OsString::from("--format=%H\u{1f}%h\u{1f}%cs\u{1f}%s"),
-                OsString::from("--max-count=20"),
+                OsString::from("--max-count=21"),
+                OsString::from("--skip=20"),
                 OsString::from("HEAD"),
             ]
         );

@@ -40,7 +40,7 @@ type DiffPayload = {
 };
 
 type CommitEntry = { sha: string; short: string; date: string; subject: string };
-type CommitsPayload = { is_git?: boolean; has_head?: boolean; base?: string | null; ahead?: number | null; commits?: CommitEntry[] };
+type CommitsPayload = { is_git?: boolean; has_head?: boolean; base?: string | null; ahead?: number | null; commits?: CommitEntry[]; has_more?: boolean };
 type ReviewRange = 'auto' | 'branch' | `commits:${number}`;
 
 type ReviewUploadPayload = {
@@ -144,11 +144,17 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   const [rangeKey, setRangeKey] = useState<ReviewRange>('auto');
   const [rangeOpen, setRangeOpen] = useState(false);
   const [rangeInfo, setRangeInfo] = useState<CommitsPayload | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const rangeRef = useRef<HTMLDivElement | null>(null);
+  const rangePathRef = useRef(path);
+  const olderRequestRef = useRef(false);
+  rangePathRef.current = path;
   const requestRef = useRef(0);
 
   useEffect(() => {
     setRangeInfo(null);
+    setLoadingOlder(false);
+    olderRequestRef.current = false;
     if (!path) return;
     let cancelled = false;
     void (async () => {
@@ -242,6 +248,30 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   const pickRange = (next: ReviewRange) => {
     setRangeOpen(false);
     setRangeKey(next);
+  };
+
+  const loadOlderCommits = async () => {
+    const currentCount = rangeInfo?.commits?.length ?? 0;
+    if (!path || !rangeInfo?.has_more || !currentCount || olderRequestRef.current) return;
+    olderRequestRef.current = true;
+    setLoadingOlder(true);
+    const requestedPath = path;
+    try {
+      const res = await fetch(`/workspace/commits?path=${encodeURIComponent(path)}&skip=${rangeCommits.length}`);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const payload = (await res.json()) as CommitsPayload;
+      if (rangePathRef.current !== requestedPath) return;
+      setRangeInfo((current) => current && current.commits?.length === currentCount
+        ? { ...current, commits: [...current.commits, ...(payload.commits ?? [])], has_more: Boolean(payload.has_more) }
+        : current);
+    } catch {
+      // Keep the current options available; the user can retry this page.
+    } finally {
+      if (rangePathRef.current === requestedPath) {
+        olderRequestRef.current = false;
+        setLoadingOlder(false);
+      }
+    }
   };
 
   const commentCount = review ? review.comments.length : 0;
@@ -494,8 +524,9 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   const notices: string[] = [];
   if (view.status === 'ready') {
     if (view.untracked) notices.push(t('review.untracked'));
-    if (view.base) notices.push(tf('review.baseDiff', view.base));
-    if ((!view.hasDiff && !view.untracked && !view.base) || lines.length === 0) notices.push(t('review.noDiff'));
+    if (view.hasDiff && view.base) notices.push(tf('review.baseDiff', view.base));
+    if (!view.hasDiff && view.base) notices.push(tf('review.noChangesInRange', view.base));
+    if (!view.hasDiff && !view.untracked && !view.base) notices.push(t('review.noDiff'));
     if (view.truncated) notices.push(t('review.truncated'));
   }
 
@@ -559,11 +590,16 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
                   const nextKey = `commits:${index + 2}` as ReviewRange;
                   return (
                     <button type="button" key={commit.sha} className={`review-range-item${rangeKey === nextKey ? ' active' : ''}`} role="option" aria-selected={rangeKey === nextKey} onClick={() => pickRange(nextKey)}>
-                      <span>{commit.subject}</span>
+                      <span>{tf('review.rangeCount', index + 2)} · {commit.subject}</span>
                       <small>{commit.short} · {commit.date}</small>
                     </button>
                   );
                 })}
+                {rangeInfo?.has_more ? (
+                  <button type="button" className="review-range-load-more" disabled={loadingOlder} onClick={() => void loadOlderCommits()}>
+                    {loadingOlder ? t('review.loadingOlder') : t('review.loadOlder')}
+                  </button>
+                ) : null}
               </div>
             )}
           </div>

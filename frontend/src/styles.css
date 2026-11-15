@@ -681,6 +681,9 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-range-item>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .review-range-item small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .review-range-sep{height:1px;margin:4px 2px;background:var(--border)}
+.review-range-load-more{width:100%;border:0;border-top:1px solid var(--border);background:transparent;color:var(--accent);font:inherit;font-size:12px;padding:10px;cursor:pointer}
+.review-range-load-more:hover{background:var(--accent-soft)}
+.review-range-load-more:disabled{opacity:.55;cursor:wait}
 .review-view-toggle{display:inline-flex;flex:0 0 auto;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);overflow:hidden}
 .review-view-btn{border:0;background:transparent;color:var(--muted);font-size:12px;padding:5px 11px;cursor:pointer}
 .review-view-btn.active{background:var(--accent-soft);color:var(--accent)}

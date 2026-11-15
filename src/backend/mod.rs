@@ -207,6 +207,7 @@ struct WorkspaceQuery {
     download: Option<String>,
     preview: Option<String>,
     base: Option<String>,
+    skip: Option<usize>,
 }
 
 #[derive(Serialize)]

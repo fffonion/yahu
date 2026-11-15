@@ -289,6 +289,7 @@
                 download: None,
                 preview: Some("1".to_string()),
                 base: None,
+                skip: None,
             }),
         )
         .await;
