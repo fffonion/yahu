@@ -97,6 +97,32 @@ export function parseUnifiedDiff(diff: string, fallbackPath: string): ReviewLine
   return result;
 }
 
+export function newLineAnchors(lines: ReviewLine[]): Map<ReviewLine, number> {
+  const anchors = new Map<ReviewLine, number>();
+  const nextNew = new Map<ReviewLine, number>();
+  let next: number | undefined;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]!;
+    if (line.kind === 'file' || line.kind === 'hunk') next = undefined;
+    else if (line.newLine !== undefined) next = line.newLine;
+    else if (line.kind === 'remove' && next !== undefined) nextNew.set(line, next);
+  }
+  let previous: number | undefined;
+  let hunkStart = 1;
+  for (const line of lines) {
+    if (line.kind === 'file' || line.kind === 'hunk') {
+      previous = undefined;
+      if (line.kind === 'hunk') hunkStart = Math.max(1, Number(line.text.match(/\+(\d+)/)?.[1] ?? 1));
+    } else if (line.newLine !== undefined) {
+      previous = line.newLine;
+      anchors.set(line, line.newLine);
+    } else if (line.kind === 'remove') {
+      anchors.set(line, nextNew.get(line) ?? previous ?? hunkStart);
+    }
+  }
+  return anchors;
+}
+
 export type SplitRow = { index: number; left?: ReviewLine; right?: ReviewLine };
 
 export function buildSplitRows(lines: ReviewLine[]): SplitRow[] {

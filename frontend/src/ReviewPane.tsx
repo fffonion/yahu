@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Copy, GitCompare, Plus, X } from 'lucide-react';
 import { t, tf } from './i18n';
-import { buildSplitRows, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
+import { buildSplitRows, newLineAnchors, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
 import {
   addComment,
   addFile,
@@ -60,7 +60,7 @@ type SubmitState =
   | { status: 'done'; abs: string }
   | { status: 'error'; message: string };
 
-type Draft = { anchor: ReviewAnchor; body: string; commentId?: string };
+type Draft = { anchor: ReviewAnchor; body: string; commentId?: string; rowKey?: string };
 
 const COMPACT_QUERY = '(max-width: 760px)';
 
@@ -70,10 +70,6 @@ function anchorKey(anchor: ReviewAnchor): string {
 
 function lineSign(line: ReviewLine): string {
   return line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' ';
-}
-
-function commentSide(line: ReviewLine): 'new' | 'old' {
-  return line.kind === 'remove' ? 'old' : 'new';
 }
 
 function cellTone(line: ReviewLine | undefined): string {
@@ -236,6 +232,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   }, []);
 
   const lines = useMemo<ReviewLine[]>(() => (view.status === 'ready' ? view.lines : []), [view]);
+  const newAnchors = useMemo(() => newLineAnchors(lines), [lines]);
   const splitRows = useMemo(() => buildSplitRows(lines), [lines]);
   const effectiveMode: ReviewMode = narrow ? 'unified' : mode;
 
@@ -287,8 +284,8 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     return map;
   }, [fileComments]);
 
-  const openDraft = (anchor: ReviewAnchor, comment?: ReviewComment) => {
-    setDraft({ anchor, body: comment ? comment.body : '', commentId: comment?.id });
+  const openDraft = (anchor: ReviewAnchor, comment?: ReviewComment, rowKey?: string) => {
+    setDraft({ anchor, body: comment ? comment.body : '', commentId: comment?.id, rowKey });
   };
 
   const commitDraft = (body: string) => {
@@ -311,13 +308,20 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     setSubmitState({ status: 'submitting' });
     setCopyState('idle');
     try {
+      const filesToRead = [...new Set(current.comments.map((comment) => comment.path))];
+      const entries = await Promise.all(filesToRead.map(async (file) => {
+        const response = await fetch(`/workspace/file?path=${encodeURIComponent(file)}`);
+        if (!response.ok) throw new Error(`${file}: ${response.status} ${response.statusText}`);
+        return [file, await response.text()] as const;
+      }));
+      const contents = new Map(entries);
       const res = await fetch('/workspace/review', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           filename: reviewFileName(),
           path,
-          content: buildReviewReport(current, { workspace: abs || window.location.origin, generatedAt: Date.now() }),
+          content: buildReviewReport(current, { workspace: abs || window.location.origin, generatedAt: Date.now(), contents }),
         }),
       });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -370,11 +374,11 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     setCopyState(done ? 'copied' : 'failed');
   };
 
-  const gutterCell = (line: ReviewLine | undefined, side: 'old' | 'new', canComment: boolean, key: string) => {
+  const gutterCell = (line: ReviewLine | undefined, side: 'old' | 'new', canComment: boolean, key: string, newNumber?: number, rowKey?: string) => {
     if (!line) return <td className="review-gutter" key={key} />;
-    const number = side === 'old' ? line.oldLine : line.newLine;
+    const number = side === 'old' ? line.oldLine : newNumber ?? line.newLine;
     if (number === undefined) return <td className="review-gutter" key={key} />;
-    const anchor: ReviewAnchor = { side, line: number };
+    const anchor: ReviewAnchor = { side: 'new', line: number };
     return (
       <td className="review-gutter" key={key}>
         <span className="review-gutter-number">{number}</span>
@@ -384,7 +388,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
             className="review-add-comment"
             aria-label={t('review.addComment')}
             title={t('review.addComment')}
-            onClick={() => openDraft(anchor)}
+            onClick={() => openDraft(anchor, undefined, rowKey)}
           >
             <Plus aria-hidden="true" />
           </button>
@@ -405,13 +409,18 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     </td>
   );
 
-  const threadRow = (anchors: Array<ReviewAnchor | null>, key: string, columns: number) => {
+  const threadRow = (anchors: Array<ReviewAnchor | null>, key: string, columns: number, displayed: Set<string>) => {
     const keys = anchors.filter((anchor): anchor is ReviewAnchor => anchor !== null).map(anchorKey);
-    const items = keys
+    const firstKeys = keys.filter((itemKey) => {
+      if (displayed.has(itemKey)) return false;
+      displayed.add(itemKey);
+      return true;
+    });
+    const items = firstKeys
       .map((itemKey) => grouped.get(itemKey) ?? [])
       .reduce<ReviewComment[]>((all, list) => all.concat(list), [])
       .sort((left, right) => left.createdAt - right.createdAt);
-    const currentDraft = draft && keys.includes(anchorKey(draft.anchor)) ? draft : null;
+    const currentDraft = draft && (draft.rowKey ? draft.rowKey === key : firstKeys.includes(anchorKey(draft.anchor))) ? draft : null;
     if (items.length === 0 && !currentDraft) return null;
 
     return (
@@ -424,7 +433,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
                   <div className="review-comment-head">
                     <span className="review-comment-anchor">{`${comment.anchor.side === 'new' ? 'new' : 'old'} ${comment.anchor.line}`}</span>
                     <span className="review-comment-actions">
-                      <button type="button" className="review-comment-edit" onClick={() => openDraft(comment.anchor, comment)}>{t('review.edit')}</button>
+                      <button type="button" className="review-comment-edit" onClick={() => openDraft(comment.anchor, comment, key)}>{t('review.edit')}</button>
                       <button type="button" className="review-comment-delete" onClick={() => removeComment(comment.id)}>{t('review.delete')}</button>
                     </span>
                   </div>
@@ -454,6 +463,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     </tr>
   );
 
+  const unifiedDisplayed = new Set<string>();
   const unifiedTable = (
     <table className="review-diff-table review-unified-table">
       <tbody>
@@ -461,10 +471,9 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
           if (line.kind === 'file' || line.kind === 'hunk' || line.kind === 'meta') {
             return rawRow(line, `raw-${index}`, 3);
           }
-          const side = commentSide(line);
-          const anchor: ReviewAnchor | null = side === 'new'
-            ? (line.newLine === undefined ? null : { side, line: line.newLine })
-            : (line.oldLine === undefined ? null : { side, line: line.oldLine });
+          const newNumber = newAnchors.get(line);
+          const anchor: ReviewAnchor | null = newNumber === undefined ? null : { side: 'new', line: newNumber };
+          const legacyAnchor: ReviewAnchor | null = line.kind === 'remove' && line.oldLine !== undefined ? { side: 'old', line: line.oldLine } : null;
           const rowClass = line.kind === 'add' ? 'review-row-add' : line.kind === 'remove' ? 'review-row-del' : '';
           return (
             <Fragment key={`line-${index}`}>
@@ -473,14 +482,14 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
                 data-line-old={line.oldLine}
                 data-line-new={line.newLine}
               >
-                {gutterCell(line, 'old', line.kind === 'remove', `old-${index}`)}
-                {gutterCell(line, 'new', line.kind !== 'remove', `new-${index}`)}
+                {gutterCell(line, 'old', false, `old-${index}`)}
+                {gutterCell(line, 'new', newNumber !== undefined, `new-${index}`, newNumber, `line-${index}`)}
                 <td className={`review-code-cell unified ${cellTone(line)}`.trim()} key={`code-${index}`}>
                   <span className="review-code-sign" aria-hidden="true">{lineSign(line)}</span>
                   <span className="review-code" dangerouslySetInnerHTML={{ __html: line.html }} />
                 </td>
               </tr>
-              {threadRow([anchor], `line-${index}`, 3)}
+              {threadRow([anchor, legacyAnchor], `line-${index}`, 3, unifiedDisplayed)}
             </Fragment>
           );
         })}
@@ -488,6 +497,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     </table>
   );
 
+  const splitDisplayed = new Set<string>();
   const splitTable = (
     <table className="review-diff-table review-split-table">
       <tbody>
@@ -497,8 +507,9 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
           if (left && (left.kind === 'file' || left.kind === 'hunk' || left.kind === 'meta')) {
             return rawRow(left, `raw-${row.index}`, 6);
           }
-          const leftAnchor: ReviewAnchor | null = left && left.oldLine !== undefined ? { side: 'old', line: left.oldLine } : null;
-          const rightAnchor: ReviewAnchor | null = right && right.newLine !== undefined ? { side: 'new', line: right.newLine } : null;
+          const newNumber = newAnchors.get(right ?? left!);
+          const rightAnchor: ReviewAnchor | null = newNumber === undefined ? null : { side: 'new', line: newNumber };
+          const legacyAnchor: ReviewAnchor | null = left?.kind === 'remove' && left.oldLine !== undefined ? { side: 'old', line: left.oldLine } : null;
           return (
             <Fragment key={`row-${row.index}`}>
               <tr
@@ -506,14 +517,14 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
                 data-line-old={left?.oldLine}
                 data-line-new={right?.newLine}
               >
-                {gutterCell(left, 'old', left !== undefined && left.oldLine !== undefined, `left-gutter-${row.index}`)}
+                {gutterCell(left, 'old', false, `left-gutter-${row.index}`)}
                 {markerCell(left, `left-marker-${row.index}`)}
                 {codeCell(left, 'left', `left-code-${row.index}`)}
-                {gutterCell(right, 'new', right !== undefined && right.newLine !== undefined, `right-gutter-${row.index}`)}
+                {gutterCell(right ?? left, 'new', newNumber !== undefined, `right-gutter-${row.index}`, newNumber, `row-${row.index}`)}
                 {markerCell(right, `right-marker-${row.index}`)}
                 {codeCell(right, 'right', `right-code-${row.index}`)}
               </tr>
-              {threadRow([leftAnchor, rightAnchor], `row-${row.index}`, 6)}
+              {threadRow([rightAnchor, legacyAnchor], `row-${row.index}`, 6, splitDisplayed)}
             </Fragment>
           );
         })}

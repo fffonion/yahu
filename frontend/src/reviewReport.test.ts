@@ -34,6 +34,21 @@ describe('review report helpers', () => {
     expect(report.indexOf('later note')).toBeLessThan(report.indexOf('fourth line'));
   });
 
+  test('includes numbered current-file context around each new-line comment', () => {
+    const source = Array.from({ length: 9 }, (_, index) => `code ${index + 1}`).join('\n');
+    const state: ReviewState = {
+      id: 'rv_context', createdAt: 1, files: ['a.ts'],
+      comments: [
+        { id: 'middle', path: 'a.ts', anchor: { side: 'new', line: 5 }, body: 'check this', createdAt: 1, updatedAt: 1 },
+        { id: 'edge', path: 'a.ts', anchor: { side: 'new', line: 1 }, body: 'edge', createdAt: 2, updatedAt: 2 },
+      ],
+    };
+    const report = buildReviewReport(state, { workspace: '/work', generatedAt: 0, contents: new Map([['a.ts', source]]) });
+    expect(report).toContain('- line 5 (new): check this\n\n    2 | code 2\n    3 | code 3\n    4 | code 4\n    5 | code 5\n    6 | code 6\n    7 | code 7\n    8 | code 8');
+    expect(report).toContain('- line 1 (new): edge\n\n    1 | code 1\n    2 | code 2\n    3 | code 3\n    4 | code 4');
+    expect(report).not.toContain('    0 |');
+  });
+
   test('returns the exact file-specific report prompt', () => {
     expect(reviewReportPrompt('/work/project/review.md')).toBe('用户做了代码审查，结论在/work/project/review.md中，请解决');
   });

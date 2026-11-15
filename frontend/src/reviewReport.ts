@@ -10,7 +10,17 @@ function compareComments(left: ReviewComment, right: ReviewComment): number {
     || left.createdAt - right.createdAt;
 }
 
-export function buildReviewReport(state: ReviewState, meta: { workspace: string; generatedAt: number }): string {
+function sourceContext(content: string, line: number): string {
+  const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/);
+  if (lines[lines.length - 1] === '') lines.pop();
+  if (lines.length === 0) return '    (empty file)';
+  const center = Math.max(1, Math.min(lines.length, Math.trunc(line)));
+  const start = Math.max(1, center - 3);
+  const end = Math.min(lines.length, center + 3);
+  return lines.slice(start - 1, end).map((text, index) => `    ${start + index} | ${text}`).join('\n');
+}
+
+export function buildReviewReport(state: ReviewState, meta: { workspace: string; generatedAt: number; contents?: Map<string, string> }): string {
   const grouped = new Map<string, ReviewComment[]>();
   for (const comment of state.comments) {
     const comments = grouped.get(comment.path) ?? [];
@@ -23,8 +33,12 @@ export function buildReviewReport(state: ReviewState, meta: { workspace: string;
     .map(([path, comments]) => {
       const lines = comments
         .sort(compareComments)
-        .map((comment) => `- line ${comment.anchor.line} (${comment.anchor.side}): ${comment.body.replace(/\r\n|\r|\n/g, ' ')}`);
-      return `## ${path}\n\n${lines.join('\n')}`;
+        .map((comment) => {
+          const label = `- line ${comment.anchor.line} (${comment.anchor.side}): ${comment.body.replace(/\r\n|\r|\n/g, ' ')}`;
+          const content = meta.contents?.get(comment.path);
+          return content === undefined ? label : `${label}\n\n${sourceContext(content, comment.anchor.line)}`;
+        });
+      return `## ${path}\n\n${lines.join('\n\n')}`;
     });
   const metadata = `Generated at ${new Date(meta.generatedAt).toISOString()} | Workspace: ${meta.workspace} | Files: ${state.files.length} | Comments: ${state.comments.length}`;
   return [`# Code Review Report`, metadata, ...sections].join('\n\n');

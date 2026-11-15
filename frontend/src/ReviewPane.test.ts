@@ -68,13 +68,21 @@ describe('review pane data flow', () => {
     expect(source).not.toContain('localStorage');
   });
 
+  test('reads each commented current file before writing the report', () => {
+    const source = pane();
+    expect(source).toContain('new Set(current.comments.map((comment) => comment.path))');
+    expect(source).toContain('/workspace/file?path=${encodeURIComponent(file)}');
+    expect(source).toContain('const contents = new Map(');
+    expect(source.indexOf('const contents = new Map(')).toBeLessThan(source.indexOf("fetch('/workspace/review'"));
+  });
+
   test('submitting posts the built report and copies the follow-up prompt', () => {
     const source = pane();
     expect(source).toContain("fetch('/workspace/review'");
     expect(source).toContain("method: 'POST'");
     expect(source).toContain("'content-type': 'application/json'");
     expect(source).toContain('filename: reviewFileName(),');
-    expect(source).toContain('buildReviewReport(current, { workspace: abs || window.location.origin, generatedAt: Date.now() })');
+    expect(source).toContain('buildReviewReport(current, { workspace: abs || window.location.origin, generatedAt: Date.now(), contents })');
     expect(source).toContain('navigator.clipboard.writeText(text)');
     expect(source).toContain("document.execCommand('copy')");
     expect(source).toContain('typeof payload.abs === \'string\'');
@@ -92,7 +100,25 @@ describe('review pane rendering and interaction', () => {
     expect(source).toContain('data-line-old={left?.oldLine}');
     expect(source).toContain('data-line-new={right?.newLine}');
     expect(source).toContain('dangerouslySetInnerHTML');
-    expect(source).toContain("line.kind === 'remove' ? 'old' : 'new'");
+    expect(source).toContain('newLineAnchors(lines)');
+  });
+
+  test('both layouts attach every comment button to a new-file line', () => {
+    const source = pane();
+    expect(source).toContain('const newAnchors = useMemo(() => newLineAnchors(lines), [lines]);');
+    expect(source).toContain("const anchor: ReviewAnchor = { side: 'new', line: number };");
+    expect(source).toContain("gutterCell(line, 'old', false");
+    expect(source).toContain("gutterCell(left, 'old', false");
+    expect(source).toContain('newAnchors.get(line)');
+    expect(source).toContain('newAnchors.get(right ?? left!)');
+  });
+
+  test('a deleted run mapped to one new line shows its comment only once per layout', () => {
+    const source = pane();
+    expect(source).toContain('const unifiedDisplayed = new Set<string>();');
+    expect(source).toContain('const splitDisplayed = new Set<string>();');
+    expect(source).toContain('displayed.has(itemKey)');
+    expect(source).toContain('draft.rowKey === key');
   });
 
   test('every source gutter carries the hover add-comment control and inline editor', () => {

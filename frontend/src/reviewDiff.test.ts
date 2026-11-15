@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildSplitRows, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
+import { buildSplitRows, newLineAnchors, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
 
 describe('review diff helpers', () => {
   test('parses multiple hunks and files with accurate old and new line numbers', () => {
@@ -81,6 +81,32 @@ describe('review diff helpers', () => {
       { index: 3, right: addedThree },
       { index: 4, left: context, right: context },
     ]);
+  });
+
+  test('anchors both diff layouts to new-file lines, including deleted rows', () => {
+    const diff = [
+      'diff --git a/demo.ts b/demo.ts',
+      '--- a/demo.ts',
+      '+++ b/demo.ts',
+      '@@ -5,6 +5,5 @@',
+      ' kept5',
+      '-removed6',
+      '-removed7',
+      '+replacement6',
+      ' kept7',
+      ' kept8',
+      ' kept9',
+      '@@ -20,2 +19,1 @@',
+      ' kept19',
+      '-last21',
+    ].join('\n');
+    const lines = parseUnifiedDiff(diff, 'demo.ts');
+    const anchors = newLineAnchors(lines);
+    const source = lines.filter((line) => line.kind === 'context' || line.kind === 'add' || line.kind === 'remove');
+    expect(source.map((line) => anchors.get(line))).toEqual([5, 6, 6, 6, 7, 8, 9, 19, 19]);
+    const rows = buildSplitRows(lines).filter((row) => row.left?.kind === 'remove');
+    expect(rows.map((row) => anchors.get(row.right ?? row.left!))).toEqual([6, 6, 19]);
+    expect([...anchors.values()].every((line) => Number.isInteger(line) && line > 0)).toBe(true);
   });
 
   test('numbers plain file lines and escapes source markup in highlighted HTML', () => {
