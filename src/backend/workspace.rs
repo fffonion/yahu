@@ -167,36 +167,96 @@ async fn workspace_file(
     builder.body(Body::from(bytes)).unwrap()
 }
 
+struct ResolvedWorkspaceFile {
+    file: PathBuf,
+    parent: PathBuf,
+    name: OsString,
+}
+
+async fn resolve_workspace_file(
+    state: &AppState,
+    rel: &str,
+) -> Result<ResolvedWorkspaceFile, (StatusCode, String)> {
+    let (root_index, file) = resolve_workspace_entry(&state.workspace_roots, rel)
+        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
+    let root = &state.workspace_roots[root_index].path;
+    let meta = fs::metadata(&file)
+        .await
+        .map_err(|err| (StatusCode::NOT_FOUND, format!("cannot stat file: {err}")))?;
+    if !meta.is_file() {
+        return Err((StatusCode::BAD_REQUEST, "path is not a file".to_string()));
+    }
+    let canonical_file = match fs::canonicalize(&file).await {
+        Ok(path) if path.starts_with(root) => path,
+        Ok(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "workspace path escapes root".to_string(),
+            ));
+        }
+        Err(err) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("cannot resolve file: {err}"),
+            ));
+        }
+    };
+    let parent = canonical_file
+        .parent()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "file has no parent directory".to_string()))?
+        .to_path_buf();
+    let name = canonical_file
+        .file_name()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "file has no name".to_string()))?
+        .to_os_string();
+    Ok(ResolvedWorkspaceFile {
+        file: canonical_file,
+        parent,
+        name,
+    })
+}
+
+const DIFF_BASE_CANDIDATES: [&str; 5] = [
+    "origin/HEAD",
+    "origin/main",
+    "origin/master",
+    "main",
+    "master",
+];
+
+async fn first_existing_ref(parent: &Path) -> Option<String> {
+    for candidate in DIFF_BASE_CANDIDATES {
+        if run_workspace_git(git_ref_exists_args(parent, candidate))
+            .await
+            .is_some_and(|output| output.status.success())
+        {
+            return Some(candidate.to_owned());
+        }
+    }
+    None
+}
+
+fn diff_output(output: &std::process::Output) -> (String, bool) {
+    let text = String::from_utf8_lossy(&output.stdout);
+    let (text, text_truncated) = truncate_utf8(&text, WORKSPACE_DIFF_MAX_BYTES);
+    (
+        text.to_owned(),
+        output.stdout.len() > WORKSPACE_DIFF_MAX_BYTES || text_truncated,
+    )
+}
+
 async fn workspace_diff(
     State(state): State<Arc<AppState>>,
     Query(query): Query<WorkspaceQuery>,
 ) -> Response<Body> {
     let rel = query.path.unwrap_or_default();
-    let (root_index, file) = match resolve_workspace_entry(&state.workspace_roots, &rel) {
+    let resolved = match resolve_workspace_file(&state, &rel).await {
         Ok(resolved) => resolved,
-        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
+        Err((status, message)) => return json_error(status, &message),
     };
-    let root = &state.workspace_roots[root_index].path;
-    let meta = match fs::metadata(&file).await {
-        Ok(meta) => meta,
-        Err(err) => return json_error(StatusCode::NOT_FOUND, &format!("cannot stat file: {err}")),
-    };
-    if !meta.is_file() {
-        return json_error(StatusCode::BAD_REQUEST, "path is not a file");
-    }
-    let canonical_file = match fs::canonicalize(&file).await {
-        Ok(path) if path.starts_with(root) => path,
-        Ok(_) => return json_error(StatusCode::BAD_REQUEST, "workspace path escapes root"),
-        Err(err) => {
-            return json_error(StatusCode::NOT_FOUND, &format!("cannot resolve file: {err}"));
-        }
-    };
-    let Some(parent) = canonical_file.parent() else {
-        return json_error(StatusCode::BAD_REQUEST, "file has no parent directory");
-    };
-    let Some(name) = canonical_file.file_name() else {
-        return json_error(StatusCode::BAD_REQUEST, "file has no name");
-    };
+    let parent = &resolved.parent;
+    let name = &resolved.name;
+    let canonical_file = &resolved.file;
 
     let is_git = run_workspace_git(git_is_inside_work_tree_args(parent))
         .await
@@ -207,53 +267,89 @@ async fn workspace_diff(
         && run_workspace_git(git_verify_head_args(parent))
             .await
             .is_some_and(|output| output.status.success());
-    let (mut diff, mut truncated) = if is_git && has_head {
-        match run_workspace_git(git_diff_args(parent, name)).await {
-            Some(output) if output.status.success() => {
-                let text = String::from_utf8_lossy(&output.stdout);
-                let (text, text_truncated) = truncate_utf8(&text, WORKSPACE_DIFF_MAX_BYTES);
-                (
-                    text.to_owned(),
-                    output.stdout.len() > WORKSPACE_DIFF_MAX_BYTES || text_truncated,
-                )
-            }
-            _ => (String::new(), false),
-        }
-    } else {
-        (String::new(), false)
-    };
-    // A clean work tree is common in agent worktrees whose work sits on a
-    // branch above the merge base; new files are untracked entirely. Report
-    // both so review can still show what changed instead of an empty diff.
+
+    let requested = query
+        .base
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let mut untracked = false;
     let mut base: Option<String> = None;
-    if is_git && has_head && diff.is_empty() {
-        if let Some(output) = run_workspace_git(git_status_porcelain_args(parent, name))
-            .await
-            .filter(|output| output.status.success())
-        {
-            untracked = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .any(|line| line.starts_with("??"));
-        }
-        if !untracked {
-            for candidate in ["origin/HEAD", "origin/main", "origin/master", "main", "master"] {
-                let exists = run_workspace_git(git_ref_exists_args(parent, candidate))
-                    .await
-                    .is_some_and(|output| output.status.success());
-                if !exists {
-                    continue;
+    let mut diff = String::new();
+    let mut truncated = false;
+
+    if is_git && has_head {
+        match requested {
+            // Whole branch against the merge base with the default branch.
+            Some("branch") => {
+                if let Some(default_base) = first_existing_ref(parent).await {
+                    if let Some(output) =
+                        run_workspace_git(git_diff_base_args(parent, &default_base, name))
+                            .await
+                            .filter(|output| output.status.success())
+                    {
+                        (diff, truncated) = diff_output(&output);
+                    }
+                    base = Some(default_base);
                 }
-                if let Some(output) = run_workspace_git(git_diff_base_args(parent, candidate, name))
+            }
+            // Accumulated diff for the last N commits.
+            Some(value) if value.starts_with("commits:") => {
+                let count = value
+                    .strip_prefix("commits:")
+                    .and_then(|rest| rest.parse::<usize>().ok())
+                    .unwrap_or(1)
+                    .clamp(1, 500);
+                let reference = format!("HEAD~{count}");
+                if let Some(output) = run_workspace_git(git_diff_ref_args(parent, &reference, name))
                     .await
-                    .filter(|output| output.status.success() && !output.stdout.is_empty())
+                    .filter(|output| output.status.success())
                 {
-                    let text = String::from_utf8_lossy(&output.stdout);
-                    let (text, text_truncated) = truncate_utf8(&text, WORKSPACE_DIFF_MAX_BYTES);
-                    diff = text.to_owned();
-                    truncated = output.stdout.len() > WORKSPACE_DIFF_MAX_BYTES || text_truncated;
-                    base = Some(candidate.to_owned());
-                    break;
+                    (diff, truncated) = diff_output(&output);
+                }
+                base = Some(reference);
+            }
+            _ => {
+                if let Some(output) = run_workspace_git(git_diff_args(parent, name))
+                    .await
+                    .filter(|output| output.status.success())
+                {
+                    (diff, truncated) = diff_output(&output);
+                }
+                // A clean work tree is common in agent worktrees whose work
+                // sits on a branch above the merge base; new files are
+                // untracked entirely. Report both so review can still show
+                // what changed instead of an empty diff.
+                if diff.is_empty() {
+                    if let Some(output) = run_workspace_git(git_status_porcelain_args(parent, name))
+                        .await
+                        .filter(|output| output.status.success())
+                    {
+                        untracked = String::from_utf8_lossy(&output.stdout)
+                            .lines()
+                            .any(|line| line.starts_with("??"));
+                    }
+                    if !untracked {
+                        for candidate in DIFF_BASE_CANDIDATES {
+                            let exists = run_workspace_git(git_ref_exists_args(parent, candidate))
+                                .await
+                                .is_some_and(|output| output.status.success());
+                            if !exists {
+                                continue;
+                            }
+                            if let Some(output) =
+                                run_workspace_git(git_diff_base_args(parent, candidate, name))
+                                    .await
+                                    .filter(|output| {
+                                        output.status.success() && !output.stdout.is_empty()
+                                    })
+                            {
+                                (diff, truncated) = diff_output(&output);
+                                base = Some(candidate.to_owned());
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -268,6 +364,88 @@ async fn workspace_diff(
         "truncated": truncated,
         "untracked": untracked,
         "base": base,
+    }))
+    .into_response()
+}
+
+async fn workspace_commits(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<WorkspaceQuery>,
+) -> Response<Body> {
+    let rel = query.path.unwrap_or_default();
+    let resolved = match resolve_workspace_file(&state, &rel).await {
+        Ok(resolved) => resolved,
+        Err((status, message)) => return json_error(status, &message),
+    };
+    let parent = &resolved.parent;
+
+    let is_git = run_workspace_git(git_is_inside_work_tree_args(parent))
+        .await
+        .is_some_and(|output| {
+            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
+        });
+    let has_head = is_git
+        && run_workspace_git(git_verify_head_args(parent))
+            .await
+            .is_some_and(|output| output.status.success());
+
+    let default_base = if is_git && has_head {
+        first_existing_ref(parent).await
+    } else {
+        None
+    };
+    let ahead = if let Some(default_base) = default_base.as_deref() {
+        run_workspace_git(git_rev_list_count_args(parent, default_base))
+            .await
+            .filter(|output| output.status.success())
+            .and_then(|output| {
+                String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+            })
+    } else {
+        None
+    };
+
+    let mut commits = Vec::new();
+    let log_output = if is_git && has_head {
+        run_workspace_git(git_log_args(parent))
+            .await
+            .filter(|output| output.status.success())
+    } else {
+        None
+    };
+    {
+        if let Some(output) = log_output {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let mut parts = line.split('\u{1f}');
+                let (Some(sha), Some(short), Some(date), Some(subject)) =
+                    (parts.next(), parts.next(), parts.next(), parts.next())
+                else {
+                    continue;
+                };
+                if sha.is_empty() {
+                    continue;
+                }
+                commits.push(serde_json::json!({
+                    "sha": sha,
+                    "short": short,
+                    "date": date,
+                    "subject": subject,
+                }));
+            }
+        }
+    }
+
+    Json(serde_json::json!({
+        "path": rel,
+        "abs": resolved.file.to_string_lossy().into_owned(),
+        "is_git": is_git,
+        "has_head": has_head,
+        "base": default_base,
+        "ahead": ahead,
+        "commits": commits,
     }))
     .into_response()
 }
@@ -685,6 +863,40 @@ fn git_diff_base_args(dir: &Path, base: &str, name: &OsStr) -> Vec<OsString> {
     args
 }
 
+fn git_diff_ref_args(dir: &Path, reference: &str, name: &OsStr) -> Vec<OsString> {
+    let mut args = git_args(
+        dir,
+        &[
+            OsStr::new("--literal-pathspecs"),
+            OsStr::new("diff"),
+            OsStr::new("--no-ext-diff"),
+            OsStr::new("--no-color"),
+        ],
+    );
+    args.push(OsString::from(reference));
+    args.push(OsString::from("--"));
+    args.push(name.to_os_string());
+    args
+}
+
+fn git_log_args(dir: &Path) -> Vec<OsString> {
+    git_args(
+        dir,
+        &[
+            OsStr::new("log"),
+            OsStr::new("--format=%H\u{1f}%h\u{1f}%cs\u{1f}%s"),
+            OsStr::new("--max-count=20"),
+            OsStr::new("HEAD"),
+        ],
+    )
+}
+
+fn git_rev_list_count_args(dir: &Path, base: &str) -> Vec<OsString> {
+    let mut args = git_args(dir, &[OsStr::new("rev-list"), OsStr::new("--count")]);
+    args.push(OsString::from(format!("{base}..HEAD")));
+    args
+}
+
 async fn run_workspace_git(args: Vec<OsString>) -> Option<std::process::Output> {
     timeout(
         WORKSPACE_GIT_TIMEOUT,
@@ -772,6 +984,60 @@ mod workspace_tests {
                 OsString::from("origin/main...HEAD"),
                 OsString::from("--"),
                 OsString::from("note.md"),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_diff_ref_args_use_the_commit_reference() {
+        let args = git_diff_ref_args(
+            Path::new("/workspace/project"),
+            "HEAD~3",
+            OsStr::new("note.md"),
+        );
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("-C"),
+                OsString::from("/workspace/project"),
+                OsString::from("--literal-pathspecs"),
+                OsString::from("diff"),
+                OsString::from("--no-ext-diff"),
+                OsString::from("--no-color"),
+                OsString::from("HEAD~3"),
+                OsString::from("--"),
+                OsString::from("note.md"),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_log_args_request_machine_separated_commit_fields() {
+        let args = git_log_args(Path::new("/workspace/project"));
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("-C"),
+                OsString::from("/workspace/project"),
+                OsString::from("log"),
+                OsString::from("--format=%H\u{1f}%h\u{1f}%cs\u{1f}%s"),
+                OsString::from("--max-count=20"),
+                OsString::from("HEAD"),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_rev_list_count_args_range_from_the_base() {
+        let args = git_rev_list_count_args(Path::new("/workspace/project"), "origin/main");
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("-C"),
+                OsString::from("/workspace/project"),
+                OsString::from("rev-list"),
+                OsString::from("--count"),
+                OsString::from("origin/main..HEAD"),
             ]
         );
     }

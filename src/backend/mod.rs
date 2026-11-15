@@ -206,6 +206,7 @@ struct WorkspaceQuery {
     path: Option<String>,
     download: Option<String>,
     preview: Option<String>,
+    base: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -382,6 +383,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/workspace/list", get(workspace_list))
         .route("/workspace/file", get(workspace_file).put(workspace_save))
         .route("/workspace/diff", get(workspace_diff))
+        .route("/workspace/commits", get(workspace_commits))
         .route(
             "/workspace/review",
             post(workspace_review_report)

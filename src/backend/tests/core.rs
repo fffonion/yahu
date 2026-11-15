@@ -288,6 +288,7 @@
                 path: Some("sample.bin".to_string()),
                 download: None,
                 preview: Some("1".to_string()),
+                base: None,
             }),
         )
         .await;

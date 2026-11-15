@@ -670,6 +670,17 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-file-chip-remove{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;margin-right:2px;border:0;border-radius:999px;background:transparent;color:inherit;cursor:pointer}
 .review-file-chip-remove:hover{background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger)}
 .review-file-chip-remove svg,.review-exit-button svg,.review-add-comment svg,.review-copy-prompt svg{width:13px;height:13px}
+.review-range{position:relative;flex:0 0 auto}
+.review-range-trigger{display:inline-flex;align-items:center;gap:6px;max-width:230px;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);color:var(--muted);font:inherit;font-size:12px;padding:5px 10px;cursor:pointer}
+.review-range-trigger:hover{color:var(--text);border-color:color-mix(in srgb,var(--accent) 40%,var(--border))}
+.review-range-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.review-range-trigger svg{width:13px;height:13px;flex:0 0 auto}
+.review-range-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:6;display:flex;flex-direction:column;gap:2px;width:min(340px,calc(100vw - 24px));max-height:min(60vh,420px);overflow-y:auto;padding:6px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);box-shadow:0 18px 40px rgba(0,0,0,.28)}
+.review-range-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:100%;border:0;border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:12.5px;padding:7px 9px;text-align:left;cursor:pointer}
+.review-range-item:hover,.review-range-item.active{background:var(--accent-soft)}
+.review-range-item>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.review-range-item small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.review-range-sep{height:1px;margin:4px 2px;background:var(--border)}
 .review-view-toggle{display:inline-flex;flex:0 0 auto;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);overflow:hidden}
 .review-view-btn{border:0;background:transparent;color:var(--muted);font-size:12px;padding:5px 11px;cursor:pointer}
 .review-view-btn.active{background:var(--accent-soft);color:var(--accent)}
@@ -739,6 +750,10 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-file-chip{flex:0 0 auto;min-height:30px}
 .review-file-chip-open{max-width:62vw;font-size:12.5px;padding:6px 2px 6px 10px}
 .review-file-chip-remove{width:28px;height:28px}
+.review-range{flex:1 1 100%}
+.review-range-trigger{width:100%;max-width:none;justify-content:space-between;min-height:32px}
+.review-range-menu{width:100%;left:0;right:0;max-height:min(52vh,380px)}
+.review-range-item{padding:9px 10px}
 .review-view-toggle{display:none}
 .review-toolbar-actions{flex:1 1 100%;margin-left:0;gap:8px}
 .review-submit{flex:1 1 auto;justify-content:center;min-height:36px;font-size:13px;padding:8px 14px}

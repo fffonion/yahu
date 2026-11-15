@@ -24,6 +24,20 @@ describe('review pane data flow', () => {
     expect(source).toContain("(!view.hasDiff && !view.untracked && !view.base)");
   });
 
+  test('offers a compare-range menu with commits and a branch base', () => {
+    const source = pane();
+    expect(source).toContain('/workspace/commits?path=');
+    expect(source).toContain("const baseParam = rangeKey === 'auto' ? '' : `&base=${encodeURIComponent(rangeKey)}`;");
+    expect(source).toContain("type ReviewRange = 'auto' | 'branch' | `commits:${number}`;");
+    expect(source).toContain("tf('review.rangeBranch', rangeInfo?.base || 'main')");
+    expect(source).toContain("pickRange('commits:1')");
+    expect(source).toContain("pickRange('branch')");
+    expect(source).toContain('const nextKey = `commits:${index + 2}` as ReviewRange;');
+    expect(source).toContain("t('review.rangeSingle')");
+    expect(source).toContain('{commit.short} · {commit.date}');
+    expect(source).toContain('}, [path, rangeKey]);');
+  });
+
   test('reuses the shared diff parsers instead of re-implementing hunk math', () => {
     const source = pane();
     expect(source).toContain("from './reviewDiff'");

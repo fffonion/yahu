@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Plus, X } from 'lucide-react';
+import { ChevronDown, Copy, GitCompare, Plus, X } from 'lucide-react';
 import { t, tf } from './i18n';
 import { buildSplitRows, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
 import {
@@ -38,6 +38,10 @@ type DiffPayload = {
   untracked?: boolean;
   base?: string | null;
 };
+
+type CommitEntry = { sha: string; short: string; date: string; subject: string };
+type CommitsPayload = { is_git?: boolean; has_head?: boolean; base?: string | null; ahead?: number | null; commits?: CommitEntry[] };
+type ReviewRange = 'auto' | 'branch' | `commits:${number}`;
 
 type ReviewUploadPayload = {
   rel?: string;
@@ -137,7 +141,39 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   const [draft, setDraft] = useState<Draft | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle' });
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [rangeKey, setRangeKey] = useState<ReviewRange>('auto');
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [rangeInfo, setRangeInfo] = useState<CommitsPayload | null>(null);
+  const rangeRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef(0);
+
+  useEffect(() => {
+    setRangeInfo(null);
+    if (!path) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/workspace/commits?path=${encodeURIComponent(path)}`);
+        if (!res.ok) return;
+        const payload = (await res.json()) as CommitsPayload;
+        if (!cancelled) setRangeInfo(payload);
+      } catch {
+        // The commit list only powers the range menu; review still works without it.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  useEffect(() => {
+    if (!rangeOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !rangeRef.current?.contains(event.target)) setRangeOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [rangeOpen]);
 
   useEffect(() => {
     const token = requestRef.current + 1;
@@ -155,7 +191,8 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
 
     const load = async () => {
       try {
-        const res = await fetch(`/workspace/diff?path=${encodeURIComponent(path)}`);
+        const baseParam = rangeKey === 'auto' ? '' : `&base=${encodeURIComponent(rangeKey)}`;
+        const res = await fetch(`/workspace/diff?path=${encodeURIComponent(path)}${baseParam}`);
         if (token !== requestRef.current) return;
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const payload = (await res.json()) as DiffPayload;
@@ -182,7 +219,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     };
 
     void load();
-  }, [path]);
+  }, [path, rangeKey]);
 
   useEffect(() => {
     const query = window.matchMedia(COMPACT_QUERY);
@@ -195,6 +232,17 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
   const lines = useMemo<ReviewLine[]>(() => (view.status === 'ready' ? view.lines : []), [view]);
   const splitRows = useMemo(() => buildSplitRows(lines), [lines]);
   const effectiveMode: ReviewMode = narrow ? 'unified' : mode;
+
+  const rangeCommits = rangeInfo?.commits ?? [];
+  const rangeLabel = rangeKey === 'branch'
+    ? tf('review.rangeBranch', rangeInfo?.base || 'main')
+    : rangeKey === 'auto'
+      ? t('review.rangeHead')
+      : `HEAD~${rangeKey.split(':')[1]}`;
+  const pickRange = (next: ReviewRange) => {
+    setRangeOpen(false);
+    setRangeKey(next);
+  };
 
   const commentCount = review ? review.comments.length : 0;
   const fileComments = useMemo(() => (review ? commentsFor(review, path) : []), [review, path]);
@@ -479,6 +527,46 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
               ))}
             </div>
           ) : null}
+          <div className="review-range" ref={rangeRef}>
+            <button
+              type="button"
+              className="review-range-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={rangeOpen}
+              title={t('review.range')}
+              onClick={() => setRangeOpen((open) => !open)}
+            >
+              <GitCompare aria-hidden="true" />
+              <span>{rangeLabel}</span>
+              <ChevronDown aria-hidden="true" />
+            </button>
+            {rangeOpen && (
+              <div className="review-range-menu" role="listbox" aria-label={t('review.range')}>
+                {rangeCommits.length > 0 ? (
+                  <button type="button" className={`review-range-item${rangeKey === 'commits:1' ? ' active' : ''}`} role="option" aria-selected={rangeKey === 'commits:1'} onClick={() => pickRange('commits:1')}>
+                    <span>{t('review.rangeSingle')}</span>
+                    <small>{rangeCommits[0].subject} · {rangeCommits[0].short} · {rangeCommits[0].date}</small>
+                  </button>
+                ) : null}
+                {rangeInfo?.base ? (
+                  <button type="button" className={`review-range-item${rangeKey === 'branch' ? ' active' : ''}`} role="option" aria-selected={rangeKey === 'branch'} onClick={() => pickRange('branch')}>
+                    <span>{tf('review.rangeBranch', rangeInfo.base)}</span>
+                    <small>{typeof rangeInfo.ahead === 'number' ? tf('review.rangeAhead', rangeInfo.ahead) : ''}</small>
+                  </button>
+                ) : null}
+                {rangeCommits.length > 1 ? <div className="review-range-sep" role="presentation" /> : null}
+                {rangeCommits.slice(1).map((commit, index) => {
+                  const nextKey = `commits:${index + 2}` as ReviewRange;
+                  return (
+                    <button type="button" key={commit.sha} className={`review-range-item${rangeKey === nextKey ? ' active' : ''}`} role="option" aria-selected={rangeKey === nextKey} onClick={() => pickRange(nextKey)}>
+                      <span>{commit.subject}</span>
+                      <small>{commit.short} · {commit.date}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <div className="review-view-toggle" role="group" aria-label={t('workspace.review')}>
             <button
               type="button"
