@@ -76,6 +76,16 @@ export function providerUsagePercent(value: string | null | undefined): number |
   return Number.isFinite(used) && Number.isFinite(limit) && limit > 0 ? Math.max(0, Math.min(100, used / limit * 100)) : null;
 }
 
+export function orderWorkbuddyQuotaWindows(provider: string, windows: ProviderUsageWindow[]): ProviderUsageWindow[] {
+  if (provider !== 'workbuddy') return windows;
+  const available: ProviderUsageWindow[] = [];
+  const exhausted: ProviderUsageWindow[] = [];
+  for (const window of windows) {
+    ((providerUsagePercent(window.used) ?? -1) >= 100 ? exhausted : available).push(window);
+  }
+  return [...available, ...exhausted];
+}
+
 export function opencodeVisibleQuotaWindows(windows: ProviderUsageWindow[]): ProviderUsageWindow[] {
   const period = (window: ProviderUsageWindow) => window.window.match(/(?:^| )(5h额度|周额度|月额度)$/)?.[1];
   const five = windows.find(window => period(window) === '5h额度');

@@ -54,7 +54,7 @@ describe('provider usage view', () => {
     expect(source).toContain("...(minimaxDaily ? [tf('usage.today', `${minimaxDaily} token`)] : []),");
     expect(source).toContain("section.provider === 'minimax' ? minimaxUsageRows(section.rows) : orderNewApiUsageRows(section.provider, section.rows)");
     expect(source).toContain("const quotaWindows = section.windows.filter((win) => !win.window.includes('今日'));");
-    expect(source).toContain("(section.provider === 'opencode' ? opencodeVisibleQuotaWindows(quotaWindows) : quotaWindows).map(renderWindow)");
+    expect(source).toContain("orderWorkbuddyQuotaWindows(section.provider, section.provider === 'opencode' ? opencodeVisibleQuotaWindows(quotaWindows) : quotaWindows).map(renderWindow)");
   });
 
   test('empty subtitles reserve the same line box without placeholder copy', () => {
@@ -464,6 +464,25 @@ describe('provider usage view', () => {
     expect(source).not.toContain("t('usage.noData')");
     expect(source).not.toContain("t('usage.noWindowData')");
     expect(backendRoutes()).toContain('.route("/provider-usage", get(provider_usage_handler))');
+  });
+
+  test('WorkBuddy places exhausted credit-pack cards after available packs in both layouts', () => {
+    const packs = [
+      { window: '个人体验版', used: '500 / 500', reset: '明天' },
+      { window: '个人版拉新权益包', used: '763.32 / 1500', reset: '后天' },
+      { window: '个人版国内运营裂变包', used: '0 / 100', reset: '下周' },
+      { window: '未知权益包', used: null, reset: '-' },
+      { window: '恰好未满', used: '99.99%', reset: '-' },
+      { window: '另一张已用完', used: '100%', reset: '-' },
+    ];
+    expect(providerUsageModule.orderWorkbuddyQuotaWindows('workbuddy', packs).map((win) => win.window)).toEqual([
+      '个人版拉新权益包', '个人版国内运营裂变包', '未知权益包', '恰好未满', '个人体验版', '另一张已用完',
+    ]);
+    expect(packs[0]?.window).toBe('个人体验版');
+    expect(providerUsageModule.orderWorkbuddyQuotaWindows('codex', packs)).toBe(packs);
+    const source = app();
+    expect(source).toContain("orderWorkbuddyQuotaWindows(section.provider, visibleWindows).map(renderWindow)");
+    expect(source).toContain("orderWorkbuddyQuotaWindows(section.provider, section.provider === 'opencode' ? opencodeVisibleQuotaWindows(quotaWindows) : quotaWindows).map(renderWindow)");
   });
 
   test('WorkBuddy credit packs group per account and drive the progress bar', () => {
