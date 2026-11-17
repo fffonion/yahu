@@ -667,6 +667,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-file-chip{display:inline-flex;align-items:center;min-width:0;max-width:100%;border:1px solid var(--border);border-radius:999px;background:var(--surface-2);color:var(--muted);overflow:hidden}
 .review-file-chip.active{border-color:color-mix(in srgb,var(--accent) 55%,var(--border));background:var(--accent-soft);color:var(--text)}
 .review-file-chip-open{min-width:0;max-width:min(46vw,320px);border:0;background:transparent;color:inherit;font:inherit;font-size:12px;padding:4px 2px 4px 10px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.review-file-name{display:none}
 .review-file-chip-remove{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;margin-right:2px;border:0;border-radius:999px;background:transparent;color:inherit;cursor:pointer}
 .review-file-chip-remove:hover{background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger)}
 .review-file-chip-remove svg,.review-exit-button svg,.review-add-comment svg,.review-copy-prompt svg{width:13px;height:13px}
@@ -748,19 +749,27 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-code-cell.unified{padding-inline-end:16px}
 .review-submit-result-label{color:var(--muted);font-weight:600}
 @media (max-width:760px){
-.review-toolbar{flex-wrap:wrap;gap:8px;padding:8px 10px}
-.review-file-chips{flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;padding-bottom:2px;scrollbar-width:thin}
-.review-file-chip{flex:0 0 auto;min-height:30px}
-.review-file-chip-open{max-width:62vw;font-size:12.5px;padding:6px 2px 6px 10px}
-.review-file-chip-remove{width:28px;height:28px}
-.review-range{flex:1 1 100%}
-.review-range-trigger{width:100%;max-width:none;justify-content:space-between;min-height:32px}
-.review-range-menu{width:100%;left:0;right:0;max-height:min(52vh,380px)}
+.workspace-editor-preview.is-review{grid-template-rows:minmax(0,1fr)}
+.workspace-editor-preview.is-review .preview-head{display:none}
+.review-head{gap:0}
+.review-toolbar{flex-wrap:nowrap;gap:4px;padding:4px 8px}
+.review-file-chips{flex:1 1 0;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+.review-file-chips::-webkit-scrollbar{display:none}
+.review-file-chip{flex:0 0 auto;min-height:28px;max-width:100%}
+.review-file-chip-open{max-width:calc(100% - 24px);font-size:12px;padding:3px 2px 3px 8px}
+.review-file-path{display:none}
+.review-file-name{display:inline}
+.review-file-chip-remove{width:24px;height:24px}
+.review-range{position:static;flex:0 0 30px}
+.review-range-trigger{width:30px;height:30px;max-width:none;justify-content:center;padding:0}
+.review-range-trigger>span,.review-range-trigger svg:last-child{display:none}
+.review-range-menu{position:absolute;top:calc(100% + 4px);left:8px;right:8px;width:auto;max-height:min(52vh,380px)}
 .review-range-item{padding:9px 10px}
 .review-view-toggle{display:none}
-.review-toolbar-actions{flex:1 1 100%;margin-left:0;gap:8px}
-.review-submit{flex:1 1 auto;justify-content:center;min-height:36px;font-size:13px;padding:8px 14px}
-.review-exit-button{width:36px;height:36px;flex:0 0 36px;border-radius:12px;border-color:transparent;background:transparent}
+.review-toolbar-actions{flex:0 0 auto;margin-left:0;gap:4px}
+.review-submit{flex:0 0 auto;justify-content:center;min-height:30px;font-size:12px;padding:4px 7px;gap:3px}
+.review-exit-button{width:30px;height:30px;flex:0 0 30px;border-radius:10px;border-color:transparent;background:transparent}
+.review-notice{flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;padding:3px 8px}
 .review-split-table{display:none}
 .review-diff-body{padding:8px;overflow-x:auto;overscroll-behavior-x:contain;-webkit-mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 14px),transparent 100%);mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 14px),transparent 100%)}
 .review-diff-table{table-layout:auto;width:max-content;min-width:100%}

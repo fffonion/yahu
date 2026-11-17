@@ -553,9 +553,11 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
                     type="button"
                     className="review-file-chip-open"
                     aria-pressed={file === path}
+                    title={file}
                     onClick={() => onSelectFile(file)}
                   >
-                    {file}
+                    <span className="review-file-path">{file}</span>
+                    <span className="review-file-name">{file.split('/').slice(-2).join('/')}</span>
                   </button>
                   <button
                     type="button"
@@ -573,9 +575,10 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
             <button
               type="button"
               className="review-range-trigger"
+              aria-label={t('review.range')}
               aria-haspopup="listbox"
               aria-expanded={rangeOpen}
-              title={t('review.range')}
+              title={rangeLabel}
               onClick={() => setRangeOpen((open) => !open)}
             >
               <GitCompare aria-hidden="true" />
