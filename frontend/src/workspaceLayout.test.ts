@@ -42,6 +42,14 @@ describe('workspace page file tree layout', () => {
     expect(component.indexOf("aria-label={t('workspace.copyContent')}")).toBeLessThan(component.indexOf("aria-label={t('workspace.cancelEdit')}"));
   });
 
+  test('Cap’n Proto files enter the text preview path, including when attached', () => {
+    const source = app();
+    expect(source.match(/const isWorkspaceTextFile = .*\|capnp\)/)?.[0]).toBeDefined();
+    expect(source.match(/const isText = .*\|capnp\)/)?.[0]).toBeDefined();
+    expect(source).toContain("blob.type.startsWith('text/') || isWorkspaceTextFile(entry.name)");
+    expect(source).toContain("highlightSourceText(preview.content || '', preview.path)");
+  });
+
   test('binary files render a capped read-only hex and ASCII preview', () => {
     const source = app();
     const styles = css();

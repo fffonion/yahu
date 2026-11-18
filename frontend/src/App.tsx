@@ -280,7 +280,7 @@ function FullscreenToolbarButton() {
   return <button type="button" className="icon-btn fullscreen-toolbar-button" aria-label={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} title={isFullscreen ? t('chat.exitFullscreen') : t('chat.enterFullscreen')} onClick={toggleFullscreen}>{isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}</button>;
 }
 
-const isWorkspaceTextFile = (name: string) => /\.(md|txt|json|ya?ml|toml|csv|ts|tsx|js|jsx|py|rs|go|sh|css|html|lock)$/i.test(name) || /^(Makefile|Dockerfile|\.gitignore|\.dockerignore|\.env|\.npmrc|\.prettierrc|\.eslintrc)$/i.test(name);
+const isWorkspaceTextFile = (name: string) => /\.(md|txt|json|ya?ml|toml|csv|ts|tsx|js|jsx|py|rs|go|sh|css|html|lock|capnp)$/i.test(name) || /^(Makefile|Dockerfile|\.gitignore|\.dockerignore|\.env|\.npmrc|\.prettierrc|\.eslintrc)$/i.test(name);
 const jobId = (job: Job) => job.job_id || job.id || '';
 const jobSchedule = (schedule: Job['schedule']) => typeof schedule === 'string' ? schedule : (schedule?.display || schedule?.expr || t('cron.noSchedule'));
 const jobState = (job: Job) => job.status || (job.paused || job.enabled === false ? 'paused' : 'active');
@@ -327,7 +327,7 @@ async function readFileAttachment(file: File): Promise<Attachment> {
   if (file.type.startsWith('image/')) {
     return { id, name: file.name, kind: 'image', mime: file.type, size: file.size, dataUrl };
   }
-  const isText = file.type.startsWith('text/') || /\.(md|txt|json|ya?ml|toml|csv|ts|tsx|js|jsx|py|rs|go|sh|css|html)$/i.test(file.name);
+  const isText = file.type.startsWith('text/') || /\.(md|txt|json|ya?ml|toml|csv|ts|tsx|js|jsx|py|rs|go|sh|css|html|capnp)$/i.test(file.name);
   if (isText && file.size <= 256 * 1024) return { id, name: file.name, kind: 'text', mime: file.type || 'text/plain', size: file.size, dataUrl, text: await file.text() };
   return { id, name: file.name, kind: 'binary', mime: file.type || 'application/octet-stream', size: file.size, dataUrl };
 }

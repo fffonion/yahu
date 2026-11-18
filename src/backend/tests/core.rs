@@ -303,6 +303,31 @@
         assert_eq!(truncated, "1");
     }
 
+    #[tokio::test]
+    async fn workspace_capnp_preview_is_complete_text() {
+        let temp = tempfile::tempdir().unwrap();
+        let content = format!("@0xdeadbeef;\nstruct Record {{ name @0 :Text; }}\n{}", "# schema\n".repeat(130_000));
+        std::fs::write(temp.path().join("schema.capnp"), &content).unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".to_string(), temp.path()));
+
+        let response = workspace_file(
+            State(state),
+            Query(WorkspaceQuery {
+                path: Some("schema.capnp".to_string()),
+                download: None,
+                preview: Some("1".to_string()),
+                base: None,
+                skip: None,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/plain; charset=utf-8");
+        assert_eq!(response.headers()["x-yahu-preview-truncated"], "0");
+        let body = to_bytes(response.into_body(), content.len() + 1).await.unwrap();
+        assert_eq!(body.as_ref(), content.as_bytes());
+    }
+
     #[test]
     fn workspace_destination_keeps_rename_inside_parent_directory() {
         let root = std::env::temp_dir().join(format!(

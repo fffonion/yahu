@@ -118,10 +118,15 @@ async fn workspace_file(
         return json_error(StatusCode::BAD_REQUEST, "path is not a file");
     }
     let mime = mime_guess::from_path(&file).first_or_octet_stream();
-    let mime_name = mime.as_ref();
+    let is_text_path = workspace_path_is_text(&file);
+    let mime_name = if is_text_path && mime.as_ref() == "application/octet-stream" {
+        "text/plain; charset=utf-8"
+    } else {
+        mime.as_ref()
+    };
     let full_preview = mime_name.starts_with("text/")
         || mime_name.starts_with("image/")
-        || workspace_path_is_text(&file);
+        || is_text_path;
     let limit_binary_preview = query.preview.as_deref() == Some("1")
         && query.download.as_deref() != Some("1")
         && !full_preview;
@@ -152,7 +157,7 @@ async fn workspace_file(
         .unwrap_or("download");
     let mut builder = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime.as_ref());
+        .header(header::CONTENT_TYPE, mime_name);
     if query.preview.as_deref() == Some("1") {
         builder = builder
             .header("x-yahu-file-size", meta.len().to_string())
@@ -466,6 +471,7 @@ fn workspace_path_is_text(path: &Path) -> bool {
                 extension.to_ascii_lowercase().as_str(),
                 "md" | "txt" | "json" | "yaml" | "yml" | "toml" | "csv" | "ts" | "tsx"
                     | "js" | "jsx" | "py" | "rs" | "go" | "sh" | "css" | "html" | "lock"
+                    | "capnp"
             )
         })
         .unwrap_or_else(|| {

@@ -6,6 +6,7 @@ export function languageForFilePath(filePath?: string) {
   const ext = (filePath || '').split('.').pop()?.toLowerCase();
   switch (ext) {
     case 'rs': return 'rust';
+    case 'capnp': return 'capnp';
     case 'py': return 'python';
     case 'ts': case 'tsx': case 'js': case 'jsx': return 'javascript';
     case 'css': return 'css';
@@ -26,6 +27,7 @@ export function languageForFilePath(filePath?: string) {
 }
 
 const patterns: Record<string, RegExp> = {
+  capnp: /#[^\n]*|"(?:[^"\\]|\\.)*"|@0x[0-9a-fA-F]+|@\d+|\b(?:using|import|struct|enum|interface|const|annotation|union|group|extends|in|of|on|as|Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|Float64|Text|Data|List|AnyPointer)\b|\b\d+(?:\.\d+)?\b/g,
   rust: /\/\/[^\n]*|\/\/!.*|"(?:[^"\\]|\\.)*"|r#"(?:[^"]|"(?!\n#))*"#|r"(?:[^"]|"(?!\n))*"|'(?:[^'\\]|\\.)'|b'(?:[^'\\])'|\b(?:fn|let|mut|pub|struct|impl|trait|enum|match|if|else|for|while|loop|return|use|mod|const|static|type|where|as|in|ref|move|unsafe|extern|crate|self|super|true|false|Some|None|Ok|Err)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:_?\d+)*(?:[uUiIfF](?:8|16|32|64|128|size)?)?\b/g,
   python: /#[^\n]*|"""["\n]*?"""|'''['\n]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:def|class|import|from|return|if|elif|else|for|while|try|except|finally|raise|with|as|in|is|not|and|or|lambda|yield|async|await|pass|break|continue|True|False|None)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g,
   javascript: /\/\/[^\n]*|\/\*[\s\S]*?\*\/|`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:const|let|var|function|return|async|await|import|export|from|type|interface|if|else|for|while|class|extends|new|true|false|null|undefined|try|catch|throw|switch|case|default|break|continue|of|in|typeof)\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g,
@@ -78,7 +80,7 @@ export function highlightSourceText(text: string, filePath?: string) {
     } else {
       if (part.startsWith('//') || part.startsWith('/*') || part.startsWith('#') || part.startsWith('--') || part.startsWith('<!--')) cls = 'tok-comment';
       else if (part.startsWith('"') || part.startsWith("'") || part.startsWith('`') || part.startsWith('r"') || part.startsWith('r#"') || part.startsWith('b\'')) cls = 'tok-string';
-      else if (/^\d/.test(part)) cls = 'tok-number';
+      else if (part.startsWith('@') || /^\d/.test(part)) cls = 'tok-number';
       else cls = 'tok-keyword';
     }
     out += `<span class="${cls}">${escapeHighlightedHtml(part)}</span>`;
