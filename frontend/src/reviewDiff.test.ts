@@ -29,7 +29,11 @@ describe('review diff helpers', () => {
       '\\ No newline at end of file',
     ].join('\n');
 
-    const lines = parseUnifiedDiff(diff, 'fallback.ts');
+    const { lines, counts } = parseUnifiedDiff(diff, 'fallback.ts');
+    expect(counts).toEqual({ added: 5, removed: 2 });
+    expect(lines.map((line) => line.text)).not.toContain('index 1111111..2222222 100644');
+    expect(lines[0]?.text).toBe('@@ -1,4 +1,5 @@ first hunk');
+    expect(lines.some(({ text }) => /^(?:diff --git |--- |\+\+\+ )/.test(text))).toBe(false);
     const removed = lines.filter((line) => line.kind === 'remove');
     const added = lines.filter((line) => line.kind === 'add');
     const context = lines.filter((line) => line.kind === 'context');
@@ -52,7 +56,24 @@ describe('review diff helpers', () => {
       { oldLine: 11, newLine: 12, text: 'same' },
     ]);
     expect(noNewline).toHaveLength(2);
-    expect(lines.filter((line) => ['file', 'meta', 'hunk'].includes(line.kind)).every((line) => line.oldLine === undefined && line.newLine === undefined)).toBe(true);
+    expect(lines.filter((line) => ['meta', 'hunk'].includes(line.kind)).every((line) => line.oldLine === undefined && line.newLine === undefined)).toBe(true);
+  });
+
+  test('counts source lines that resemble file headers and keeps the no-newline marker', () => {
+    const { lines, counts } = parseUnifiedDiff([
+      '--- a/example.txt',
+      '+++ b/example.txt',
+      '@@ -1 +1,2 @@',
+      '--- old text',
+      '+++ new text',
+      '+index text',
+      '\\ No newline at end of file',
+    ].join('\n'), 'example.txt');
+
+    expect(counts).toEqual({ added: 2, removed: 1 });
+    expect(lines.map((line) => line.text)).toEqual([
+      '@@ -1 +1,2 @@', '-- old text', '++ new text', 'index text', '\\ No newline at end of file',
+    ]);
   });
 
   test('pairs remove and add runs in order and leaves unmatched additions on the right', () => {
@@ -100,7 +121,7 @@ describe('review diff helpers', () => {
       ' kept19',
       '-last21',
     ].join('\n');
-    const lines = parseUnifiedDiff(diff, 'demo.ts');
+    const { lines } = parseUnifiedDiff(diff, 'demo.ts');
     const anchors = newLineAnchors(lines);
     const source = lines.filter((line) => line.kind === 'context' || line.kind === 'add' || line.kind === 'remove');
     expect(source.map((line) => anchors.get(line))).toEqual([5, 6, 6, 6, 7, 8, 9, 19, 19]);

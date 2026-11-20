@@ -72,7 +72,7 @@ describe('workspace review wiring', () => {
     const text = app();
     const preview = slice(text, 'function WorkspaceEditorPreview', 'type WorkspaceBrowserProps');
     expect(preview.includes("if (review?.active && preview.kind === 'text' && !editMode)")).toBe(true);
-    const tabs = slice(preview, 'className="preview-head review-file-tabs"', '<ReviewPane');
+    const tabs = slice(preview, 'className="review-file-tabs"', '</section>');
     expect(tabs.includes('{basename(file)}')).toBe(true);
     expect(tabs.includes('onSelectReviewFile?.(file)')).toBe(true);
     expect(tabs.includes('onRemoveReviewFile?.(file)')).toBe(true);

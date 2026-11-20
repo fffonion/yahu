@@ -1,13 +1,16 @@
 import { escapeHighlightedHtml, highlightSourceText } from './syntaxHighlight';
 
-export type ReviewLineKind = 'file' | 'hunk' | 'meta' | 'add' | 'remove' | 'context';
+export type ReviewLineKind = 'hunk' | 'meta' | 'add' | 'remove' | 'context';
 export type ReviewLine = { kind: ReviewLineKind; oldLine?: number; newLine?: number; text: string; html: string; path: string };
 
-export function parseUnifiedDiff(diff: string, fallbackPath: string): ReviewLine[] {
+export type ReviewDiffCounts = { added: number; removed: number };
+
+export function parseUnifiedDiff(diff: string, fallbackPath: string): { lines: ReviewLine[]; counts: ReviewDiffCounts } {
   const lines = diff.split(/\r?\n/);
   if (lines[lines.length - 1] === '') lines.pop();
 
   const result: ReviewLine[] = [];
+  const counts: ReviewDiffCounts = { added: 0, removed: 0 };
   let currentPath = fallbackPath;
   let inHunk = false;
   let oldLine = 0;
@@ -15,10 +18,12 @@ export function parseUnifiedDiff(diff: string, fallbackPath: string): ReviewLine
   let oldRemaining = 0;
   let newRemaining = 0;
 
-  const pushRaw = (kind: 'file' | 'hunk' | 'meta', text: string) => {
+  const pushRaw = (kind: 'hunk' | 'meta', text: string) => {
     result.push({ kind, text, html: escapeHighlightedHtml(text), path: currentPath });
   };
   const pushSource = (kind: 'add' | 'remove' | 'context', text: string, oldNumber?: number, newNumber?: number) => {
+    if (kind === 'add') counts.added += 1;
+    if (kind === 'remove') counts.removed += 1;
     result.push({ kind, oldLine: oldNumber, newLine: newNumber, text, html: highlightSourceText(text, currentPath), path: currentPath });
   };
   const finishHunkLine = () => {
@@ -31,7 +36,6 @@ export function parseUnifiedDiff(diff: string, fallbackPath: string): ReviewLine
       const destination = fileHeader[2]?.trim().replace(/^"|"$/g, '') ?? '';
       if (destination && destination !== '/dev/null') currentPath = destination.replace(/^b\//, '');
       inHunk = false;
-      pushRaw('file', line);
       continue;
     }
 
@@ -77,24 +81,19 @@ export function parseUnifiedDiff(diff: string, fallbackPath: string): ReviewLine
     if (/^---\s/.test(line)) {
       const oldPath = line.slice(4).split('\t', 1)[0]?.trim() ?? '';
       if (!currentPath && oldPath !== '/dev/null') currentPath = oldPath.replace(/^a\//, '').replace(/^"|"$/g, '');
-      pushRaw('file', line);
       continue;
     }
     if (/^\+\+\+\s/.test(line)) {
       const newPath = line.slice(4).split('\t', 1)[0]?.trim() ?? '';
       if (newPath && newPath !== '/dev/null') currentPath = newPath.replace(/^b\//, '').replace(/^"|"$/g, '');
-      pushRaw('file', line);
       continue;
     }
-    if (/^(?:index |new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to |Binary files |GIT binary patch|literal |delta )/.test(line) || line === '\\ No newline at end of file') {
-      pushRaw('meta', line);
-      continue;
-    }
+    if (line.startsWith('index ')) continue;
 
     pushRaw('meta', line);
   }
 
-  return result;
+  return { lines: result, counts };
 }
 
 export function newLineAnchors(lines: ReviewLine[]): Map<ReviewLine, number> {
@@ -103,16 +102,16 @@ export function newLineAnchors(lines: ReviewLine[]): Map<ReviewLine, number> {
   let next: number | undefined;
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index]!;
-    if (line.kind === 'file' || line.kind === 'hunk') next = undefined;
+    if (line.kind === 'hunk') next = undefined;
     else if (line.newLine !== undefined) next = line.newLine;
     else if (line.kind === 'remove' && next !== undefined) nextNew.set(line, next);
   }
   let previous: number | undefined;
   let hunkStart = 1;
   for (const line of lines) {
-    if (line.kind === 'file' || line.kind === 'hunk') {
+    if (line.kind === 'hunk') {
       previous = undefined;
-      if (line.kind === 'hunk') hunkStart = Math.max(1, Number(line.text.match(/\+(\d+)/)?.[1] ?? 1));
+      hunkStart = Math.max(1, Number(line.text.match(/\+(\d+)/)?.[1] ?? 1));
     } else if (line.newLine !== undefined) {
       previous = line.newLine;
       anchors.set(line, line.newLine);

@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, Columns2, Copy, GitCompare, Plus, Rows2, Send, X } from 'lucide-react';
 import { t, tf } from './i18n';
-import { buildSplitRows, newLineAnchors, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
+import { buildSplitRows, newLineAnchors, numberedFileLines, parseUnifiedDiff, type ReviewDiffCounts, type ReviewLine } from './reviewDiff';
 import {
   addComment,
   addFile,
@@ -18,6 +18,7 @@ import { buildReviewReport, reviewFileName, reviewReportPrompt } from './reviewR
 
 export type ReviewPaneProps = {
   path: string;
+  fileTabs: ReactNode;
   onExit: () => void;
   onSubmitted?: (abs: string) => void;
   onFilesChanged?: (files: string[]) => void;
@@ -50,7 +51,7 @@ type PaneView =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; path: string; repoPath: string | null; lines: ReviewLine[]; hasDiff: boolean; truncated: boolean; untracked: boolean; base: string | null };
+  | { status: 'ready'; path: string; repoPath: string | null; lines: ReviewLine[]; counts: ReviewDiffCounts | null; truncated: boolean; untracked: boolean; base: string | null };
 
 type SubmitState =
   | { status: 'idle' }
@@ -124,7 +125,7 @@ function CommentEditor({ initialBody, onCommit, onCancel }: { initialBody: strin
   );
 }
 
-export function ReviewPane({ path, onExit, onSubmitted, onFilesChanged }: ReviewPaneProps) {
+export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged }: ReviewPaneProps) {
   const [view, setView] = useState<PaneView>({ status: 'loading' });
   const [mode, setMode] = useState<ReviewMode>('unified');
   const [review, setReview] = useState<ReviewState | null>(() => loadReview(window.sessionStorage));
@@ -201,7 +202,7 @@ export function ReviewPane({ path, onExit, onSubmitted, onFilesChanged }: Review
         const repoPath = payload.repo_path ?? null;
         const diffText = typeof payload.diff === 'string' ? payload.diff : '';
         if (diffText.trim().length > 0) {
-          setView({ status: 'ready', path, repoPath, lines: parseUnifiedDiff(diffText, path), hasDiff: true, truncated: Boolean(payload.truncated), untracked: false, base: typeof payload.base === 'string' ? payload.base : null });
+          setView({ status: 'ready', path, repoPath, ...parseUnifiedDiff(diffText, path), truncated: Boolean(payload.truncated), untracked: false, base: typeof payload.base === 'string' ? payload.base : null });
           return;
         }
         const fileRes = await fetch(`/workspace/file?path=${encodeURIComponent(path)}`);
@@ -209,7 +210,7 @@ export function ReviewPane({ path, onExit, onSubmitted, onFilesChanged }: Review
         if (!fileRes.ok) throw new Error(`${fileRes.status} ${fileRes.statusText}`);
         const content = await fileRes.text();
         if (token !== requestRef.current) return;
-        setView({ status: 'ready', path, repoPath, lines: numberedFileLines(content, path), hasDiff: false, truncated: false, untracked: Boolean(payload.untracked), base: typeof payload.base === 'string' ? payload.base : null });
+        setView({ status: 'ready', path, repoPath, lines: numberedFileLines(content, path), counts: null, truncated: false, untracked: Boolean(payload.untracked), base: typeof payload.base === 'string' ? payload.base : null });
       } catch (error) {
         if (token !== requestRef.current) return;
         setView({ status: 'error', message: statusText(error) });
@@ -455,7 +456,7 @@ export function ReviewPane({ path, onExit, onSubmitted, onFilesChanged }: Review
     <table className="review-diff-table review-unified-table">
       <tbody>
         {lines.map((line, index) => {
-          if (line.kind === 'file' || line.kind === 'hunk' || line.kind === 'meta') {
+          if (line.kind === 'hunk' || line.kind === 'meta') {
             return rawRow(line, `raw-${index}`, 3);
           }
           const newNumber = newAnchors.get(line);
@@ -491,7 +492,7 @@ export function ReviewPane({ path, onExit, onSubmitted, onFilesChanged }: Review
         {splitRows.map((row) => {
           const left = row.left;
           const right = row.right;
-          if (left && (left.kind === 'file' || left.kind === 'hunk' || left.kind === 'meta')) {
+          if (left && (left.kind === 'hunk' || left.kind === 'meta')) {
             return rawRow(left, `raw-${row.index}`, 6);
           }
           const newNumber = newAnchors.get(right ?? left!);
@@ -520,16 +521,27 @@ export function ReviewPane({ path, onExit, onSubmitted, onFilesChanged }: Review
   );
 
   const displayPath = (view.status === 'ready' && view.path === path ? view.repoPath : null) ?? path.replace(/^@\d+\//, '');
+  const counts = view.status === 'ready' && view.path === path ? view.counts : null;
   const notices: string[] = [];
   if (view.status === 'ready') {
     if (view.untracked) notices.push(t('review.untracked'));
-    if (!view.hasDiff && view.base) notices.push(tf('review.noChangesInRange', view.base));
-    if (!view.hasDiff && !view.untracked && !view.base) notices.push(t('review.noDiff'));
+    if (!view.counts && view.base) notices.push(tf('review.noChangesInRange', view.base));
+    if (!view.counts && !view.untracked && !view.base) notices.push(t('review.noDiff'));
     if (view.truncated) notices.push(t('review.truncated'));
   }
 
   return (
     <div className="review-pane" data-review-path={path}>
+      <div className="preview-head review-file-header">
+        {fileTabs}
+        {counts ? (
+          <span className="review-diff-counts">
+            <span className="review-diff-added">+{counts.added}</span>
+            <span aria-hidden="true">/</span>
+            <span className="review-diff-removed">−{counts.removed}</span>
+          </span>
+        ) : null}
+      </div>
       <div className="review-head">
         <div className="review-toolbar">
           <span className="review-repo-path" title={displayPath}>{displayPath}</span>

@@ -4918,15 +4918,16 @@ function WorkspaceEditorPreview({ preview, setPreview, emptyIcon, emptyTitle, em
     : <div className="workspace-text-preview">{textPreview}</div>;
   if (review?.active && preview.kind === 'text' && !editMode) {
     return <section className="workspace-editor-preview is-review">
-      <div className="preview-head review-file-tabs" role="group" aria-label={t('review.files')}>
-        {review.files.map((file) => (
-          <div className={`review-file-tab${file === preview.path ? ' active' : ''}`} key={file}>
-            <button type="button" className="review-file-tab-open" aria-pressed={file === preview.path} title={file} onClick={() => onSelectReviewFile?.(file)}>{basename(file)}</button>
-            <button type="button" className="review-file-tab-close" aria-label={`${t('workspace.closePreview')}: ${file}`} onClick={() => onRemoveReviewFile?.(file)}><X aria-hidden="true" /></button>
-          </div>
-        ))}
-      </div>
-      <ReviewPane path={preview.path} onExit={() => onExitReview?.()} onSubmitted={onSubmittedReview} onFilesChanged={onReviewFilesChanged} />
+      <ReviewPane path={preview.path} onExit={() => onExitReview?.()} onSubmitted={onSubmittedReview} onFilesChanged={onReviewFilesChanged} fileTabs={
+        <div className="review-file-tabs" role="group" aria-label={t('review.files')}>
+          {review.files.map((file) => (
+            <div className={`review-file-tab${file === preview.path ? ' active' : ''}`} key={file}>
+              <button type="button" className="review-file-tab-open" aria-pressed={file === preview.path} title={file} onClick={() => onSelectReviewFile?.(file)}>{basename(file)}</button>
+              <button type="button" className="review-file-tab-close" aria-label={`${t('workspace.closePreview')}: ${file}`} onClick={() => onRemoveReviewFile?.(file)}><X aria-hidden="true" /></button>
+            </div>
+          ))}
+        </div>
+      } />
     </section>;
   }
   return <section className="workspace-editor-preview"><div className="preview-head"><span>{basename(preview.path)}</span><div className="preview-head-actions">{!readOnly && !editMode && preview.kind === 'text' && !review?.active && <><button className="icon-btn workspace-review-toggle" aria-label={t('workspace.review')} title={t('workspace.review')} onClick={() => onToggleReview?.(preview.path)}><MessageSquare /></button><button className="icon-btn" aria-label={t('workspace.edit')} onClick={startEdit}><Pencil /></button></>}{editMode && <><button className="icon-btn" disabled={saving} onClick={saveEdit}><Save /></button><button className="icon-btn" aria-label={t('workspace.copyContent')} title={t('workspace.copyContent')} onClick={copyEditContent}><Copy /></button><button className="icon-btn" aria-label={t('workspace.cancelEdit')} onClick={cancelEdit}><X /></button></>}{!editMode && <button className="icon-btn" aria-label={t('workspace.closePreview')} onClick={() => { if (review?.active) onExitReview?.(); setPreview({ path: '', content: '', kind: 'none' }); }}><X /></button>}{toolbarExtra}</div></div>{preview.kind === 'image' ? <div className="workspace-image-preview"><img src={preview.url} /></div> : editMode ? <div className="workspace-editor-overlay"><pre className="workspace-code-highlight workspace-editor-highlight" aria-hidden="true" dangerouslySetInnerHTML={{ __html: highlightSourceText(editContent || '', preview.path) + '\n' }} /><textarea className="workspace-editor-textarea" value={editContent} onChange={(e) => setEditContent(e.target.value)} spellCheck={false} onScroll={(e) => { const pre = e.currentTarget.previousElementSibling as HTMLElement; if (pre) { pre.scrollTop = e.currentTarget.scrollTop; pre.scrollLeft = e.currentTarget.scrollLeft; } }} /></div> : readOnlyPreview}</section>;

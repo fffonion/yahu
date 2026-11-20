@@ -21,8 +21,8 @@ describe('review pane data flow', () => {
     expect(source).toContain('untracked: Boolean(payload.untracked)');
     expect(source).toContain("if (view.untracked) notices.push(t('review.untracked'));");
     expect(source.includes("'review.baseDiff'")).toBe(false);
-    expect(source).toContain("if (!view.hasDiff && view.base) notices.push(tf('review.noChangesInRange', view.base));");
-    expect(source).toContain('!view.hasDiff && !view.untracked && !view.base');
+    expect(source).toContain("if (!view.counts && view.base) notices.push(tf('review.noChangesInRange', view.base));");
+    expect(source).toContain('!view.counts && !view.untracked && !view.base');
   });
 
   test('offers a compare-range menu with commits and a branch base', () => {
