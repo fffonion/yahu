@@ -273,7 +273,6 @@ const translations: Record<string, Record<string, string>> = {
   'review.loadingOlder': { en: 'Loading older commits…', 'zh-CN': '正在加载更早的 commit…', 'zh-TW': '正在載入更早的 commit…', ja: '古いコミットを読み込み中…' },
   'review.noChangesInRange': { en: 'No changes to this file since {0} — showing the file content', 'zh-CN': '此文件从 {0} 起没有改动，现显示文件内容', 'zh-TW': '此檔案從 {0} 起沒有改動，現顯示檔案內容', ja: '{0} 以降このファイルに変更はありません。ファイル内容を表示します' },
   'review.untracked': { en: 'New file, not tracked by git — reviewing the file content', 'zh-CN': '新文件，未被 git 跟踪，改为审查文件内容', 'zh-TW': '新檔案，未被 git 追蹤，改為審查檔案內容', ja: 'git 未追跡の新規ファイルです。ファイル内容をレビューします' },
-  'review.baseDiff': { en: 'Diff against {0}', 'zh-CN': '对比 {0} 的差异', 'zh-TW': '對比 {0} 的差異', ja: '{0} との差分' },
   'review.notTextFile': { en: 'Only text files can be reviewed', 'zh-CN': '只有文本文件可以审查', 'zh-TW': '只有文字檔可以審查', ja: 'テキストファイルのみレビューできます' },
   'review.copyFailed': { en: 'Copy failed — select the prompt manually', 'zh-CN': '复制失败，请手动选择提示词', 'zh-TW': '複製失敗，請手動選取提示詞', ja: 'コピーに失敗しました。手動でプロンプトを選択してください' },
   'review.outsideWorkspace': { en: 'File is outside the workspace, so it cannot be reviewed: {0}', 'zh-CN': '文件不在工作区内，无法审查：{0}', 'zh-TW': '檔案不在工作區內，無法審查：{0}', ja: 'ファイルがワークスペース外のためレビューできません: {0}' },

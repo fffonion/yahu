@@ -304,6 +304,33 @@
     }
 
     #[tokio::test]
+    async fn workspace_diff_reports_path_relative_to_the_git_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("project");
+        let src = repo.join("nested folder");
+        std::fs::create_dir_all(&src).unwrap();
+        assert!(std::process::Command::new("git").arg("init").arg("-q").current_dir(&repo).status().unwrap().success());
+        std::fs::write(src.join("sample.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(repo.join("README.md"), "# Project\n").unwrap();
+        std::fs::write(temp.path().join("outside.txt"), "outside\n").unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
+        for (path, expected) in [
+            ("project/nested folder/sample.rs", Some("nested folder/sample.rs")),
+            ("project/README.md", Some("README.md")),
+            ("outside.txt", None),
+        ] {
+            let response = workspace_diff(State(state.clone()), Query(WorkspaceQuery {
+                path: Some(path.into()), download: None, preview: None, base: None, skip: None,
+            })).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+            let payload: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(payload["repo_path"].as_str(), expected);
+            assert_eq!(payload["is_git"].as_bool(), Some(expected.is_some()));
+        }
+    }
+
+    #[tokio::test]
     async fn workspace_capnp_preview_is_complete_text() {
         let temp = tempfile::tempdir().unwrap();
         let content = format!("@0xdeadbeef;\nstruct Record {{ name @0 :Text; }}\n{}", "# schema\n".repeat(130_000));

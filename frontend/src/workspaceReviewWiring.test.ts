@@ -70,14 +70,15 @@ describe('workspace review wiring', () => {
 
   test('ReviewPane replaces the read only preview and is gated to text files', () => {
     const text = app();
-    expect(text).toContain("review?.active && preview.kind === 'text' ? <ReviewPane");
-    expect(text).toContain('path={preview.path} files={review.files}');
-    expect(text).toContain('onSelectFile={(path) => onSelectReviewFile?.(path)}');
-    expect(text).toContain('onRemoveFile={(path) => onRemoveReviewFile?.(path)}');
+    const preview = slice(text, 'function WorkspaceEditorPreview', 'type WorkspaceBrowserProps');
+    expect(preview.includes("if (review?.active && preview.kind === 'text' && !editMode)")).toBe(true);
+    const tabs = slice(preview, 'className="preview-head review-file-tabs"', '<ReviewPane');
+    expect(tabs.includes('{basename(file)}')).toBe(true);
+    expect(tabs.includes('onSelectReviewFile?.(file)')).toBe(true);
+    expect(tabs.includes('onRemoveReviewFile?.(file)')).toBe(true);
     expect(text).toContain('onExit={() => onExitReview?.()}');
-    expect(text).toContain("onSubmitted={() => onSubmittedReview?.()}");
+    expect(text).toContain("onSubmitted={onSubmittedReview}");
     expect(text).toContain('onSubmittedReview={submitWorkspaceReview}');
-    expect(text).toContain('if (review?.active) onExitReview?.();');
   });
 
   test('WorkspaceMain receives the review props and ChatMain receives the starter', () => {

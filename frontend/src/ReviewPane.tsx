@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Copy, GitCompare, Plus, X } from 'lucide-react';
+import { ChevronDown, Columns2, Copy, GitCompare, Plus, Rows2, X } from 'lucide-react';
 import { t, tf } from './i18n';
 import { buildSplitRows, newLineAnchors, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
 import {
@@ -18,9 +18,6 @@ import { buildReviewReport, reviewFileName, reviewReportPrompt } from './reviewR
 
 export type ReviewPaneProps = {
   path: string;
-  files: string[];
-  onSelectFile: (path: string) => void;
-  onRemoveFile: (path: string) => void;
   onExit: () => void;
   onSubmitted?: (abs: string) => void;
   onFilesChanged?: (files: string[]) => void;
@@ -31,6 +28,7 @@ type ReviewMode = 'unified' | 'split';
 type DiffPayload = {
   path?: string;
   abs?: string;
+  repo_path?: string | null;
   diff?: string;
   is_git?: boolean;
   has_head?: boolean;
@@ -52,7 +50,7 @@ type PaneView =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; lines: ReviewLine[]; hasDiff: boolean; truncated: boolean; untracked: boolean; base: string | null };
+  | { status: 'ready'; path: string; repoPath: string | null; lines: ReviewLine[]; hasDiff: boolean; truncated: boolean; untracked: boolean; base: string | null };
 
 type SubmitState =
   | { status: 'idle' }
@@ -61,8 +59,6 @@ type SubmitState =
   | { status: 'error'; message: string };
 
 type Draft = { anchor: ReviewAnchor; body: string; commentId?: string; rowKey?: string };
-
-const COMPACT_QUERY = '(max-width: 760px)';
 
 function anchorKey(anchor: ReviewAnchor): string {
   return `${anchor.side}:${anchor.line}`;
@@ -128,10 +124,9 @@ function CommentEditor({ initialBody, onCommit, onCancel }: { initialBody: strin
   );
 }
 
-export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, onSubmitted, onFilesChanged }: ReviewPaneProps) {
+export function ReviewPane({ path, onExit, onSubmitted, onFilesChanged }: ReviewPaneProps) {
   const [view, setView] = useState<PaneView>({ status: 'loading' });
   const [mode, setMode] = useState<ReviewMode>('unified');
-  const [narrow, setNarrow] = useState(false);
   const [review, setReview] = useState<ReviewState | null>(() => loadReview(window.sessionStorage));
   const [abs, setAbs] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -203,9 +198,10 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         const stored = addFile(window.sessionStorage, path);
         setReview(stored);
         onFilesChanged?.(stored.files);
+        const repoPath = payload.repo_path ?? null;
         const diffText = typeof payload.diff === 'string' ? payload.diff : '';
         if (diffText.trim().length > 0) {
-          setView({ status: 'ready', lines: parseUnifiedDiff(diffText, path), hasDiff: true, truncated: Boolean(payload.truncated), untracked: false, base: typeof payload.base === 'string' ? payload.base : null });
+          setView({ status: 'ready', path, repoPath, lines: parseUnifiedDiff(diffText, path), hasDiff: true, truncated: Boolean(payload.truncated), untracked: false, base: typeof payload.base === 'string' ? payload.base : null });
           return;
         }
         const fileRes = await fetch(`/workspace/file?path=${encodeURIComponent(path)}`);
@@ -213,7 +209,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         if (!fileRes.ok) throw new Error(`${fileRes.status} ${fileRes.statusText}`);
         const content = await fileRes.text();
         if (token !== requestRef.current) return;
-        setView({ status: 'ready', lines: numberedFileLines(content, path), hasDiff: false, truncated: false, untracked: Boolean(payload.untracked), base: typeof payload.base === 'string' ? payload.base : null });
+        setView({ status: 'ready', path, repoPath, lines: numberedFileLines(content, path), hasDiff: false, truncated: false, untracked: Boolean(payload.untracked), base: typeof payload.base === 'string' ? payload.base : null });
       } catch (error) {
         if (token !== requestRef.current) return;
         setView({ status: 'error', message: statusText(error) });
@@ -223,18 +219,9 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     void load();
   }, [path, rangeKey]);
 
-  useEffect(() => {
-    const query = window.matchMedia(COMPACT_QUERY);
-    const sync = () => setNarrow(query.matches);
-    sync();
-    query.addEventListener('change', sync);
-    return () => query.removeEventListener('change', sync);
-  }, []);
-
   const lines = useMemo<ReviewLine[]>(() => (view.status === 'ready' ? view.lines : []), [view]);
   const newAnchors = useMemo(() => newLineAnchors(lines), [lines]);
   const splitRows = useMemo(() => buildSplitRows(lines), [lines]);
-  const effectiveMode: ReviewMode = narrow ? 'unified' : mode;
 
   const rangeCommits = rangeInfo?.commits ?? [];
   const rangeLabel = rangeKey === 'branch'
@@ -532,10 +519,10 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     </table>
   );
 
+  const displayPath = (view.status === 'ready' && view.path === path ? view.repoPath : null) ?? path.replace(/^@\d+\//, '');
   const notices: string[] = [];
   if (view.status === 'ready') {
     if (view.untracked) notices.push(t('review.untracked'));
-    if (view.hasDiff && view.base) notices.push(tf('review.baseDiff', view.base));
     if (!view.hasDiff && view.base) notices.push(tf('review.noChangesInRange', view.base));
     if (!view.hasDiff && !view.untracked && !view.base) notices.push(t('review.noDiff'));
     if (view.truncated) notices.push(t('review.truncated'));
@@ -545,32 +532,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
     <div className="review-pane" data-review-path={path}>
       <div className="review-head">
         <div className="review-toolbar">
-          {files.length > 0 ? (
-            <div className="review-file-chips" role="group" aria-label={t('review.files')}>
-              {files.map((file) => (
-                <span className={`review-file-chip${file === path ? ' active' : ''}`.trim()} key={file}>
-                  <button
-                    type="button"
-                    className="review-file-chip-open"
-                    aria-pressed={file === path}
-                    title={file}
-                    onClick={() => onSelectFile(file)}
-                  >
-                    <span className="review-file-path">{file}</span>
-                    <span className="review-file-name">{file.split('/').slice(-2).join('/')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="review-file-chip-remove"
-                    aria-label={`${t('review.files')}: ${file}`}
-                    onClick={() => onRemoveFile(file)}
-                  >
-                    <X aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          ) : null}
+          <span className="review-repo-path" title={displayPath}>{displayPath}</span>
           <div className="review-range" ref={rangeRef}>
             <button
               type="button"
@@ -617,27 +579,29 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
               </div>
             )}
           </div>
-          <div className="review-view-toggle" role="group" aria-label={t('workspace.review')}>
-            <button
-              type="button"
-              className={`review-view-btn${effectiveMode === 'unified' ? ' active' : ''}`.trim()}
-              aria-pressed={effectiveMode === 'unified'}
-              onClick={() => setMode('unified')}
-            >
-              {t('review.unified')}
-            </button>
-            <button
-              type="button"
-              className={`review-view-btn${effectiveMode === 'split' ? ' active' : ''}`.trim()}
-              aria-pressed={effectiveMode === 'split'}
-              disabled={narrow}
-              title={narrow ? t('review.unified') : t('review.split')}
-              onClick={() => setMode('split')}
-            >
-              {t('review.split')}
-            </button>
-          </div>
           <div className="review-toolbar-actions">
+            <div className="review-view-toggle" role="group" aria-label={t('workspace.review')}>
+              <button
+                type="button"
+                className={`review-view-btn${mode === 'unified' ? ' active' : ''}`}
+                aria-label={t('review.unified')}
+                aria-pressed={mode === 'unified'}
+                title={t('review.unified')}
+                onClick={() => setMode('unified')}
+              >
+                <Rows2 aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className={`review-view-btn${mode === 'split' ? ' active' : ''}`}
+                aria-label={t('review.split')}
+                aria-pressed={mode === 'split'}
+                title={t('review.split')}
+                onClick={() => setMode('split')}
+              >
+                <Columns2 aria-hidden="true" />
+              </button>
+            </div>
             <button
               type="button"
               className="review-submit"
@@ -699,7 +663,7 @@ export function ReviewPane({ path, files, onSelectFile, onRemoveFile, onExit, on
         {view.status === 'loading' ? <div className="review-loading">{t('review.loading')}</div> : null}
         {view.status === 'error' ? <div className="review-error">{tf('workspace.previewFailed', view.message)}</div> : null}
         {view.status === 'ready'
-          ? (effectiveMode === 'split' ? splitTable : unifiedTable)
+          ? (mode === 'split' ? splitTable : unifiedTable)
           : null}
       </div>
     </div>

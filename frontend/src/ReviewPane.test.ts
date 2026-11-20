@@ -20,7 +20,7 @@ describe('review pane data flow', () => {
     expect(source).toContain('base?: string | null;');
     expect(source).toContain('untracked: Boolean(payload.untracked)');
     expect(source).toContain("if (view.untracked) notices.push(t('review.untracked'));");
-    expect(source).toContain("if (view.hasDiff && view.base) notices.push(tf('review.baseDiff', view.base));");
+    expect(source.includes("'review.baseDiff'")).toBe(false);
     expect(source).toContain("if (!view.hasDiff && view.base) notices.push(tf('review.noChangesInRange', view.base));");
     expect(source).toContain('!view.hasDiff && !view.untracked && !view.base');
   });
@@ -142,12 +142,12 @@ describe('review pane rendering and interaction', () => {
     expect(source).toContain('if (!trimmed) return;');
   });
 
-  test('the toolbar exposes chips, the view switch, submit and exit', () => {
+  test('the toolbar shows the repo path and keeps layout, submit and exit controls together', () => {
     const source = pane();
-    expect(source).toContain('className="review-toolbar"');
-    expect(source).toContain("review-file-chip${file === path ? ' active' : ''}");
-    expect(source).toContain('onSelectFile(file)');
-    expect(source).toContain('onRemoveFile(file)');
+    const toolbar = source.slice(source.indexOf('className="review-toolbar"'), source.indexOf('{notices.length'));
+    expect(toolbar.includes('className="review-repo-path"')).toBe(true);
+    expect(toolbar.includes('review-file-chip')).toBe(false);
+    expect(toolbar.indexOf('className="review-toolbar-actions"')).toBeLessThan(toolbar.indexOf('className="review-view-toggle"'));
     expect(source).toContain('className="review-submit"');
     expect(source).toContain('className="review-exit-button"');
     expect(source).toContain("aria-label={t('review.exit')}");
@@ -155,21 +155,20 @@ describe('review pane rendering and interaction', () => {
     expect(source).toContain('className="review-copy-prompt"');
   });
 
-  test('narrow screens force the unified view and drop the split control', () => {
+  test('uses accessible icon buttons for both layouts at every width', () => {
     const source = pane();
-    expect(source).toContain("const COMPACT_QUERY = '(max-width: 760px)';");
-    expect(source).toContain('window.matchMedia(COMPACT_QUERY)');
-    expect(source).toContain("query.addEventListener('change', sync)");
-    expect(source).toContain("return () => query.removeEventListener('change', sync);");
-    expect(source).toContain("const effectiveMode: ReviewMode = narrow ? 'unified' : mode;");
-    expect(source).toContain('disabled={narrow}');
+    expect(source.includes("aria-label={t('review.unified')}")).toBe(true);
+    expect(source.includes("aria-label={t('review.split')}")).toBe(true);
+    expect(source.includes('<Rows2 aria-hidden="true" />')).toBe(true);
+    expect(source.includes('<Columns2 aria-hidden="true" />')).toBe(true);
+    expect(source.includes('disabled={narrow}')).toBe(false);
   });
 
   test('exports the typed component contract', () => {
     const source = pane();
     expect(source).toContain('export type ReviewPaneProps = {');
-    expect(source).toContain('onSelectFile: (path: string) => void;');
-    expect(source).toContain('onRemoveFile: (path: string) => void;');
+    expect(source).not.toContain('onSelectFile:');
+    expect(source).not.toContain('onRemoveFile:');
     expect(source).toContain('onExit: () => void;');
     expect(source).toContain('export default ReviewPane;');
   });
@@ -194,7 +193,6 @@ describe('review pane copy', () => {
       'review.copyPrompt',
       'review.copied',
       'review.noDiff',
-      'review.files',
       'review.pending',
       'review.exit',
       'review.loading',
@@ -231,7 +229,7 @@ describe('review pane styles', () => {
       '.review-comment-card{',
       '.review-comment-input{',
       '.review-toolbar{',
-      '.review-file-chip{',
+      '.review-repo-path{',
       '.review-submit{',
       '.review-submit-result{',
     ]) {
@@ -247,26 +245,12 @@ describe('review pane styles', () => {
     expect(css).toContain('position:sticky');
   });
 
-  test('mobile review shows a compact single-row toolbar and uses its file chip as the only file header', () => {
+  test('both widths keep the review toolbar on one line, without hiding either view', () => {
     const css = styles();
-    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
-    expect(css).toContain('@media (max-width:760px)');
-    expect(css).toContain('.workspace-editor-preview.is-review{grid-template-rows:minmax(0,1fr)}');
-    expect(css).toContain('.workspace-editor-preview.is-review .preview-head{display:none}');
-    expect(app).toContain("review?.active && preview.kind === 'text' ? 'workspace-editor-preview is-review' : 'workspace-editor-preview'");
-    expect(css).toContain('.review-toolbar{flex-wrap:nowrap;gap:4px;padding:4px 8px}');
-    expect(css).toContain('.review-file-chips{flex:1 1 0;flex-wrap:nowrap;overflow-x:auto');
-    expect(css).toContain('.review-file-chip{flex:0 0 auto;min-height:28px;');
-    expect(pane()).toContain("{file.split('/').slice(-2).join('/')}");
-    expect(css).toContain('.review-file-name{display:none}');
-    expect(css).toContain('.review-file-path{display:none}');
-    expect(css).toContain('.review-range{position:static;flex:0 0 30px}');
-    expect(css).toContain('.review-range-trigger>span,.review-range-trigger svg:last-child{display:none}');
+    expect(css.includes('.review-toolbar{position:sticky;top:0;z-index:3;display:flex;flex-wrap:nowrap')).toBe(true);
+    expect(css.includes('.review-view-toggle{display:none}')).toBe(false);
+    expect(css.includes('.review-split-table{display:none}')).toBe(false);
     expect(css).toContain('.review-range-menu{position:absolute;top:calc(100% + 4px);left:8px;right:8px;width:auto');
-    expect(css).toContain('.review-toolbar-actions{flex:0 0 auto;margin-left:0;gap:4px}');
-    expect(pane()).toContain("aria-label={t('review.range')}");
-    expect(css).toContain('.review-split-table{display:none}');
-    expect(css).toContain('.review-view-toggle{display:none}');
     expect(css).toContain('.review-diff-body{padding:8px;overflow-x:auto;overscroll-behavior-x:contain');
     expect(css).toContain('.review-diff-table{table-layout:auto;width:max-content;min-width:100%}');
     expect(css).toContain('.review-code-cell{white-space:pre;overflow-wrap:normal');

@@ -266,11 +266,17 @@ async fn workspace_diff(
     let name = &resolved.name;
     let canonical_file = &resolved.file;
 
-    let is_git = run_workspace_git(git_is_inside_work_tree_args(parent))
-        .await
-        .is_some_and(|output| {
-            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
-        });
+    let mut work_tree_args = git_is_inside_work_tree_args(parent);
+    work_tree_args.push(OsString::from("--show-prefix"));
+    let repo_path = run_workspace_git(work_tree_args).await.and_then(|output| {
+        if !output.status.success() {
+            return None;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let prefix = stdout.strip_prefix("true\n")?.strip_suffix('\n')?;
+        Some(format!("{prefix}{}", name.to_string_lossy()))
+    });
+    let is_git = repo_path.is_some();
     let has_head = is_git
         && run_workspace_git(git_verify_head_args(parent))
             .await
@@ -366,6 +372,7 @@ async fn workspace_diff(
     Json(serde_json::json!({
         "path": rel,
         "abs": canonical_file.to_string_lossy().into_owned(),
+        "repo_path": repo_path,
         "diff": diff,
         "is_git": is_git,
         "has_head": has_head,
