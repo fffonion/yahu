@@ -254,6 +254,12 @@ describe('review pane styles', () => {
     expect(css).toContain('.review-diff-body{padding:8px;overflow-x:auto;overscroll-behavior-x:contain');
     expect(css).toContain('.review-diff-table{table-layout:auto;width:max-content;min-width:100%}');
     expect(css).toContain('.review-code-cell{white-space:pre;overflow-wrap:normal');
-    expect(css).toContain('.review-gutter{padding:0 5px 0 28px;font-size:11px}');
+  });
+
+  test('mobile reserves space for the plus only in actionable line gutters', () => {
+    const css = styles();
+    expect(css).toContain('.review-gutter{width:1px;padding:0 3px;font-size:11px}');
+    expect(css).toContain('.review-gutter.is-commentable{padding-inline-start:16px}');
+    expect(css).toContain('.review-add-comment{inset-inline:0;width:100%;');
   });
 });

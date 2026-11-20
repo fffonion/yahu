@@ -368,7 +368,7 @@ export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged
     if (number === undefined) return <td className="review-gutter" key={key} />;
     const anchor: ReviewAnchor = { side: 'new', line: number };
     return (
-      <td className="review-gutter" key={key}>
+      <td className={canComment ? 'review-gutter is-commentable' : 'review-gutter'} key={key}>
         <span className="review-gutter-number">{number}</span>
         {canComment ? (
           <button

@@ -770,10 +770,13 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-notice{flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;padding:3px 8px}
 .review-diff-body{padding:8px;overflow-x:auto;overscroll-behavior-x:contain;-webkit-mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 14px),transparent 100%);mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 14px),transparent 100%)}
 .review-diff-table{table-layout:auto;width:max-content;min-width:100%}
-.review-gutter{padding:0 5px 0 28px;font-size:11px}
+.review-gutter{width:1px;padding:0 3px;font-size:11px}
+.review-gutter.is-commentable{padding-inline-start:16px}
 .review-code-cell{white-space:pre;overflow-wrap:normal;padding:0 10px 0 5px}
 .review-code{min-width:max-content;white-space:pre}
-.review-add-comment{width:26px;inset-inline-start:0}
+.review-add-comment{inset-inline:0;width:100%;justify-items:start;padding-inline-start:2px;background:transparent}
+.review-add-comment svg{width:11px;height:11px}
+.review-add-comment:focus-visible{outline-offset:-2px}
 .review-thread-cell{padding:8px 10px 10px;position:sticky;left:0;vertical-align:top}
 .review-thread,.review-comment-editor{width:calc(100vw - 36px);max-width:calc(100vw - 36px)}
 .review-comment-card{padding:10px 12px}
