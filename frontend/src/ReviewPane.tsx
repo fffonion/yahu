@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Columns2, Copy, GitCompare, Plus, Rows2, X } from 'lucide-react';
+import { ChevronDown, Columns2, Copy, GitCompare, Plus, Rows2, Send, X } from 'lucide-react';
 import { t, tf } from './i18n';
 import { buildSplitRows, newLineAnchors, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
 import {
@@ -605,10 +605,13 @@ export function ReviewPane({ path, onExit, onSubmitted, onFilesChanged }: Review
             <button
               type="button"
               className="review-submit"
+              aria-label={t('review.submit')}
+              title={t('review.submit')}
               disabled={commentCount === 0 || submitState.status === 'submitting'}
               onClick={() => void submitReview()}
             >
-              {t('review.submit')}
+              <Send className="review-submit-icon" aria-hidden="true" />
+              <span className="review-submit-label">{t('review.submit')}</span>
               <span className="review-submit-count" title={t('review.pending')}>{commentCount}</span>
             </button>
             <button

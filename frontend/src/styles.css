@@ -693,6 +693,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-toolbar-actions{display:flex;align-items:center;flex:0 0 auto;gap:6px}
 .review-submit{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;border:1px solid transparent;border-radius:999px;background:var(--accent);color:var(--surface);font-size:12px;font-weight:600;padding:5px 10px;cursor:pointer}
 .review-submit:disabled{opacity:.55;cursor:not-allowed}
+.review-submit-icon{display:none;width:16px;height:16px;flex:none}
 .review-submit-count{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border-radius:999px;background:color-mix(in srgb,var(--surface) 82%,transparent);color:var(--text);font-size:11px;font-variant-numeric:tabular-nums}
 .review-exit-button{display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);color:var(--muted);cursor:pointer}
 .review-exit-button:hover{background:var(--accent-soft);color:var(--accent)}
@@ -759,6 +760,8 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-range-item{padding:9px 10px}
 .review-toolbar-actions{gap:4px}
 .review-submit{flex:0 0 auto;justify-content:center;min-height:30px;font-size:12px;padding:4px 7px;gap:3px}
+.review-submit-icon{display:block}
+.review-submit-label{display:none}
 .review-exit-button{width:30px;height:30px;flex:0 0 30px;border-radius:10px;border-color:transparent;background:transparent}
 .review-notice{flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;padding:3px 8px}
 .review-diff-body{padding:8px;overflow-x:auto;overscroll-behavior-x:contain;-webkit-mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 14px),transparent 100%);mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 14px),transparent 100%)}
