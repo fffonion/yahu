@@ -103,8 +103,8 @@ describe('workspace review wiring', () => {
   test('tool cards expose a review entry only when they carry a workspace path', () => {
     const text = transcript();
     expect(text).toContain("import { toolWorkspacePath } from './workspaceToolPath';");
-    expect(text).toContain('const reviewPath = toolWorkspacePath(summary);');
-    expect(text).toContain('data-tool-path={reviewPath ?? undefined}');
+    expect(text).toContain('const workspacePath = toolWorkspacePath(summary);');
+    expect(text).toContain('data-tool-path={workspacePath ?? undefined}');
     expect(text).toContain('data-workspace-review={reviewPath}');
     expect(text).toContain("title={t('workspace.review')} aria-label={t('workspace.review')}");
     expect(text).toContain('{reviewPath ? <button type="button" className="icon-btn tool-review-btn"');

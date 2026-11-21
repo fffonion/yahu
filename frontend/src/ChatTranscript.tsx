@@ -304,12 +304,13 @@ const ToolMessageView = React.memo(function ToolMessageView({ message, showReaso
   const toolName = summary.toolName;
   const canonicalToolName = toolName.replace(/^functions\./, '');
   const fullWidthTool = ['patch', 'read_file', 'write_file'].includes(canonicalToolName);
-  const reviewPath = toolWorkspacePath(summary);
+  const workspacePath = toolWorkspacePath(summary);
+  const reviewPath = canonicalToolName === 'search_files' ? null : workspacePath;
   return <article className={`msg-row tool${isError ? ' tool-error' : ''}`} data-message-id={!suppressMessageAnchor ? message.id || undefined : undefined}>
     <div className="msg-content tool-card">
       {message.toolReasoning && showReasoning && <details className="msg-reasoning msg-reasoning-collapsed" aria-label={toolReasoningSummary}><summary><span className="reasoning-chevron"><ChevronRight /></span> <span>{toolReasoningSummary}</span></summary><div className="md-content msg-reasoning-body" dangerouslySetInnerHTML={{ __html: markdownText(message.toolReasoning) }} /></details>}
       <div className="tool-head" style={{ display: 'flex', alignItems: 'center', gap: 2, paddingRight: 4 }}>
-        <button type="button" className="tool-summary" data-tool-path={reviewPath ?? undefined} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+        <button type="button" className="tool-summary" data-tool-path={workspacePath ?? undefined} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
           <span className={`tool-inline-icon tool-icon-${toolIconTone(toolName)}`}>{getToolIcon(toolName)}</span>
           <span className={`tool-title${isError ? ' err' : ''}`}>{summary.title}</span>
           <span className="tool-subtitle">{summary.subtitle}</span>
