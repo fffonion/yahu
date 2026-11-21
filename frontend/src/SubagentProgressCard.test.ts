@@ -21,6 +21,25 @@ function goal(overrides: Partial<PersistentGoal>): PersistentGoal {
   };
 }
 
+describe('Goal panel subtitle', () => {
+  const subtitle = (subgoals: string[]) => renderToStaticMarkup(React.createElement(SubagentGoalPanel, {
+    goal: goal({ subgoals }), nowSeconds: 100,
+  })).match(/<small class="subagent-goal-meta">([^<]*)<\/small>/)?.[1];
+
+  test('counts subgoals in the collapsed subtitle and omits an empty count', () => {
+    expect(subtitle([])).toBe('Active · 1/20 turns');
+    expect(subtitle(['Check the result'])).toContain('1 subgoal');
+    expect(subtitle(['Check the result', 'Verify the tests'])).toContain('2 subgoals');
+  });
+
+  test('localizes the subgoal count', () => {
+    for (const [lang, label] of [['zh-CN', '2 个子目标'], ['zh-TW', '2 個子目標'], ['ja', 'サブゴール 2 件']] as const) {
+      setLang(lang);
+      expect(subtitle(['Check the result', 'Verify the tests'])).toContain(label);
+    }
+  });
+});
+
 describe('completed Goal panel', () => {
   test('keeps the full goal, frozen elapsed time and recorded steps', () => {
     const done = goal({

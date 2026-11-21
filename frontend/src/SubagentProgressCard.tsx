@@ -325,8 +325,10 @@ export function SubagentGoalPanel({ goal, nowSeconds, collapseToken }: { goal: P
     : goalElapsed >= 60
       ? tf('goals.elapsedHoursMinutes', Math.floor(goalElapsed / 60), goalElapsed % 60)
       : tf('goals.elapsedMinutes', goalElapsed);
+  const subgoalCount = goal.subgoals.length;
   const goalMetadata = [
     persistentGoalStatusLabel(goal.status),
+    subgoalCount ? tf(subgoalCount === 1 ? 'goals.subgoalCountOne' : 'goals.subgoalCount', subgoalCount) : '',
     goalElapsedLabel,
     tf('goals.turnProgress', goal.turnsUsed, goal.maxTurns),
     goal.todos.length ? tf('subagents.todoProgress', completedGoalTodos, goal.todos.length) : '',
