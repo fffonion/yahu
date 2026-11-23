@@ -77,18 +77,12 @@ describe('provider usage view', () => {
     expect(styles).toContain('.provider-usage-brand-icon img{display:block;width:100%;height:100%;object-fit:cover}');
     expect(styles.match(/brand-vyceai img\{/g)?.length).toBe(1);
   });
-  test('Zed card displays daily spend and balance with at most one decimal', () => {
-    const format = providerUsageModule.formatZedCardMoney;
-    expect(typeof format).toBe('function');
-    expect(format('今日 $0.07')).toBe('今日 $0.1');
-    expect(format('余额 $12.00/$10.00')).toBe('余额 $12/$10');
-    expect(format('余额 $1.26/$10.00')).toBe('余额 $1.3/$10');
-    expect(format('今日 $0.00')).toBe('今日 $0');
-    expect(format('今日未使用')).toBe('今日未使用');
+  test('Zed card displays the API daily spend before the balance', () => {
     const source = app();
-    const daily = "...(enabled && ['zed-pro', 'sensenova'].includes(provider.provider) && providerTodayWindow(section) ? [provider.provider === 'zed-pro' ? formatZedCardMoney(providerTodayLabel(section)) : providerTodayLabel(section)] : []),";
+    const daily = "...(enabled && ['zed-pro', 'sensenova'].includes(provider.provider) && providerTodayWindow(section) ? [providerTodayLabel(section)] : []),";
     expect(source).toContain(daily);
-    expect(source.indexOf(daily)).toBeLessThan(source.indexOf("...(balance ? [tf('usage.balance', provider.provider === 'zed-pro' ? formatZedCardMoney(balance) : balance)] : []),"));
+    expect(source).toContain("tf('usage.today', section.today_cost_display)");
+    expect(source.indexOf(daily)).toBeLessThan(source.indexOf("...(balance ? [tf('usage.balance', balance)] : []),"));
     expect(source).toContain("const quotaWindows = section.windows.filter((win) => !win.window.includes('今日'));");
     expect(source).toContain("provider === 'sensenova' || provider === 'zed-pro'");
     expect(source).not.toContain("if (provider === 'sensenova') return description || '';");

@@ -34,7 +34,7 @@ import { nextImageAfterRemoval, nextImageForPreload } from './imageBrowserNaviga
 import { isMarkdownPath, markdownText, chatMediaImagesFromMarkdown, chatMediaHtmlsFromMarkdown, type ChatMarkdownImage, type ChatMarkdownHtml } from './markdown';
 
 import { initLang, setLang as setI18nLang, getLang, t, tf, type Lang } from './i18n';
-import { opencodeVisibleQuotaWindows, orderWorkbuddyQuotaWindows, providerUsesMultiAccountLayout, minimaxDailyTokens, minimaxUsageRows, formatProviderCredits, formatZedCardMoney, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
+import { opencodeVisibleQuotaWindows, orderWorkbuddyQuotaWindows, providerUsesMultiAccountLayout, minimaxDailyTokens, minimaxUsageRows, formatProviderCredits, orderProviderUsageAccountGroups, orderNewApiUsageRows, providerUsageAccountHasActiveQuotaWall, providerUsagePercent, providerVyceCalls, providerCodexMobileResetSubtitle, providerCodexResetSubtitle, type ProviderUsagePayload, type ProviderUsageSection, type ProviderUsageWindow } from './providerUsage';
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
@@ -2965,6 +2965,7 @@ function providerTodayCost(section: ProviderUsageSection | undefined): string {
 }
 
 function providerTodayLabel(section: ProviderUsageSection | undefined): string {
+  if (section?.today_cost_display) return tf('usage.today', section.today_cost_display);
   const used = providerTodayWindow(section)?.used || '';
   const cost = providerTodayCost(section);
   const paidZeroTokenUsage = section?.provider === 'vyceai' && Number(cost.slice(1)) > 0;
@@ -3321,8 +3322,8 @@ function ProviderUsageMain(props: {
               ...(provider.provider === 'vyceai' && providerTodayWindow(section) ? [providerTodayCost(section)] : []),
               ...(calls ? [`${t('usage.calls')} ${calls}`] : []),
               ...(enabled && provider.provider === 'stepfun' && section ? [providerDescriptionText(section.description, provider.provider)] : []),
-              ...(enabled && ['zed-pro', 'sensenova'].includes(provider.provider) && providerTodayWindow(section) ? [provider.provider === 'zed-pro' ? formatZedCardMoney(providerTodayLabel(section)) : providerTodayLabel(section)] : []),
-              ...(balance ? [tf('usage.balance', provider.provider === 'zed-pro' ? formatZedCardMoney(balance) : balance)] : []),
+              ...(enabled && ['zed-pro', 'sensenova'].includes(provider.provider) && providerTodayWindow(section) ? [providerTodayLabel(section)] : []),
+              ...(balance ? [tf('usage.balance', balance)] : []),
               ...(titleMeta ? [titleMeta] : []),
               ...(codexResetSubtitle ? [codexResetSubtitle] : []),
               ...(subtitle ? [subtitle] : []),

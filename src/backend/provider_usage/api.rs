@@ -78,6 +78,15 @@ async fn collect_provider_usage_for(
     }
 }
 
+fn provider_usage_response(mut payload: ProviderUsagePayload) -> Response<Body> {
+    for section in &mut payload.sections {
+        if section.provider == "zed-pro" {
+            zed_format_display_fields(section);
+        }
+    }
+    Json(payload).into_response()
+}
+
 async fn provider_usage_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ProviderUsageQuery>,
@@ -103,38 +112,30 @@ async fn provider_usage_handler(
                 sections.push(section);
             }
         }
-        return (
-            StatusCode::OK,
-            Json(ProviderUsagePayload {
-                fetched_at: sections
-                    .iter()
-                    .filter_map(|section| shared_cached_section(&state, &section.provider).map(|entry| entry.cached_at))
-                    .max_by(f64::total_cmp)
-                    .unwrap_or_else(unix_now_seconds),
-                providers,
-                sections,
-            }),
-        )
-            .into_response();
+        return provider_usage_response(ProviderUsagePayload {
+            fetched_at: sections
+                .iter()
+                .filter_map(|section| shared_cached_section(&state, &section.provider).map(|entry| entry.cached_at))
+                .max_by(f64::total_cmp)
+                .unwrap_or_else(unix_now_seconds),
+            providers,
+            sections,
+        });
     };
     let force = query.refresh.unwrap_or(false);
     if !force
         && let Some(payload) = cached_provider_payload(&state, provider).await
     {
-        return (StatusCode::OK, Json(payload)).into_response();
+        return provider_usage_response(payload);
     }
     if !force
         && let Some(entry) = shared_cached_section(&state, provider)
     {
-        return (
-            StatusCode::OK,
-            Json(ProviderUsagePayload {
-                fetched_at: entry.cached_at,
-                providers,
-                sections: vec![entry.section],
-            }),
-        )
-            .into_response();
+        return provider_usage_response(ProviderUsagePayload {
+            fetched_at: entry.cached_at,
+            providers,
+            sections: vec![entry.section],
+        });
     }
     let fresh = collect_provider_usage_for(&state, provider, providers, force).await;
     let cached = state
@@ -150,7 +151,7 @@ async fn provider_usage_handler(
     if let Some(section) = fresh.sections.first() {
         save_shared_provider_section(&state, section, fresh.fetched_at);
     }
-    (StatusCode::OK, Json(fresh)).into_response()
+    provider_usage_response(fresh)
 }
 
 #[derive(Deserialize)]

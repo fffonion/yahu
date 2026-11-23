@@ -203,6 +203,32 @@ async fn zed_query_billing_usage(state: &AppState, raw_cookie: &str) -> Result<V
     provider_http_get_json(&state.client, ZED_BILLING_USAGE_URL, &headers).await
 }
 
+fn zed_display_usd(dollars: f64) -> String {
+    let tenths = (dollars * 10.0).round();
+    let rounded = if tenths.is_finite() { tenths / 10.0 } else { dollars };
+    let text = format!("{:.1}", if rounded == 0.0 { 0.0 } else { rounded });
+    format!("${}", text.strip_suffix(".0").unwrap_or(&text))
+}
+
+fn zed_format_display_fields(section: &mut ProviderUsageSection) {
+    let display_usd = |value: &str| {
+        let dollars = value.strip_prefix('$')?.parse::<f64>().ok()?;
+        dollars.is_finite().then(|| zed_display_usd(dollars))
+    };
+    // Format legacy cached balances on read, without rewriting snapshots.
+    if let Some((prefix, rest)) = section.description.split_once("余额 **")
+        && let Some((balance, suffix)) = rest.split_once("**")
+        && let Some(amounts) = balance.split('/').map(display_usd).collect::<Option<Vec<_>>>()
+    {
+        section.description = format!("{prefix}余额 **{}**{suffix}", amounts.join("/"));
+    }
+    // Reports still consume the more precise daily usage window.
+    section.today_cost_display = section.windows.iter()
+        .find(|window| window.window == "今日用量（差值）")
+        .and_then(|window| window.used.as_deref())
+        .and_then(display_usd);
+}
+
 fn zed_billing_snapshot(payload: &Value) -> Result<(String, Option<ProviderUsageWindow>), String> {
     let current_usage = payload
         .get("current_usage")
@@ -235,11 +261,11 @@ fn zed_billing_snapshot(payload: &Value) -> Result<(String, Option<ProviderUsage
     let spend_text = if let Some(limit) = limit.filter(|value| value.is_finite() && *value >= 0.0) {
         format!(
             "余额 **{}/{}**",
-            fmt_provider_money(used / 100.0, '$'),
-            fmt_provider_money(limit / 100.0, '$')
+            zed_display_usd(used / 100.0),
+            zed_display_usd(limit / 100.0)
         )
     } else {
-        format!("余额 **{}**", fmt_provider_money(used / 100.0, '$'))
+        format!("余额 **{}**", zed_display_usd(used / 100.0))
     };
     details.push(spend_text);
     let window = limit

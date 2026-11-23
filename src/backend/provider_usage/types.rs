@@ -34,6 +34,8 @@ struct ProviderUsageSection {
     provider: String,
     title: String,
     description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    today_cost_display: Option<String>,
     #[serde(default)]
     captured_at: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

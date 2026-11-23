@@ -29,18 +29,11 @@ export function formatProviderCredits(value: number): string {
     : '—';
 }
 
-export function formatZedCardMoney(text: string): string {
-  const format = new Intl.NumberFormat('en-US', { useGrouping: false, maximumFractionDigits: 1 });
-  return text.replace(/\$([\d,]+(?:\.\d+)?)/g, (original, amount: string) => {
-    const value = Number(amount.replace(/,/g, ''));
-    return Number.isFinite(value) ? `$${format.format(value)}` : original;
-  });
-}
-
 export type ProviderUsageSection = {
   provider: string;
   title: string;
   description: string;
+  today_cost_display?: string;
   captured_at?: number;
   credits?: ProviderUsageCredit[];
   pools?: SenseNovaPool[];

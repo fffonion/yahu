@@ -1365,6 +1365,7 @@ mod provider_usage_tests {
                 provider: "openrouter".into(),
                 title: "OpenRouter API 用量".into(),
                 description: "余额 **$9.00**".into(),
+                today_cost_display: None,
                 captured_at: 1_700_000_000.0,
                 credits: Vec::new(),
                 pools: Vec::new(),
@@ -1533,7 +1534,7 @@ mod provider_usage_tests {
             "portal_url": "https://example.test/portal?token=[REDACTED]"
         });
         let (description, window) = zed_billing_snapshot(&payload).unwrap();
-        assert_eq!(description, "余额 **$0.07/$10.00**");
+        assert_eq!(description, "余额 **$0.1/$10**");
         let window = window.unwrap();
         assert_eq!(window.window, "月额度");
         assert_eq!(window.used.as_deref(), Some("0.7%"));
@@ -1550,9 +1551,44 @@ mod provider_usage_tests {
             }
         });
         let (description, window) = zed_billing_snapshot(&payload).unwrap();
-        assert_eq!(description, "余额 **$12.00/$10.00**");
+        assert_eq!(description, "余额 **$12/$10**");
         assert!(!description.contains("超额"));
         assert_eq!(window.unwrap().used.as_deref(), Some("120.0%"));
+    }
+
+    #[tokio::test]
+    async fn zed_usage_api_formats_legacy_balance_and_preserves_precise_daily_usage() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
+        let now = unix_now_seconds();
+        let mut section: ProviderUsageSection = serde_json::from_value(serde_json::json!({
+            "provider": "zed-pro", "title": "Zed Pro 用量", "captured_at": now,
+            "description": "余额 **$1.25/$10.00**", "rows": [], "errors": [],
+            "windows": [{"window": "今日用量（差值）", "used": "$0.04", "reset": null}]
+        })).unwrap();
+        save_shared_provider_section(&state, &section, now);
+        section.provider = "openrouter".into();
+        save_shared_provider_section(&state, &section, now);
+
+        for provider in [Some("zed-pro"), None] {
+            let response = provider_usage_handler(State(state.clone()), Query(ProviderUsageQuery {
+                provider: provider.map(str::to_owned), refresh: None,
+            })).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let json: Value = serde_json::from_slice(&body).unwrap();
+            let sections = json["sections"].as_array().unwrap();
+            let zed = sections.iter().find(|s| s["provider"] == "zed-pro").unwrap();
+            assert_eq!(zed["description"], "余额 **$1.3/$10**");
+            assert_eq!(zed["today_cost_display"], "$0");
+            assert_eq!(zed["windows"][0]["used"], "$0.04");
+            if provider.is_none() {
+                let other = sections.iter().find(|s| s["provider"] == "openrouter").unwrap();
+                assert_eq!(other["description"], "余额 **$1.25/$10.00**");
+                assert!(other.get("today_cost_display").is_none());
+            }
+        }
+        assert_eq!(shared_cached_section(&state, "zed-pro").unwrap().section.description, "余额 **$1.25/$10.00**");
     }
 
     #[test]
