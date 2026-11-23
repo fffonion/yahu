@@ -229,6 +229,7 @@ const translations: Record<string, Record<string, string>> = {
   // Workspace
   'workspace.title': { en: 'Workspace', 'zh-CN': '工作区', 'zh-TW': '工作區', ja: 'ワークスペース' },
   'workspace.fileTree': { en: 'File tree', 'zh-CN': '文件树', 'zh-TW': '檔案樹', ja: 'ファイルツリー' },
+  'workspace.gitChanged': { en: 'Git change', 'zh-CN': 'Git 有变更', 'zh-TW': 'Git 有變更', ja: 'Git に変更あり' },
   'workspace.editor': { en: 'Editor / preview', 'zh-CN': '编辑器 / 预览', 'zh-TW': '編輯器 / 預覽', ja: 'エディタ / プレビュー' },
   'workspace.selectFile': { en: 'Select a file', 'zh-CN': '选择一个文件', 'zh-TW': '選擇一個檔案', ja: 'ファイルを選択' },
   'workspace.selectFileDesc': { en: 'Folders expand in the left tree. Files open here.', 'zh-CN': '文件夹在左侧树中展开。文件在这里打开。', 'zh-TW': '資料夾在左側樹中展開。檔案在這裡打開。', ja: 'フォルダは左のツリーで展開。ファイルはここで開きます。' },

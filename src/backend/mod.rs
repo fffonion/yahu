@@ -211,6 +211,12 @@ struct WorkspaceQuery {
     full_context: Option<bool>,
 }
 
+#[derive(Deserialize)]
+struct WorkspaceListQuery {
+    path: Option<String>,
+    git_status: Option<bool>,
+}
+
 #[derive(Serialize)]
 struct WorkspaceList {
     root: String,
@@ -240,6 +246,8 @@ struct WorkspaceEntry {
     kind: String,
     size: Option<u64>,
     modified: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    git_changed: bool,
 }
 
 #[derive(Deserialize)]

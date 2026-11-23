@@ -102,6 +102,7 @@ async fn skill_files(
             kind: if meta.is_dir() { "dir" } else { "file" }.to_string(),
             size: meta.is_file().then_some(meta.len()),
             modified: meta.modified().ok().and_then(system_time_string),
+            git_changed: false,
         });
     }
     entries.sort_by(|a, b| {

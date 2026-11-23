@@ -305,6 +305,44 @@
     }
 
     #[tokio::test]
+    async fn workspace_list_marks_git_changes_only_on_files_in_the_requested_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let git = |args: &[&str]| {
+            let result = std::process::Command::new("git").args(args).current_dir(root).output().unwrap();
+            assert!(result.status.success(), "{args:?}: {:?}", result.stderr);
+        };
+        git(&["init", "-q"]);
+        std::fs::create_dir_all(root.join("project/child")).unwrap();
+        for path in [".gitignore", "project/modified.rs", "project/staged.rs", "project/clean.rs", "project/child/deep.rs"] {
+            std::fs::write(root.join(path), if path == ".gitignore" { "*.ignored\n" } else { "before\n" }).unwrap();
+        }
+        git(&["add", "--", "."]);
+        git(&["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"]);
+        for path in ["project/modified.rs", "project/staged.rs", "project/child/deep.rs", "project/untracked [x].rs", "project/skip.ignored"] {
+            std::fs::write(root.join(path), "after\n").unwrap();
+        }
+        git(&["add", "--", "project/staged.rs"]);
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), root));
+        for (path, git_status, expected) in [
+            ("", None, vec![]),
+            ("project", None, vec!["modified.rs", "staged.rs", "untracked [x].rs"]),
+            ("project/child", None, vec!["deep.rs"]),
+            ("project", Some(false), vec![]),
+        ] {
+            let response = workspace_list(State(state.clone()), Query(WorkspaceListQuery {
+                path: Some(path.into()), git_status,
+            })).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let payload: Value = serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+            let entries = payload["entries"].as_array().unwrap();
+            assert!(!entries.iter().any(|entry| entry["name"] == "deep.rs" && path != "project/child"));
+            let changed: Vec<_> = entries.iter().filter(|entry| entry["git_changed"] == true).map(|entry| entry["name"].as_str().unwrap()).collect();
+            assert_eq!(changed, expected, "{path}");
+        }
+    }
+
+    #[tokio::test]
     async fn workspace_repo_resolves_nearest_git_root_without_crossing_workspace_bounds() {
         use serde_json::json;
 

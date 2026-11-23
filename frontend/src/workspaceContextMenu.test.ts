@@ -63,6 +63,18 @@ describe('workspace collapse and context menu', () => {
     expect(styles).toContain('.file-row{display:grid;grid-template-columns:18px 18px minmax(0,1fr) auto 28px;gap:8px;align-items:center;padding:8px;border-radius:12px;cursor:pointer;flex:0 0 auto}');
   });
 
+  test('the temporary repo root uses the same directory row renderer', () => {
+    const sidebar = app().split('function WorkspaceSidebar(')[1].split('function MarqueeText(')[0];
+    expect(sidebar).toContain("[{ ...repo, kind: 'dir' }]");
+    expect(sidebar).toContain('<WorkspaceTreeRows');
+    expect(sidebar).not.toContain('<details');
+  });
+
+  test('Git markers are shown beside file labels and only when changed', () => {
+    const rows = app().split('function WorkspaceTreeRows(')[1].split('function WorkspaceSidebar(')[0];
+    expect(rows).toMatch(/className="file-name"[^>]*>\{entry.name\}<\/span>\{entry.kind === 'file' && entry.git_changed && <span className="workspace-git-dot"/);
+  });
+
   test('workspace context menus close on outside pointer down', () => {
     const source = app();
     expect(source).toContain("window.addEventListener('pointerdown', onPointerDown, true)");

@@ -47,7 +47,7 @@ async fn workspace_repo(
 
 async fn workspace_list(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<WorkspaceQuery>,
+    Query(query): Query<WorkspaceListQuery>,
 ) -> Response<Body> {
     let rel = query.path.unwrap_or_default();
     let roots = &state.workspace_roots;
@@ -74,6 +74,7 @@ async fn workspace_list(
                 kind: "dir".to_string(),
                 size: None,
                 modified: None,
+                git_changed: false,
             })
             .collect();
         return Json(WorkspaceList {
@@ -117,7 +118,15 @@ async fn workspace_list(
                 None
             },
             modified,
+            git_changed: false,
         });
+    }
+    if query.git_status.unwrap_or(true) {
+        let files = entries.iter().filter(|entry| entry.kind == "file").map(|entry| entry.name.as_str()).collect::<Vec<_>>();
+        let changed = timeout(WORKSPACE_GIT_TIMEOUT, workspace_list_git_changes(&dir, &files)).await.unwrap_or_default();
+        for entry in &mut entries {
+            entry.git_changed = entry.kind == "file" && changed.contains(&entry.name);
+        }
     }
     entries.sort_by(|a, b| {
         (a.kind.as_str() != "dir", a.name.to_lowercase())
@@ -130,6 +139,36 @@ async fn workspace_list(
         roots: roots_info(),
     })
     .into_response()
+}
+
+async fn workspace_list_git_changes(dir: &Path, files: &[&str]) -> HashSet<String> {
+    let mut changed = HashSet::new();
+    // Pass only immediate file entries so Git does not visit unopened
+    // subdirectories. Bound each batch's command-line length.
+    for files in files.chunks(64) {
+        let mut args = git_args(dir, &[
+            OsStr::new("--no-optional-locks"),
+            OsStr::new("--literal-pathspecs"),
+            OsStr::new("status"),
+            OsStr::new("--porcelain=v1"),
+            OsStr::new("-z"),
+            OsStr::new("--untracked-files=all"),
+            OsStr::new("--no-renames"),
+            OsStr::new("--ignore-submodules=all"),
+            OsStr::new("--"),
+        ]);
+        args.extend(files.iter().map(OsString::from));
+        let Some(output) = run_workspace_git(args).await.filter(|output| output.status.success()) else {
+            break;
+        };
+        // Porcelain v1 -z reports unquoted, repo-relative paths. Disabling
+        // rename detection means each record has exactly one pathname.
+        for record in output.stdout.split(|byte| *byte == 0) {
+            let Some(name) = record.get(3..).and_then(|path| path.rsplit(|byte| *byte == b'/').next()).and_then(|name| std::str::from_utf8(name).ok()) else { continue; };
+            if files.contains(&name) { changed.insert(name.to_owned()); }
+        }
+    }
+    changed
 }
 
 async fn workspace_file(

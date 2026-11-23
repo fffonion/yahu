@@ -78,7 +78,7 @@ type Attachment = { id: string; name: string; kind: 'image' | 'text' | 'binary';
 type SessionContextMenu = { session: Session; x: number; y: number } | null;
 
 type SkillContextMenu = { skill: Skill; x: number; y: number } | null;
-type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
+type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string; git_changed?: boolean };
 type WorkspaceRepo = { path: string; name: string };
 type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'hex' | 'none'; url?: string; editRequest?: number; totalSize?: number; truncated?: boolean };
 type Skill = { name: string; description?: string; editorial_name?: string; editorial_description?: string; version?: string; category?: string; enabled?: boolean; installed?: boolean; mutable?: boolean };
@@ -680,6 +680,7 @@ export default function App() {
   const workspaceRevealRequest = useRef(0);
   const workspaceReviewRequest = useRef(0);
   const workspaceRouteRequest = useRef(0);
+  const workspaceOpeningFolders = useRef(new Set<string>());
   const [workspaceRepo, setWorkspaceRepo] = useState<WorkspaceRepo | 'loading' | null>(null);
   useEffect(() => { workspaceRevealRequest.current += 1; }, [workspaceCollapsed, mode, activeSessionId]);
   const [dialog, setDialog] = useState<DialogState>(null);
@@ -920,7 +921,7 @@ export default function App() {
     if (route.mode === 'skills' && route.skillName) setSkillRouteTarget(route.skillName);
     if (route.mode === 'skills' && !route.skillName) clearSelectedSkill();
     if (route.mode === 'images') setInitialImageFilename(route.imageFilename || '');
-    if (route.mode === 'workspace' && route.workspaceKind) setWorkspaceRouteTarget({ workspaceKind: route.workspaceKind, workspacePath: route.workspacePath || '' });
+    if (route.mode === 'workspace') setWorkspaceRouteTarget({ workspaceKind: route.workspaceKind ?? 'folder', workspacePath: route.workspacePath || '' });
     if (route.mode === 'terminal') { setTerminalMounted(true); setTerminalCwd(route.cwd || ''); }
   }, [clearSelectedSkill, clearWorkspaceScope, switchActiveSession]);
   useEffect(() => {
@@ -1598,22 +1599,26 @@ export default function App() {
     }
   }, [activeSession?.source, applyStreamFollowIntent, cancelChatViewRestore, updateSessionBoundaryTimes, updateSessionMessageCount]);
 
-  const fetchWorkspaceEntries = useCallback(async (path = '') => {
-    const res = await fetch(`/workspace/list?path=${encodeURIComponent(path || '')}`);
+  const fetchWorkspaceEntries = useCallback(async (path = '', gitStatus = true) => {
+    const res = await fetch(`/workspace/list?path=${encodeURIComponent(path)}${gitStatus ? '' : '&git_status=false'}`);
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     const body = await res.json();
     const roots = Array.isArray(body.roots) ? (body.roots as WorkspaceRootInfo[]) : [];
     return { root: String(body.root || ''), path: body.path || path || '', entries: (body.entries || []) as WorkspaceEntry[], roots };
   }, []);
 
-  const loadWorkspace = useCallback(async (path = workspacePath) => {
+  const loadWorkspace = useCallback(async (path: string) => {
     try {
       const body = await fetchWorkspaceEntries(path || '');
       setWorkspacePath(body.path);
       setWorkspaceEntries(body.entries);
       setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
     } catch (err) { setWorkspaceEntries([]); setStatus(tf('workspace.unavailable', errorMessage(err))); }
-  }, [fetchWorkspaceEntries, workspacePath]);
+  }, [fetchWorkspaceEntries]);
+
+  useEffect(() => {
+    if (mode === 'chat' && !workspaceCollapsed) void loadWorkspace('');
+  }, [mode, workspaceCollapsed, loadWorkspace]);
 
   const toggleWorkspaceFolder = useCallback(async (entry: WorkspaceEntry) => {
     workspaceRevealRequest.current += 1;
@@ -1623,14 +1628,16 @@ export default function App() {
       setExpandedWorkspacePaths((old) => { const next = new Set(old); next.delete(path); return next; });
       return;
     }
+    const opening = workspaceOpeningFolders.current;
+    if (opening.has(path)) return;
+    opening.add(path);
     try {
-      if (!workspaceTree[path]) {
-        const body = await fetchWorkspaceEntries(path);
-        setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
-      }
+      const body = await fetchWorkspaceEntries(path);
+      setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
       setExpandedWorkspacePaths((old) => new Set(old).add(path));
     } catch (err) { setStatus(tf('workspace.folderUnavailable', errorMessage(err))); }
-  }, [expandedWorkspacePaths, fetchWorkspaceEntries, workspaceTree]);
+    finally { opening.delete(path); }
+  }, [expandedWorkspacePaths, fetchWorkspaceEntries]);
 
   const selectedSkill = skillList.find((skill) => skill.name === selectedSkillName) || null;
   const loadSkillFiles = useCallback(async (skill: Skill, path = '') => {
@@ -1847,7 +1854,7 @@ export default function App() {
     showToast(t('cron.deleted'));
   }, [apiBase, cronEditingId, cronName, headers, loadCronJobs, requestConfirm, resetCronForm, showToast]);
 
-  useEffect(() => { loadModels(); loadWorkspace(''); }, []);
+  useEffect(() => { loadModels(); }, []);
   useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);
   const providerUsageAutoRefreshRef = useRef('');
   const providerUsageEnabledRef = useRef(providerUsageEnabled);
@@ -2482,7 +2489,7 @@ export default function App() {
       // Chat file tool cards hand over resolved_path, which Hermes reports as
       // an absolute path; the workspace API rejects absolute paths outright.
       try {
-        const body = await fetchWorkspaceEntries('');
+        const body = await fetchWorkspaceEntries('', false);
         if (!isCurrent()) return;
         const roots = body.roots.length > 0
           ? body.roots
@@ -4732,16 +4739,21 @@ type WorkspaceTreeRowsProps = Pick<WorkspaceTreeProps, 'workspaceTree' | 'expand
   entries: WorkspaceEntry[];
   openFile: (entry: WorkspaceEntry) => void | Promise<void>;
   depth?: number;
+  repoRootPath?: string;
 };
 
-function WorkspaceTreeRows({ entries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openFile, downloadEntry, openWorkspaceMenu, selectedPath, depth = 0 }: WorkspaceTreeRowsProps) {
+function WorkspaceTreeRows({ entries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openFile, downloadEntry, openWorkspaceMenu, selectedPath, depth = 0, repoRootPath }: WorkspaceTreeRowsProps) {
   return entries.map((entry) => {
     const expanded = entry.kind === 'dir' && expandedWorkspacePaths.has(entry.path);
+    const isRepoRoot = entry.path === repoRootPath;
     const children = expanded ? (workspaceTree[entry.path] || []) : [];
     const activate = () => entry.kind === 'dir' ? toggleWorkspaceFolder(entry) : openFile(entry);
     return <React.Fragment key={entry.path}>
-      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}${entry.path === selectedPath ? ' selected' : ''}`} data-workspace-path={entry.path} aria-current={entry.path === selectedPath ? 'true' : undefined} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={activate} onContextMenu={(event) => openWorkspaceMenu?.(entry, event)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
-        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span><WorkspaceEntryIcon entry={entry} expanded={expanded} /><span className="file-name">{entry.name}</span><span className="file-size">{entry.kind === 'file' ? formatFileSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(event) => { event.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
+      <div className={`file-row workspace-tree-row ${entry.kind} ${expanded ? 'expanded' : ''}${entry.path === selectedPath ? ' selected' : ''}`} data-workspace-path={entry.path} aria-current={entry.path === selectedPath ? 'true' : undefined} aria-expanded={entry.kind === 'dir' ? expanded : undefined} style={{ paddingLeft: 10 + depth * 16 }} role="button" tabIndex={0} onClick={activate} onContextMenu={isRepoRoot ? undefined : (event) => openWorkspaceMenu?.(entry, event)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
+        <span className="caret">{entry.kind === 'dir' ? (expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>
+        <WorkspaceEntryIcon entry={entry} expanded={expanded} />
+        <span className="workspace-file-label"><span className="file-name">{entry.name}</span>{entry.kind === 'file' && entry.git_changed && <span className="workspace-git-dot" role="img" aria-label={t('workspace.gitChanged')} title={t('workspace.gitChanged')} />}</span>
+        <span className="file-size">{entry.kind === 'file' ? formatFileSize(entry.size) : ''}</span>{entry.kind === 'file' && <button title={t('workspace.downloadFile')} onClick={(event) => { event.stopPropagation(); downloadEntry(entry); }}><Download /></button>}
       </div>
       {expanded && children.length > 0 && <WorkspaceTreeRows selectedPath={selectedPath} entries={children} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} depth={depth + 1} />}
     </React.Fragment>;
@@ -4753,14 +4765,11 @@ function WorkspaceSidebar({ repo, rootEntries, workspaceTree, expandedWorkspaceP
     await openWorkspaceEntry(entry);
     closeMobileSidebar?.();
   };
-  const rows = (entries: WorkspaceEntry[], depth = 0) => <WorkspaceTreeRows entries={entries} depth={depth} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} selectedPath={selectedPath} />;
+  const entries: WorkspaceEntry[] = repo === 'loading' ? [] : repo ? [{ ...repo, kind: 'dir' }] : rootEntries;
   return <div className="workspace-drawer-content">
     <div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div><button type="button" className="workspace-mobile-close" aria-label={t('nav.closeList')} title={t('nav.closeList')} onClick={() => closeMobileSidebar?.()}><X /></button></div>
     <div className="workspace-tree file-list" aria-busy={repo === 'loading'}>
-      {repo === 'loading' ? null : repo ? <details key={repo.path} className="workspace-repo-tree" open>
-        <summary title={repo.name}>{repo.name}</summary>
-        {rows(workspaceTree[repo.path] || [], 1)}
-      </details> : rows(rootEntries)}
+      <WorkspaceTreeRows entries={entries} repoRootPath={repo && repo !== 'loading' ? repo.path : undefined} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} selectedPath={selectedPath} />
     </div>
   </div>;
 }
