@@ -40,7 +40,7 @@ describe('workspace review wiring', () => {
     expect(text).toContain("const expanded = path.startsWith('~/') ? roots[0].path + path.slice(1) : path;");
     expect(text).toContain('const relative = workspaceRootPrefix(expanded, roots);');
     expect(text).toContain("writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: targetPath })");
-    expect(text).toContain('setWorkspaceRouteTarget({ workspaceKind: \'file\', workspacePath: targetPath })');
+    expect(text).toContain("if (mode === 'chat') setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: targetPath, fromChat: true, previewLoaded: true })");
     expect(text).toContain("openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' }, { route: false, onLoaded:");
     expect(text).toContain('setReviewSession((old) => ({ active: true, path: targetPath, files:');
   });

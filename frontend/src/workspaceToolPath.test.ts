@@ -30,6 +30,13 @@ describe('chat tool workspace paths', () => {
     expect(workspaceTools.toolWorkspacePath(summarizeToolMessage('{}', 'search_files', { pattern: 'needle' }))).toBeNull();
   });
 
+  test('prepares only the repo root and file ancestors within it', () => {
+    expect(workspaceTools.workspaceRepoParents('@1/projects/demo/src/app.ts', '@1/projects/demo')).toEqual(['@1/projects/demo', '@1/projects/demo/src']);
+    expect(workspaceTools.workspaceRepoParents('src/app.ts', '')).toEqual(['', 'src']);
+    expect(workspaceTools.workspaceRepoParents('demo/app.ts', 'demo')).toEqual(['demo']);
+    expect(workspaceTools.workspaceRepoParents('demo-other/app.ts', 'demo')).toBeNull();
+  });
+
   test('loads only the ancestor chain instead of scanning the workspace', () => {
     expect(workspaceTools.workspaceToolParents('project/src/main.ts')).toEqual(['', 'project', 'project/src']);
     expect(workspaceTools.workspaceToolParents('main.ts')).toEqual(['']);

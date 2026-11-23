@@ -46,7 +46,7 @@ import { SubagentProgressStack } from './SubagentProgressCard';
 import { subagentBeforeTimeForMessages, subagentPrecedingFallbackIds, subagentViewportIsLive, shouldForwardSubagentWheel } from './subagentProgress';
 import { currentNavigatorId } from './chatUserNavigator';
 import { WorkspaceEntryIcon } from './workspaceIcons';
-import { workspaceRelativeToolPath, workspaceRootPrefix, workspaceToolParents, type WorkspaceRootInfo } from './workspaceToolPath';
+import { workspaceRelativeToolPath, workspaceRepoParents, workspaceRootPrefix, workspaceToolParents, type WorkspaceRootInfo } from './workspaceToolPath';
 import { addFile as addReviewFile, removeFile as removeReviewStorageFile } from './reviewComments';
 import { skillDisplayName, skillDisplayDescription, skillMatchesQuery } from './skillDisplay';
 
@@ -79,6 +79,7 @@ type SessionContextMenu = { session: Session; x: number; y: number } | null;
 
 type SkillContextMenu = { skill: Skill; x: number; y: number } | null;
 type WorkspaceEntry = { name: string; path: string; kind: 'file' | 'dir'; size?: number; modified?: string };
+type WorkspaceRepo = { path: string; name: string };
 type WorkspacePreview = { path: string; content: string; kind: 'text' | 'image' | 'hex' | 'none'; url?: string; editRequest?: number; totalSize?: number; truncated?: boolean };
 type Skill = { name: string; description?: string; editorial_name?: string; editorial_description?: string; version?: string; category?: string; enabled?: boolean; installed?: boolean; mutable?: boolean };
 type SkillFileContextMenu = { skill: Skill; entry: WorkspaceEntry; x: number; y: number } | null;
@@ -309,12 +310,6 @@ const navLabel = (mode: Mode) => t(`nav.${mode}`);
 const modeSummary = (mode: Mode) => mode === 'memory' ? t('mode.memorySummary') : mode === 'insights' ? t('mode.insightsSummary') : mode === 'workspace' ? t('mode.workspaceSummary') : mode === 'terminal' ? t('mode.terminalSummary') : mode === 'settings' ? t('mode.settingsSummary') : mode === 'images' ? t('mode.imagesSummary') : t('mode.cronSummary');
 const apiJoin = (base: string, path: string) => `${base.replace(/\/$/, '')}${path}`;
 const numericId = numericHistoryMessageId;
-const workspaceRouteParents = (path: string) => {
-  const parts = path.split('/').filter(Boolean);
-  const parents: string[] = [''];
-  for (let i = 1; i < parts.length; i += 1) parents.push(parts.slice(0, i).join('/'));
-  return parents;
-};
 
 async function readFileAttachment(file: File): Promise<Attachment> {
   const id = uid('att');
@@ -671,7 +666,6 @@ export default function App() {
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [newMessageBoundaryId, setNewMessageBoundaryId] = useState('');
   const [workspacePath, setWorkspacePath] = useState('');
-  const [workspaceRoots, setWorkspaceRoots] = useState<WorkspaceRootInfo[]>([]);
   const [workspaceEntries, setWorkspaceEntries] = useState<WorkspaceEntry[]>([]);
   const [skillList, setSkillList] = useState<Skill[]>([]);
   const [selectedSkillName, setSelectedSkillName] = useState('');
@@ -685,6 +679,8 @@ export default function App() {
   const [workspaceSelectedPath, setWorkspaceSelectedPath] = useState<string>();
   const workspaceRevealRequest = useRef(0);
   const workspaceReviewRequest = useRef(0);
+  const workspaceRouteRequest = useRef(0);
+  const [workspaceRepo, setWorkspaceRepo] = useState<WorkspaceRepo | 'loading' | null>(null);
   useEffect(() => { workspaceRevealRequest.current += 1; }, [workspaceCollapsed, mode, activeSessionId]);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [activeSessionDetail, setActiveSessionDetail] = useState<Session | null>(null);
@@ -705,7 +701,7 @@ export default function App() {
   const [skillFilter, setSkillFilter] = useState('');
   const [skillRouteTarget, setSkillRouteTarget] = useState(initialRoute.mode === 'skills' ? initialRoute.skillName || '' : '');
   const [expandedSkillCats, setExpandedSkillCats] = useState<Set<string>>(new Set());
-  const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string; workspaceEdit?: boolean } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
+  const [workspaceRouteTarget, setWorkspaceRouteTarget] = useState<{ workspaceKind: 'file' | 'folder'; workspacePath: string; workspaceEdit?: boolean; fromChat?: boolean; previewLoaded?: boolean } | null>(initialRoute.mode === 'workspace' && initialRoute.workspaceKind ? { workspaceKind: initialRoute.workspaceKind, workspacePath: initialRoute.workspacePath || '' } : null);
   const [terminalCwd, setTerminalCwd] = useState(initialRoute.mode === 'terminal' ? initialRoute.cwd || '' : '');
   const [terminalMounted, setTerminalMounted] = useState(initialRoute.mode === 'terminal');
   const [terminalFontSize, setTerminalFontSize] = useState(14);
@@ -908,7 +904,14 @@ export default function App() {
     setSkillFileTree({});
     setSkillPreview({ path: '', content: '', kind: 'none' });
   }, []);
+  const clearWorkspaceScope = useCallback(() => {
+    workspaceRouteRequest.current += 1;
+    workspaceReviewRequest.current += 1;
+    setWorkspaceRepo(null);
+    setWorkspaceRouteTarget(null);
+  }, []);
   const applyHashRoute = useCallback((route: HashRoute) => {
+    clearWorkspaceScope();
     setMode(route.mode);
     setSidebarCollapsed(route.mode === 'images' || route.mode === 'memory' || route.mode === 'insights' || route.mode === 'usage' || route.mode === 'terminal' || route.mode === 'settings');
     if (route.mode !== 'chat' && route.mode !== 'cron') setMobileSidebarOpen(false);
@@ -919,7 +922,7 @@ export default function App() {
     if (route.mode === 'images') setInitialImageFilename(route.imageFilename || '');
     if (route.mode === 'workspace' && route.workspaceKind) setWorkspaceRouteTarget({ workspaceKind: route.workspaceKind, workspacePath: route.workspacePath || '' });
     if (route.mode === 'terminal') { setTerminalMounted(true); setTerminalCwd(route.cwd || ''); }
-  }, [clearSelectedSkill, switchActiveSession]);
+  }, [clearSelectedSkill, clearWorkspaceScope, switchActiveSession]);
   useEffect(() => {
     let clearRouteEventFrame = 0;
     const applyCurrentHashRoute = () => {
@@ -1600,7 +1603,6 @@ export default function App() {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     const body = await res.json();
     const roots = Array.isArray(body.roots) ? (body.roots as WorkspaceRootInfo[]) : [];
-    if (roots.length > 0) setWorkspaceRoots(roots);
     return { root: String(body.root || ''), path: body.path || path || '', entries: (body.entries || []) as WorkspaceEntry[], roots };
   }, []);
 
@@ -2472,43 +2474,43 @@ export default function App() {
   }, [toggleWorkspaceFolder, writeHashRoute, showToast]);
   const startWorkspaceReview = useCallback(async (path: string) => {
     if (!path) return;
-    let targetPath = path;
+    const request = ++workspaceReviewRequest.current;
+    const revealRequest = workspaceRevealRequest.current;
+    const isCurrent = () => request === workspaceReviewRequest.current && revealRequest === workspaceRevealRequest.current;
+    let targetPath = workspaceRelativeToolPath(path, '') ?? path;
     if (path.startsWith('/') || path.startsWith('~')) {
       // Chat file tool cards hand over resolved_path, which Hermes reports as
       // an absolute path; the workspace API rejects absolute paths outright.
       try {
         const body = await fetchWorkspaceEntries('');
-        const roots = workspaceRoots.length > 0
-          ? workspaceRoots
+        if (!isCurrent()) return;
+        const roots = body.roots.length > 0
+          ? body.roots
           : [{ name: body.root, path: body.root, index: 0 }];
         const expanded = path.startsWith('~/') ? roots[0].path + path.slice(1) : path;
         const relative = workspaceRootPrefix(expanded, roots);
         if (relative === null || relative === '') { showToast(tf('review.outsideWorkspace', path)); return; }
         targetPath = relative;
       } catch {
-        showToast(tf('workspace.previewFailed', 'root'));
+        if (isCurrent()) showToast(tf('workspace.previewFailed', 'root'));
         return;
       }
     }
-    setMode('workspace');
-    setSidebarCollapsed(false);
-    // Load the preview before touching the hash: a hash write fires the route
-    // effect which bumps workspaceRevealRequest, and that would make this
-    // load's canApply() fail and silently skip the review activation.
-    const request = ++workspaceReviewRequest.current;
-    const isCurrent = () => request === workspaceReviewRequest.current;
     let loadedKind: WorkspacePreview['kind'] | null = null;
     await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' }, { route: false, onLoaded: (kind) => { loadedKind = kind; } }, isCurrent);
     if (!isCurrent() || !loadedKind) return;
     if (loadedKind !== 'text') {
       setReviewSession(null);
       showToast(t('review.notTextFile'));
-      return;
+    } else {
+      setReviewSession((old) => ({ active: true, path: targetPath, files: old && old.files.includes(targetPath) ? old.files : [...(old?.files ?? []), targetPath] }));
     }
-    setReviewSession((old) => ({ active: true, path: targetPath, files: old && old.files.includes(targetPath) ? old.files : [...(old?.files ?? []), targetPath] }));
+    if (mode === 'chat') setWorkspaceRepo('loading');
+    setMode('workspace');
+    setSidebarCollapsed(false);
     writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: targetPath });
-    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: targetPath });
-  }, [fetchWorkspaceEntries, openWorkspaceEntry, showToast, workspaceRoots, writeHashRoute]);
+    if (mode === 'chat') setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: targetPath, fromChat: true, previewLoaded: true });
+  }, [fetchWorkspaceEntries, mode, openWorkspaceEntry, showToast, writeHashRoute]);
   const selectReviewFile = useCallback(async (path: string) => {
     if (!path) return;
     const request = ++workspaceReviewRequest.current;
@@ -2578,28 +2580,39 @@ export default function App() {
       if (isCurrent()) showToast(tf('workspace.routeUnavailable', errorMessage(err)));
     }
   }, [workspaceCollapsed, mode, fetchWorkspaceEntries, openWorkspaceEntry, showToast]);
-  const openWorkspacePathFile = useCallback(async (targetPath: string) => {
-    await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' });
-  }, [openWorkspaceEntry]);
-  const openWorkspaceRouteTarget = useCallback(async (targetPath: string, workspaceKind: 'file' | 'folder', options?: { edit?: boolean }) => {
+  const openWorkspaceRouteTarget = useCallback(async ({ workspacePath: targetPath, workspaceKind, workspaceEdit, fromChat, previewLoaded }: NonNullable<typeof workspaceRouteTarget>) => {
+    const request = ++workspaceRouteRequest.current;
+    const isCurrent = () => request === workspaceRouteRequest.current;
     setMode('workspace');
     setSidebarCollapsed(false);
-    const parents = workspaceRouteParents(targetPath);
-    const foldersToLoad = workspaceKind === 'folder' ? [...parents, targetPath] : parents;
-    for (const folderPath of foldersToLoad) {
-      const body = await fetchWorkspaceEntries(folderPath);
-      setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
-      if (folderPath === '') { setWorkspacePath(body.path); setWorkspaceEntries(body.entries); }
+    let parents = workspaceToolParents(targetPath);
+    if (fromChat) {
+      const repo: WorkspaceRepo | null = await fetch(`/workspace/repo?path=${encodeURIComponent(targetPath)}`)
+        .then((res) => res.ok ? res.json() : null).catch(() => null);
+      if (!isCurrent()) return;
+      const scopedParents = repo && workspaceRepoParents(targetPath, repo.path);
+      if (scopedParents) parents = scopedParents;
+      setWorkspaceRepo(scopedParents ? repo : null);
     }
-    setExpandedWorkspacePaths((old) => new Set([...Array.from(old), ...parents, targetPath]));
-    if (workspaceKind === 'file') await openWorkspacePathFile(targetPath);
-    if (options?.edit) {
-      setPreview((old) => ({ ...old, editRequest: Date.now() }));
+    try {
+      const folders = new Set(workspaceKind === 'folder' ? [...parents, targetPath] : parents);
+      for (const folderPath of folders) {
+        const body = await fetchWorkspaceEntries(folderPath);
+        if (!isCurrent()) return;
+        setWorkspaceTree((old) => ({ ...old, [body.path]: body.entries }));
+        if (folderPath === '') { setWorkspacePath(body.path); setWorkspaceEntries(body.entries); }
+      }
+      setExpandedWorkspacePaths((old) => new Set([...old, ...folders]));
+      if (workspaceKind === 'file' && !previewLoaded) {
+        await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' }, { edit: workspaceEdit, route: false }, isCurrent);
+      }
+    } catch (err) {
+      if (isCurrent()) setStatus(tf('workspace.routeUnavailable', errorMessage(err)));
     }
-  }, [fetchWorkspaceEntries, openWorkspacePathFile]);
+  }, [fetchWorkspaceEntries, openWorkspaceEntry]);
   useEffect(() => {
     if (!workspaceRouteTarget) return;
-    openWorkspaceRouteTarget(workspaceRouteTarget.workspacePath, workspaceRouteTarget.workspaceKind, { edit: workspaceRouteTarget.workspaceEdit }).catch((err) => setStatus(tf('workspace.routeUnavailable', errorMessage(err))));
+    void openWorkspaceRouteTarget(workspaceRouteTarget);
     setWorkspaceRouteTarget(null);
   }, [openWorkspaceRouteTarget, workspaceRouteTarget]);
   const parentPath = workspacePath.split('/').filter(Boolean).slice(0, -1).join('/');
@@ -2659,22 +2672,19 @@ export default function App() {
     const y = Math.min(event.clientY, window.innerHeight - (entry.kind === 'file' ? 220 : 156));
     setWorkspaceMenu({ entry, x: Math.max(8, x), y: Math.max(8, y) });
   };
-  const viewWorkspaceEntry = async (entry: WorkspaceEntry) => {
+  const viewWorkspaceEntry = ({ path }: Pick<WorkspaceEntry, 'path'>, workspaceEdit = false) => {
     setWorkspaceMenu(null);
+    const fromChat = mode === 'chat';
+    workspaceReviewRequest.current += 1;
+    if (fromChat) setWorkspaceRepo('loading');
     setMode('workspace');
     setSidebarCollapsed(false);
-    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
-    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: entry.path });
-  };
-  const editWorkspaceEntryPage = async (entry: WorkspaceEntry) => {
-    setWorkspaceMenu(null);
-    setMode('workspace');
-    setSidebarCollapsed(false);
-    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: entry.path });
-    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: entry.path, workspaceEdit: true });
+    writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path });
+    setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path, workspaceEdit, fromChat });
   };
   const openWorkspaceTerminal = (entry: WorkspaceEntry) => {
     setWorkspaceMenu(null);
+    clearWorkspaceScope();
     setTerminalMounted(true);
     setTerminalCwd(entry.path);
     setMode('terminal');
@@ -2741,6 +2751,7 @@ export default function App() {
     setMobileSidebarOpen((value) => !value);
   };
   const setNavMode = (next: Mode, collapse = false) => {
+    clearWorkspaceScope();
     if (next === 'terminal') setTerminalMounted(true);
     setMode(next);
     setSidebarCollapsed(collapse || next === 'memory' || next === 'insights' || next === 'terminal' || next === 'settings');
@@ -2778,7 +2789,7 @@ export default function App() {
           <button className={`rail-btn nav-settings ${mode === 'settings' ? 'active' : ''}`} onClick={() => setNavMode('settings')} title={t('nav.settings')}><Settings /></button>
         </div>
         {!sidebarCollapsed && <div className="left-body">
-          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} hideCronSessions={hideCronSessions} setHideCronSessions={(value: boolean) => setHideCronSessions(value)} startDraftSession={startDraftSession} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={switchActiveSession} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} reorderPinned={reorderPinned} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} closeMobileSidebar={closeMobileSidebar} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} openSkillMenu={openSkillMenu} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} closeMobileSidebar={closeMobileSidebar} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
+          {mode === 'chat' ? <ChatSidebar filter={filter} setFilter={setFilter} hideCronSessions={hideCronSessions} setHideCronSessions={(value: boolean) => setHideCronSessions(value)} startDraftSession={startDraftSession} pinnedSessions={filteredSessions.pinned} normalSessions={filteredSessions.normal} activeSessionId={activeSessionId} setActiveSessionId={switchActiveSession} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} pinnedIds={pinnedIds} togglePin={togglePin} reorderPinned={reorderPinned} openSessionMenu={openSessionMenu} openSessionMenuAt={openSessionMenuAt} /> : mode === 'cron' ? <CronSidebar jobs={cronJobs} editingId={cronEditingId} beginCronEdit={beginCronEdit} resetCronForm={resetCronForm} writeHashRoute={writeHashRoute} closeMobileSidebar={closeMobileSidebar} /> : mode === 'workspace' ? <WorkspaceSidebar repo={workspaceRepo} selectedPath={workspaceSelectedPath} rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} closeMobileSidebar={closeMobileSidebar} /> : mode === 'skills' ? <SkillsSidebar skills={skillList} activeSkillName={selectedSkillName} selectSkill={selectSkill} toggleSkillEnabled={toggleSkillEnabled} openSkillMenu={openSkillMenu} filter={skillFilter} setFilter={setSkillFilter} expandedCats={expandedSkillCats} setExpandedCats={setExpandedSkillCats} closeMobileSidebar={closeMobileSidebar} /> : (mode === 'memory' || mode === 'settings') ? null : <ModeSidebar mode={mode} />}
         </div>}
         {!sidebarCollapsed && <ThemeCard theme={theme} setTheme={setTheme} />}
       </aside>
@@ -2797,7 +2808,7 @@ export default function App() {
         <button type="button" role="menuitem" className="danger" onClick={() => deleteSkillFileEntry(skillFileMenu.skill, skillFileMenu.entry)}><Trash2 /> {t('skills.deleteFile')}</button>
       </div>}
       {workspaceMenu && <div className="workspace-context-menu" role="menu" style={{ left: workspaceMenu.x, top: workspaceMenu.y }} onContextMenu={(event) => event.preventDefault()}>
-        {workspaceMenu.entry.kind === 'file' && <><button type="button" role="menuitem" onClick={() => viewWorkspaceEntry(workspaceMenu.entry)}><Eye /> {t('workspace.viewItem')}</button><button type="button" role="menuitem" onClick={() => editWorkspaceEntryPage(workspaceMenu.entry)}><Pencil /> {t('workspace.editItemPage')}</button></>}
+        {workspaceMenu.entry.kind === 'file' && <><button type="button" role="menuitem" onClick={() => viewWorkspaceEntry(workspaceMenu.entry)}><Eye /> {t('workspace.viewItem')}</button><button type="button" role="menuitem" onClick={() => viewWorkspaceEntry(workspaceMenu.entry, true)}><Pencil /> {t('workspace.editItemPage')}</button></>}
         {workspaceMenu.entry.kind === 'dir' && <button type="button" role="menuitem" onClick={() => openWorkspaceTerminal(workspaceMenu.entry)}><Terminal /> {t('workspace.openInTerminal')}</button>}
         <button type="button" role="menuitem" onClick={() => renameWorkspaceEntry(workspaceMenu.entry)}><Pencil /> {t('workspace.renameItem')}</button>
         <button type="button" role="menuitem" className="danger" onClick={() => deleteWorkspaceEntry(workspaceMenu.entry)}><Trash2 /> {t('workspace.deleteItem')}</button>
@@ -2805,7 +2816,7 @@ export default function App() {
 
       {mode === 'chat' && <>
         <ChatMain onRevealWorkspacePath={revealWorkspaceToolPath} sessions={sessions} activeSessionDetail={activeSessionDetail} activeSessionModelOverride={activeSessionModelOverride} activeSessionId={activeSessionId} messages={messages} userMessageNav={userMessageNav} userNavLoading={userNavLoading} historyTotal={historyTotal} onJumpToMessage={jumpToMessage} prepareLatestFollow={prepareLatestFollow} onStreamFollowIntent={applyStreamFollowIntent} getStreamFollowMode={streamFollowModeForSession} consumeChatViewRestoreScroll={consumeChatViewRestoreScroll} onChatViewTookOver={markChatViewTookOver} contextWindowSnapshot={contextWindowSnapshot} showReasoning={showReasoning} setShowReasoning={setShowReasoning} desktopCompactMessages={desktopCompactMessages} setDesktopCompactMessages={setDesktopCompactMessages} showToolCalls={showToolCalls} setShowToolCalls={setShowToolCalls} hasOlder={hasOlder} hasNewer={hasNewer} loadingMessages={loadingMessages} loadMessageWindow={loadMessageWindow} attachments={attachments} setAttachments={setAttachments} input={input} setInput={setInput} onFiles={onFiles} fileInput={fileInput} sendMessage={sendMessage} stopStreaming={stopStreaming} composerEnterMode={composerEnterMode} model={model} selectedModelProvider={selectedModelProvider} setModel={changeSessionModel} models={models} effort={effort} setEffort={setEffort} busy={busy} streaming={currentSessionStreaming} followUpQueue={followUpQueue} onSteerQueuedItem={steerQueuedItem} onEditQueuedItem={editQueuedItem} onReorderQueuedItem={reorderQueuedItem} chatScrollRef={chatScrollRef} composerRef={composerRef} composerCompact={composerCompact} setComposerCompact={setComposerCompact} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} newMessageCount={newMessageCount} newMessageBoundaryId={newMessageBoundaryId} onClearNewMessages={() => { clearNewMessages(); if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }} skills={skillList} onStartWorkspaceReview={startWorkspaceReview} />
-        <WorkspaceAside onNavigate={() => { workspaceRevealRequest.current += 1; }} selectedPath={workspaceSelectedPath} rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => { setMode('workspace'); setSidebarCollapsed(false); writeHashRoute({ mode: 'workspace', workspaceKind: 'file', workspacePath: path }); setWorkspaceRouteTarget({ workspaceKind: 'file', workspacePath: path }); }} />
+        <WorkspaceAside onNavigate={() => { workspaceRevealRequest.current += 1; }} selectedPath={workspaceSelectedPath} rootEntries={workspaceTree[''] || workspaceEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openWorkspaceEntry={openWorkspaceEntry} downloadEntry={downloadEntry} preview={preview} setPreview={setPreview} collapsed={workspaceCollapsed} setCollapsed={setWorkspaceCollapsed} openWorkspaceMenu={openWorkspaceMenu} openFullPreview={(path) => viewWorkspaceEntry({ path })} />
       </>}
       {mode === 'images' && <ImageBrowser theme={theme} setTheme={setTheme} requestConfirm={requestConfirm} initialImageFilename={initialImageFilename} writeHashRoute={writeHashRoute} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
 
@@ -4737,12 +4748,21 @@ function WorkspaceTreeRows({ entries, workspaceTree, expandedWorkspacePaths, tog
   });
 }
 
-function WorkspaceSidebar({ rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu, closeMobileSidebar }: WorkspaceTreeProps) {
+function WorkspaceSidebar({ repo, rootEntries, workspaceTree, expandedWorkspacePaths, toggleWorkspaceFolder, openWorkspaceEntry, downloadEntry, openWorkspaceMenu, closeMobileSidebar, selectedPath }: WorkspaceTreeProps & { repo: WorkspaceRepo | 'loading' | null }) {
   const openFile = async (entry: WorkspaceEntry) => {
     await openWorkspaceEntry(entry);
     closeMobileSidebar?.();
   };
-  return <div className="workspace-drawer-content"><div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div><button type="button" className="workspace-mobile-close" aria-label={t('nav.closeList')} title={t('nav.closeList')} onClick={() => closeMobileSidebar?.()}><X /></button></div><div className="workspace-tree file-list"><WorkspaceTreeRows entries={rootEntries} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} /></div></div>;
+  const rows = (entries: WorkspaceEntry[], depth = 0) => <WorkspaceTreeRows entries={entries} depth={depth} workspaceTree={workspaceTree} expandedWorkspacePaths={expandedWorkspacePaths} toggleWorkspaceFolder={toggleWorkspaceFolder} openFile={openFile} downloadEntry={downloadEntry} openWorkspaceMenu={openWorkspaceMenu} selectedPath={selectedPath} />;
+  return <div className="workspace-drawer-content">
+    <div className="workspace-sidebar-head"><div><h2>{t('workspace.title')}</h2><p>{t('workspace.fileTree')}</p></div><button type="button" className="workspace-mobile-close" aria-label={t('nav.closeList')} title={t('nav.closeList')} onClick={() => closeMobileSidebar?.()}><X /></button></div>
+    <div className="workspace-tree file-list" aria-busy={repo === 'loading'}>
+      {repo === 'loading' ? null : repo ? <details key={repo.path} className="workspace-repo-tree" open>
+        <summary title={repo.name}>{repo.name}</summary>
+        {rows(workspaceTree[repo.path] || [], 1)}
+      </details> : rows(rootEntries)}
+    </div>
+  </div>;
 }
 function MarqueeText({ children }: { children: React.ReactNode }) {
   const rootRef = useRef<HTMLSpanElement>(null);

@@ -26,6 +26,12 @@ export function workspaceToolParents(path: string): string[] {
   return ['', ...parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'))];
 }
 
+export function workspaceRepoParents(path: string, repoPath: string): string[] | null {
+  const parents = workspaceToolParents(path);
+  const index = parents.indexOf(repoPath);
+  return index < 0 ? null : parents.slice(index);
+}
+
 export type WorkspaceRootInfo = { name: string; path: string; index: number };
 
 /**

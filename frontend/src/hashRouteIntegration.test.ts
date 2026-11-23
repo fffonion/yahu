@@ -37,9 +37,14 @@ describe('hash route integration', () => {
     expect(source).toContain('openWorkspaceRouteTarget');
     expect(source).toContain("workspaceKind: 'file'");
     expect(source).toContain("workspaceKind: 'folder'");
-    expect(source).toContain('setExpandedWorkspacePaths((old) => new Set([...Array.from(old), ...parents, targetPath]));');
-    expect(source).toContain('await openWorkspacePathFile(targetPath);');
+    expect(source).toContain("workspaceKind === 'folder' ? [...parents, targetPath] : parents");
+    expect(source).toContain('setExpandedWorkspacePaths((old) => new Set([...old, ...folders]));');
+    expect(source).toContain("await openWorkspaceEntry({ name: basename(targetPath), path: targetPath, kind: 'file' }, { edit: workspaceEdit, route: false }, isCurrent);");
     expect(source).toContain('isWorkspaceTextFile(entry.name)');
+  });
+
+  test('full preview from chat uses the same Workspace route as view and edit', () => {
+    expect(app()).toContain('openFullPreview={(path) => viewWorkspaceEntry({ path })}');
   });
 
   test('nav clicks and item opens write canonical hash routes', () => {

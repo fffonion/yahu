@@ -305,6 +305,45 @@
     }
 
     #[tokio::test]
+    async fn workspace_repo_resolves_nearest_git_root_without_crossing_workspace_bounds() {
+        use serde_json::json;
+
+        let temp = tempfile::tempdir().unwrap();
+        let projects = temp.path().join("projects");
+        let outer = projects.join("outer");
+        let inner = outer.join("nested repo");
+        let src = inner.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir(temp.path().join("other")).unwrap();
+        for repo in [&outer, &inner] {
+            assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(repo).status().unwrap().success());
+        }
+        std::fs::write(src.join("app.ts"), "export {};\n").unwrap();
+        std::fs::write(projects.join("notes.txt"), "notes\n").unwrap();
+        let state = |roots: Vec<PathBuf>| {
+            let mut state = test_app_state("http://127.0.0.1:1".into(), temp.path());
+            state.workspace_roots = Arc::new(roots.into_iter().map(|path| WorkspaceRoot {
+                name: path.file_name().unwrap().to_string_lossy().into_owned(), path,
+            }).collect());
+            Arc::new(state)
+        };
+        for (roots, target, expected) in [
+            (vec![projects.clone()], "outer/nested repo/src/app.ts", json!({"path":"outer/nested repo","name":"nested repo"})),
+            (vec![temp.path().join("other"), inner.clone()], "@1/src/app.ts", json!({"path":"@1","name":"nested repo"})),
+            (vec![inner.clone()], "src/app.ts", json!({"path":"","name":"nested repo"})),
+            (vec![src], "app.ts", Value::Null),
+            (vec![projects], "notes.txt", Value::Null),
+        ] {
+            let response = workspace_repo(State(state(roots)), Query(WorkspaceQuery {
+                path: Some(target.into()), download: None, preview: None, base: None, skip: None, full_context: None,
+            })).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let payload: Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+            assert_eq!(payload, expected, "{target}");
+        }
+    }
+
+    #[tokio::test]
     async fn workspace_diff_reports_path_relative_to_the_git_root() {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path().join("project");

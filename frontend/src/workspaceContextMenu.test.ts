@@ -24,7 +24,7 @@ describe('workspace collapse and context menu', () => {
     expect(source).toContain('openWorkspaceMenu');
     expect(source).toContain("t('workspace.viewItem')");
     expect(source).toContain("t('workspace.editItemPage')");
-    expect(source).toContain('editWorkspaceEntryPage');
+    expect(source).toContain('viewWorkspaceEntry(workspaceMenu.entry, true)');
     expect(source).toContain('workspaceEdit');
     expect(source).toContain("t('workspace.renameItem')");
     expect(source).toContain("t('workspace.deleteItem')");

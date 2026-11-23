@@ -14,6 +14,37 @@ struct WorkspaceReviewPayload {
     path: Option<String>,
 }
 
+async fn workspace_repo(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<WorkspaceQuery>,
+) -> Response<Body> {
+    let roots = &state.workspace_roots;
+    let rel = query.path.as_deref().unwrap_or_default();
+    let (index, target) = match resolve_workspace_entry(roots, rel) {
+        Ok(resolved) => resolved,
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, &err.to_string()),
+    };
+    let repo = async {
+        let metadata = fs::metadata(&target).await.ok()?;
+        let dir = if metadata.is_dir() { &target } else { target.parent()? };
+        let output = run_workspace_git(git_args(dir, &[OsStr::new("rev-parse"), OsStr::new("--show-toplevel")])).await?;
+        if !output.status.success() { return None; }
+        let stdout = std::str::from_utf8(&output.stdout).ok()?;
+        let root = fs::canonicalize(stdout.strip_suffix('\n')?).await.ok()?;
+        let relative = root.strip_prefix(&roots[index].path).ok()?;
+        if !target.starts_with(&root) { return None; }
+        let path = relative.iter().map(OsStr::to_str).collect::<Option<Vec<_>>>()?.join("/");
+        let path = match (roots.len() > 1, path.is_empty()) {
+            (true, true) => format!("@{index}"),
+            (true, false) => format!("@{index}/{path}"),
+            (false, _) => path,
+        };
+        let name = root.file_name().and_then(OsStr::to_str).unwrap_or(&roots[index].name);
+        Some(serde_json::json!({ "path": path, "name": name }))
+    }.await;
+    Json(repo).into_response()
+}
+
 async fn workspace_list(
     State(state): State<Arc<AppState>>,
     Query(query): Query<WorkspaceQuery>,

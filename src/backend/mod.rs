@@ -383,6 +383,7 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/login", get(login_page).post(login_submit))
         .route("/logout", post(logout))
         .route("/workspace/list", get(workspace_list))
+        .route("/workspace/repo", get(workspace_repo))
         .route("/workspace/file", get(workspace_file).put(workspace_save))
         .route("/workspace/diff", get(workspace_diff))
         .route("/workspace/commits", get(workspace_commits))
