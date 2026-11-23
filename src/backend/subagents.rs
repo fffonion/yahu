@@ -1024,6 +1024,12 @@ async fn fetch_subagent_projection_snapshot(
             &parent_session_ids,
         ));
     }
+    out.sort_by(|left, right| {
+        (right.status == "running")
+            .cmp(&(left.status == "running"))
+            .then_with(|| subagent_start_order(left.started_at, right.started_at))
+            .then_with(|| left.session_id.cmp(&right.session_id))
+    });
     Ok(out)
 }
 
@@ -1053,15 +1059,39 @@ fn mark_stale_running_subagent(
     now: f64,
 ) -> SubagentProjection {
     if projection.status == "running"
-        && last_active.is_some_and(|last| {
-            last.is_finite() && now.is_finite() && now >= last + SUBAGENT_STALE_RUNNING_SECONDS
-        })
+        && last_active.is_some_and(|last| is_stale_subagent_activity(last, now))
     {
         projection.status = "interrupted".to_string();
         projection.ended_at = last_active;
         projection.current_tool = None;
     }
     projection
+}
+
+fn is_stale_subagent_activity(last: f64, now: f64) -> bool {
+    last.is_finite() && now.is_finite() && now >= last + SUBAGENT_STALE_RUNNING_SECONDS
+}
+
+fn subagent_start_order(left: Option<f64>, right: Option<f64>) -> std::cmp::Ordering {
+    right.unwrap_or(f64::NEG_INFINITY).total_cmp(&left.unwrap_or(f64::NEG_INFINITY))
+}
+
+fn subagent_candidate_order(left: &Value, right: &Value, now: f64) -> std::cmp::Ordering {
+    // Exact-id responses can omit last_active. Keep those open candidates
+    // eligible until the child message tail can supply activity evidence.
+    let running = |session: &Value| {
+        number_field(session, "ended_at").is_none()
+            && !number_field(session, "last_active").is_some_and(|last| is_stale_subagent_activity(last, now))
+    };
+    running(right).cmp(&running(left))
+        .then_with(|| subagent_start_order(number_field(left, "started_at"), number_field(right, "started_at")))
+        .then_with(|| left.get("id").and_then(Value::as_str).cmp(&right.get("id").and_then(Value::as_str)))
+}
+
+fn subagent_in_window(session: &Value, window_start: f64, window_end: f64) -> bool {
+    number_field(session, "started_at").is_some_and(|started| {
+        started <= window_end && (started >= window_start || number_field(session, "ended_at").is_none())
+    })
 }
 
 /// Upstream intentionally omits delegate children from session lists. Discover
@@ -1293,16 +1323,12 @@ async fn resolve_missing_subagent_ancestors_for_parents(
     let mut candidate_ids = sessions
         .iter()
         .filter(|session| {
-            is_subagent_session(session)
-                && number_field(session, "started_at")
-                    .is_some_and(|started| started >= window_start && started <= window_end)
+            is_subagent_session(session) && subagent_in_window(session, window_start, window_end)
         })
         .filter_map(|session| string_field(session, "id"))
         .collect::<Vec<_>>();
     candidate_ids.sort_by(|left, right| {
-        let left_started = by_id.get(left).and_then(|session| number_field(session, "started_at")).unwrap_or(f64::NEG_INFINITY);
-        let right_started = by_id.get(right).and_then(|session| number_field(session, "started_at")).unwrap_or(f64::NEG_INFINITY);
-        right_started.total_cmp(&left_started)
+        subagent_candidate_order(&by_id[left], &by_id[right], window_end)
     });
 
     let mut matched = 0usize;
@@ -1837,11 +1863,7 @@ fn select_visible_subagent_sessions_for_parents(
             if !is_subagent_session(session) {
                 return false;
             }
-            let Some(started_at) = number_field(session, "started_at") else {
-                return false;
-            };
-            let ended_at = number_field(session, "ended_at");
-            if started_at > window_end || (ended_at.is_some() && started_at < window_start) {
+            if !subagent_in_window(session, window_start, window_end) {
                 return false;
             }
             if string_field(session, "_lineage_root_id")
@@ -1894,11 +1916,7 @@ fn select_visible_subagent_sessions_for_parents(
         })
         .cloned()
         .collect::<Vec<_>>();
-    visible.sort_by(|left, right| {
-        number_field(right, "started_at")
-            .unwrap_or(f64::NEG_INFINITY)
-            .total_cmp(&number_field(left, "started_at").unwrap_or(f64::NEG_INFINITY))
-    });
+    visible.sort_by(|left, right| subagent_candidate_order(left, right, window_end));
     visible.truncate(SUBAGENT_VISIBLE_LIMIT);
     visible
 }

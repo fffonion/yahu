@@ -284,10 +284,10 @@ export function shouldForwardSubagentWheel(
 export function buildSubagentTree(subagents: SubagentProgress[], _parentSessionId: string): SubagentTreeNode[] {
   return subagents
     .map((subagent) => ({ ...subagent, children: [] }))
-    .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+    .sort((a, b) => Number(b.status === 'running') - Number(a.status === 'running') || (b.startedAt || 0) - (a.startedAt || 0));
 }
 
-/** Keep the newest rows from the snapshot already bounded by the session viewport. */
+/** Cap the display after putting running rows first and sorting each group by recency. */
 export function latestSubagentRows(nodes: SubagentTreeNode[], limit = SUBAGENT_DISPLAY_LIMIT): SubagentTreeNode[] {
   return nodes.slice(0, Math.max(0, limit));
 }

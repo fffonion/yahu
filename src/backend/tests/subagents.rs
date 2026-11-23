@@ -995,17 +995,21 @@
     #[test]
     fn visible_subagent_sessions_keep_an_old_running_child_visible() {
         let window_end = 200_000.0;
-        let sessions = vec![serde_json::json!({
+        let mut sessions = vec![serde_json::json!({
             "id": "old-running",
             "parent_session_id": "parent",
             "started_at": window_end - SUBAGENT_LOOKBACK_SECONDS - 1.0,
             "ended_at": null
         })];
+        sessions.extend((0..12).map(|index| serde_json::json!({
+            "id": format!("completed-{index}"), "parent_session_id": "parent",
+            "started_at": window_end - 100.0 - f64::from(index), "ended_at": window_end - 1.0,
+        })));
 
         let visible = select_visible_subagent_sessions("parent", &sessions, window_end);
 
-        assert_eq!(visible.len(), 1);
-        assert_eq!(string_field(&visible[0], "id").as_deref(), Some("old-running"));
+        let ids: Vec<_> = visible.iter().filter_map(|session| string_field(session, "id")).collect();
+        assert_eq!(ids, std::iter::once("old-running".to_owned()).chain((0..9).map(|index| format!("completed-{index}"))).collect::<Vec<_>>());
     }
 
     #[test]

@@ -268,6 +268,17 @@ describe('subagent progress websocket projection', () => {
     );
   });
 
+  test('places running rows first before applying the display limit', () => {
+    const snapshot = normalizeSubagentSnapshot({ type: 'subagents.snapshot', session_id: 'parent', subagents: [
+      ...Array.from({ length: 12 }, (_, i) => ({ session_id: `done-${i}`, parent_session_id: 'parent', status: 'completed', started_at: 100 - i })),
+      { session_id: 'older-running', parent_session_id: 'parent', status: 'running', started_at: 1 },
+      { session_id: 'recent-running', parent_session_id: 'parent', status: 'running', started_at: 2 },
+    ] }, 'parent')!;
+    expect(latestSubagentRows(buildSubagentTree(snapshot.subagents, 'parent')).map(node => node.sessionId)).toEqual([
+      'recent-running', 'older-running', ...Array.from({ length: 8 }, (_, i) => `done-${i}`),
+    ]);
+  });
+
   test('formats completed time and duration in the compact subtitle form', () => {
     expect(formatSubagentCompletionAge(2 * 60 * 60 + 12)).toBe('2h');
     expect(formatSubagentCompletionAge(23 * 60 + 8)).toBe('23m');
