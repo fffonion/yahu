@@ -138,6 +138,9 @@ function inputSummaryFromInput(toolName: string, input: unknown): string {
   const record = asRecord(input);
   if (!record) return compactInputValue(input);
   const name = toolName.replace(/^functions\./, '');
+  if (name === 'delegate_task' && record.action === 'steer' && typeof record.message === 'string' && record.message.trim()) {
+    return `steer · ${record.message.trim()}`;
+  }
   const preferredKeys = INPUT_SUMMARY_KEYS[name] || [];
   for (const key of preferredKeys) {
     const value = compactInputValue(record[key]);

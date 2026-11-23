@@ -55,6 +55,20 @@ describe('summarizeToolMessage', () => {
     expect(summary.subtitle).toBe('yahu · references/chat-rendering.md');
   });
 
+  test('delegate steer previews the guidance before the target metadata', () => {
+    const args = { action: 'steer', subagent_id: 'sa-fixture', message: 'Use the existing fixture.\nKeep the API unchanged.' };
+    for (const name of ['delegate_task', 'functions.delegate_task']) {
+      const summary = summarizeToolMessage('{"action":"steer","subagent_id":"sa-fixture","status":"queued"}', name, JSON.stringify(args));
+      expect(summary.subtitle).toBe('steer · Use the existing fixture. Keep the API unchanged.');
+      expect(summary.input).toEqual(args);
+    }
+  });
+
+  test('delegate spawn keeps the goal and steer errors keep precedence', () => {
+    expect(summarizeToolMessage('{}', 'delegate_task', { goal: 'Review the fixture', context: 'Background' }).subtitle).toBe('Review the fixture');
+    expect(summarizeToolMessage('{"error":"Child already finished"}', 'delegate_task', { action: 'steer', message: 'Keep the API unchanged' }).subtitle).toBe('Child already finished');
+  });
+
   test('falls back to structured output for non-json tool content', () => {
     const summary = summarizeToolMessage('plain output');
     expect(summary.title).toBe('tool');
