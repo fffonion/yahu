@@ -1689,9 +1689,9 @@ mod provider_usage_tests {
     }
 
     #[test]
-    fn agentrouter_default_usage_host_changes_without_renaming_the_card() {
+    fn agentrouter_defaults_to_the_official_usage_host_without_renaming_the_card() {
         let source = include_str!("../provider_usage/newapi.rs");
-        assert!(source.contains("\"https://ps.air-outer.com\""));
+        assert!(source.contains("\"https://agentrouter.org\""));
         let temp = tempfile::tempdir().unwrap();
         let provider = provider_usage_catalog(temp.path())
             .into_iter()

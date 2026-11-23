@@ -83,7 +83,7 @@ async fn fetch_newapi_usage(state: &AppState, provider: &str) -> ProviderUsageSe
             &["AGENTROUTER_SESSION_COOKIE", "AGENTROUTER_COOKIE"][..],
             &["AGENTROUTER_ACCESS_TOKEN", "AGENTROUTER_TOKEN"][..],
             &["AGENTROUTER_BASE_URL", "AGENTROUTER_NEWAPI_BASE_URL"][..],
-            "https://ps.air-outer.com",
+            "https://agentrouter.org",
         ),
     };
     let mut section = ProviderUsageSection {
