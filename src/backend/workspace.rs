@@ -253,6 +253,35 @@ fn diff_output(output: &std::process::Output) -> (String, bool) {
     )
 }
 
+async fn run_workspace_diff(mut args: Vec<OsString>, full_context: bool) -> Option<(String, bool)> {
+    if !full_context {
+        return run_workspace_git(args).await.filter(|out| out.status.success()).map(|out| diff_output(&out));
+    }
+    // All diff argument builders end with a literal `--`, then the file basename.
+    args.insert(args.len() - 2, OsString::from("--unified=2147483647"));
+    timeout(WORKSPACE_GIT_TIMEOUT, async {
+        let mut child = Command::new("git")
+            .kill_on_drop(true)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn().ok()?;
+        let mut bytes = Vec::new();
+        child.stdout.take()?.take((WORKSPACE_DIFF_MAX_BYTES + 1) as u64)
+            .read_to_end(&mut bytes).await.ok()?;
+        if bytes.len() > WORKSPACE_DIFF_MAX_BYTES {
+            // The frontend cannot verify a clipped full diff against the compact one.
+            return Some((String::new(), true));
+        }
+        if !child.wait().await.ok()?.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let (text, clipped) = truncate_utf8(&text, WORKSPACE_DIFF_MAX_BYTES);
+        Some((text.to_owned(), clipped))
+    }).await.ok()?
+}
+
 async fn workspace_diff(
     State(state): State<Arc<AppState>>,
     Query(query): Query<WorkspaceQuery>,
@@ -287,6 +316,7 @@ async fn workspace_diff(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let full_context = query.full_context.unwrap_or_default();
     let mut untracked = false;
     let mut base: Option<String> = None;
     let mut diff = String::new();
@@ -297,12 +327,10 @@ async fn workspace_diff(
             // Whole branch against the merge base with the default branch.
             Some("branch") => {
                 if let Some(default_base) = first_existing_ref(parent).await {
-                    if let Some(output) =
-                        run_workspace_git(git_diff_base_args(parent, &default_base, name))
-                            .await
-                            .filter(|output| output.status.success())
-                    {
-                        (diff, truncated) = diff_output(&output);
+                    if let Some(result) = run_workspace_diff(
+                        git_diff_base_args(parent, &default_base, name), full_context,
+                    ).await {
+                        (diff, truncated) = result;
                     }
                     base = Some(default_base);
                 }
@@ -315,26 +343,22 @@ async fn workspace_diff(
                     .unwrap_or(1)
                     .clamp(1, 500);
                 let reference = format!("HEAD~{count}");
-                if let Some(output) = run_workspace_git(git_diff_ref_args(parent, &reference, name))
-                    .await
-                    .filter(|output| output.status.success())
-                {
-                    (diff, truncated) = diff_output(&output);
+                if let Some(result) = run_workspace_diff(
+                    git_diff_ref_args(parent, &reference, name), full_context,
+                ).await {
+                    (diff, truncated) = result;
                 }
                 base = Some(reference);
             }
             _ => {
-                if let Some(output) = run_workspace_git(git_diff_args(parent, name))
-                    .await
-                    .filter(|output| output.status.success())
-                {
-                    (diff, truncated) = diff_output(&output);
+                if let Some(result) = run_workspace_diff(git_diff_args(parent, name), full_context).await {
+                    (diff, truncated) = result;
                 }
                 // A clean work tree is common in agent worktrees whose work
                 // sits on a branch above the merge base; new files are
                 // untracked entirely. Report both so review can still show
                 // what changed instead of an empty diff.
-                if diff.is_empty() {
+                if diff.is_empty() && !truncated {
                     if let Some(output) = run_workspace_git(git_status_porcelain_args(parent, name))
                         .await
                         .filter(|output| output.status.success())
@@ -351,14 +375,10 @@ async fn workspace_diff(
                             if !exists {
                                 continue;
                             }
-                            if let Some(output) =
-                                run_workspace_git(git_diff_base_args(parent, candidate, name))
-                                    .await
-                                    .filter(|output| {
-                                        output.status.success() && !output.stdout.is_empty()
-                                    })
-                            {
-                                (diff, truncated) = diff_output(&output);
+                            if let Some(result) = run_workspace_diff(
+                                git_diff_base_args(parent, candidate, name), full_context,
+                            ).await.filter(|(text, clipped)| *clipped || !text.is_empty()) {
+                                (diff, truncated) = result;
                                 base = Some(candidate.to_owned());
                                 break;
                             }

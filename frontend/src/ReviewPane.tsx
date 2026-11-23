@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, Columns2, Copy, GitCompare, Plus, Rows2, Send, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Columns2, Copy, GitCompare, Plus, Rows2, Send, X } from 'lucide-react';
 import { t, tf } from './i18n';
-import { buildSplitRows, newLineAnchors, numberedFileLines, parseUnifiedDiff, type ReviewDiffCounts, type ReviewLine } from './reviewDiff';
+import { buildSplitRows, collectReviewContext, expandReviewContext, newLineAnchors, numberedFileLines, parseUnifiedDiff, reviewContextGaps, reviewLinesWithContext, REVIEW_CONTEXT_STEP, type ReviewContextDirection, type ReviewContextExpansion, type ReviewContextGap, type ReviewDiffCounts, type ReviewLine } from './reviewDiff';
 import {
   addComment,
   addFile,
@@ -51,7 +51,7 @@ type PaneView =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; path: string; repoPath: string | null; lines: ReviewLine[]; counts: ReviewDiffCounts | null; truncated: boolean; untracked: boolean; base: string | null };
+  | { status: 'ready'; path: string; repoPath: string | null; lines: ReviewLine[]; counts: ReviewDiffCounts | null; indexHeader?: string; truncated: boolean; untracked: boolean; base: string | null };
 
 type SubmitState =
   | { status: 'idle' }
@@ -142,6 +142,10 @@ export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged
   const olderRequestRef = useRef(false);
   rangePathRef.current = path;
   const requestRef = useRef(0);
+  const contextRequest = useRef<AbortController | null>(null);
+  const [context, setContext] = useState<Map<number, ReviewLine[]> | null>(null);
+  const [revealed, setRevealed] = useState<Record<number, ReviewContextExpansion>>({});
+  const [contextStatus, setContextStatus] = useState<'idle' | 'loading' | 'error'>('idle');
 
   useEffect(() => {
     setRangeInfo(null);
@@ -176,6 +180,11 @@ export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged
   useEffect(() => {
     const token = requestRef.current + 1;
     requestRef.current = token;
+    contextRequest.current?.abort();
+    contextRequest.current = null;
+    setContext(null);
+    setRevealed({});
+    setContextStatus('idle');
     setDraft(null);
     setSubmitState({ status: 'idle' });
     setCopyState('idle');
@@ -202,7 +211,7 @@ export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged
         const repoPath = payload.repo_path ?? null;
         const diffText = typeof payload.diff === 'string' ? payload.diff : '';
         if (diffText.trim().length > 0) {
-          setView({ status: 'ready', path, repoPath, ...parseUnifiedDiff(diffText, path), truncated: Boolean(payload.truncated), untracked: false, base: typeof payload.base === 'string' ? payload.base : null });
+          setView({ status: 'ready', path, repoPath, ...parseUnifiedDiff(diffText, path), indexHeader: diffText.match(/^index .+$/m)?.[0], truncated: Boolean(payload.truncated), untracked: false, base: typeof payload.base === 'string' ? payload.base : null });
           return;
         }
         const fileRes = await fetch(`/workspace/file?path=${encodeURIComponent(path)}`);
@@ -218,11 +227,50 @@ export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged
     };
 
     void load();
+    return () => contextRequest.current?.abort();
   }, [path, rangeKey]);
 
   const lines = useMemo<ReviewLine[]>(() => (view.status === 'ready' ? view.lines : []), [view]);
   const newAnchors = useMemo(() => newLineAnchors(lines), [lines]);
-  const splitRows = useMemo(() => buildSplitRows(lines), [lines]);
+  const gaps = useMemo(() => view.status === 'ready' && view.counts && !view.truncated ? reviewContextGaps(lines) : [], [view, lines]);
+  const displayLines = useMemo(() => reviewLinesWithContext(lines, gaps, context, revealed), [lines, gaps, context, revealed]);
+  const splitRows = useMemo(() => buildSplitRows(displayLines), [displayLines]);
+  const originalIndexes = useMemo(() => new Map(lines.map((line, index) => [line, index])), [lines]);
+  const lineKey = (line: ReviewLine) => originalIndexes.get(line) ?? `context-${line.newLine}`;
+
+  const expandContext = async (gap: ReviewContextGap, direction: ReviewContextDirection) => {
+    if (view.status !== 'ready' || view.path !== path || contextRequest.current) return;
+    const show = (all: Map<number, ReviewLine[]>) => {
+      setRevealed(previous => ({ ...previous, [gap.before]: expandReviewContext(
+        previous[gap.before] ?? { top: 0, bottom: 0 }, direction, all.get(gap.before)?.length ?? 0,
+      ) }));
+    };
+    if (context) { show(context); return; }
+    const request = new AbortController();
+    contextRequest.current = request;
+    setContextStatus('loading');
+    try {
+      const query = new URLSearchParams({ path, full_context: 'true' });
+      if (rangeKey !== 'auto') query.set('base', rangeKey);
+      const response = await fetch(`/workspace/diff?${query}`, { signal: request.signal });
+      if (!response.ok) throw new Error('context unavailable');
+      const payload = await response.json() as DiffPayload;
+      if (request.signal.aborted) return;
+      const text = payload.diff ?? '';
+      if (payload.truncated || (payload.base ?? null) !== view.base || text.match(/^index .+$/m)?.[0] !== view.indexHeader) {
+        throw new Error('context does not match the diff');
+      }
+      const all = collectReviewContext(lines, parseUnifiedDiff(text, path, false).lines);
+      if (!all) throw new Error('context does not match the diff');
+      setContext(all);
+      show(all);
+      setContextStatus('idle');
+    } catch {
+      if (!request.signal.aborted) setContextStatus('error');
+    } finally {
+      if (contextRequest.current === request) contextRequest.current = null;
+    }
+  };
 
   const rangeCommits = rangeInfo?.commits ?? [];
   const rangeLabel = rangeKey === 'branch'
@@ -451,15 +499,31 @@ export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged
     </tr>
   );
 
+  const gapRow = (gap: ReviewContextGap, columns: number) => {
+    const button = (direction: ReviewContextDirection) => {
+      const label = tf(direction === 'up' ? 'review.expandUp' : 'review.expandDown', REVIEW_CONTEXT_STEP);
+      return <button type="button" className="review-expand-context" data-direction={direction} aria-label={label} title={label} disabled={contextStatus === 'loading'} onClick={() => void expandContext(gap, direction)}>
+        {direction === 'up' ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+      </button>;
+    };
+    return <tr className="review-gap-row" data-before={gap.before} key={`gap-${gap.before}`}>
+      <td colSpan={columns} className="review-gap-cell">
+        <div className="review-gap-actions">{gap.up ? button('up') : null}{gap.down ? button('down') : null}</div>
+      </td>
+    </tr>;
+  };
+
   const unifiedDisplayed = new Set<string>();
   const unifiedTable = (
     <table className="review-diff-table review-unified-table">
       <tbody>
-        {lines.map((line, index) => {
+        {displayLines.map((line) => {
+          if (line.gap) return gapRow(line.gap, 3);
+          const index = lineKey(line);
           if (line.kind === 'hunk' || line.kind === 'meta') {
             return rawRow(line, `raw-${index}`, 3);
           }
-          const newNumber = newAnchors.get(line);
+          const newNumber = newAnchors.get(line) ?? line.newLine;
           const anchor: ReviewAnchor | null = newNumber === undefined ? null : { side: 'new', line: newNumber };
           const legacyAnchor: ReviewAnchor | null = line.kind === 'remove' && line.oldLine !== undefined ? { side: 'old', line: line.oldLine } : null;
           const rowClass = line.kind === 'add' ? 'review-row-add' : line.kind === 'remove' ? 'review-row-del' : '';
@@ -492,27 +556,29 @@ export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged
         {splitRows.map((row) => {
           const left = row.left;
           const right = row.right;
+          if (left?.gap) return gapRow(left.gap, 6);
+          const index = lineKey(left ?? right!);
           if (left && (left.kind === 'hunk' || left.kind === 'meta')) {
-            return rawRow(left, `raw-${row.index}`, 6);
+            return rawRow(left, `raw-${index}`, 6);
           }
-          const newNumber = newAnchors.get(right ?? left!);
+          const newNumber = newAnchors.get(right ?? left!) ?? right?.newLine;
           const rightAnchor: ReviewAnchor | null = newNumber === undefined ? null : { side: 'new', line: newNumber };
           const legacyAnchor: ReviewAnchor | null = left?.kind === 'remove' && left.oldLine !== undefined ? { side: 'old', line: left.oldLine } : null;
           return (
-            <Fragment key={`row-${row.index}`}>
+            <Fragment key={`row-${index}`}>
               <tr
                 className="review-diff-row review-source-row review-split-row"
                 data-line-old={left?.oldLine}
                 data-line-new={right?.newLine}
               >
-                {gutterCell(left, 'old', false, `left-gutter-${row.index}`)}
-                {markerCell(left, `left-marker-${row.index}`)}
-                {codeCell(left, 'left', `left-code-${row.index}`)}
-                {gutterCell(right ?? left, 'new', newNumber !== undefined, `right-gutter-${row.index}`, newNumber, `row-${row.index}`)}
-                {markerCell(right, `right-marker-${row.index}`)}
-                {codeCell(right, 'right', `right-code-${row.index}`)}
+                {gutterCell(left, 'old', false, `left-gutter-${index}`)}
+                {markerCell(left, `left-marker-${index}`)}
+                {codeCell(left, 'left', `left-code-${index}`)}
+                {gutterCell(right ?? left, 'new', newNumber !== undefined, `right-gutter-${index}`, newNumber, `row-${index}`)}
+                {markerCell(right, `right-marker-${index}`)}
+                {codeCell(right, 'right', `right-code-${index}`)}
               </tr>
-              {threadRow([rightAnchor, legacyAnchor], `row-${row.index}`, 6, splitDisplayed)}
+              {threadRow([rightAnchor, legacyAnchor], `row-${index}`, 6, splitDisplayed)}
             </Fragment>
           );
         })}
@@ -524,6 +590,7 @@ export function ReviewPane({ path, fileTabs, onExit, onSubmitted, onFilesChanged
   const counts = view.status === 'ready' && view.path === path ? view.counts : null;
   const notices: string[] = [];
   if (view.status === 'ready') {
+    if (contextStatus === 'error') notices.push(t('review.contextUnavailable'));
     if (view.untracked) notices.push(t('review.untracked'));
     if (!view.counts && view.base) notices.push(tf('review.noChangesInRange', view.base));
     if (!view.counts && !view.untracked && !view.base) notices.push(t('review.noDiff'));

@@ -53,7 +53,7 @@ describe('review pane data flow', () => {
     expect(source).toContain("from './reviewComments'");
     expect(source).toContain("from './reviewReport'");
     expect(source).toContain('parseUnifiedDiff(diffText, path)');
-    expect(source).toContain('buildSplitRows(lines)');
+    expect(source).toContain('buildSplitRows(displayLines)');
     expect(source).toContain('numberedFileLines(content, path)');
     expect(source).toContain('commentsFor(review, path)');
   });

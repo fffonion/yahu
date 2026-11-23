@@ -729,6 +729,13 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 .review-diff-row.review-row-del{background:var(--diff-del);border-left:3px solid var(--diff-del-strong)}
 .review-cell-add{background:var(--diff-add);border-left:3px solid var(--diff-add-strong)}
 .review-cell-del{background:var(--diff-del);border-left:3px solid var(--diff-del-strong)}
+.review-gap-cell{padding:0;background:color-mix(in srgb,var(--accent-2) 10%,var(--editor-bg));border-block:1px solid var(--border)}
+.review-gap-actions{position:sticky;left:0;display:flex;width:max-content;gap:1px}
+.review-expand-context{display:grid;place-items:center;width:32px;height:28px;padding:0;border:0;background:transparent;color:var(--accent-2);cursor:pointer}
+.review-expand-context:hover,.review-expand-context:focus-visible{background:var(--accent-soft);color:var(--accent)}
+.review-expand-context:focus-visible{outline-offset:-2px}
+.review-expand-context:disabled{cursor:wait;opacity:.55}
+.review-expand-context svg{width:16px;height:16px}
 .review-row-hunk{background:color-mix(in srgb,var(--accent-2) 10%,transparent);color:var(--accent-2)}
 .review-row-meta{color:var(--muted);font-style:italic}
 .review-full-row{padding:2px 10px;white-space:pre-wrap;overflow-wrap:anywhere}

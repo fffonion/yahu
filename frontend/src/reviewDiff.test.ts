@@ -1,5 +1,49 @@
 import { describe, expect, test } from 'bun:test';
-import { buildSplitRows, newLineAnchors, numberedFileLines, parseUnifiedDiff, type ReviewLine } from './reviewDiff';
+import { buildSplitRows, collectReviewContext, expandReviewContext, newLineAnchors, numberedFileLines, parseUnifiedDiff, reviewContextGaps, reviewLinesWithContext, type ReviewLine } from './reviewDiff';
+
+describe('review context', () => {
+  const compact = parseUnifiedDiff([
+    '@@ -3 +3,2 @@', '-old', '+new', '+added', '@@ -6 +7 @@', '-before', '+after',
+  ].join('\n'), 'demo.ts').lines;
+  const full = parseUnifiedDiff([
+    '@@ -1,7 +1,8 @@', ' first', ' second', '-old', '+new', '+added',
+    ' fourth', ' fifth', '-before', '+after', ' last',
+  ].join('\n'), 'demo.ts').lines;
+
+  test('finds and verifies the contexts before, between and after changed blocks', () => {
+    const gaps = reviewContextGaps(compact);
+    expect(gaps).toEqual([
+      { before: 0, up: true, down: false },
+      { before: 4, up: true, down: true },
+      { before: 7, up: false, down: true },
+    ]);
+    const context = collectReviewContext(compact, full);
+    expect([...context!].map(([before, rows]) => [before, rows.map(l => [l.oldLine, l.newLine, l.text])])).toEqual([
+      [0, [[1, 1, 'first'], [2, 2, 'second']]],
+      [4, [[4, 5, 'fourth'], [5, 6, 'fifth']]],
+      [7, [[7, 8, 'last']]],
+    ]);
+    expect(collectReviewContext(compact, full.map(l => l.kind === 'add' ? { ...l, text: 'stale' } : l))).toBeNull();
+    const display = reviewLinesWithContext(compact, gaps, context, { 4: { top: 0, bottom: 1 } });
+    expect(display.map(l => l.kind === 'gap' ? 'gap' : l.text)).toEqual(['gap', '@@ -3 +3,2 @@', 'old', 'new', 'added', 'gap', 'fifth', '@@ -6 +7 @@', 'before', 'after', 'gap']);
+    expect(buildSplitRows(display).find(row => row.left?.text === 'fifth')).toMatchObject({ left: { oldLine: 5 }, right: { newLine: 6 } });
+  });
+
+  test('does not offer context for a whole-file addition or deletion', () => {
+    for (const diff of ['@@ -0,0 +1,2 @@\n+one\n+two', '@@ -1,2 +0,0 @@\n-one\n-two']) {
+      expect(reviewContextGaps(parseUnifiedDiff(diff, 'demo.ts').lines)).toEqual([]);
+    }
+  });
+
+  test('reveals 20 lines from the selected edge without repeating any lines', () => {
+    const zero = { top: 0, bottom: 0 };
+    const upper = expandReviewContext(zero, 'down', 42);
+    const both = expandReviewContext(upper, 'up', 42);
+    expect(upper).toEqual({ top: 20, bottom: 0 });
+    expect(both).toEqual({ top: 20, bottom: 20 });
+    expect(expandReviewContext(both, 'down', 42)).toEqual({ top: 22, bottom: 20 });
+  });
+});
 
 describe('review diff helpers', () => {
   test('parses multiple hunks and files with accurate old and new line numbers', () => {

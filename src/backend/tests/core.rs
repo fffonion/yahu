@@ -290,6 +290,7 @@
                 preview: Some("1".to_string()),
                 base: None,
                 skip: None,
+                full_context: None,
             }),
         )
         .await;
@@ -320,13 +321,50 @@
             ("outside.txt", None),
         ] {
             let response = workspace_diff(State(state.clone()), Query(WorkspaceQuery {
-                path: Some(path.into()), download: None, preview: None, base: None, skip: None,
+                path: Some(path.into()), download: None, preview: None, base: None, skip: None, full_context: None,
             })).await;
             assert_eq!(response.status(), StatusCode::OK);
             let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
             let payload: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(payload["repo_path"].as_str(), expected);
             assert_eq!(payload["is_git"].as_bool(), Some(expected.is_some()));
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_diff_can_expand_the_selected_committed_diff() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git").args(args).current_dir(repo).output().unwrap();
+            assert!(output.status.success(), "git fixture command failed: {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        let file = repo.join("sample.txt");
+        let original: String = (1..=60).map(|n| format!("line {n}\n")).collect();
+        std::fs::write(&file, &original).unwrap();
+        git(&["add", "sample.txt"]);
+        let commit = |name| git(&["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", name]);
+        commit("base");
+        git(&["checkout", "-qb", "feature"]);
+        std::fs::write(&file, original.replace("line 30\n", "committed edit\n")).unwrap();
+        git(&["add", "sample.txt"]);
+        commit("reviewed change");
+        std::fs::write(&file, original.replace("line 1\n", "uncommitted edit\n")).unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), repo));
+        for full_context in [false, true] {
+            let query = serde_json::from_value(serde_json::json!({
+                "path": "sample.txt", "base": "branch", "full_context": full_context,
+            })).unwrap();
+            let response = workspace_diff(State(state.clone()), Query(query)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+            let payload: Value = serde_json::from_slice(&bytes).unwrap();
+            let diff = payload["diff"].as_str().unwrap();
+            assert!(diff.contains("\n+committed edit\n"));
+            assert!(!diff.contains("uncommitted edit"));
+            assert_eq!(diff.contains("\n line 1\n"), full_context);
+            assert_eq!(diff.contains("\n line 60\n"), full_context);
         }
     }
 
@@ -345,6 +383,7 @@
                 preview: Some("1".to_string()),
                 base: None,
                 skip: None,
+                full_context: None,
             }),
         )
         .await;

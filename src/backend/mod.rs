@@ -208,6 +208,7 @@ struct WorkspaceQuery {
     preview: Option<String>,
     base: Option<String>,
     skip: Option<usize>,
+    full_context: Option<bool>,
 }
 
 #[derive(Serialize)]
