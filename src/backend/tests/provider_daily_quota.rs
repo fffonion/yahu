@@ -171,4 +171,57 @@ mod provider_daily_quota_tests {
         let persisted = provider_daily_snapshot_section(&state, "codex", now + 601).unwrap();
         assert_eq!(serde_json::to_value(persisted).unwrap()["daily"], value["daily"]);
     }
+    #[tokio::test]
+    async fn antigravity_catalog_reads_daily_snapshot_without_querying_cli() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = Arc::new(test_app_state("http://127.0.0.1:1".into(), temp.path()));
+        let now = chrono::Utc::now().timestamp();
+        let mut section = ProviderUsageSection {
+            provider: "antigravity".into(),
+            title: "Antigravity 用量".into(),
+            ..Default::default()
+        };
+        for used in [12.0, 12.625] {
+            provider_observed_daily(&state, &mut section, "antigravity", "percentage_points",
+                HashMap::from([("Gemini".into(), (now + 3600, used))]), now).unwrap();
+        }
+        let response = provider_usage_handler(State(state), Query(ProviderUsageQuery {
+            provider: None, refresh: None,
+        })).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        let antigravity = json["sections"].as_array().unwrap().iter()
+            .find(|section| section["provider"] == "antigravity")
+            .expect("catalog must include the Antigravity daily snapshot");
+        assert_eq!(antigravity["daily"][0]["used"], 0.625);
+    }
+
+    #[test]
+    fn antigravity_ignores_third_party_buckets_and_preserves_weekly_precision() {
+        let at = 1_800_000_000;
+        let reset = chrono::DateTime::from_timestamp(at + 4500, 0).unwrap().to_rfc3339();
+        let mut payload = serde_json::json!({
+            "status": "SUCCESS", "num_turns": 0,
+            "command": {"name": "usage", "data": {"groups": [
+                {"name": "Claude and GPT models", "buckets": [
+                    {"id": "3p-weekly", "window": "weekly", "remaining_fraction": 0.1, "reset_time": reset}
+                ]},
+                {"name": "Gemini Models", "buckets": [
+                    {"id": "gemini-weekly", "window": "weekly", "remaining_fraction": 0.875125, "reset_time": reset},
+                    {"id": "gemini-5h", "window": "5h", "remaining_fraction": 0.2, "reset_time": reset}
+                ]}
+            ]}}
+        });
+        let snapshot = antigravity_quota_snapshot(&serde_json::to_vec(&payload).unwrap(), at).unwrap();
+        assert_eq!(snapshot.windows.map(|w| (w.window, w.used, w.reset_at)), [
+            ("5h额度".into(), Some("80.0%".into()), Some(at + 4500)),
+            ("周额度".into(), Some("12.5%".into()), Some(at + 4500)),
+        ]);
+        assert_eq!(snapshot.weekly_counter.0, at + 4500);
+        assert!((snapshot.weekly_counter.1 - 12.4875).abs() < 1e-9);
+
+        payload["command"]["data"]["groups"][1]["buckets"][0]["remaining_fraction"] = serde_json::json!(1.2);
+        assert!(antigravity_quota_snapshot(&serde_json::to_vec(&payload).unwrap(), at).is_err());
+    }
 }

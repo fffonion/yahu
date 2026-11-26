@@ -13,6 +13,9 @@ async fn fetch_provider_usage_section(
     cached_section: Option<&ProviderUsageSection>,
     force: bool,
 ) -> ProviderUsageSection {
+    if provider == ANTIGRAVITY_PROVIDER {
+        return fetch_antigravity_usage(state, force).await;
+    }
     let quota_index = ["codex", "grok", "opencode"].iter().position(|name| *name == provider);
     let _quota_guard = if let Some(index) = quota_index {
         Some(state.provider_usage_cache.quota_daily_refresh[index].lock().await)
@@ -106,7 +109,7 @@ async fn provider_usage_handler(
                 }
             }
         }
-        for provider in ["zed-pro", "sensenova", "codex", "grok", "opencode", "opendesign"] {
+        for provider in ["zed-pro", "sensenova", "codex", "grok", "opencode", "opendesign", ANTIGRAVITY_PROVIDER] {
             if let Some(section) = provider_daily_snapshot_section(&state, provider, chrono::Utc::now().timestamp()) {
                 sections.retain(|s| s.provider != provider);
                 sections.push(section);

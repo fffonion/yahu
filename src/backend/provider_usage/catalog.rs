@@ -1,4 +1,5 @@
 fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
+    let antigravity_ready = antigravity_cli().is_some();
     let commandcode_pool = !auth_json_credential_pool(hermes_home, "commandcode").is_empty();
     let codex_pool = !auth_json_credential_pool(hermes_home, "openai-codex").is_empty();
     let grok_pool = !auth_json_credential_pool(hermes_home, "xai-oauth").is_empty();
@@ -231,6 +232,14 @@ fn provider_usage_catalog(hermes_home: &Path) -> Vec<ProviderUsageProvider> {
             zed_configured,
             "ZED_SESSION_COOKIE 或 auth.json credential_pool.zed-pro",
             "用量查询使用浏览器 Cookie 中的 zed.session；auth.json 的 zed-pro 凭据提供账期重置时间。",
+        ),
+        (
+            ANTIGRAVITY_PROVIDER,
+            ANTIGRAVITY_TITLE,
+            antigravity_ready,
+            antigravity_ready,
+            "Antigravity CLI (agy)",
+            "安装支持 JSON 输出的 agy，并在 Yahu 服务用户下登录 Antigravity。",
         ),
     ];
     entries

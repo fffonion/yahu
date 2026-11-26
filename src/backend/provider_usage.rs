@@ -25,6 +25,7 @@ include!("provider_usage/commandcode.rs");
 include!("provider_usage/codex.rs");
 include!("provider_usage/grok.rs");
 include!("provider_usage/zed.rs");
+include!("provider_usage/antigravity.rs");
 include!("provider_usage/vyceai.rs");
 include!("provider_usage/cache.rs");
 include!("provider_usage/daily.rs");

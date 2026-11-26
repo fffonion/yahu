@@ -51,6 +51,7 @@ fn provider_icon_url(provider: &str) -> Option<String> {
         ("codex", "openai.com"),
         ("grok", "grok.com"),
         ("zed-pro", "zed.dev"),
+        (ANTIGRAVITY_PROVIDER, "antigravity.google"),
     ];
     let domain = domains
         .iter()

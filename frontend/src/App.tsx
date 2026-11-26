@@ -3307,6 +3307,8 @@ function ProviderUsageMain(props: {
             const balance = providerBalanceText(section?.description);
             const calls = provider.provider === 'vyceai' ? providerVyceCalls(section?.description) : '';
             const minimaxDaily = enabled ? minimaxDailyTokens(section) : '';
+            const geminiDaily = enabled && provider.provider === 'antigravity' ? section?.daily?.find((entry) => entry.account === 'Gemini')?.used : undefined;
+            const geminiDailyText = geminiDaily === undefined ? '' : `${geminiDaily >= 0.05 ? '+' : ''}${Number(geminiDaily.toFixed(1))}%`;
             const titleMeta = providerTitleMeta(provider.provider, section?.description);
             const tableOnly = provider.provider === 'agentrouter' || provider.provider === 'justwoker' || provider.provider === 'hcnsec' || provider.provider === 'openrouter' || provider.provider === 'deepseek' || provider.provider === 'atlascloud' || provider.provider === 'vyceai';
             const stale = Boolean(enabled && section?.captured_at && Date.now() / 1000 - section.captured_at > 30 * 60);
@@ -3318,6 +3320,7 @@ function ProviderUsageMain(props: {
               : (provider.query_ready ? t('usage.closed') : provider.configured ? t('usage.credentialsNeeded') : t('usage.notConfigured'));
             const subtitleDetails = [
               ...(minimaxDaily ? [tf('usage.today', `${minimaxDaily} token`)] : []),
+              ...(geminiDailyText ? [tf('usage.today', geminiDailyText)] : []),
               ...(tableOnly && provider.provider !== 'vyceai' ? [providerTodayLabel(section)] : []),
               ...(provider.provider === 'vyceai' && providerTodayWindow(section) ? [providerTodayCost(section)] : []),
               ...(calls ? [`${t('usage.calls')} ${calls}`] : []),
@@ -3338,7 +3341,7 @@ function ProviderUsageMain(props: {
                   <span className={`provider-usage-brand-icon brand-${provider.provider}`} aria-hidden="true"><img src={providerBrandFavicon(provider.provider)} alt="" loading="lazy" referrerPolicy="no-referrer" /></span>
                   <div className="provider-usage-title-main">
                     <div className="provider-usage-title-row"><h2>{provider.title}</h2></div>
-                    <div className="provider-usage-subline" title={enabled && ['zed-pro', 'sensenova'].includes(provider.provider) ? t('usage.observedDaily') : undefined}>{codexMobileResetSubtitle ? <><span className="provider-usage-subline-full">{subtitleDetails}</span><span className="provider-usage-subline-mobile">{codexMobileResetSubtitle}</span></> : <span>{subtitleDetails}</span>}</div>
+                    <div className="provider-usage-subline" title={enabled && ['zed-pro', 'sensenova', 'antigravity'].includes(provider.provider) ? t('usage.observedDaily') : undefined}>{codexMobileResetSubtitle ? <><span className="provider-usage-subline-full">{subtitleDetails}</span><span className="provider-usage-subline-mobile">{codexMobileResetSubtitle}</span></> : <span>{subtitleDetails}</span>}</div>
                   </div>
                 </div>
                 <div className="provider-usage-card-actions">

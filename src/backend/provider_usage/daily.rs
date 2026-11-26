@@ -209,7 +209,7 @@ fn provider_capture_quota_daily(
 }
 
 fn provider_daily_cached_section_is_current(section: &ProviderUsageSection, now: i64) -> bool {
-    if !matches!(section.provider.as_str(), "zed-pro" | "sensenova" | "codex" | "grok" | "opencode") {
+    if !matches!(section.provider.as_str(), "zed-pro" | "sensenova" | "codex" | "grok" | "opencode" | ANTIGRAVITY_PROVIDER) {
         return true;
     }
     let captured = section.captured_at as i64;
@@ -272,7 +272,14 @@ async fn run_provider_daily_snapshot_collector(state: Arc<AppState>) {
                 }
             }
         };
-        tokio::join!(zed, sensenova, quota);
+        let antigravity = async {
+            if catalog.iter().any(|p| p.provider == ANTIGRAVITY_PROVIDER && p.query_ready)
+                && !fetch_antigravity_usage(&state, true).await.errors.is_empty()
+            {
+                warn!("Antigravity daily snapshot capture failed");
+            }
+        };
+        tokio::join!(zed, sensenova, quota, antigravity);
         tokio::time::sleep(Duration::from_secs(
             (300 - chrono::Utc::now().timestamp().rem_euclid(300)) as u64,
         ))

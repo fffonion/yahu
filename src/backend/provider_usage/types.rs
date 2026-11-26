@@ -73,6 +73,7 @@ struct ProviderUsageCache {
     stepfun_auth: Arc<Mutex<Option<StepFunAuthState>>>,
     vyceai_refresh: Arc<Mutex<()>>,
     zed_daily_refresh: Arc<Mutex<()>>,
+    antigravity_daily_refresh: Arc<Mutex<()>>,
     sensenova_daily_refresh: Arc<Mutex<()>>,
     quota_daily_refresh: [Arc<Mutex<()>>; 3],
     sensenova_auth: Arc<Mutex<Option<SenseNovaAuthState>>>,

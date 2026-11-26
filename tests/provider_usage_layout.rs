@@ -30,6 +30,7 @@ fn provider_usage_sources_have_cohesive_owners() {
         ("codex", "async fn fetch_codex_usage"),
         ("grok", "async fn fetch_grok_usage"),
         ("zed", "async fn fetch_zed_pro_usage"),
+        ("antigravity", "async fn fetch_antigravity_usage"),
         ("vyceai", "async fn fetch_vyceai_usage_from_url"),
         ("workbuddy", "async fn fetch_workbuddy_usage"),
         ("tests", "mod zed_pro_tests"),
