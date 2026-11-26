@@ -399,8 +399,8 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
 
 /* Provider usage: compact fixed-height cards with quota-first presentation. */
 .provider-usage-body{padding:12px 10px 22px;gap:10px}
-.provider-usage-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:250px;align-items:stretch;gap:10px;max-width:none;width:100%;margin:0}
-.provider-usage-provider-card{height:250px;min-height:250px;max-height:250px;display:flex;flex-direction:column;box-sizing:border-box}
+.provider-usage-grid{--provider-usage-card-height:250px;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:var(--provider-usage-card-height);align-items:stretch;gap:10px;max-width:none;width:100%;margin:0}
+.provider-usage-provider-card{height:var(--provider-usage-card-height);min-height:var(--provider-usage-card-height);max-height:var(--provider-usage-card-height);display:flex;flex-direction:column;box-sizing:border-box}
 .provider-usage-provider-card.is-multi-account{grid-row:span 2;height:510px;min-height:510px;max-height:510px}
 .provider-usage-provider-card[data-provider-id="opencode"] .provider-usage-account-group{border:1px solid color-mix(in srgb,var(--border) 82%,transparent);border-radius:var(--radius-md,10px)}
 .provider-usage-provider-card[data-provider-id="opencode"] .provider-usage-account-group .provider-usage-window{border:0;border-radius:0;background:transparent}
@@ -472,7 +472,8 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
   .provider-usage-body{padding:10px 12px calc(104px + env(safe-area-inset-bottom,0px))}
   .provider-usage-grid{grid-template-columns:1fr;grid-auto-rows:max-content;gap:8px}
   .provider-usage-card.provider-usage-provider-card{height:auto!important;min-height:0!important;max-height:none!important;align-self:start}
-  .provider-usage-card.provider-usage-provider-card[data-provider-id="workbuddy"]{max-height:min(360px,70vh)!important}
+  .provider-usage-card.provider-usage-provider-card[data-provider-id="workbuddy"]{max-height:var(--provider-usage-card-height)!important}
+  .provider-usage-provider-card[data-provider-id="workbuddy"] .provider-usage-card-content{touch-action:none}
   .provider-usage-card-head{padding:10px 12px 8px}
   .provider-usage-title-wrap{align-items:flex-start;gap:8px}
   .provider-usage-title-wrap h2{font-size:13px;line-height:1.25}

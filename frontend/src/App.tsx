@@ -3068,6 +3068,7 @@ function ProviderUsageMain(props: {
     active: boolean;
     scrolling: boolean;
     element: HTMLElement;
+    scrollContent: HTMLElement | null;
   } | null>(null);
   const providers = useMemo(() => {
     const catalog = props.payload?.providers || [];
@@ -3129,9 +3130,18 @@ function ProviderUsageMain(props: {
     const candidates = [body, main].filter((element): element is HTMLElement => Boolean(element));
     return candidates.find((element) => element.scrollHeight > element.clientHeight + 1) || candidates[0] || null;
   };
-  const scrollProviderByFinger = (deltaY: number) => {
+  const scrollProviderByFinger = (deltaY: number, scrollContent: HTMLElement | null) => {
+    let distance = -deltaY;
+    // The long-press gesture disables native panning. Consume the swipe in the card first.
+    if (scrollContent && scrollContent.scrollHeight > scrollContent.clientHeight) {
+      const top = scrollContent.scrollTop;
+      const next = Math.max(0, Math.min(scrollContent.scrollHeight - scrollContent.clientHeight, top + distance));
+      scrollContent.scrollTop = next;
+      distance -= next - top;
+    }
+    if (distance === 0) return;
     const element = providerScrollElement();
-    if (element) element.scrollTop = Math.max(0, Math.min(element.scrollHeight - element.clientHeight, element.scrollTop - deltaY));
+    if (element) element.scrollTop = Math.max(0, Math.min(element.scrollHeight - element.clientHeight, element.scrollTop + distance));
   };
   const updateProviderDragTarget = (x: number, y: number, provider: string) => {
     const target = document.elementsFromPoint(x, y)
@@ -3206,6 +3216,7 @@ function ProviderUsageMain(props: {
     clearProviderPress();
     const rect = event.currentTarget.getBoundingClientRect();
     const targetElement = event.currentTarget;
+    const scrollContent = provider === 'workbuddy' ? (event.target as HTMLElement).closest<HTMLElement>('.provider-usage-card-content') : null;
     targetElement.style.touchAction = 'none';
     const press = {
       provider,
@@ -3218,6 +3229,7 @@ function ProviderUsageMain(props: {
       active: false,
       scrolling: false,
       element: targetElement,
+      scrollContent: scrollContent && getComputedStyle(scrollContent).touchAction === 'none' ? scrollContent : null,
     };
     try { targetElement.setPointerCapture(event.pointerId); } catch { /* pointer capture may be unavailable */ }
     press.timer = window.setTimeout(() => {
@@ -3240,9 +3252,9 @@ function ProviderUsageMain(props: {
         window.clearTimeout(press.timer);
         press.timer = 0;
         press.scrolling = true;
-        scrollProviderByFinger(event.clientY - press.startY);
+        scrollProviderByFinger(event.clientY - press.startY, press.scrollContent);
       } else if (press.scrolling) {
-        scrollProviderByFinger(deltaY);
+        scrollProviderByFinger(deltaY, press.scrollContent);
       }
       press.lastX = event.clientX;
       press.lastY = event.clientY;

@@ -367,7 +367,8 @@ describe('provider usage view', () => {
     expect(source).toContain("windows.filter((win) => providerAccountWindowParts(win.window)?.[1] !== '5h额度')");
     expect(source).toContain('providerBalanceText');
     expect(css()).toContain('grid-template-columns:repeat(3,minmax(0,1fr))');
-    expect(css()).toContain('height:250px;min-height:250px;max-height:250px');
+    expect(css()).toContain('--provider-usage-card-height:250px');
+    expect(css()).toContain('height:var(--provider-usage-card-height);min-height:var(--provider-usage-card-height);max-height:var(--provider-usage-card-height)');
     expect(css()).toContain('.provider-usage-provider-card.is-multi-account');
     expect(css()).toContain('.provider-usage-progress.is-medium span');
     expect(css()).toContain('.provider-usage-window-skeleton');
@@ -444,7 +445,7 @@ describe('provider usage view', () => {
     expect(source).toContain('const providerUsageBodyRef = useRef<HTMLElement | null>(null);');
     expect(source).toContain('targetElement.setPointerCapture(event.pointerId)');
     expect(source).toContain("targetElement.style.touchAction = 'none'");
-    expect(source).toContain('scrollProviderByFinger(event.clientY - press.startY)');
+    expect(source).toContain('scrollProviderByFinger(event.clientY - press.startY, press.scrollContent)');
     expect(source).toContain('window.requestAnimationFrame(runProviderAutoScroll)');
     expect(source).toContain('element.scrollTop + delta');
     expect(source).toContain('updateProviderDragTarget(press.lastX, press.lastY, press.provider)');
@@ -486,10 +487,12 @@ describe('provider usage view', () => {
     expect(source).toContain("orderWorkbuddyQuotaWindows(section.provider, section.provider === 'opencode' ? opencodeVisibleQuotaWindows(quotaWindows) : quotaWindows).map(renderWindow)");
   });
 
-  test('mobile WorkBuddy alone caps the card and keeps its content scrollable', () => {
-    expect(css()).toMatch(/@media \(max-width:760px\)\{[^}]*\{[^]*?\.provider-usage-card\.provider-usage-provider-card\[data-provider-id="workbuddy"\]\{max-height:min\(360px,70vh\)!important\}/);
+  test('mobile WorkBuddy is capped at the shared standard card height', () => {
+    expect(css()).toContain('max-height:none!important;align-self:start}\n  .provider-usage-card.provider-usage-provider-card[data-provider-id="workbuddy"]{max-height:var(--provider-usage-card-height)!important}');
     expect(css()).toContain('.provider-usage-card-content{min-height:0;flex:1 1 auto;overflow-y:auto;');
     expect(css()).toContain('.provider-usage-card-head{flex:0 0 auto;');
+    expect(css()).toContain('.provider-usage-provider-card[data-provider-id="workbuddy"] .provider-usage-card-content{touch-action:none}');
+    expect(app()).toContain("getComputedStyle(scrollContent).touchAction === 'none'");
   });
 
   test('WorkBuddy credit packs group per account and drive the progress bar', () => {
