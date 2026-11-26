@@ -6,7 +6,7 @@ async fn models_cached(State(state): State<Arc<AppState>>) -> Response<Body> {
             return Json(body).into_response();
         }
     }
-    let disk_cache_path = state.hermes_home.join("cache/yahu/model-inventory.json");
+    let disk_cache_path = yahu_json_path(&state.hermes_home, "model-inventory.json");
     if let Some(body) = fresh_persisted_model_cache_body(&disk_cache_path, MODEL_CACHE_TTL, std::time::SystemTime::now()) {
         return Json(body).into_response();
     }
@@ -116,7 +116,7 @@ print(json.dumps(payload))
             .arg(script)
             .env("HERMES_AGENT_DIR", &agent_dir)
             .env("HERMES_HOME", &state.hermes_home)
-            .env("YAHU_MODEL_INVENTORY_CACHE", state.hermes_home.join("cache/yahu/model-inventory.json"))
+            .env("YAHU_MODEL_INVENTORY_CACHE", yahu_json_path(&state.hermes_home, "model-inventory.json"))
             .output(),
     )
     .await??;

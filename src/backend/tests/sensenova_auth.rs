@@ -8,7 +8,7 @@
         sensenova_persist_auth(temp.path(), &prior, "[REDACTED]", "[REDACTED]", None).unwrap();
         assert!(std::fs::read_to_string(temp.path().join(".env")).unwrap() == original,
             "renewal must not rewrite static configuration");
-        let path = temp.path().join("state/sensenova_service_token.json");
+        let path = temp.path().join("yahu/sensenova_service_token.json");
         assert!(path.is_file(), "renewal must create a provider-owned session cache");
         let cache: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert!(cache["access_token"].as_str() == Some("[REDACTED]"), "access cache mismatch");
@@ -21,7 +21,7 @@
     }
 
     fn write_sensenova_test_session(home: &Path, access: &str, refresh: &str, expires_at: Option<i64>) {
-        save_private_provider_session(&home.join("state/sensenova_service_token.json"), &serde_json::json!({
+        save_private_provider_session(&home.join("yahu/sensenova_service_token.json"), &serde_json::json!({
             "username":"[REDACTED]", "access_token":access, "refresh_token":refresh, "expires_at":expires_at,
         })).unwrap();
     }
@@ -102,7 +102,7 @@
         assert!(section.errors.is_empty(), "username/password should bootstrap a new service session");
         assert_eq!(*events.lock().await, vec!["login", "exchange", "usage"]);
         assert!(std::fs::read_to_string(temp.path().join(".env")).unwrap() == original, "login must not alter static credentials");
-        assert!(temp.path().join("state/sensenova_service_token.json").is_file());
+        assert!(temp.path().join("yahu/sensenova_service_token.json").is_file());
         assert!(!serde_json::to_string(&section).unwrap().contains("[REDACTED]"));
     }
 
@@ -112,7 +112,7 @@
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join(".env"), "SENSENOVA_USERNAME=[REDACTED]\nSENSENOVA_PASSWORD=[REDACTED]\n").unwrap();
         let expired_claims = URL_SAFE_NO_PAD.encode(serde_json::json!({"exp":1}).to_string());
-        save_private_provider_session(&temp.path().join("state/sensenova_service_token.json"), &serde_json::json!({
+        save_private_provider_session(&temp.path().join("yahu/sensenova_service_token.json"), &serde_json::json!({
             "username":"[REDACTED]", "access_token":"[REDACTED]",
             "refresh_token":format!("[REDACTED].{expired_claims}.[REDACTED]"), "expires_at":1,
         })).unwrap();
@@ -127,7 +127,7 @@
         let (base, events) = sensenova_auth_fixture_server().await;
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join(".env"), "SENSENOVA_USERNAME=[REDACTED]\nSENSENOVA_PASSWORD=[REDACTED]\n").unwrap();
-        save_private_provider_session(&temp.path().join("state/sensenova_service_token.json"), &serde_json::json!({
+        save_private_provider_session(&temp.path().join("yahu/sensenova_service_token.json"), &serde_json::json!({
             "username":"[REDACTED]", "access_token":"[REDACTED]", "refresh_token":"[REDACTED]", "expires_at":1,
         })).unwrap();
         let state = test_app_state("http://127.0.0.1:1".into(), temp.path());

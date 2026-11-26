@@ -9,7 +9,6 @@ const INSIGHTS_MESSAGE_ID_OVERLAP: i64 = 100;
 const INSIGHTS_BASELINE_CLEANUP_SECONDS: f64 = 7.0 * 86_400.0;
 const MODELS_DEV_API_URL: &str = "https://models.dev/api.json";
 const MODEL_PRICE_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
-const PRICE_OVERRIDE_RELATIVE_PATH: &str = "cache/yahu/model-price-overrides.json";
 const INSIGHTS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const INSIGHTS_SNAPSHOT_RETENTION_SECONDS: f64 = 35.0 * 86_400.0;
 const INSIGHTS_SNAPSHOT_DB: &str = "state/yahu-insights-usage.db";
@@ -1580,7 +1579,7 @@ fn price_override_path(hermes_home: &Path) -> PathBuf {
         }
         return hermes_home.join(configured);
     }
-    hermes_home.join(PRICE_OVERRIDE_RELATIVE_PATH)
+    yahu_json_path(hermes_home, "model-price-overrides.json")
 }
 
 fn load_price_override_catalog(path: &Path) -> ModelPriceCatalog {

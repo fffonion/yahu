@@ -72,7 +72,7 @@ mod opendesign_auth_tests {
         let connected = opendesign_device_poll_from_base(&state, &base).await.unwrap();
         assert_eq!(connected["status"], "connected");
 
-        let path = temp.path().join("state/opendesign-control-key.json");
+        let path = temp.path().join("yahu/opendesign-control-key.json");
         let stored: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(stored["control_key"], "vela_ctrl_[REDACTED]");
         assert_eq!(stored["email"], "[REDACTED]");
@@ -123,9 +123,9 @@ mod opendesign_auth_tests {
             );
         let base = serve(app).await;
         let temp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(temp.path().join("state")).unwrap();
+        std::fs::create_dir_all(temp.path().join("yahu")).unwrap();
         std::fs::write(
-            temp.path().join("state/opendesign-control-key.json"),
+            temp.path().join("yahu/opendesign-control-key.json"),
             "{\"control_key\":\"vela_ctrl_[REDACTED]\",\"email\":\"[REDACTED]\",\"created_at\":1}",
         )
         .unwrap();
@@ -180,9 +180,9 @@ mod opendesign_auth_tests {
             );
         let base = serve(app).await;
         let temp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(temp.path().join("state")).unwrap();
+        std::fs::create_dir_all(temp.path().join("yahu")).unwrap();
         std::fs::write(
-            temp.path().join("state/opendesign-control-key.json"),
+            temp.path().join("yahu/opendesign-control-key.json"),
             "{\"control_key\":\"vela_ctrl_[REDACTED]\",\"email\":\"\",\"created_at\":1}",
         )
         .unwrap();
@@ -192,6 +192,6 @@ mod opendesign_auth_tests {
         assert!(section.windows.is_empty());
         assert!(section.errors.iter().any(|err| err == "OpenDesign 授权已失效，请重新连接"));
         assert!(!section.errors.iter().any(|err| err.contains("[REDACTED]")));
-        assert!(temp.path().join("state/opendesign-control-key.json").is_file(), "a revoked key is not silently deleted");
+        assert!(temp.path().join("yahu/opendesign-control-key.json").is_file(), "a revoked key is not silently deleted");
     }
 }

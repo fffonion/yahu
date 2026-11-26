@@ -1,6 +1,6 @@
 const MIMO_API_BASE: &str = "https://platform.xiaomimimo.com/api/v1";
 fn mimo_service_cookie_path(hermes_home: &std::path::Path) -> std::path::PathBuf {
-    hermes_home.join("state/mimo_service_token.json")
+    yahu_json_path(hermes_home, "mimo_service_token.json")
 }
 
 fn load_mimo_service_cookie(hermes_home: &std::path::Path) -> Option<String> {

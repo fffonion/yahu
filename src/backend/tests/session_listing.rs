@@ -13,6 +13,7 @@
                 path: root.to_path_buf(),
             }]),
             hermes_home: root.to_path_buf(),
+            ui_preferences_write: Arc::new(Mutex::new(())),
             image_dir: root.to_path_buf(),
             updates,
             deletes,

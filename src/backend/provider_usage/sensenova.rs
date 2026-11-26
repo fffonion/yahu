@@ -179,7 +179,7 @@ async fn sensenova_current_auth(state: &AppState) -> SenseNovaAuthState {
 }
 
 fn sensenova_service_token_path(home: &Path) -> PathBuf {
-    home.join("state/sensenova_service_token.json")
+    yahu_json_path(home, "sensenova_service_token.json")
 }
 
 fn sensenova_persist_auth(

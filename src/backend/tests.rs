@@ -3,6 +3,7 @@ mod tests {
     use super::*;
 
     include!("tests/core.rs");
+    include!("tests/ui_preferences.rs");
     include!("tests/skills.rs");
     include!("tests/sensenova_auth.rs");
     include!("tests/models.rs");

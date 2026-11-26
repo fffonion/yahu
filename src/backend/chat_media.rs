@@ -97,6 +97,10 @@ fn chat_media_path_denied(path: &Path, hermes_home: &Path) -> bool {
         "cache/bws_cache.json",
         "pairing",
         "mcp-tokens",
+        "yahu",
+        "state/mimo_service_token.json",
+        "state/sensenova_service_token.json",
+        "state/opendesign-control-key.json",
     ] {
         denied.push(hermes_home.join(rel));
     }

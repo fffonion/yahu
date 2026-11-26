@@ -110,7 +110,7 @@ fn vyceai_daily_usage_section(state: &AppState, payload: &Value, now: i64) -> Pr
         section.errors.push("Vyce AI dashboard 缺少账户标识，无法计算差值".into());
         return section;
     };
-    let path = state.hermes_home.join("state/vyceai-usage-snapshot.json");
+    let path = yahu_json_path(&state.hermes_home, "vyceai-usage-snapshot.json");
     let previous = match std::fs::read(&path) {
         Ok(raw) => match serde_json::from_slice::<VyceAiDailySnapshot>(&raw) {
             Ok(snapshot) => Some(snapshot),

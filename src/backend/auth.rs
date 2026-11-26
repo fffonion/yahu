@@ -31,6 +31,7 @@ async fn require_auth(
         || path.starts_with("/workspace")
         || path.starts_with("/models-cache")
         || path.starts_with("/skills")
+        || path == "/ui-preferences"
         || path.starts_with("/sessions/search")
         || path.starts_with("/chat/messages")
         || path.starts_with("/chat/context-window")

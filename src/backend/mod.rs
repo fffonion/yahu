@@ -187,6 +187,7 @@ struct AppState {
     insecure: bool,
     workspace_roots: Arc<Vec<WorkspaceRoot>>,
     hermes_home: PathBuf,
+    ui_preferences_write: Arc<Mutex<()>>,
     image_dir: PathBuf,
     updates: broadcast::Sender<String>,
     deletes: broadcast::Sender<String>,
@@ -344,6 +345,8 @@ pub async fn run() -> anyhow::Result<()> {
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".hermes")
     });
+    fs::create_dir_all(&hermes_home).await?;
+    migrate_yahu_json(&hermes_home)?;
     let image_dir = args
         .image_dir
         .unwrap_or_else(|| hermes_home.join("cache/images"));
@@ -367,6 +370,7 @@ pub async fn run() -> anyhow::Result<()> {
         insecure: args.insecure,
         workspace_roots: Arc::new(workspace_roots),
         hermes_home,
+        ui_preferences_write: Arc::new(Mutex::new(())),
         image_dir,
         updates,
         deletes,
@@ -388,6 +392,10 @@ pub async fn run() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/runtime-config", get(runtime_config))
+        .route(
+            "/ui-preferences",
+            get(get_ui_preferences).patch(patch_ui_preferences),
+        )
         .route("/login", get(login_page).post(login_submit))
         .route("/logout", post(logout))
         .route("/workspace/list", get(workspace_list))
@@ -508,6 +516,8 @@ pub async fn run() -> anyhow::Result<()> {
 
 mod newapi;
 include!("auth.rs");
+include!("yahu_storage.rs");
+include!("ui_preferences.rs");
 include!("assets.rs");
 include!("proxy.rs");
 include!("models.rs");

@@ -9,7 +9,7 @@ read rate), so re-run this instead of editing prices by hand.
 Usage:
     ./scripts/refresh-provider-prices.py --provider kong-ai-gateway \
         --base-url https://us.ai-gw.konghq.tech [--token-env KONG_API_KEY] \
-        [--out ~/.hermes/cache/yahu/model-price-overrides.json]
+        [--out ~/.hermes/yahu/model-price-overrides.json]
 
 Only entries for the given provider are replaced; every other provider in the
 file is preserved. The token, when needed, is read from the named environment
@@ -25,7 +25,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
-DEFAULT_OUT = Path.home() / ".hermes/cache/yahu/model-price-overrides.json"
+HERMES_HOME = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes").expanduser()
+DEFAULT_OUT = HERMES_HOME / "yahu/model-price-overrides.json"
 
 
 def fetch_models(base_url: str, token: str | None) -> list[dict]:

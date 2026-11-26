@@ -530,7 +530,7 @@ mod provider_usage_tests {
         let repeated = vyceai_daily_usage_section(&restarted, &current, now + 600);
         assert_eq!(repeated.windows[0].used, delta.windows[0].used);
         assert!(repeated.description.contains("今日调用次数 3"));
-        let persisted = std::fs::read_to_string(temp.path().join("state/vyceai-usage-snapshot.json")).unwrap();
+        let persisted = std::fs::read_to_string(temp.path().join("yahu/vyceai-usage-snapshot.json")).unwrap();
         assert!(!persisted.contains("[REDACTED]"));
         assert!(!persisted.contains("keys"));
         assert!(!persisted.contains("email"));
@@ -584,7 +584,7 @@ mod provider_usage_tests {
         let now = chrono::DateTime::parse_from_rfc3339("2030-01-02T02:00:00Z").unwrap().timestamp();
         let payload = vyceai_daily_test_payload(1000.0, 100.0, 10.0, 40.0, "account-a");
         vyceai_daily_usage_section(&state, &payload, now);
-        let path = temp.path().join("state/vyceai-usage-snapshot.json");
+        let path = temp.path().join("yahu/vyceai-usage-snapshot.json");
         let previous = std::fs::read(&path).unwrap();
         let invalid = vyceai_daily_usage_section(&state, &serde_json::json!({"error":"[REDACTED]"}), now + 300);
         assert!(!invalid.errors.is_empty());
@@ -594,7 +594,7 @@ mod provider_usage_tests {
         assert_eq!(corrupt.errors, ["Vyce AI 用量快照无法解析"]);
         assert_eq!(std::fs::read(&path).unwrap(), b"invalid");
         let blocked = tempfile::tempdir().unwrap();
-        std::fs::write(blocked.path().join("state"), "blocked").unwrap();
+        std::fs::write(blocked.path().join("yahu"), "blocked").unwrap();
         let state = test_app_state("http://127.0.0.1:1".into(), blocked.path());
         let section = vyceai_daily_usage_section(&state, &payload, now);
         assert!(!section.errors.is_empty());
@@ -1515,7 +1515,7 @@ mod provider_usage_tests {
         assert_eq!(capture(90.0, 2, now + 6, "another-account"), "0 Credit");
         assert_eq!(capture(100.0, 2, now + 86400, "another-account"), "0 Credit");
         assert_eq!(capture(102.5, 2, now + 86401, "another-account"), "2.5 Credit");
-        let path = temp.path().join("state/sensenova-daily-usage.json");
+        let path = temp.path().join("yahu/sensenova-daily-usage.json");
         std::fs::write(path, "bad json").unwrap();
         let mut section = ProviderUsageSection { provider: "sensenova".into(), ..Default::default() };
         assert!(provider_observed_daily(&state, &mut section, "account", "Credit", HashMap::new(), now + 86402).is_err());

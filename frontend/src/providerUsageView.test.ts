@@ -241,7 +241,7 @@ describe('provider usage view', () => {
   test('provider toggle refreshes only the toggled provider', () => {
     const source = app();
     expect(source).toContain('if (nextEnabled) void loadProviderUsageProvider(provider, true);');
-    expect(source).toContain('providerUsageEnabledRef');
+    expect(source).toContain("preferenceSync.change('enabled_providers'");
   });
 
   test('usage is an independent mode with its own hash route and nav buttons', () => {
@@ -355,7 +355,7 @@ describe('provider usage view', () => {
     expect(source).toContain('const multiAccount = providerUsesMultiAccountLayout(provider.provider, enabled, accountCount);');
     expect(source).toContain("['commandcode', 'codex', 'grok', 'opencode', 'zed-pro', 'sensenova', 'workbuddy'].includes(section.provider)");
     expect(providerUsage()).toContain("hasQuotaWall: windows.some");
-    expect(source).toContain('PROVIDER_USAGE_ORDER_KEY');
+    expect(source).toContain("preferenceSync.change('provider_order'");
     expect(source).toContain('onDragStart');
     expect(source).toContain('onDrop');
     expect(source).toContain('PROVIDER_USAGE_AUTO_REFRESH_SECONDS');

@@ -41,7 +41,7 @@ fn opendesign_pending() -> &'static tokio::sync::Mutex<Option<OpenDesignPendingD
 }
 
 fn opendesign_key_path(hermes_home: &Path) -> std::path::PathBuf {
-    hermes_home.join("state/opendesign-control-key.json")
+    yahu_json_path(hermes_home, "opendesign-control-key.json")
 }
 
 fn load_opendesign_stored_key(hermes_home: &Path) -> Option<OpenDesignStoredKey> {

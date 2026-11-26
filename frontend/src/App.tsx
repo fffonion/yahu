@@ -38,6 +38,7 @@ import { opencodeVisibleQuotaWindows, orderWorkbuddyQuotaWindows, providerUsesMu
 import { migrateChatViewState } from './chatViewState';
 import { preferNewerSessionModel } from './sessionModelReconcile';
 import { canonicalizePinnedIds, filterPinnedCanonicalAliases, preferServerRootTitle, replacePinnedSessionId, reorderPinnedIds, splitSidebarSessions } from './sessionListFilter';
+import { setIdEnabled, useUiPreferences } from './uiPreferences';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, readSidebarWidth, sidebarWidthFromKey, sidebarWidthFromPointer } from './sidebarWidth';
 import { MOBILE_NAV_LIMIT, MOBILE_NAV_MODES, MOBILE_NAV_STORAGE_KEY, readMobileNavModes, type MobileNavMode } from './mobileNavigation';
 import { isTextEntryElement, resumedViewportHeight, visibleViewportHeight } from './viewport';
@@ -119,8 +120,6 @@ const DESKTOP_COMPACT_MESSAGES_KEY = 'desktopCompactMessages';
 const HIDE_CRON_SESSIONS_KEY = 'hideCronSessions';
 const PINNED_SESSION_TITLES_KEY = 'pinnedSessionTitles';
 const SESSION_CANONICAL_ALIASES_KEY = 'sessionCanonicalAliases';
-const PROVIDER_USAGE_ENABLED_KEY = 'yahu.provider-usage.enabled.v1';
-const PROVIDER_USAGE_ORDER_KEY = 'yahu.provider-usage.order.v1';
 const PROVIDER_USAGE_AUTO_REFRESH_KEY = 'yahu.provider-usage.auto-refresh.v1';
 const PROVIDER_USAGE_AUTO_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 const PROVIDER_USAGE_AUTO_REFRESH_SECONDS = 3 * 60 * 60;
@@ -157,23 +156,6 @@ const isDarkTheme = (value: Theme) => DARK_THEMES.has(value);
 const themeLabel = (value: Theme) => THEME_OPTIONS.find((item) => item.id === value)?.label || value;
 const normalizeFollowUpBehaviour = (value: string | null): FollowUpBehaviour => value === 'steer' ? 'steer' : 'queue';
 const normalizeComposerEnterMode = (value: string | null): ComposerEnterMode => value === 'enter-newline' ? 'enter-newline' : 'enter-send';
-const readProviderUsageEnabled = (): Record<string, boolean> => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_ENABLED_KEY) || '{}');
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === true).map(([key]) => [key, true]));
-  } catch {
-    return {};
-  }
-};
-const readProviderUsageOrder = (): string[] => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_ORDER_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-};
 const readProviderUsageAutoRefresh = (): Record<string, boolean> => {
   try {
     const parsed = JSON.parse(localStorage.getItem(PROVIDER_USAGE_AUTO_REFRESH_KEY) || '{}');
@@ -456,10 +438,6 @@ function isNearBottom(el: HTMLElement | null, px = 120) {
   if (!el) return true;
   return el.scrollHeight - el.scrollTop - el.clientHeight < px;
 }
-function readPinnedIds() {
-  try { return new Set<string>(JSON.parse(localStorage.getItem('pinnedSessions') || '[]')); }
-  catch { return new Set<string>(); }
-}
 function readPinnedSessionTitles(): Record<string, string> {
   try {
     const parsed = JSON.parse(localStorage.getItem(PINNED_SESSION_TITLES_KEY) || '{}');
@@ -685,7 +663,11 @@ export default function App() {
   useEffect(() => { workspaceRevealRequest.current += 1; }, [workspaceCollapsed, mode, activeSessionId]);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [activeSessionDetail, setActiveSessionDetail] = useState<Session | null>(null);
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(readPinnedIds);
+  const [uiPreferences, preferenceSync] = useUiPreferences();
+  const pinnedIds = useMemo(() => new Set(uiPreferences.pinned_sessions), [uiPreferences.pinned_sessions]);
+  const setPinnedIds = useCallback((update: (ids: Set<string>) => Set<string>) => {
+    void preferenceSync.change('pinned_sessions', ids => Array.from(update(new Set(ids)))).catch(() => {});
+  }, [preferenceSync]);
   const [sessionMenu, setSessionMenu] = useState<SessionContextMenu>(null);
   const [skillMenu, setSkillMenu] = useState<SkillContextMenu>(null);
   const [skillFileMenu, setSkillFileMenu] = useState<SkillFileContextMenu>(null);
@@ -715,7 +697,10 @@ export default function App() {
   const [providerUsage, setProviderUsage] = useState<ProviderUsagePayload | null>(null);
   const [providerUsageLoading, setProviderUsageLoading] = useState<Record<string, boolean>>({});
   const [providerUsageError, setProviderUsageError] = useState<Record<string, string>>({});
-  const [providerUsageEnabled, setProviderUsageEnabled] = useState<Record<string, boolean>>(readProviderUsageEnabled);
+  const providerUsageEnabled = useMemo(() => Object.fromEntries(uiPreferences.enabled_providers.map(id => [id, true])), [uiPreferences.enabled_providers]);
+  const setProviderOrder = useCallback((update: (order: string[]) => string[]) => {
+    void preferenceSync.change('provider_order', update).catch(() => {});
+  }, [preferenceSync]);
   const [providerUsageAutoRefresh, setProviderUsageAutoRefresh] = useState<Record<string, boolean>>(readProviderUsageAutoRefresh);
   const [initialImageFilename, setInitialImageFilename] = useState(initialRoute.mode === 'images' ? initialRoute.imageFilename || '' : '');
   const chatScrollRef = useRef<HTMLElement | null>(null);
@@ -1028,7 +1013,6 @@ export default function App() {
   useEffect(() => localStorage.setItem(DESKTOP_COMPACT_MESSAGES_KEY, desktopCompactMessages ? '1' : '0'), [desktopCompactMessages]);
   useEffect(() => localStorage.setItem(HIDE_CRON_SESSIONS_KEY, hideCronSessions ? '1' : '0'), [hideCronSessions]);
   useEffect(() => {
-    localStorage.setItem('pinnedSessions', JSON.stringify(Array.from(pinnedIds)));
     const nextTitles = Object.fromEntries(Object.entries(pinnedSessionTitlesRef.current).filter(([id, title]) => pinnedIds.has(id) && title));
     pinnedSessionTitlesRef.current = nextTitles;
     localStorage.setItem(PINNED_SESSION_TITLES_KEY, JSON.stringify(nextTitles));
@@ -1189,13 +1173,9 @@ export default function App() {
 
   const toggleProviderUsage = useCallback((provider: string) => {
     const nextEnabled = !providerUsageEnabled[provider];
-    setProviderUsageEnabled((current) => {
-      const next = { ...current, [provider]: nextEnabled };
-      try { localStorage.setItem(PROVIDER_USAGE_ENABLED_KEY, JSON.stringify(next)); } catch { /* storage can be unavailable in private mode */ }
-      return next;
-    });
+    void preferenceSync.change('enabled_providers', ids => setIdEnabled(ids, provider, nextEnabled)).catch(() => {});
     if (nextEnabled) void loadProviderUsageProvider(provider, true);
-  }, [loadProviderUsageProvider, providerUsageEnabled]);
+  }, [loadProviderUsageProvider, preferenceSync, providerUsageEnabled]);
 
   const toggleProviderAutoRefresh = useCallback((provider: string) => {
     setProviderUsageAutoRefresh((current) => {
@@ -1857,14 +1837,12 @@ export default function App() {
   useEffect(() => { loadModels(); }, []);
   useEffect(() => { if (mode === 'insights') loadUsageInsights(usagePeriod); }, [mode, usagePeriod, loadUsageInsights]);
   const providerUsageAutoRefreshRef = useRef('');
-  const providerUsageEnabledRef = useRef(providerUsageEnabled);
-  useEffect(() => { providerUsageEnabledRef.current = providerUsageEnabled; }, [providerUsageEnabled]);
   useEffect(() => { if (mode === 'usage') loadProviderUsageCatalog(); }, [mode, loadProviderUsageCatalog]);
   useEffect(() => {
     if (mode !== 'usage' || !providerUsage) return;
     const now = Date.now() / 1000;
     const staleProviders = providerUsage.providers
-      .filter((provider) => providerUsageEnabledRef.current[provider.provider] && provider.query_ready)
+      .filter((provider) => providerUsageEnabled[provider.provider] && provider.query_ready)
       .filter((provider) => {
         const capturedAt = providerUsage.sections.find((section) => section.provider === provider.provider)?.captured_at;
         return !capturedAt || now - capturedAt > PROVIDER_USAGE_AUTO_REFRESH_SECONDS;
@@ -1873,7 +1851,7 @@ export default function App() {
     if (providerUsageAutoRefreshRef.current === refreshKey) return;
     providerUsageAutoRefreshRef.current = refreshKey;
     if (staleProviders.length) void Promise.all(staleProviders.map((provider) => loadProviderUsageProvider(provider.provider, true)));
-  }, [mode, loadProviderUsageProvider, providerUsage]);
+  }, [mode, loadProviderUsageProvider, providerUsage, providerUsageEnabled]);
   useEffect(() => {
     if (mode !== 'usage' || !providerUsage) return;
     return startVisiblePolling(() => {
@@ -2623,7 +2601,10 @@ export default function App() {
     setWorkspaceRouteTarget(null);
   }, [openWorkspaceRouteTarget, workspaceRouteTarget]);
   const parentPath = workspacePath.split('/').filter(Boolean).slice(0, -1).join('/');
-  const togglePin = (sessionId: string) => setPinnedIds((old) => { const next = new Set(old); next.has(sessionId) ? next.delete(sessionId) : next.add(sessionId); return next; });
+  const togglePin = (sessionId: string) => {
+    const enabled = !pinnedIds.has(sessionId);
+    setPinnedIds(ids => new Set(setIdEnabled(Array.from(ids), sessionId, enabled)));
+  };
   const reorderPinned = useCallback((sourceId: string, targetId: string) => {
     setPinnedIds((old) => reorderPinnedIds(old, sourceId, targetId));
   }, []);
@@ -2835,7 +2816,7 @@ export default function App() {
       {mode === 'cron' && <CronMain name={cronName} setName={setCronName} schedule={cronSchedule} setSchedule={setCronSchedule} prompt={cronPrompt} setPrompt={setCronPrompt} script={cronScript} setScript={setCronScript} deliver={cronDeliver} setDeliver={setCronDeliver} editingId={cronEditingId} currentJob={activeCronJob} cronOutput={cronOutput} cronOutputLoading={cronOutputLoading} refreshCronOutput={() => loadCronOutput(cronEditingId)} saveCronJob={saveCronJob} runCronJob={runCronJob} toggleCronPaused={toggleCronPaused} deleteCronJob={deleteCronJob} theme={theme} setTheme={setTheme} mobileSidebarOpen={mobileSidebarOpen} toggleMobileSidebar={toggleMobileSidebar} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'memory' && <AdminMain mode={mode} apiBase={apiBase} headers={headers} setStatus={setStatus} showToast={showToast} theme={theme} setTheme={setTheme} onNavigateToSettings={() => setNavMode('settings')} />}
       {mode === 'insights' && <InsightsMain insights={usageInsights} loading={usageLoading} error={usageError} period={usagePeriod} setPeriod={setUsagePeriod} metric={usageMetric} setMetric={setUsageMetric} refresh={() => loadUsageInsights(usagePeriod, true)} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
-      {mode === 'usage' && <ProviderUsageMain payload={providerUsage} loading={providerUsageLoading} error={providerUsageError} enabled={providerUsageEnabled} autoRefresh={providerUsageAutoRefresh} toggleProvider={toggleProviderUsage} toggleProviderAutoRefresh={toggleProviderAutoRefresh} refreshProvider={(provider) => loadProviderUsageProvider(provider, true)} refreshAll={refreshEnabledProviderUsage} reloadCatalog={loadProviderUsageCatalog} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
+      {mode === 'usage' && <ProviderUsageMain payload={providerUsage} loading={providerUsageLoading} error={providerUsageError} enabled={providerUsageEnabled} providerOrder={uiPreferences.provider_order} setProviderOrder={setProviderOrder} autoRefresh={providerUsageAutoRefresh} toggleProvider={toggleProviderUsage} toggleProviderAutoRefresh={toggleProviderAutoRefresh} refreshProvider={(provider) => loadProviderUsageProvider(provider, true)} refreshAll={refreshEnabledProviderUsage} reloadCatalog={loadProviderUsageCatalog} theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')} />}
       {terminalMounted && <Suspense fallback={mode === 'terminal' ? <main className="main-panel terminal-main"><div className="terminal-loading">{t('terminal.loading')}</div></main> : null}><WebTerminal active={mode === 'terminal'} cwd={terminalCwd} theme={theme} onFontSizeChange={setTerminalFontSize} headerActions={<HeaderToolstrip theme={theme} setTheme={setTheme} mode={mode} onNavigateToSettings={() => setNavMode('settings')}><button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clear')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-clear'))}><Eraser /></button><button type="button" className="icon-btn" aria-label={t('terminal.fontDecrease')} title={t('terminal.fontDecrease')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-font', { detail: -1 }))}><Minus /></button><output className="terminal-font-size" aria-label={t('terminal.fontSize')}>{terminalFontSize}px</output><button type="button" className="icon-btn" aria-label={t('terminal.fontIncrease')} title={t('terminal.fontIncrease')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-font', { detail: 1 }))}><Plus /></button><button type="button" className="icon-btn" aria-label={t('terminal.reconnect')} title={t('terminal.reconnect')} onClick={() => window.dispatchEvent(new CustomEvent('yahu-terminal-reconnect'))}><RefreshCw /></button></HeaderToolstrip>} /></Suspense>}
       {mode === 'settings' && <SettingsMain apiServerUrl={apiServerUrl} apiBase={apiBase} setApiBase={setApiBase} apiKey={apiKey} setApiKey={setApiKey} loadModels={loadModels} loadSessions={loadSessions} theme={theme} setTheme={setTheme} lang={lang} setLang={setLangState} followUpBehaviour={followUpBehaviour} setFollowUpBehaviour={setFollowUpBehaviour} composerEnterMode={composerEnterMode} setComposerEnterMode={setComposerEnterMode} codeWrap={codeWrap} setCodeWrap={setCodeWrap} mobileNavModes={mobileNavModes} setMobileNavModes={setMobileNavModes} showToast={showToast} />}
       <CustomDialog dialog={dialog} setDialog={setDialog} />
@@ -3039,6 +3020,8 @@ function ProviderUsageMain(props: {
   loading: Record<string, boolean>;
   error: Record<string, string>;
   enabled: Record<string, boolean>;
+  providerOrder: string[];
+  setProviderOrder: (update: (order: string[]) => string[]) => void;
   autoRefresh: Record<string, boolean>;
   toggleProvider: (provider: string) => void;
   toggleProviderAutoRefresh: (provider: string) => void;
@@ -3050,7 +3033,7 @@ function ProviderUsageMain(props: {
   mode: Mode;
   onNavigateToSettings: () => void;
 }) {
-  const [providerOrder, setProviderOrder] = useState<string[]>(readProviderUsageOrder);
+  const { providerOrder, setProviderOrder } = props;
   const [draggedProvider, setDraggedProvider] = useState('');
   const [dragOverProvider, setDragOverProvider] = useState('');
   const providerDragRef = useRef<{ provider: string; target: string } | null>(null);
@@ -3079,18 +3062,11 @@ function ProviderUsageMain(props: {
   const sections = props.payload?.sections || [];
   const enabledCount = providers.filter((provider) => props.enabled[provider.provider]).length;
   const catalogLoading = Boolean(props.loading._catalog);
-  useEffect(() => {
-    const catalogIds = (props.payload?.providers || []).map((provider) => provider.provider);
-    if (!catalogIds.length) return;
-    setProviderOrder((current) => [...current.filter((provider) => catalogIds.includes(provider)), ...catalogIds.filter((provider) => !current.includes(provider))]);
-  }, [props.payload]);
-  useEffect(() => {
-    try { localStorage.setItem(PROVIDER_USAGE_ORDER_KEY, JSON.stringify(providerOrder)); } catch { /* storage can be unavailable in private mode */ }
-  }, [providerOrder]);
   const moveProvider = (from: string, to: string) => {
     if (!from || !to || from === to) return;
+    const catalogIds = (props.payload?.providers || []).map(provider => provider.provider);
     setProviderOrder((current) => {
-      const next = [...current];
+      const next = [...current, ...catalogIds.filter(id => !current.includes(id))];
       const fromIndex = next.indexOf(from);
       if (fromIndex < 0) return current;
       next.splice(fromIndex, 1);

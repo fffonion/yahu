@@ -38,9 +38,7 @@ fn provider_observed_daily(
     {
         return Err("今日差值缺少有效计数器或账户标识".into());
     }
-    let path = state
-        .hermes_home
-        .join(format!("state/{}-daily-usage.json", section.provider));
+    let path = yahu_json_path(&state.hermes_home, &format!("{}-daily-usage.json", section.provider));
     let previous = match std::fs::read(&path) {
         Ok(raw) => Some(
             serde_json::from_slice::<ProviderDailySnapshot>(&raw)
@@ -228,9 +226,7 @@ fn provider_daily_snapshot_section(
     provider: &str,
     now: i64,
 ) -> Option<ProviderUsageSection> {
-    let path = state
-        .hermes_home
-        .join(format!("state/{provider}-daily-usage.json"));
+    let path = yahu_json_path(&state.hermes_home, &format!("{provider}-daily-usage.json"));
     let raw = std::fs::read(path).ok()?;
     let snapshot: ProviderDailySnapshot = serde_json::from_slice(&raw).ok()?;
     provider_daily_cached_section_is_current(&snapshot.section, now).then_some(snapshot.section)

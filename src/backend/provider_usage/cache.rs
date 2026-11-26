@@ -114,7 +114,7 @@ fn provider_cached_account_section(
 }
 
 fn shared_provider_cache_path(state: &AppState) -> std::path::PathBuf {
-    state.hermes_home.join("state/token_usage_cache.json")
+    yahu_json_path(&state.hermes_home, "token_usage_cache.json")
 }
 
 fn cached_newapi_quota_per_unit(

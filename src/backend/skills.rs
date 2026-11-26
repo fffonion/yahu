@@ -23,7 +23,7 @@ async fn skills_list(State(state): State<Arc<AppState>>) -> Response<Body> {
 }
 
 fn recent_skills_path(state: &AppState) -> PathBuf {
-    state.hermes_home.join("skill-recent.json")
+    yahu_json_path(&state.hermes_home, "skill-recent.json")
 }
 
 async fn read_recent_skills(state: &AppState) -> Vec<String> {
@@ -56,7 +56,7 @@ async fn skill_recent_record(
         Ok(bytes) => bytes,
         Err(err) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string()),
     };
-    if let Err(err) = fs::create_dir_all(&state.hermes_home).await {
+    if let Err(err) = fs::create_dir_all(state.hermes_home.join("yahu")).await {
         return json_error(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string());
     }
     if let Err(err) = fs::write(recent_skills_path(&state), bytes).await {
