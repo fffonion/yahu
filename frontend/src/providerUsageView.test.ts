@@ -486,6 +486,12 @@ describe('provider usage view', () => {
     expect(source).toContain("orderWorkbuddyQuotaWindows(section.provider, section.provider === 'opencode' ? opencodeVisibleQuotaWindows(quotaWindows) : quotaWindows).map(renderWindow)");
   });
 
+  test('mobile WorkBuddy alone caps the card and keeps its content scrollable', () => {
+    expect(css()).toMatch(/@media \(max-width:760px\)\{[^}]*\{[^]*?\.provider-usage-card\.provider-usage-provider-card\[data-provider-id="workbuddy"\]\{max-height:min\(360px,70vh\)!important\}/);
+    expect(css()).toContain('.provider-usage-card-content{min-height:0;flex:1 1 auto;overflow-y:auto;');
+    expect(css()).toContain('.provider-usage-card-head{flex:0 0 auto;');
+  });
+
   test('WorkBuddy credit packs group per account and drive the progress bar', () => {
     const source = app();
     expect(source).toContain("if (provider === 'workbuddy') {");

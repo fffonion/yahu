@@ -472,6 +472,7 @@ select,input,textarea,.rail-btn,.new-chat-btn,.session-item,.files-chip,.icon-bt
   .provider-usage-body{padding:10px 12px calc(104px + env(safe-area-inset-bottom,0px))}
   .provider-usage-grid{grid-template-columns:1fr;grid-auto-rows:max-content;gap:8px}
   .provider-usage-card.provider-usage-provider-card{height:auto!important;min-height:0!important;max-height:none!important;align-self:start}
+  .provider-usage-card.provider-usage-provider-card[data-provider-id="workbuddy"]{max-height:min(360px,70vh)!important}
   .provider-usage-card-head{padding:10px 12px 8px}
   .provider-usage-title-wrap{align-items:flex-start;gap:8px}
   .provider-usage-title-wrap h2{font-size:13px;line-height:1.25}
