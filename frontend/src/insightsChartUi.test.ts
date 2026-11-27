@@ -114,10 +114,12 @@ describe('insights chart UI', () => {
     expect(app).toContain('value={fmtCost(totals.cost_usd)}');
   });
 
-  test('labels the rate option and omits additive views for that metric', () => {
+  test('keeps the existing model legend for the cache hit rate chart using cache-read volume', () => {
+    const app = appSource();
     expect(i18nSource()).toContain("'insights.metric.cache_hit_rate': { en: 'Cache hit rate', 'zh-CN': '缓存命中率'");
-    expect(appSource()).toContain('const canStackMetric = props.metric !== \'cache_hit_rate\';');
-    expect(appSource()).toContain('{canStackMetric && <UsageShareBar models={models} metric={props.metric} />}');
+    expect(app).toContain('stacked={canStackMetric && chartStacked} /><UsageShareBar models={models} metric={props.metric} />');
+    expect(app).toContain("const shareMetric = metric === 'cache_hit_rate' ? 'cache_read' : metric;");
+    expect(app).toContain('model.periodTotals[shareMetric]');
   });
 
   test('shows cache-read token volume so model totals can be reconciled', () => {

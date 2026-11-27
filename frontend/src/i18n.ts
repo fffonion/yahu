@@ -344,6 +344,7 @@ const translations: Record<string, Record<string, string>> = {
   'insights.avgSession': { en: 'Avg/session', 'zh-CN': '平均/会话', 'zh-TW': '平均/會話', ja: '平均/セッション' },
   'insights.sources': { en: 'Sources', 'zh-CN': '来源', 'zh-TW': '來源', ja: 'ソース' },
   'insights.noMetricUsage': { en: 'No model usage for this metric.', 'zh-CN': '此指标没有模型用量。', 'zh-TW': '此指標沒有模型用量。', ja: 'このメトリックのモデル使用量はありません。' },
+  'insights.cacheReadVolume': { en: 'Cache reads', 'zh-CN': '缓存读取量', 'zh-TW': '快取讀取量', ja: 'キャッシュ読取量' },
   'insights.modelShare': { en: '{0} model share', 'zh-CN': '{0} 模型占比', 'zh-TW': '{0} 模型占比', ja: '{0} モデル比率' },
   'insights.trendChart': { en: 'Usage trend chart', 'zh-CN': '用量趋势图', 'zh-TW': '用量趨勢圖', ja: '使用量トレンドチャート' },
   'insights.loadingChart': { en: 'Loading chart', 'zh-CN': '正在加载图表', 'zh-TW': '正在載入圖表', ja: 'チャートを読み込み中' },

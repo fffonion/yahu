@@ -3593,7 +3593,7 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
       </div>
       <section className="insights-chart-card">
         <div className="insights-card-head"><div><h2>{tf('insights.byModel', usageMetricLabel(props.metric))}</h2><p>{tf('insights.recentTrend', periodLabel)}{coverageLabel ? ` · ${coverageLabel}` : ''}</p></div>{canStackMetric && <button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} title={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button>}</div>
-        {showSkeleton ? <UsageChartSkeleton /> : <><UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={canStackMetric && chartStacked} />{canStackMetric && <UsageShareBar models={models} metric={props.metric} />}</>}
+        {showSkeleton ? <UsageChartSkeleton /> : <><UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={canStackMetric && chartStacked} /><UsageShareBar models={models} metric={props.metric} /></>}
       </section>
       <div className="insights-grid">
         <section className="insights-panel"><div className="insights-panel-head"><h2>{t('insights.models')}</h2><div className="model-list-filters"><input type="search" list="insights-model-filter-options" className="model-filter-input" aria-label={t('insights.filterModels')} placeholder={t('insights.filterModels')} value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} disabled={showSkeleton || !allModels.length} /><datalist id="insights-model-filter-options">{allModels.map((model) => { const label = usageModelLabel(model); return <option key={label} value={label} />; })}</datalist></div></div>{showSkeleton ? <ModelUsageSkeletonList /> : allModels.length ? filteredModels.length ? filteredModels.slice(0, 10).map((model, index) => <ModelUsageRow key={`${model.model}:${model.provider || 'unknown'}`} model={model} rank={index + 1} />) : <p className="insights-empty">{t('insights.noMatchingModels')}</p> : <p className="insights-empty">{t('insights.noWindowUsage')}</p>}</section>
@@ -3629,14 +3629,16 @@ function ModelUsageRow({ model, rank }: { model: UsageModel & { periodTotals: Us
   return <article className="model-usage-row"><div><b>#{rank}</b><span className="model-name" title={usageModelLabel(model)}><small className="model-provider">{model.provider || 'unknown'}</small>{model.model}</span></div><div className="model-value"><strong>{fmtTokens(model.periodTotals.total_tokens)}</strong><small className="model-cost-sub">{fmtMoney(model.periodTotals.cost_usd)}</small></div><p>{tf('insights.modelRowDetail', fmtTokens(model.periodTotals.input), fmtTokens(model.periodTotals.output), fmtTokens(model.periodTotals.cache_read), fmtPercent(model.periodTotals.cache_hit_rate))}</p><div className="model-bar"><i style={{ width: `${cache}%` }} /></div></article>;
 }
 function UsageShareBar({ models, metric }: { models: Array<UsageModel & { periodTotals: UsageTotals }>; metric: UsageMetric }) {
-  const rawSlices = models.slice(0, 6).map((model, index) => ({ model: usageModelLabel(model), index, value: Number(model.periodTotals[metric] || 0) })).filter((item) => item.value > 0);
+  const shareMetric = metric === 'cache_hit_rate' ? 'cache_read' : metric;
+  const shareLabel = shareMetric === 'cache_read' ? t('insights.cacheReadVolume') : usageMetricLabel(shareMetric);
+  const rawSlices = models.slice(0, 6).map((model, index) => ({ model: usageModelLabel(model), index, value: Number(model.periodTotals[shareMetric] || 0) })).filter((item) => item.value > 0);
   const total = rawSlices.reduce((sum, item) => sum + item.value, 0);
   if (!rawSlices.length || total <= 0) return <div className="usage-share-chart"><p className="insights-empty">{t('insights.noMetricUsage')}</p></div>;
   let cursor = 0;
   const slices = rawSlices.map((item) => { const pct = (item.value / total) * 100; const start = cursor; cursor += pct; return { ...item, pct, start }; });
-  return <div className="usage-share-chart" role="img" aria-label={tf('insights.modelShare', usageMetricLabel(metric))}>
+  return <div className="usage-share-chart" role="img" aria-label={tf('insights.modelShare', shareLabel)}>
     <div className="usage-share-map">
-      <div className="usage-share-bar">{slices.map((item) => <span key={item.model} className="usage-share-segment" title={`${item.model} · ${formatMetricValue(metric, item.value)} · ${Math.round(item.pct)}%`} style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }} />)}</div>
+      <div className="usage-share-bar">{slices.map((item) => <span key={item.model} className="usage-share-segment" title={`${item.model} · ${shareMetric === 'cache_read' ? fmtTokens(item.value) : formatMetricValue(shareMetric, item.value)} · ${Math.round(item.pct)}%`} style={{ width: `${item.pct}%`, background: `var(--chart-${item.index})` }} />)}</div>
       <div className="usage-share-indicators">{slices.map((item) => { const pct = item.value / total; return <span key={item.model} className="usage-share-indicator" style={{ '--share-start': `${item.start}%`, '--share-width': `${Math.max(item.pct, 0.8)}%` } as React.CSSProperties}><i style={{ background: `var(--chart-${item.index})` }} /><b title={item.model}>{item.model}</b><em>{fmtPercent(pct)}</em></span>; })}</div>
     </div>
   </div>;
