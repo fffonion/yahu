@@ -1440,6 +1440,27 @@ fn model_price_for_override_model(catalog: &ModelPriceCatalog, model: &str) -> O
     match_price
 }
 
+fn gemini_4_price_keys(model: &str) -> Option<[&str; 3]> {
+    let unqualified = model.strip_prefix("google-").unwrap_or(model);
+    let name = unqualified.strip_prefix("gemini-4-")?;
+    if name.is_empty() {
+        return None;
+    }
+    // Keep the namespace and release variants intact in the first lookups.
+    let base = match model.rsplit_once('-') {
+        Some((base, "low" | "medium" | "high" | "xhigh")) if name.contains('-') => base,
+        _ => model,
+    };
+    Some([model, base, base.strip_prefix("google-").unwrap_or(base)])
+}
+
+fn gemini_4_provider_price(catalog: &ModelPriceCatalog, provider: &str, keys: [&str; 3]) -> Option<ModelPrice> {
+    if provider.is_empty() {
+        return None;
+    }
+    keys.into_iter().find_map(|key| catalog.get(&format!("{provider}-{key}")).copied())
+}
+
 fn model_price_for_row_with_override<R: InsightsUsageRowView>(
     catalog: &ModelPriceCatalog,
     overrides: &ModelPriceCatalog,
@@ -1450,6 +1471,13 @@ fn model_price_for_row_with_override<R: InsightsUsageRowView>(
         return None;
     }
     let provider = row.provider_name().trim();
+    let normalized = normalize_model_price_key(model);
+    if let Some(keys) = gemini_4_price_keys(&normalized) {
+        let provider = normalize_model_price_key(provider);
+        return gemini_4_provider_price(overrides, &provider, keys)
+            .or_else(|| keys.into_iter().find_map(|key| overrides.get(key).copied()))
+            .or_else(|| model_price_for_row(catalog, row));
+    }
     if !provider.is_empty() {
         let provider_model = format!("{provider}/{model}");
         if let Some(price) = model_price_for_override_model(overrides, &provider_model) {
@@ -1473,6 +1501,19 @@ fn model_price_for_row<R: InsightsUsageRowView>(catalog: &ModelPriceCatalog, row
         return Some(price);
     }
     let provider = row.provider_name().trim();
+    let normalized = normalize_model_price_key(model);
+    if let Some(keys) = gemini_4_price_keys(&normalized) {
+        let provider = normalize_model_price_key(provider);
+        // Antigravity has no token tariff in the catalog. Prefer the Google
+        // Developer API estimate to a bare key shared by multiple resellers.
+        return gemini_4_provider_price(catalog, &provider, keys)
+            .or_else(|| gemini_4_provider_price(catalog, "google", keys))
+            .or_else(|| {
+                (provider != "agy").then(|| {
+                    keys.into_iter().find_map(|key| catalog.get(key).copied())
+                }).flatten()
+            });
+    }
     if !provider.is_empty() {
         let provider_model = format!("{provider}/{model}");
         if let Some(price) = model_price_for_model(catalog, &provider_model) {

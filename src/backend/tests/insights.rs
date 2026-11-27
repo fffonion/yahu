@@ -120,6 +120,32 @@
     }
 
     #[test]
+    fn gemini_4_effort_aliases_use_base_model_prices_without_relabeling_usage() {
+        let timestamp = 1795816800.0;
+        let catalog = model_price_catalog_from_models_dev(&serde_json::json!({
+            "google": {"models": {"gemini-4-neon": {"id":"gemini-4-neon","cost":{"input":3,"output":15,"cache_read":0.15}}}},
+            "reseller": {"models": {"gemini-4-neon": {"id":"gemini-4-neon","cost":{"input":9,"output":20,"cache_read":0.9}}}}
+        }));
+        let row = |provider: &str, model: &str| serde_json::json!({
+            "provider":provider,"model":model,"started_at":timestamp,
+            "input_tokens":1_000_000,"output_tokens":1_000_000,"cache_read_tokens":1_000_000
+        });
+        let model = "gemini-4-neon-medium";
+        let result = aggregate_usage_insights_with_prices(&[row("agy", model)], timestamp, &catalog, 1);
+        assert_eq!(result["models"][0]["model"], model);
+        assert_eq!(result["models"][0]["totals"]["unpriced_tokens"], 0);
+        assert_eq!(result["models"][0]["totals"]["estimated_cost_usd"], 18.15);
+        assert_eq!(model_price_for_row(&catalog, &row("reseller", "google/gemini-4-neon-xhigh")).unwrap().input_per_million, 9.0);
+        assert!(model_price_for_row(&catalog, &row("agy", "gemini-4-neon-fast")).is_none());
+        assert!(model_price_for_row(&catalog, &row("agy", "gemini-4-neon-fast-low")).is_none());
+        let overrides = price_override_catalog_from_bytes(
+            br#"{"prices":{"agy/gemini-4-neon":{"input_per_million":1,"output_per_million":2,"cache_read_per_million":0.1,"cache_write_per_million":0},"agy/gemini-4-neon-fast":{"input_per_million":5.4,"output_per_million":27,"cache_read_per_million":0.27,"cache_write_per_million":0}}}"#,
+        ).unwrap();
+        assert_eq!(model_price_for_row_with_override(&catalog, &overrides, &row("agy", model)).unwrap().input_per_million, 1.0);
+        assert!(model_price_for_row_with_override(&catalog, &overrides, &row("agy", "gemini-4-neon-unknown")).is_none());
+    }
+
+    #[test]
     fn provider_price_override_takes_precedence_without_affecting_other_providers() {
         let ts = chrono::NaiveDate::from_ymd_opt(2026, 6, 9)
             .unwrap()
