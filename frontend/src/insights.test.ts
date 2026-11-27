@@ -1,7 +1,16 @@
 import { describe, expect, test } from 'bun:test';
-import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, linePath, metricLabels, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSources, stackedAreaPath, type UsageModel } from './insights';
+import { areaPath, chartPoint, chartTooltipAlignment, chartTooltipLabel, chartTooltipPlacement, chartYAxisTicks, emptyTotals, finalizeTotals, fmtCompactAxisTick, fmtMoney, fmtPercent, fmtTokens, formatMetricValue, linePath, metricLabels, modelDailyMetricValues, modelHourlyMetricValues, modelPeriodTotals, periodSources, stackedAreaPath, type UsageModel } from './insights';
 
 describe('insights helpers', () => {
+  test('reads the reported cache hit ratio and displays it as a percentage', () => {
+    const day = { date: '2026-06-09', label: '06/09', totals: { ...emptyTotals(), input: 200, cache_read: 800, cache_hit_rate: 0.8 } };
+    const model: UsageModel = { model: 'fixture', totals: day.totals, daily: [day], hourly: [{ hour: '2026-06-09T10:00:00Z', label: '10:00', totals: day.totals }] };
+    expect(Object.keys(metricLabels)).toContain('cache_hit_rate');
+    const daily = modelDailyMetricValues(model, [day], 'cache_hit_rate');
+    expect(daily).toEqual([0.8]);
+    expect(modelHourlyMetricValues(model, model.hourly || [], 'cache_hit_rate')).toEqual([0.8]);
+    expect(chartYAxisTicks(daily, 3, value => formatMetricValue('cache_hit_rate', value)).map(tick => tick.label)).toEqual(['100%', '50%', '0%']);
+  });
   test('formats token and percent metrics compactly', () => {
     expect(fmtTokens(1532)).toBe('1.5K');
     expect(fmtTokens(2_400_000)).toBe('2.4M');

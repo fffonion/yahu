@@ -317,7 +317,7 @@ const translations: Record<string, Record<string, string>> = {
   'insights.metric.total_tokens': { en: 'Total', 'zh-CN': '总量', 'zh-TW': '總量', ja: '合計' },
   'insights.metric.input': { en: 'Input', 'zh-CN': '输入', 'zh-TW': '輸入', ja: '入力' },
   'insights.metric.output': { en: 'Output', 'zh-CN': '输出', 'zh-TW': '輸出', ja: '出力' },
-  'insights.metric.cache_read': { en: 'Cache read', 'zh-CN': '缓存命中', 'zh-TW': '快取命中', ja: 'キャッシュ読取' },
+  'insights.metric.cache_hit_rate': { en: 'Cache hit rate', 'zh-CN': '缓存命中率', 'zh-TW': '快取命中率', ja: 'キャッシュヒット率' },
   'insights.metric.reasoning': { en: 'Reasoning', 'zh-CN': '推理', 'zh-TW': '推理', ja: '推論' },
   'insights.metric.cost_usd': { en: 'Cost', 'zh-CN': '费用', 'zh-TW': '費用', ja: '費用' },
   'insights.tokens': { en: 'Tokens', 'zh-CN': 'Token', 'zh-TW': 'Token', ja: 'トークン' },

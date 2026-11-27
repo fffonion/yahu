@@ -80,7 +80,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('id="insights-model-filter-options"');
     expect(app).toContain('allModels.map((model)');
     expect(app).toContain('filteredModels.slice(0, 10).map((model, index)');
-    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
+    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={canStackMetric && chartStacked} />');
     expect(app).toContain('<UsageShareBar models={models} metric={props.metric} />');
     expect(css).toContain('.insights-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}');
     expect(css).toContain('.model-list-filters{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0}');
@@ -112,7 +112,12 @@ describe('insights chart UI', () => {
   test('uses the backend-selected total cost even when it is zero', () => {
     const app = appSource();
     expect(app).toContain('value={fmtCost(totals.cost_usd)}');
+  });
 
+  test('labels the rate option and omits additive views for that metric', () => {
+    expect(i18nSource()).toContain("'insights.metric.cache_hit_rate': { en: 'Cache hit rate', 'zh-CN': '缓存命中率'");
+    expect(appSource()).toContain('const canStackMetric = props.metric !== \'cache_hit_rate\';');
+    expect(appSource()).toContain('{canStackMetric && <UsageShareBar models={models} metric={props.metric} />}');
   });
 
   test('shows cache-read token volume so model totals can be reconciled', () => {
@@ -154,7 +159,7 @@ describe('insights chart UI', () => {
     expect(app).toContain('{chartStacked ? <LineChart /> : <Layers />}');
 
     expect(app).toContain('aria-pressed={chartStacked}');
-    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
+    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={canStackMetric && chartStacked} />');
     expect(app).toContain('className={`usage-chart ${stacked ? \'stacked\' : \'unstacked\'}`}');
     expect(app).toContain('isHourlyBucket(buckets[0]) ? modelHourlyMetricValues(model, buckets as UsageHour[], metric) : modelDailyMetricValues(model, buckets as UsageDay[], metric)');
     expect(app).toContain('className="usage-stack-area"');
@@ -185,7 +190,7 @@ describe('insights chart UI', () => {
 
     expect(app).toContain('function UsageShareBar');
 
-    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} />');
+    expect(app).toContain('<UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={canStackMetric && chartStacked} />');
     expect(app).toContain('<UsageShareBar models={models} metric={props.metric} />');
     expect(app).toContain('className="usage-share-map"');
     expect(app).toContain('className="usage-share-bar"');

@@ -3529,6 +3529,7 @@ const markdownBoldToHtml = (text: string) => text
 
 function InsightsMain(props: { insights: UsageInsights | null; loading: boolean; error: string; period: 1 | 7 | 30; setPeriod: (value: 1 | 7 | 30) => void; metric: UsageMetric; setMetric: (value: UsageMetric) => void; refresh: () => void; theme: Theme; setTheme: (value: Theme) => void; mode: Mode; onNavigateToSettings: () => void }) {
   const [chartStacked, setChartStacked] = useState(false);
+  const canStackMetric = props.metric !== 'cache_hit_rate';
   const [modelQuery, setModelQuery] = useState('');
   const snapshotChart = async () => {
     const panel = document.querySelector<HTMLElement>('.insights-content') || document.querySelector<HTMLElement>('.insights-chart-card');
@@ -3591,8 +3592,8 @@ function InsightsMain(props: { insights: UsageInsights | null; loading: boolean;
         </>}
       </div>
       <section className="insights-chart-card">
-        <div className="insights-card-head"><div><h2>{tf('insights.byModel', usageMetricLabel(props.metric))}</h2><p>{tf('insights.recentTrend', periodLabel)}{coverageLabel ? ` · ${coverageLabel}` : ''}</p></div><button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} title={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button></div>
-        {showSkeleton ? <UsageChartSkeleton /> : <><UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={chartStacked} /><UsageShareBar models={models} metric={props.metric} /></>}
+        <div className="insights-card-head"><div><h2>{tf('insights.byModel', usageMetricLabel(props.metric))}</h2><p>{tf('insights.recentTrend', periodLabel)}{coverageLabel ? ` · ${coverageLabel}` : ''}</p></div>{canStackMetric && <button type="button" className="chart-stack-toggle icon-btn" aria-label={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} title={chartStacked ? t('insights.showUnstackedChart') : t('insights.showStackedChart')} aria-pressed={chartStacked} onClick={() => setChartStacked((value) => !value)}>{chartStacked ? <LineChart /> : <Layers />}</button>}</div>
+        {showSkeleton ? <UsageChartSkeleton /> : <><UsageAreaChart buckets={isSingleDay ? activeHours : activeDays} models={models} metric={props.metric} stacked={canStackMetric && chartStacked} />{canStackMetric && <UsageShareBar models={models} metric={props.metric} />}</>}
       </section>
       <div className="insights-grid">
         <section className="insights-panel"><div className="insights-panel-head"><h2>{t('insights.models')}</h2><div className="model-list-filters"><input type="search" list="insights-model-filter-options" className="model-filter-input" aria-label={t('insights.filterModels')} placeholder={t('insights.filterModels')} value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} disabled={showSkeleton || !allModels.length} /><datalist id="insights-model-filter-options">{allModels.map((model) => { const label = usageModelLabel(model); return <option key={label} value={label} />; })}</datalist></div></div>{showSkeleton ? <ModelUsageSkeletonList /> : allModels.length ? filteredModels.length ? filteredModels.slice(0, 10).map((model, index) => <ModelUsageRow key={`${model.model}:${model.provider || 'unknown'}`} model={model} rank={index + 1} />) : <p className="insights-empty">{t('insights.noMatchingModels')}</p> : <p className="insights-empty">{t('insights.noWindowUsage')}</p>}</section>
@@ -3654,9 +3655,9 @@ function UsageAreaChart({ buckets, models, metric, stacked }: { buckets: Array<U
     acc.push({ ...item, lower, upper });
     return acc;
   }, []);
-  const allValues = [...totalValues, ...series.flatMap((item) => item.values), ...stackedSeries.flatMap((item) => item.upper)];
+  const allValues = metric === 'cache_hit_rate' ? [1] : [...totalValues, ...series.flatMap((item) => item.values), ...stackedSeries.flatMap((item) => item.upper)];
   const maxValue = Math.max(1, ...allValues);
-  const yTicks = chartYAxisTicks(allValues, 4, (value) => metric === 'cost_usd' ? formatMetricValue(metric, value) : compactAxisLabels ? fmtCompactAxisTick(value) : formatMetricValue(metric, value));
+  const yTicks = chartYAxisTicks(allValues, 4, (value) => metric === 'cost_usd' || metric === 'cache_hit_rate' ? formatMetricValue(metric, value) : compactAxisLabels ? fmtCompactAxisTick(value) : formatMetricValue(metric, value));
   const pointSeries = stacked
     ? stackedSeries.map((item) => ({ model: item.model, index: item.index, values: item.values, pointValues: item.upper }))
     : series.map((item) => ({ model: item.model, index: item.index, values: item.values, pointValues: item.values }));

@@ -35,7 +35,7 @@ export type UsageInsights = {
   coverage_complete?: boolean;
 };
 
-export type UsageMetric = 'total_tokens' | 'input' | 'output' | 'cache_read' | 'reasoning' | 'cost_usd';
+export type UsageMetric = 'total_tokens' | 'input' | 'output' | 'cache_hit_rate' | 'reasoning' | 'cost_usd';
 
 export function usageModelLabel(model: Pick<UsageModel, 'model' | 'provider'>): string {
   return `${model.provider || 'unknown'} · ${model.model}`;
@@ -45,7 +45,7 @@ export const metricLabels: Record<UsageMetric, string> = {
   total_tokens: 'Total',
   input: 'Input',
   output: 'Output',
-  cache_read: 'Cache read',
+  cache_hit_rate: 'Cache hit rate',
   reasoning: 'Reasoning',
   cost_usd: 'Cost',
 };
@@ -172,6 +172,7 @@ export function chartYAxisTicks(values: number[], count = 4, format: (value: num
 }
 
 export function formatMetricValue(metric: UsageMetric, value: number): string {
+  if (metric === 'cache_hit_rate') return fmtPercent(value);
   return metric === 'cost_usd' ? fmtMoney(value) : fmtTokens(value);
 }
 
